@@ -31,41 +31,65 @@ const read = f => fs.readFileSync(path.join(srcDir, f), 'utf8');
 const shell = read('shell.html');
 const core  = read('farroad-core.js');
 const prog  = read('farroad-progression.js');
+const save  = read('farroad-save.js');
 const ui    = read('farroad-ui.js');
 
 const fused = shell
   .replace('<!--@@CORE@@-->',        `<script id="farroad-core">${core}</script>`)
   .replace('<!--@@PROGRESSION@@-->', `<script id="farroad-progression">${prog}</script>`)
+  .replace('<!--@@SAVE@@-->',        `<script id="farroad-save">${save}</script>`)
   .replace('<!--@@UI@@-->',          `<script>${ui}</script>`);
 
 /* --- fidelity checks that run on every build ------------------------------ */
 const problems = [];
 
 /* 1. every placeholder consumed */
-['@@CORE@@', '@@PROGRESSION@@', '@@UI@@'].forEach(p => {
+['@@CORE@@', '@@PROGRESSION@@', '@@SAVE@@', '@@UI@@'].forEach(p => {
   if (fused.includes(p)) problems.push(`placeholder ${p} was not replaced`);
 });
 
-/* 2. the core must stay headless. This is the property that makes idle quests
-      (roadmap item 4) possible at all: combat has to run away from the main
-      loop, many times, with no DOM present. Enforced, not assumed. */
+/* Block out /* ... *\/ comment bodies before either check below runs, keeping
+   every newline so line numbers stay aligned with the original file. Without
+   this, a MULTI-LINE block comment leaks through: the old per-line
+   `line.replace(/\/\*.*?\*\//g, '')` only strips a /* *\/ pair that opens and
+   closes on the SAME line, so a comment spanning several lines was checked
+   as plain text. That is exactly what tripped "unexpected window use" on
+   balance notes like "the in-window uplift" and "the pre-heal window" —
+   English prose, not a `window.*` global reference — and would have failed
+   every future build until a human noticed the message was bogus. */
+function blankBlockComments(body) {
+  return body.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '));
+}
+function codeLines(body) {
+  return blankBlockComments(body).split('\n').map(line => line.replace(/\/\/.*$/, ''));
+}
+
+/* 2. core, progression AND save must stay headless. This is the property that
+      makes idle quests (roadmap item 4) possible at all: combat has to run
+      away from the main loop, many times, with no DOM present. save.js joins
+      the same rule because it exists to be called from that same headless
+      context later (idle-quest replay, PvP snapshot replay) — localStorage
+      access belongs to the UI layer, not to serialize()/deserialize(). */
 const DOM = /\b(document|localStorage|sessionStorage|alert|requestAnimationFrame)\b/;
-[['core', core], ['progression', prog]].forEach(([name, body]) => {
-  body.split('\n').forEach((line, i) => {
-    const code = line.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, '');
-    if (DOM.test(code)) problems.push(`${name}.js:${i + 1} touches the DOM: ${line.trim()}`);
+[['core', core], ['progression', prog], ['save', save]].forEach(([name, body]) => {
+  const raw = body.split('\n');
+  codeLines(body).forEach((code, i) => {
+    if (DOM.test(code)) problems.push(`${name}.js:${i + 1} touches the DOM: ${raw[i].trim()}`);
   });
 });
 
-/* 3. the only permitted window references are the module's own export/import */
-const strayWindow = (name, body) => body.split('\n').forEach((line, i) => {
-  const code = line.replace(/\/\*.*?\*\//g, '').replace(/\/\/.*$/, '');
-  if (!/\bwindow\b/.test(code)) return;
-  if (/window\.Farroad(Core|Progression)\b/.test(code)) return;   // export or import
-  problems.push(`${name}.js:${i + 1} unexpected window use: ${line.trim()}`);
-});
+/* 3. the only permitted window references are a module's own export/import */
+const strayWindow = (name, body) => {
+  const raw = body.split('\n');
+  codeLines(body).forEach((code, i) => {
+    if (!/\bwindow\b/.test(code)) return;
+    if (/window\.Farroad(Core|Progression|Save)\b/.test(code)) return;   // export or import
+    problems.push(`${name}.js:${i + 1} unexpected window use: ${raw[i].trim()}`);
+  });
+};
 strayWindow('core', core);
 strayWindow('progression', prog);
+strayWindow('save', save);
 
 if (process.argv.includes('--check')) {
   const original = process.argv[process.argv.indexOf('--check') + 1];
@@ -85,4 +109,4 @@ if (!process.argv.includes('--check')) {
   fs.writeFileSync(outFile, fused);
   console.log('built ' + path.basename(outFile) + '  (' + fused.length + ' bytes)');
 }
-console.log('checks passed: no DOM in core/progression, no stray globals');
+console.log('checks passed: no DOM in core/progression/save, no stray globals');

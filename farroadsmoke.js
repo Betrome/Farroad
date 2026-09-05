@@ -35,9 +35,11 @@ function run(name) {
 }
 run('farroad-core.js');
 run('farroad-progression.js');
+run('farroad-save.js');
 
 const C = sandbox.window.FarroadCore;
 const P = sandbox.window.FarroadProgression;
+const V = sandbox.window.FarroadSave;
 
 /* --- tiny assertion harness ---------------------------------------------- */
 let passed = 0, failed = 0;
@@ -121,6 +123,49 @@ try {
 } catch (e) { fail('headless batch threw: ' + e.message); }
 const ms = Date.now() - t0;
 ok('200 headless fights complete', batch === 200, batch + '/200');
+
+/* ===================== 6. SAVE / LOAD ROUND-TRIP ===========================
+ * GDD's own suggested guard: a snapshot that omits a real input to combat
+ * replays a DIFFERENT fight while looking correct, and it does so silently.
+ * This does not exercise a live G object (that lives in the DOM-bound UI
+ * layer) — it builds a representative fake one from the same field list the
+ * save module promises to carry, and checks the round trip is lossless AND
+ * that the reseeded RNG lands on the exact state the original had reached,
+ * by comparing the NEXT roll each would produce, not the last one taken
+ * before the save (that value was already spent when the save happened). */
+(function(){
+ ok('save module exported', !!V);
+ if(!V)return;
+ var rng=C.makeRNG(4242);
+ for(var i=0;i<38;i++)rng.next();          /* stand-in for calls made during play */
+ var fakeG={seed:4242,rng:{calls:rng.calls},wave:12,farthest:14,bossesCleared:0,
+  aether:123.4,lore:2,marks:56,wipes:1,party:['kesh','ansa'],
+  actions:['strike','ember','sear'],conditions:['none','foe_armoured'],
+  actionCounts:{sear:1},condCounts:{foe_armoured:1},bonuses:{ember:{power:1}},
+  recovery:{kesh:2},loadout:{kesh:[{cond:'none',action:'strike'}]},
+  hpCarry:{kesh:0.8},touched:{},clearedWaves:{1:1,2:1},
+  lvl:{kesh:5,ansa:1},bank:{kesh:12,ansa:0},maxLevelEver:5,owned:{kesh:1,ansa:1},
+  enrage:true,idleAcc:3,dropQueue:[],dropHistory:[]};
+ var restored=null,threw=null;
+ try{
+  var snap=V.serialize(fakeG,1700000000000);
+  restored=V.deserialize(JSON.parse(JSON.stringify(snap)),C);     /* JSON round-trip too */
+ }catch(e){threw=e;}
+ ok('save round-trip does not throw', !threw, threw&&threw.message);
+ ok('save round-trip produces a G object', !!restored);
+ if(restored){
+  ok('save round-trip preserves wave/farthest/party',
+   restored.wave===12&&restored.farthest===14&&restored.party.length===2&&restored.party[1]==='ansa');
+  ok('save round-trip preserves levels and bank',
+   restored.lvl.kesh===5&&restored.bank.kesh===12&&restored.maxLevelEver===5);
+  ok('save round-trip preserves actions/conditions/loadout',
+   restored.actions.indexOf('sear')>=0&&restored.conditions.indexOf('foe_armoured')>=0&&
+   restored.loadout.kesh&&restored.loadout.kesh[0].action==='strike');
+  var expectedNext=rng.next(), actualNext=restored.rng.next();
+  ok('save round-trip rebuilds the RNG to the exact saved position',
+   expectedNext===actualNext, expectedNext+' vs '+actualNext);
+ }
+})();
 
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');

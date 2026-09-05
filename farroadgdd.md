@@ -125,15 +125,21 @@
 > check rather than a bug discovered when someone's PvP replay disagrees with
 > their result.
 >
-> ### Near-term gap: SAVE / LOAD
+> ### Near-term gap: SAVE / LOAD — BUILT
 >
-> Not on Ian's list, and it should be. An idle game needs **persisted state and a
-> stored timestamp for offline progress** — the genre's core promise is that
-> progress continues while you are away, and right now closing the tab loses
-> everything. This should be the **first thing built after the refactor**, before
-> any roadmap item. The module split leaves room for it: game state is a single
-> plain object with no DOM handles, so a `farroad-save.js` between progression and
-> UI can serialise it without either layer knowing.
+> Was not on Ian's list, and should have been — closing the tab used to lose
+> everything. Now built as `src/farroad-save.js` (headless snapshot format) plus
+> `localStorage` persistence, autosave, and an offline-progress grant in the UI
+> layer. See MODULES.md's "Save / load — built" section for what's actually
+> covered.
+>
+> **This is the flat-rate credit, not the simulator below.** Offline progress is
+> currently: elapsed real time since the last save × the same `idlePerSec()` rate
+> the live idle loop already uses, capped at 12h (`P.OFFLINE_CAP_SEC`, reusing the
+> number chosen here rather than inventing a second one). It is deliberately NOT
+> the node-by-node estimator described next in this section — no danger-halt, no
+> auto-invest, no Waymark stop. That fuller system is still open work if the
+> simple linear credit ever needs to become the real thing.
 
 > ## §0.1 — FIRST END-TO-END PLAY RESULT (v2.8 tuning)
 >

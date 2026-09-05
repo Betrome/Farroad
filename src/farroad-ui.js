@@ -14,8 +14,9 @@ window.onerror=function(msg,src,line,col){
  return false;};
 (function(){
 'use strict';
-var C=window.FarroadCore, P=window.FarroadProgression;
+var C=window.FarroadCore, P=window.FarroadProgression, Save=window.FarroadSave;
 var $=function(s){return document.querySelector(s);};
+var SAVE_KEY='farroad-save-v1';
 
 var G;   /* game state */
 function newGame(seed){
@@ -279,9 +280,15 @@ function randomDrop(w){
   out.push({kind:'cond',id:cp[G.rng.nextInt(cp.length)].id,why:'random drop'});}
  return out;}
 
-function startWave(w){
+function startWave(w,skipDrops){
+ /* skipDrops: used only when RESUMING a loaded save on the wave the player was
+    already on. That wave has not been cleared, so grantDrops(w) would treat it
+    as a fresh visit and hand out its curated/random drop a second time — the
+    same class of bug the FIRST-CLEAR gate in grantDrops() exists to prevent,
+    just triggered by a reload instead of a replay. Every other caller
+    (boot, afterWaveCleared, onWipe) omits the flag and behaves as before. */
  G.wave=w; if(w>G.farthest)G.farthest=w;
- grantDrops(w);
+ if(!skipDrops)grantDrops(w);
  C.applyBonuses(G.bonuses);
  var party=buildParty(), enemies=buildEnemies(w);
  G.units=party; G.enemies=enemies;
@@ -365,6 +372,59 @@ function onWipe(){
  G.hpCarry={};
  startWave(back);}
 
+/* --------------------------------------------------------------- save --- */
+function doSave(){
+ try{
+  var snap=Save.serialize(G,Date.now());
+  localStorage.setItem(SAVE_KEY,JSON.stringify(snap));
+ }catch(e){sysLog('<span style="color:var(--bad)">Autosave failed: '+e.message+'</span>');}}
+/* Saves happen automatically after every change — no manual Save/Load buttons.
+   renderAll() is called from essentially every state-mutating action in this
+   file (wave transitions, purchases, gambit/loadout edits, pulls, resets), so
+   hooking autoSave() there covers "after each change" without touching every
+   call site individually. Throttled to 2s of wall-clock time because renderAll
+   also fires on every combat BEAT during active play — unthrottled, that is
+   dozens of localStorage writes per second at 40x speed. idle-income accrual
+   (tick(), below) bypasses renderAll and gets its own explicit call. */
+var lastAutoSave=0;
+function autoSave(){
+ var now=Date.now();if(now-lastAutoSave<2000)return;lastAutoSave=now;doSave();}
+function readSavedSnapshot(){
+ try{var raw=localStorage.getItem(SAVE_KEY);return raw?JSON.parse(raw):null;}
+ catch(e){return null;}}
+/* Flat-rate offline credit — see P.OFFLINE_CAP_SEC for why this is not the
+   full node-by-node offline simulator described in GDD §1.4. */
+function grantOfflineProgress(snap){
+ var elapsedSec=Math.max(0,(Date.now()-(snap.savedAt||Date.now()))/1000);
+ if(elapsedSec<5)return;
+ var capped=Math.min(elapsedSec,P.OFFLINE_CAP_SEC);
+ var r=P.idlePerSec(G.farthest);
+ var aetherGain=Math.round(r.aether*capped);
+ var marksGain=r.marks*P.marksMul(G)*capped;
+ G.aether+=aetherGain;G.marks+=marksGain;
+ var awayTxt=elapsedSec>=3600?(elapsedSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(elapsedSec/60))+' minutes';
+ sysLog('<b>Welcome back.</b> <span class="tiny">'+awayTxt+' away'+
+  (elapsedSec>P.OFFLINE_CAP_SEC?' (offline income capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+
+  ' — earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
+  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b> at your idle rate.</span>');}
+/* Only called once, at boot — there is no manual Load button (autosave means
+   there is nothing to manually load FROM except what boot already resumes).
+   Returns false on first-ever visit or a corrupt/missing save, which tells the
+   caller to fall back to a brand-new game. */
+function tryResumeSave(){
+ var snap=readSavedSnapshot();
+ if(!snap)return false;
+ var loaded=Save.deserialize(snap,C);
+ if(!loaded){sysLog('<span style="color:var(--bad)">Save was corrupt — starting a fresh run.</span>');return false;}
+ G=loaded;
+ $('#log').innerHTML='';
+ sysLog('<b>Resuming your saved run.</b> <span class="tiny">Back to wave '+(G.wave||1)+
+  ', fresh — a reload restarts the current wave\'s fight rather than freezing it mid-battle.</span>');
+ grantOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
+ startWave(G.wave||1,true);
+ buildGambits();renderAll();
+ return true;}
+
 /* ---------------------------------------------------------------- loop --- */
 var playing=false,timer=null,speed=1,lastActor=null;
 function doStep(){
@@ -382,7 +442,7 @@ function tick(){
   /* v2.7: no cap. Pre-unlock Marks run at 45% so the bank at wave 40 is a
      sensible size on its own rather than being clipped after the fact. */
   G.aether+=Math.round(r.aether);G.marks+=r.marks*P.marksMul(G);
-  G.idleAcc=0;renderPurse();}
+  G.idleAcc=0;renderPurse();autoSave();}
  if(!playing)return;
  timer=setTimeout(tick,C.beatMs(Math.max(1,G.battle.beat+1))/speed);}
 function play(){playing=true;$('#btnPlay').textContent='⏸ Rest';$('#btnPlay').classList.add('on');tick();}
@@ -796,7 +856,7 @@ function renderDrops(){
    (d.body?'<div class="tiny">'+d.body+'</div>':'')+'</div>';});
  host.innerHTML=h;}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();}
-function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();}
+function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
 function buildGambits(){
@@ -985,8 +1045,13 @@ $('#tThr').onclick=function(){show(tThreshold());};
 /* --------------------------------------------------------------- wiring --- */
 $('#btnPlay').onclick=function(){playing?stop():play();};
 $('#btnStep').onclick=function(){stop();doStep();};
-$('#btnReset').onclick=function(){stop();boot(Math.floor(Math.random()*9999));};
+$('#btnReset').onclick=function(){stop();boot(Math.floor(Math.random()*9999));doSave();};
 $('#btnClear').onclick=function(){$('#log').innerHTML='';};
+/* Catch tab close/refresh and backgrounding — the two ways a session ends
+   without a combat beat or purchase around to trigger the renderAll() autosave
+   hook (e.g. the player quits while merely staring at an idle screen). */
+window.addEventListener('beforeunload',function(){doSave();});
+document.addEventListener('visibilitychange',function(){if(document.hidden)doSave();});
 $('#btnEnrage').onclick=function(){G.enrage=!G.enrage;
  this.textContent='Enrage: '+(G.enrage?'ON':'OFF');this.classList.toggle('on',G.enrage);
  if(G.battle)G.battle.enrage=G.enrage;
@@ -994,11 +1059,6 @@ $('#btnEnrage').onclick=function(){G.enrage=!G.enrage;
   'own turns, +5% ATK each turn after. Offence and speed now matter; healing is optional.</span>'
   :'<b style="color:var(--crit)">The clock is off.</b> <span class="tiny">Healing is now unbounded '+
   'sustain and worth +173% — expect every build to collapse onto the heal rule.</span>');};
-Array.prototype.forEach.call(document.querySelectorAll('.dif'),function(b){
- b.onclick=function(){P.DIFFICULTY=parseFloat(b.dataset.d);
-  Array.prototype.forEach.call(document.querySelectorAll('.dif'),function(x){x.classList.remove('on');});
-  b.classList.add('on');
-  $('#difNote').textContent='applies from the next wave';};});
 Array.prototype.forEach.call(document.querySelectorAll('.spd'),function(b){
  b.onclick=function(){speed=+b.dataset.s;
   Array.prototype.forEach.call(document.querySelectorAll('.spd'),function(x){x.classList.remove('on');});
@@ -1019,5 +1079,5 @@ function boot(seed){
   'between them. Write rules in the GAMBITS tab; spend what you earn in AETHER, LORE and MARKS.</div>');
  startWave(1);
  buildGambits();renderAll();}
-boot(7);
+if(!tryResumeSave()){boot(7);doSave();}
 })();

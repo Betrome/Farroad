@@ -254,6 +254,16 @@ P.killReward=function(w,n){var S=C.waveScale(w);return {
    w1 = 8s, w500 = 48s, w2000 = 168s, w10000 = 808s per node. */
 P.travelSec=function(w){return 8+0.08*w;};
 P.wavesPerHour=function(w){return 3600/(20+P.travelSec(w));};
+/* ===== OFFLINE PROGRESS (save/load) =====
+ * This is the FLAT-RATE credit only: elapsed real time since the last save,
+ * multiplied by the same idlePerSec() rate the live idle loop already uses,
+ * capped so a long absence cannot be gamed into unbounded income. It is
+ * deliberately NOT the node-by-node offline simulator specified in GDD §1.4
+ * (danger-halt, auto-invest, Waymark stops) — that is a separate, larger,
+ * not-yet-built system. The cap value is reused from that same spec (12h,
+ * chosen there over Melvor's 24h) so the two systems agree on one number if
+ * §1.4 is ever built on top of this. */
+P.OFFLINE_CAP_SEC=12*3600;
 
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
  * Measured justification: player-directed allocation was worth almost nothing.

@@ -11,7 +11,8 @@ side; the played artifact is unchanged.
 ```
 src/farroad-core.js          combat engine — HEADLESS, no DOM
 src/farroad-progression.js   economy, curves, drops, enemy building — HEADLESS
-src/farroad-ui.js            renderer, input, tabs — DOM-bound by design
+src/farroad-save.js          G <-> plain snapshot, and back — HEADLESS
+src/farroad-ui.js            renderer, input, tabs, storage — DOM-bound by design
 src/shell.html               doctype, CSS, body markup, script placeholders
 
 split.js            one-time: fused HTML  -> src/
@@ -35,7 +36,8 @@ boundary already existed, it just wasn't enforceable.
 `build.js` now enforces it. Every build fails if `document`, `localStorage`,
 `alert` or `requestAnimationFrame` appears in core or progression, or if either
 touches a global other than its own export. The rule is machine-checked from now
-on rather than being a convention that erodes.
+on rather than being a convention that erodes. `farroad-save.js` joins the same
+enforced set (see below) — it is checked, not just written, to stay headless.
 
 ## Why the round-trip is safe
 
@@ -71,19 +73,40 @@ node build.js                               # emit the fused HTML
 5. **Headless batch** — 200 fights run away from any main loop, with throughput
    measured. This is the shape idle quests need (roadmap item 4).
 
-## Where save/load goes
+## Save / load — built
 
-Not built. It is the first thing to build after this refactor, and the split
-leaves room for it: game state is already a single plain object (`G`) constructed
-in one place, and it contains no DOM handles. A `farroad-save.js` sitting between
-progression and UI can serialise `G` plus a timestamp without either layer
-knowing. An idle game with no persistence and no offline-progress clock is
-missing its genre's core promise, so this should come before any roadmap feature.
+`src/farroad-save.js` sits between progression and UI, exactly as planned below:
+`S.serialize(G, now)` and `S.deserialize(snapshot, C)` are pure, headless, and
+covered by `farroad-smoke.js`'s round-trip test (fields preserved, RNG restored
+to the exact call position, no exceptions on a JSON round-trip). The UI layer
+(`farroad-ui.js`) owns everything the save module deliberately doesn't: reading
+and writing `localStorage`, and the offline-progress grant on load
+(`P.OFFLINE_CAP_SEC`, 12h — see progression.js for why that number and not the
+full §1.4 simulator).
 
-**Build it as the general snapshot format, not as a save file.** Async PvP
+**No manual Save/Load/Clear-save controls.** Saving is fully automatic: it is
+hooked into `renderAll()`, which already runs after essentially every state
+change in the game (wave clears, purchases, gambit/loadout edits, pulls),
+throttled to 2s of wall-clock time so it doesn't hammer `localStorage` during
+fast auto-battling; idle-income accrual and tab close/backgrounding each get
+their own explicit call since they don't route through `renderAll()`. There is
+no dedicated "clear save" control — **Reset run** already starts a fresh game
+and its own autosave immediately overwrites the old save, so it doubles as one.
+
+**Scope actually shipped vs. the general format below:** the snapshot covers
+meta-progression — wave, currencies, roster, levels, loadouts, one-time-reward
+history — not a live mid-fight `Battle` (HP, statuses, charge gauges, tick
+position). Loading resumes at the **start** of the current wave rather than
+freezing it mid-tick, the same way a wipe already returns to a wave boundary
+rather than a fight-interior point. Extending the snapshot to a fight-exact
+format is what async PvP (roadmap 6) will actually need for a *replayable
+opponent snapshot*, and remains open — see below.
+
+**Still true, and still the design constraint for that extension:** async PvP
 (replaying a stored opponent party) and idle quests (handing a benched party to
-the headless core) want the same serialisation, and all three break the same way
-— if any input to combat is missing from the format, replay diverges silently.
-See GDD §0.2 for the full field list. Widening a shipped save format later means
-migrating existing saves; designing it once as "everything combat needs to
-reproduce a fight" costs nothing extra now.
+the headless core) want the same serialisation as save/load, and all three break
+the same way — if any input to combat is missing from the format, replay
+diverges silently. See GDD §0.2 for the full field list a fight-exact format
+would need. Widening a shipped format later means migrating existing saves; the
+current field list already lives in `farroad-save.js`'s `FIELDS` array as a
+single, explicit place to extend.
