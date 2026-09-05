@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Farroad v1.0 — the road to the first boss</title>
+<style>
+:root{--bg:#12100e;--panel:#1c1916;--panel2:#241f1b;--line:#3a322b;--ink:#e8dfd2;--dim:#9a8d7c;--dimmer:#6d6255;
+ --party:#7fb8d8;--foe:#d88a6a;--charge:#e8b84b;--hp:#7fc98a;--crit:#f0c060;--bad:#d8695a;--buff:#8fd8b0;--debuff:#c98fd8;
+ --threat:#e0794f;--row:#9fd0e8;--aether:#8fb8f0;--lore:#6fd8c8;--marks:#e0b060;--boss:#e05a7a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#app{max-width:560px;margin:0 auto;padding:8px 8px 40px}
+h1{font-size:14px;margin:0;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.vbadge{background:var(--charge);color:#12100e;border-radius:3px;padding:1px 6px;font-weight:700}
+.sub{font-size:11px;color:var(--dimmer);margin:3px 0 8px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;margin-bottom:8px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:7px 9px;font:inherit;font-size:12px;cursor:pointer;min-height:36px}
+button:active{background:#2f2822}
+button.on{background:#3a4d59;border-color:#5a7d90;color:#dff0fa}
+button.mini{min-height:26px;padding:3px 8px;font-size:11px}
+button:disabled{opacity:.3;cursor:default}
+select{background:#0e0c0a;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 6px;font:inherit;font-size:12px;width:100%;min-height:32px}
+label{font-size:11px;color:var(--dim);display:block;margin-bottom:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.unit{border:1px solid var(--line);border-radius:5px;padding:6px;margin-bottom:5px;background:var(--panel2)}
+.unit.act{border-color:var(--charge)}
+.unit.down{opacity:.4}
+.uname{font-size:12px;font-weight:600}
+.uname.p{color:var(--party)}.uname.f{color:var(--foe)}.uname.b{color:var(--boss)}
+.bar{height:7px;background:#0e0c0a;border-radius:3px;overflow:hidden;margin-top:3px;border:1px solid #2a2420}
+.bar>i{display:block;height:100%;transition:width .12s linear}
+.bar.hp>i{background:var(--hp)}.bar.ch>i{background:var(--charge)}
+.tiny{font-size:10px;color:var(--dim)}
+.pill{display:inline-block;font-size:9px;padding:1px 5px;border-radius:8px;margin:2px 3px 0 0;background:#2f2822}
+.pill.d{color:var(--debuff);border:1px solid #4a3a52}
+.pill.b{color:var(--buff);border:1px solid #33523f}
+.rowtag{font-size:9px;padding:2px 6px;border-radius:3px;background:#2f2822;color:var(--row);cursor:pointer;border:1px solid #33505e}
+.rowtag.front{color:var(--threat);border-color:#5a3a2a}
+#rail{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px}
+.chip{flex:0 0 auto;min-width:76px;border:1px solid var(--line);border-radius:5px;padding:5px;background:var(--panel2)}
+.chip.now{border-color:var(--ink)}.chip.p .cn{color:var(--party)}.chip.f .cn{color:var(--foe)}
+.cn{font-size:11px;font-weight:600}.ca{font-size:10px;color:var(--dim)}.ct{font-size:9px;color:var(--dimmer)}
+#tabs{display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap}
+#tabs button{flex:1;font-size:10px;padding:7px 2px;min-height:34px}
+.hidden{display:none}
+#log{max-height:32vh;overflow-y:auto;font-size:11px}
+.le{border-bottom:1px solid #241f1b;padding:5px 2px}
+.le.p{border-left:2px solid var(--party);padding-left:6px}
+.le.f{border-left:2px solid var(--foe);padding-left:6px}
+.le.sys{border-left:2px solid var(--charge);padding-left:6px;background:#1f1b14}
+.lh{display:flex;justify-content:space-between;gap:6px}
+.lt{color:var(--dimmer)}.dmg{font-weight:700}
+.calc{color:var(--dim);font-size:10px;white-space:pre-wrap;margin-top:3px}
+.via{color:var(--dimmer);font-size:10px;font-style:italic}
+.note{color:var(--buff);font-size:10px}
+pre{white-space:pre-wrap;word-break:break-word;font-size:10.5px;background:#0e0c0a;border:1px solid var(--line);border-radius:4px;padding:7px;max-height:50vh;overflow:auto;margin:6px 0 0}
+hr{border:0;border-top:1px solid var(--line);margin:8px 0}
+.slot{border:1px solid var(--line);border-radius:5px;padding:6px;margin-bottom:5px;background:#1a1714}
+table{width:100%;border-collapse:collapse;font-size:10.5px}
+th,td{text-align:left;padding:3px 4px;border-bottom:1px solid #241f1b;vertical-align:top}
+th{color:var(--dim);font-weight:600}
+/* --- economy --- */
+#purse{display:flex;gap:6px;margin-bottom:8px}
+.cur{flex:1;border:1px solid var(--line);border-radius:5px;padding:5px 7px;background:#171512;text-align:center}
+.cur .v{font-weight:700;font-size:15px;display:block}
+.cur.ae{border-color:#3a4a68}.cur.ae .v{color:var(--aether)}
+.cur.lo{border-color:#2f5f57}.cur.lo .v{color:var(--lore)}
+.cur.ma{border-color:#5f4a20}.cur.ma .v{color:var(--marks)}
+.cur .n{font-size:9px;color:var(--dim);letter-spacing:.08em}
+.node{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:5px 6px;border:1px solid var(--line);border-radius:5px;margin-bottom:4px;background:#1a1714}
+.nname{font-size:11px}
+.nval{color:var(--aether);font-weight:700;min-width:34px;text-align:right}
+.ncost{color:var(--charge);font-size:10px}
+.bon{border:1px solid var(--line);border-radius:5px;padding:6px;margin-bottom:6px;background:#1a1714}
+/* v2.9: bslot stacks instead of cramming name + sentence + 3 controls into one
+   flex row. min-width:0 on the text blocks is what actually lets them wrap. */
+.bslot{display:block;padding:5px 0;border-top:1px solid var(--line)}
+.bslot:first-of-type{border-top:0}
+.bname{color:var(--lore);font-size:11px;font-weight:700;min-width:0}
+.bdesc{color:var(--dim);font-size:10px;line-height:1.45;min-width:0;margin:1px 0 3px}
+.bctl{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.bstack{color:var(--lore);font-weight:700;min-width:20px;text-align:center}
+.pullbox{border:1px solid #5f4a20;border-radius:5px;padding:8px;margin-bottom:6px;background:#1c1710}
+.drop{border:1px solid var(--charge);border-radius:5px;padding:6px;margin-bottom:5px;background:#211c12}
+.dw{color:var(--charge);font-weight:700}
+.bosstag{background:var(--boss);color:#12100e;border-radius:3px;padding:1px 6px;font-weight:700;font-size:10px}
+.ckpt{color:var(--buff);font-size:10px}
+.expt{border:1px dashed var(--bad);border-radius:5px;padding:6px;margin-top:6px}
+/* initiative multiplier: colour-coded so fast vs slow reads without a legend */
+/* --- drop notice --- */
+#dropnote{border:2px solid var(--charge);border-radius:8px;background:#231d12;
+ padding:12px;margin-bottom:12px}
+#dropnote .dn-h{display:flex;justify-content:space-between;align-items:center;gap:10px;
+ margin-bottom:8px}
+#dropnote .dn-t{font-size:13px;font-weight:700;letter-spacing:.09em;color:var(--charge)}
+.dn-item{border-top:1px solid #3d3222;padding:9px 0 4px}
+.dn-item:first-of-type{border-top:0}
+.dn-name{font-size:17px;font-weight:700;color:var(--ink)}
+.dn-kind{font-size:12px;color:var(--dimmer);letter-spacing:.07em}
+.dn-body{font-size:14px;color:var(--dim);line-height:1.55;margin-top:4px}
+.dn-why{font-size:14px;color:var(--hp);line-height:1.5;margin-top:5px}
+.dn-pair{font-size:13px;color:var(--dimmer);margin-top:4px}
+.ini{font-weight:700;color:var(--ink);cursor:help}
+.ini.fast{color:var(--hp)}
+.ini.slow{color:var(--threat)}
+/* DEF/RES pair — the softer side is highlighted only when the gap is >= 15% */
+.drpair{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:0 6px}
+.dr{color:var(--dim)}
+.dr.soft{color:var(--crit);font-weight:700}
+.drsep{color:var(--dimmer)}
+.mod{font-style:normal;color:var(--debuff);font-weight:700}
+.drhint{font-size:12px;color:var(--dimmer);font-style:italic}
+
+/* ===========================================================================
+ * READABILITY PASS (v1.0) — phone-first type, spacing and touch targets.
+ * Appended as an override block rather than edited inline so the diff is
+ * reviewable and nothing above this line changed. NO game logic is touched.
+ * Verified by rendering at 375px (narrower than the 390px asked for).
+ * ======================================================================== */
+
+/* --- contrast: the dim greys were too close to the background at small size,
+       which is doubly hard to read once text is dense. All lifted. --- */
+:root{
+ --line:#4a4038; --ink:#f0e8dc; --dim:#bcae9a; --dimmer:#9c8f7f;
+ --party:#8fc8e8; --foe:#e89a78; --charge:#f0c455; --hp:#8fd89a; --crit:#f5cc70;
+ --bad:#e87a68; --buff:#9fe8c0; --debuff:#d69fe8; --threat:#f08a5c; --row:#afe0f8;
+ --aether:#9fc8ff; --lore:#7fe8d8; --marks:#f0c070; --boss:#f06a8a}
+
+/* --- base type: 16px body, generous leading --- */
+html,body{font-size:16px;line-height:1.6}
+#app{max-width:600px;padding:12px 12px 48px}
+h1{font-size:18px;letter-spacing:.10em;font-weight:700}
+.vbadge{font-size:15px;padding:2px 8px;border-radius:4px}
+.sub{font-size:14px;color:var(--dim);margin:6px 0 10px;line-height:1.5}
+.panel{padding:12px;margin-bottom:12px;border-radius:8px}
+.row{gap:8px}
+.tiny{font-size:14px;line-height:1.55}          /* was 10px — the main offender */
+label{font-size:14px;margin-bottom:4px;letter-spacing:.04em}
+hr{margin:12px 0}
+
+/* --- touch targets: 44px+ everywhere a finger lands --- */
+button{font-size:15px;padding:10px 12px;min-height:46px;border-radius:7px}
+button.mini{min-height:38px;padding:6px 12px;font-size:14px}
+button:disabled{opacity:.45}                    /* was .3 — unreadable */
+select{font-size:16px;padding:11px 10px;min-height:48px;border-radius:6px}
+#tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+#tabs button{font-size:14px;padding:10px 4px;min-height:48px;flex:none}
+/* gambit reorder — the fiddliest interaction in the app, so the biggest targets.
+   Needs `button.mv` not `.mv`: `button.mini` would otherwise win on specificity. */
+button.mv{min-width:54px;min-height:46px;font-size:19px;padding:0;line-height:1}
+.slotbar{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.slotbar .lbl{flex:1;font-size:14px;color:var(--dim);letter-spacing:.05em;margin:0}
+
+/* --- fight view --- */
+.unit{padding:10px;margin-bottom:8px;border-radius:7px}
+.unit.down{opacity:.65}                         /* was .4 */
+.uname{font-size:16px;font-weight:700}
+.bar{height:10px;border-radius:5px;margin-top:6px}
+.pill{font-size:13px;padding:3px 9px;border-radius:11px;margin:4px 5px 0 0;background:#332b25}
+.rowtag{display:inline-block;font-size:13px;padding:6px 12px;background:#332b25;
+ min-height:32px;line-height:20px;border-radius:5px}
+/* wave header stacked: at 375px the two-column spread collided and wrapped
+   mid-phrase ("party" / "1"). */
+.wavehead{display:block}
+.wavehead .l1{font-size:17px;font-weight:700}
+.wavehead .l2{margin-top:2px}
+
+/* --- turn queue: wider chips, still horizontally scrollable --- */
+#rail{gap:8px;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+.chip{min-width:104px;padding:9px;border-radius:7px}
+.cn{font-size:15px}.ca{font-size:14px}.ct{font-size:13px}
+
+/* --- the log: densest element in the page, so it gets the most room ---
+   Progressive disclosure: the summary line is full size and the component
+   breakdown expands on tap, rather than shrinking type to fit it in. */
+#log{max-height:44vh;font-size:15px}
+.le{padding:10px 4px;cursor:pointer;border-bottom:1px solid #2a2420}
+.le.p{border-left:3px solid var(--party);padding-left:10px}
+.le.f{border-left:3px solid var(--foe);padding-left:10px}
+.le.sys{border-left:3px solid var(--charge);padding-left:10px}
+.lh{gap:10px;line-height:1.5}
+.dmg{font-size:16px}
+.calc{font-size:14px;line-height:1.7;margin-top:8px;padding:8px 10px;
+ background:#15120f;border-radius:6px;border:1px solid #2f2822;color:var(--dim)}
+.le .calc{display:none}
+.le.open .calc{display:block}
+.tapme{color:var(--dimmer);font-size:13px;margin-top:4px}
+.le.open .tapme{display:none}
+.via{font-size:14px;color:var(--dim);margin-top:4px;line-height:1.5}
+.note{font-size:14px;margin-top:3px}
+
+/* --- tables and dense readouts --- */
+table{font-size:14px}
+th,td{padding:8px 6px;border-bottom:1px solid #2a2420}
+pre{font-size:13px;line-height:1.6;padding:10px}
+
+/* --- economy screens --- */
+.cur{padding:9px 8px;border-radius:7px}
+.cur .v{font-size:22px;line-height:1.2}
+.cur .n{font-size:12px;letter-spacing:.10em}
+.node{padding:9px 10px;margin-bottom:6px;border-radius:7px}
+.nname{font-size:15px}
+.nval{font-size:16px;min-width:40px}
+.ncost{font-size:13px}
+.bon{padding:10px;border-radius:7px}
+.bslot{padding:8px 0}
+.bname{font-size:15px}
+.bdesc{font-size:13px;line-height:1.5;margin:2px 0 6px}
+.bctl{gap:12px}
+.bstack{font-size:16px;min-width:26px}
+.pullbox{padding:10px;border-radius:7px}
+.drop{padding:10px;margin-bottom:8px;border-radius:7px}
+.dw{font-size:15px}
+.ckpt{font-size:14px}
+.bosstag{font-size:13px;padding:2px 8px;border-radius:4px}
+.copy{font-size:13px;padding:4px 9px}
+.slot{padding:10px;border-radius:7px;margin-bottom:8px}
+.expt{padding:10px;border-radius:7px;margin-top:10px}
+
+/* --- narrow phones: keep the tab grid usable and stop any overflow --- */
+@media (max-width:400px){
+ #app{padding:10px 10px 48px}
+ #tabs{grid-template-columns:repeat(3,1fr)}
+ .grid3{grid-template-columns:1fr 1fr 1fr;gap:6px}
+ .cur .v{font-size:20px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Farroad <span class="vbadge">v1.0</span></h1>
+  <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
+  <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
+    v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is
+    what makes <b>healing optional</b> rather than mandatory, without easier waves or a third slot.</div>
+
+  <!-- Drop notice: non-blocking by design. An idle game cannot afford a modal that
+       halts progress every few waves, so this is a banner that persists until
+       acknowledged and stacks while you are away. -->
+  <div id="dropnote" class="hidden"></div>
+
+  <div id="purse">
+    <div class="cur ae"><span class="v" id="cAether">0</span><span class="n">AETHER</span></div>
+    <div class="cur lo"><span class="v" id="cLore">0</span><span class="n">LORE</span></div>
+    <div class="cur ma"><span class="v" id="cMarks">0</span><span class="n">MARKS</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="wavehead" style="margin-bottom:8px">
+      <div class="l1"><span id="waveLbl" class="mono">Wave 1</span>
+        <span id="encLbl" class="tiny" style="font-weight:400"></span></div>
+      <!-- v2.9: "beat N" removed. It is the internal CTB tick counter — the player
+           can neither act on it nor convert it to anything meaningful. Elapsed
+           time stays, since fight length is a thing you can feel. -->
+      <div class="tiny mono l2"><span id="secLbl">0.0s</span></div>
+    </div>
+    <div class="tiny" id="ckptLbl" style="margin-bottom:5px"></div>
+    <div id="units"></div>
+    <div class="tiny" style="margin:6px 0 3px">TURN ORDER →</div>
+    <div id="rail"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:6px">
+      <button id="btnPlay" style="flex:2">▶ Travel</button>
+      <button id="btnStep" style="flex:1">Step</button>
+      <button id="btnReset">Reset run</button>
+    </div>
+    <div class="row">
+      <span class="tiny" style="width:44px">Speed</span>
+      <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
+      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
+      <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span class="tiny" style="width:44px">Enemy</span>
+      <button class="dif" data-d="0.65">65%</button><button class="dif" data-d="0.8">80%</button>
+      <button class="dif on" data-d="1">100%</button><button class="dif" data-d="1.25">125%</button>
+      <span class="tiny" id="difNote" style="flex:1"></span>
+    </div>
+    <!-- v2.9: the growth-exponent rationale (1.02 -> 0.80), the retired-crutch
+         history and the solo-run verification stats were development notes, not
+         information a player acts on. They live in the GDD. -->
+    <div class="tiny" style="margin-top:4px;color:var(--dimmer)">
+      <b style="color:var(--hp)">Testing control — 100% is normal play.</b>
+    </div>
+    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
+      Aether and Marks also accrue idly, at a rate keyed to your <b>farthest wave reached</b> —
+      a ratchet, so a wipe costs progress but never income. Lore comes only from duplicate drops,
+      which means it appears after wave 20 when drops turn random.
+    </div>
+  </div>
+
+  <div id="tabs">
+    <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
+    <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
+    <button data-t="marks">MARKS</button><button data-t="drops">DROPS</button>
+    <button data-t="tests">TESTS</button>
+  </div>
+
+  <div class="panel" id="tab-log"><div class="spread" style="margin-bottom:4px">
+    <span class="tiny">THE ROAD — every roll, drop and checkpoint</span>
+    <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
+
+  <div class="panel hidden" id="tab-gambits">
+    <div class="tiny" style="margin-bottom:6px">Strict top-down: the first rule whose condition is
+      true fires. Only actions and conditions you have been given appear.</div>
+    <div id="gambits"></div></div>
+
+  <div class="panel hidden" id="tab-aether">
+    <div class="tiny" style="margin-bottom:6px"><b>Aether is experience.</b> It levels units, and
+      each unit grows on <b>its own curve</b> — Dorrek gains 48 HP and 2.4 DEF a level where Vey
+      gains 21 HP and 3.2 SPD. Growth is predetermined, not allocated: character identity rather
+      than player choice.
+      <br><br><span style="color:var(--dimmer)">The old stat-node grid is retired. Six very
+      different allocations of the same node budget produced a depth spread of <b>1.04×</b> (1.24×
+      with the clock) — allocation was expressive but not consequential, against an action and
+      gambit axis worth up to <b>+173%</b>. Trading it for growth curves costs no measurable build
+      diversity and buys distinct characters. Solo still needs ~4% compounding growth per wave;
+      the EXP curve is calibrated to put a solo character at <b>LV 14 ≈ 2.05×</b> by wave 20.</span></div>
+    <div id="aetherView"></div></div>
+
+  <div class="panel hidden" id="tab-lore">
+    <div class="tiny" style="margin-bottom:6px"><b>Lore</b> upgrades <b>actions</b>, not characters
+      — that is what keeps it distinct from Aether. It comes from duplicate drops, so it stays at
+      zero until drops turn random after the first boss. <b>No bonus is universally best:</b>
+      Lasting is the strongest pick on an action that applies a status and worth literally nothing
+      on one that doesn't.</div>
+    <div id="loreView"></div></div>
+
+  <div class="panel hidden" id="tab-marks">
+    <div class="tiny" style="margin-bottom:6px"><b>Marks</b> are the gacha currency. One pull,
+      one cost, rolling across companions, actions and gambit conditions. Anything you already
+      hold converts instead of being wasted.</div>
+    <div id="marksView"></div></div>
+
+  <div class="panel hidden" id="tab-drops">
+    <div class="tiny" style="margin-bottom:6px">Curated to wave 20 — an action every 2 waves, a
+      condition between, each landing just before the threat it answers. Random thereafter.</div>
+    <div id="dropsView"></div></div>
+
+  <div class="panel hidden" id="tab-tests">
+    <div class="grid2">
+      <button id="tSmoke">▶ SMOKE TEST (drive the real UI)</button>
+      <button id="tCad">Cadence check</button>
+      <button id="tRamp">Ramp / solo reach</button>
+      <button id="tNiche">Niche pricing</button>
+      <button id="tThr">Threshold scaling</button>
+    </div>
+    <pre id="testOut">ready.</pre>
+    <div class="expt" style="border-style:solid;border-color:var(--line)">
+      <div class="spread"><b>THE CLOCK <span class="tiny">(v1.0, on by default)</span></b>
+        <button id="btnEnrage" class="mini on">Enrage: ON</button></div>
+      <div class="tiny" style="margin-top:4px">After <b>8 of its own turns</b>, an enemy gains
+        <b>+5% ATK per turn it takes</b>, compounding. Counted in the enemy's own turns because
+        CTB has no rounds and beats are abstract — a stack that ticks when you watch that unit act
+        is the only legible unit. A <b>Slowed</b> enemy therefore enrages more slowly, so Cripple
+        answers the clock as well as the damage.
+        <br><br><b>This is what makes healing optional.</b> Without a clock, a heal rule is
+        unbounded sustain and nothing else is, so it is worth <b>+173%</b> and every build
+        converges on it. With the clock, out-sustaining stops working: solo, heal drops to
+        <b>−2.3%</b> against the best non-heal build, and in a pair to <b>−10.5%</b>, where
+        Cripple becomes the best answer. Turn it off to feel the difference — with it off, a heal
+        build runs to the wave cap and nothing else gets close.</div>
+    </div>
+  </div>
+</div>
+
+<!--@@CORE@@-->
+
+<!--@@PROGRESSION@@-->
+
+<!--@@UI@@-->
+</body>
+</html>
