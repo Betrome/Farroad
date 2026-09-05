@@ -16,15 +16,21 @@
 > instantiation behind a factory — but the 20 unwritten companions should be
 > authored as data from the start rather than as literals.
 >
-> **2. Swappable charge actions** — change your charge action when you acquire a
-> new one.
-> *Implication:* charge actions must decouple from unit identity. Today
-> `chargeAction` is a field on the roster definition and is treated as part of who
-> a character *is*; it needs to become an equippable slot on the unit instance.
+> **2. Swappable charge actions — MC only** — change your charge action when you
+> acquire a new one. This applies **only to the Main Character** (item 1's
+> customisable first unit); every other unit stays locked to its own charge
+> action, as today.
+> *Implication:* charge actions decouple from unit identity **for the MC alone**.
+> The MC needs its own pool of unlockable/acquirable charge actions to swap
+> between — a list distinct from the fixed one-action-per-unit model the rest of
+> the roster keeps. `chargeAction` remains a fixed field on non-MC roster
+> definitions; only the MC's unit instance gains an equippable charge-action slot
+> plus the acquired-actions list it draws from.
 > Note this interacts with the v2.8 charge-cost rule: upgrades are bought against
 > a specific charge action, so swapping must decide whether Lore follows the unit
 > or the action. Recommend it follows the **action**, consistent with how every
-> other Lore upgrade already works.
+> other Lore upgrade already works — this still applies since it's the MC's own
+> Lore stacks per acquired action that are at stake.
 >
 > **3. Equipment, with Mettal as its currency** — specified in §0 economy, never
 > built. A new item layer on units.
