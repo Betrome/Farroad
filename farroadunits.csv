@@ -1,0 +1,6 @@
+id,name,role,row,hp,atk,mag,def,res,spd,atk_crit,mag_crit,charge_rate,block,evade,charge_action,charge_action_power,charge_action_rank,charge_action_target,charge_action_status,starting_unit,joins_at_wave,design_note
+kesh,Kesh,attacker,front,430,26,18,20,16,100,0.05,0.05,1,0.03,0.03,oath,4.20,1.80,foe,,TRUE,1,Starting unit. Balanced physical attacker. Highest-power charge action in the game.
+ansa,Ansa,healer,back,320,14,26,14,22,96,0.04,0.06,1,0.02,0.04,hearthlight,2.40,1.65,allAllies,,FALSE,20,First recruit. Party heal plus cleanse. Back row so takes x0.70 physical.
+dorrek,Dorrek,tank,front,560,22,10,30,20,84,0.04,0.03,1,0.10,0.02,vowofstone,,1.55,allAllies,warded,FALSE,150,Highest HP and DEF. Only unit with block 0.10. Charge action taunts for 3.
+vey,Vey,rogue,front,300,24,12,14,12,124,0.12,0.04,1,0.02,0.10,ninefold,0.48,1.90,foe,,FALSE,500,Fastest unit (SPD 124) and highest crit (0.12). 9-hit charge action rolls crit per hit.
+mirel,Mirel,mage,back,270,12,30,12,20,92,0.03,0.10,1,0.02,0.04,ashfall,1.90,2.00,allFoes,burning,FALSE,1500,Highest MAG. AoE charge action with a DoT. Lowest HP.

@@ -1,0 +1,31 @@
+id,label,scope,what_it_tests,state_it_reads,returns_target,needs_multiple_foes,reads_the_action,pairs_well_with,design_note
+none,Always,Any,Always true,nothing,default foe or self,FALSE,FALSE,any,Default. An unconditional slot.
+foe_any,Foe: any,Foe,A living foe exists,foe list,default foe,FALSE,FALSE,strike/ember,Baseline foe condition.
+foe_lowest_hp,Foe: lowest HP,Foe,Picks the most wounded foe,foe HP,lowest-HP foe,FALSE,FALSE,execute/strike,Focus fire. Measured +16.2% at two foes.
+foe_highest_hp,Foe: highest HP,Foe,Picks the healthiest foe,foe HP,highest-HP foe,FALSE,FALSE,gale/cleave/daunt,Spread damage or open with a debuff.
+foe_hp_gte_70,Foe: HP >= 70%,Foe,Any foe above 70% HP,foe HP fraction,that foe,FALSE,FALSE,gale/cleave/sear/hex,Opening-of-fight gate.
+foe_hp_lte_30,Foe: HP <= 30%,Foe,Any foe at or below 30% HP,foe HP fraction,that foe,FALSE,FALSE,execute,THE Execute gate. Execute crits only inside this window.
+foe_armoured,Foe: armoured (DEF > 1.4x yours),Foe,Relative DEF comparison,foe DEF vs own DEF,that foe,FALSE,FALSE,pierce,Relative not absolute so it survives stat scaling.
+foe_warded,Foe: resistant (RES > 1.4x yours),Foe,Relative RES comparison,foe RES vs own RES,that foe,FALSE,FALSE,physical attacks,Mirror of foe_armoured for the magic side.
+foe_fast,Foe: faster than you,Foe,Foe SPD above own SPD,foe SPD vs own SPD,that foe,FALSE,FALSE,cripple/daunt,Tempo answer. Cripple is the best non-heal rule.
+foe_2plus,Foe: 2+ present,Foe,At least two foes alive,foe count,default foe,TRUE,FALSE,cleave/gale,AoE gate.
+foe_3plus,Foe: 3+ present,Foe,At least three foes alive,foe count,default foe,TRUE,FALSE,cleave/gale/ashfall,Stronger AoE gate.
+foe_charging,Foe: charge >= 70%,Foe,A foe's charge gauge is nearly full,foe charge + chargeAction,that foe,FALSE,FALSE,cripple/daunt,Telegraphed special. Lets the player pre-empt an enemy charge action.
+foe_softest_def,Foe: softest DEF of the group,Foe,Lowest effective DEF among foes,all foe DEF,softest foe,TRUE,FALSE,physical attacks,Automation half of the DEF/RES readout.
+foe_softest_res,Foe: softest RES of the group,Foe,Lowest effective RES among foes,all foe RES,softest foe,TRUE,FALSE,magic attacks,Automation half of the DEF/RES readout.
+foe_most_dangerous,Foe: hardest hitter,Foe,Highest effective ATK among foes,all foe ATK,that foe,FALSE,FALSE,cripple/daunt,Threat assessment rather than target selection.
+foe_acts_next,Foe: acts next,Foe,Lowest nextActAt among foes,CTB queue,that foe,FALSE,FALSE,cripple/daunt,Reads the turn queue directly. Pre-empts the next actor.
+foe_healer_present,Foes: a healer among them,Foe,Any foe has a healing action in its slots,foe loadouts,the healer,FALSE,FALSE,focus damage,Answers the Fen Priest. Kill the healer or the fight stalls.
+foe_pack_hurt,Foes: ALL below 50% HP,Foe,Every foe under 50%,all foe HP,lowest-HP foe,TRUE,FALSE,cleave/gale,Group-state finisher gate.
+foe_pack_healthy,Foes: NONE below 70% HP,Foe,Every foe at or above 70%,all foe HP,highest-HP foe,TRUE,FALSE,debuffs/AoE,Group-state opener gate.
+foe_mostly_weakened,Foes: most already weakened,Foe,More than half the foes carry a debuff,foe statuses,an undebuffed foe,TRUE,FALSE,debuff spreaders,Targets the gap rather than the pack.
+foe_isolated,Foe: last one standing,Foe,Exactly one foe alive,foe count,that foe,FALSE,FALSE,single-target burst,Inverse of the AoE gates.
+foe_lacks_debuff,Foe: lacks this debuff,Foe,A foe missing THIS action's status,foe statuses + action.applies,that foe,FALSE,TRUE,all debuff actions,Reads the action. Prevents wasting turns refreshing a live debuff.
+foe_not_weakened,Foe: not weakened,Foe,A foe with no debuff at all,foe statuses,that foe,FALSE,FALSE,any debuff,Coarser than foe_lacks_debuff.
+ally_hp_lte_60,Ally: HP <= 60%,Ally,Any ally at or below 60%,ally HP,lowest-HP qualifying ally,FALSE,FALSE,mend,The main healing gate.
+ally_hp_lte_30,Ally: HP <= 30%,Ally,Any ally at or below 30%,ally HP,lowest-HP qualifying ally,FALSE,FALSE,mend/hearthlight,Emergency healing gate.
+ally_lowest_hp,Ally: lowest HP,Ally,Most wounded ally regardless of threshold,ally HP,that ally,FALSE,FALSE,mend/renew,Unconditional healing target.
+ally_is_dead,Ally: is down,Ally,Any ally at 0 HP,ally HP,the dead ally,FALSE,FALSE,recall/lastlight,The only gate revives can use.
+ally_lacks_buff,Ally: lacks this buff,Ally,An ally missing THIS action's buff,ally statuses + action.applies,that ally,FALSE,TRUE,bulwark/blur/quicken/renew,Reads the action. Stops buff reapplication waste.
+self_hp_lte_50,Self: HP <= 50%,Self,Own HP at or below 50%,own HP,self,FALSE,FALSE,mend/bulwark/brace,Self-preservation gate.
+self_first_turn,Self: first turn,Self,turnsTaken is zero,own turn count,self,FALSE,FALSE,onslaught,The Onslaught gate. x2.20 on turn one then x0.65.

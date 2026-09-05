@@ -1,0 +1,47 @@
+id,name,kind,camp,power,power_dynamic,rank,initiative,target,hits,applies_status,status_turns,def_pierce,crit_bonus,crit_dynamic,heal,lifesteal,revive,cleanse,self_taunt,charge_gain,charge_cost,lore_bonuses_applicable,design_note
+strike,Strike,equippable,atk,1.00,,1.00,1.000,foe,1,,,0,0,,,,,,,20,,"swift,potent,surge,piercing,keen,broad",Baseline. Every other action is measured against this.
+ember,Ember,equippable,mag,1.05,,1.05,0.952,foe,1,,,0,0,,,,,,,21,,"swift,potent,surge,keen,broad",Starter. Hits RES; full power from the back rank.
+mend,Mend,equippable,mag,1.20,,1.05,0.952,ally,1,,,0,0,,TRUE,,,,,22,,"swift,potent,surge,broad,cleansing",Heal 1.20 x MAG.
+pierce,Pierce,equippable,atk,1.00,,1.50,0.667,foe,1,,,0.75,0,,,,,,,26,,"swift,potent,surge,piercing,keen,broad",Ignores 75% DEF but slow. Wins vs armour only. S6.0 exemplar.
+cleave,Cleave,equippable,atk,0.66,,1.30,0.769,allFoes,1,,,0,0,,,,,,,27,,"swift,potent,surge,piercing,keen",All foes physical.
+flurry,Flurry,equippable,atk,0.43,,1.25,0.800,foe,3,,,0,0,,,,,,,26,,"swift,potent,surge,piercing,keen,broad",3 hits each rolling crit. Best keen target.
+execute,Execute,equippable,atk,0.65,,1.00,1.000,foe,1,,,0,0,+0.65 at foe HP<=30% else crit forced to 0,,,,,,29,,"swift,potent,surge,piercing,keen,broad",v2.8 payoff is CRIT not power. Power flat and HP-independent.
+guardbreak,Guard Break,equippable,atk,0.85,,1.10,0.909,foe,1,sundered,3,0,0,,,,,,,24,,"swift,potent,lasting,deepening,surge,piercing,keen,broad",Sundered.
+daunt,Daunt,equippable,atk,0.60,,1.00,1.000,foe,1,enfeebled,3,0,0,,,,,,,22,,"swift,potent,lasting,deepening,surge,piercing,keen,broad",Enfeebled - ATK x0.75.
+cripple,Cripple,equippable,atk,0.70,,1.15,0.870,foe,1,slowed,3,0,0,,,,,,,25,,"swift,potent,lasting,deepening,surge,piercing,keen,broad",Slowed - 33% fewer enemy turns. Best non-heal rule.
+brace,Brace,equippable,atk,0,,0.65,1.538,self,1,bracing,2,0,0,,,,,,,30,,"swift,lasting,surge",Fast high charge. Fastest action in the game.
+vengeance,Vengeance,equippable,atk,1.00,0.55 at full HP rising to 2.10 near death,1.30,0.769,foe,1,,,0,0,,,,,,,26,,"swift,potent,surge,piercing,keen,broad",Scales on SELF HP.
+onslaught,Onslaught,equippable,atk,1.00,2.20 on first turn then 0.65,1.45,0.690,foe,1,,,0,0,,,,,,,29,,"swift,potent,surge,piercing,keen,broad",Scales on own turn count.
+rally,Rally,equippable,atk,0,,0.75,1.333,self,1,surging,3,0,0,,,,,,,45,,"swift,lasting,surge",Doubles charge rate. Highest charge gain.
+gale,Gale,equippable,mag,0.62,,1.30,0.769,allFoes,1,,,0,0,,,,,,,27,,"swift,potent,surge,keen",All foes magic - safe vs thorns.
+sear,Sear,equippable,mag,0.62,,1.10,0.909,foe,1,burning,3,0,0,,,,,,,24,,"swift,potent,lasting,deepening,surge,keen,broad",Burning.
+hex,Hex,equippable,mag,0.68,,1.05,0.952,foe,1,frail,3,0,0,,,,,,,23,,"swift,potent,lasting,deepening,surge,keen,broad",Frail - cuts RES.
+smother,Smother,equippable,mag,0.60,,1.05,0.952,foe,1,dulled,3,0,0,,,,,,,23,,"swift,potent,lasting,deepening,surge,keen,broad",Dulled - cuts enemy MAG and healing.
+dazzle,Dazzle,equippable,mag,0.58,,1.00,1.000,foe,1,blinded,3,0,0,,,,,,,22,,"swift,potent,lasting,deepening,surge,keen,broad",Blinded.
+siphon,Siphon,equippable,mag,1.00,,1.30,0.769,foe,1,,,0,0,,,0.50,,,,26,,"swift,potent,surge,keen,broad",Heals you 50% of damage.
+renew,Renew,equippable,mag,0,,1.15,0.870,ally,1,regen,4,0,0,,,,,,,24,,"swift,lasting,surge,broad",Regen 4 turns.
+recall,Recall,equippable,mag,0,,1.60,0.625,deadAlly,1,,,0,0,,,,0.35,,,33,,"swift,surge",Revive at 35% HP.
+bulwark,Bulwark,equippable,mag,0,,0.90,1.111,ally,1,warded,2,0,0,,,,,,,28,,"swift,lasting,surge,broad",Warded - x0.60 incoming.
+blur,Blur,equippable,mag,0,,0.90,1.111,ally,1,blurred,3,0,0,,,,,,,28,,"swift,lasting,surge,broad",+0.20 evade.
+quicken,Quicken,equippable,mag,0,,1.40,0.714,ally,1,hasted,3,0,0,,,,,,,28,,"swift,lasting,surge,broad",Hasted.
+oath,Wayfarer's Oath,charge,atk,4.20,,1.80,0.556,foe,1,,,0,0.30,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Kesh. Single burst. Highest power in the game.
+ninefold,Ninefold Rain,charge,atk,0.48,,1.90,0.526,foe,9,,,0,0,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Vey. Multi-hit random targeting.
+hearthlight,Hearthlight,charge,mag,2.40,,1.65,0.606,allAllies,1,,,0,0,,TRUE,,,1,,,100,"swift,potent,keen,cleansing,thrifty",CHARGE - Ansa. Party heal + cleanse.
+vowofstone,Vow of Stone,charge,atk,0,,1.55,0.645,allAllies,1,warded,3,0,0,,,,,,3,,100,"swift,lasting,thrifty",CHARGE - Dorrek. Party buff + taunt.
+ashfall,Ashfall,charge,mag,1.90,,2.00,0.500,allFoes,1,burning,3,0,0,,,,,,,,100,"swift,potent,lasting,deepening,keen,thrifty",CHARGE - Mirel. AoE damage + DoT.
+tideturn,Tideturn,charge,mag,0,,1.50,0.667,allAllies,1,hasted,3,0,0,,,,,,,,100,"swift,lasting,thrifty",CHARGE - RESOURCE/TEMPO. Buys turns deals nothing.
+lastlight,Last Light,charge,mag,0,,1.70,0.588,deadAlly,1,,,0,0,,,,0.80,,,,100,"swift,thrifty",CHARGE - REVIVE at 80%. Only full recovery in the game.
+sunder,Sundering Vow,charge,atk,0.55,,1.60,0.625,allFoes,1,sundered,4,0,0,,,,,,,,100,"swift,potent,lasting,deepening,piercing,keen,thrifty",CHARGE - DEBUFF-first. Light damage strips DEF from everything.
+gravewind,Gravewind,charge,mag,0.70,,1.75,0.571,allFoes,1,slowed,4,0,0,,,,,,,,100,"swift,potent,lasting,deepening,keen,thrifty",CHARGE - TEMPO DENIAL. Slows every foe.
+reckoning,Reckoning,charge,atk,1.00,2.0 at full HP rising to 6.5 on a near-dead target,1.90,0.526,foe,1,,,0,0,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - CONDITIONAL on target HP.
+bulwarkoath,Bulwark Oath,charge,mag,0,,1.45,0.690,allAllies,1,warded,4,0,0,,,,,,,,100,"swift,lasting,thrifty",CHARGE - CHEAP/FREQUENT. Low rank fires often.
+emberglut,Ember Glut,charge,mag,0,,0.90,1.111,self,1,surging,4,0,0,,,,,,,,100,"swift,lasting,thrifty",CHARGE - RESOURCE. Doubles own charge rate to chain.
+hollowtoll,Hollow Toll,charge,mag,1.35,,2.10,0.476,allFoes,1,,,0,0,,,0.60,,,,,100,"swift,potent,keen,thrifty",CHARGE - SUSTAIN-AoE. Heals caster 60% of total.
+wardensmaul,Warden's Maul,enemy_charge,atk,3.10,,1.75,0.571,foe,1,,,0,0.10,,,,,,,,100,,CHARGE - boss. Heavy single target.
+sunderingroar,Sundering Roar,enemy_charge,atk,0,,1.50,0.667,allAllies,1,enfeebled,3,0,0,,,,,,,,100,,CHARGE - Stone Ox. Enfeebles the party.
+quickenedhowl,Quickened Howl,enemy_charge,atk,0,,1.20,0.833,self,1,hasted,3,0,0,,,,,,,,100,,CHARGE - Mire Hound. Hastes itself.
+bite,Bite,enemy_basic,atk,1.00,,1.00,1.000,foe,1,,,0,0,,,,,,,19,,,Enemy basic.
+rake,Rake,enemy_basic,atk,0.85,,0.85,1.176,foe,1,,,0,0,,,,,,,16,,,Enemy basic.
+maul,Maul,enemy_basic,atk,1.45,,1.45,0.690,foe,1,,,0,0,,,,,,,26,,,Enemy basic.
+knitbone,Knit Bone,enemy_basic,mag,1.15,,1.20,0.833,ally,1,,,0,0,,TRUE,,,,,21,,,Enemy basic heal.
+wait,Wait,inert,atk,0,,1.00,1.000,self,1,,,0,0,,,,,,,0,,,Inert fallback. Does nothing.

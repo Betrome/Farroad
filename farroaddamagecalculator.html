@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Farroad — Damage Calculator</title>
+<style>
+:root{--bg:#12100e;--panel:#1c1916;--panel2:#241f1b;--line:#4a4038;--ink:#f0e8dc;--dim:#bcae9a;
+ --dimmer:#9c8f7f;--in:#ffd966;--out:#8fd89a;--big:#9fc8ff;--bad:#e87a68;--crit:#f5cc70}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+ font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#app{max-width:600px;margin:0 auto;padding:12px 12px 60px}
+h1{font-size:19px;margin:0 0 2px;letter-spacing:.06em}
+.sub{font-size:14px;color:var(--dim);margin-bottom:12px;line-height:1.5}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px}
+.sect{font-size:13px;font-weight:700;letter-spacing:.09em;color:#fff;background:#33475b;
+ border-radius:5px;padding:7px 10px;margin:0 0 10px}
+.f{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0}
+.f label{font-size:14px;color:var(--ink);flex:1;line-height:1.35}
+.f .hint{display:block;font-size:12px;color:var(--dimmer)}
+input[type=number]{width:104px;background:#0e0c0a;color:var(--in);font:inherit;font-size:16px;
+ font-weight:700;border:1px solid #6b5a2e;border-radius:6px;padding:9px 8px;min-height:46px;text-align:right}
+select{width:100%;background:#0e0c0a;color:var(--ink);font:inherit;font-size:16px;
+ border:1px solid var(--line);border-radius:6px;padding:11px 8px;min-height:48px}
+.tog{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}
+.tog button{background:var(--panel2);color:var(--dim);border:1px solid var(--line);
+ border-radius:20px;padding:9px 13px;font:inherit;font-size:13px;min-height:42px;cursor:pointer}
+.tog button.on{background:#4a3a20;border-color:var(--in);color:var(--in);font-weight:700}
+.chain{font-size:14px;line-height:1.75}
+.chain .r{display:flex;justify-content:space-between;gap:10px;padding:6px 0;
+ border-bottom:1px solid #2a2420}
+.chain .r span:first-child{color:var(--dim)}
+.chain .r b{color:var(--ink);font-variant-numeric:tabular-nums}
+.res{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0}
+.res .k{font-size:15px;color:var(--dim)}
+.res .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.v.min{color:var(--dimmer)}.v.exp{color:var(--out)}.v.max{color:var(--crit)}.v.dpt{color:var(--big)}
+.note{font-size:13px;color:var(--dimmer);line-height:1.55;margin-top:8px}
+.warn{font-size:13px;color:var(--crit);line-height:1.55;margin-top:8px}
+hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Farroad — Damage Calculator</h1>
+  <div class="sub">Live. Change anything and every number below updates. Constants and the action
+    table are the real shipped values from prototype v1.0.</div>
+
+  <div class="panel">
+    <div class="sect">ACTION</div>
+    <select id="act"></select>
+    <div class="f"><label>Power <span class="hint">multi-stage actions show their strong case</span></label><input type="number" id="power" step="0.01" value="1.45"></div>
+    <div class="f"><label>Hits <span class="hint">each hit rolls crit separately</span></label><input type="number" id="hits" step="1" value="1"></div>
+    <div class="f"><label>Rank <span class="hint">initiative = 1 ÷ rank</span></label><input type="number" id="rank" step="0.05" value="1.45"></div>
+    <div class="f"><label>Armour pierce <span class="hint">0–0.85, cuts DEFENCE before mitigation</span></label><input type="number" id="pierce" step="0.05" value="0"></div>
+    <div class="f"><label>Crit bonus <span class="hint">Oath +0.30</span></label><input type="number" id="critb" step="0.05" value="0"></div>
+    <div class="tog"><button id="phys" class="on">PHYSICAL (ATK vs DEF, can be evaded)</button></div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">ATTACKER</div>
+    <div class="f"><label>ATK</label><input type="number" id="atk" value="51"></div>
+    <div class="f"><label>MAG</label><input type="number" id="mag" value="33"></div>
+    <div class="f"><label>Crit rate <span class="hint">fraction. Enemies crit too — 3–8%.</span></label><input type="number" id="crit" step="0.01" value="0.05"></div>
+    <div class="f"><label>SPD <span class="hint">drives tick cost, not damage</span></label><input type="number" id="spd" value="100"></div>
+    <div class="f"><label>Enrage stacks <span class="hint">×1.05 ATK each, after the 8th own turn</span></label><input type="number" id="enr" value="0"></div>
+    <div class="tog">
+      <button data-t="enf">Enfeebled — ATK ×0.75</button>
+      <button data-t="dul">Dulled — MAG ×0.75</button>
+      <button data-t="bli">Blinded — +0.30 target evade</button>
+      <button data-t="rowo">Party, back row — ×0.70 dealt</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">DEFENDER</div>
+    <div class="f"><label>DEF</label><input type="number" id="def" value="33"></div>
+    <div class="f"><label>RES</label><input type="number" id="res" value="25"></div>
+    <div class="f"><label>Block rate <span class="hint">capped 0.50</span></label><input type="number" id="blk" step="0.01" value="0.03"></div>
+    <div class="f"><label>Evade rate <span class="hint">capped 0.70 incl. blinded</span></label><input type="number" id="evd" step="0.01" value="0.03"></div>
+    <div class="f"><label>Max HP <span class="hint">for hits-to-kill</span></label><input type="number" id="hp" value="880"></div>
+    <div class="tog">
+      <button data-t="sun">Sundered — DEF ×0.75</button>
+      <button data-t="fra">Frail — RES ×0.75</button>
+      <button data-t="bra">Bracing — DEF ×1.40, +0.30 block</button>
+      <button data-t="blu">Blurred — +0.20 evade</button>
+      <button data-t="war">Warded — incoming ×0.60</button>
+      <button data-t="rowi">Party, back row — ×0.70 taken</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">RESOLUTION CHAIN — in the order the code runs it</div>
+    <div class="chain" id="chain"></div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">DAMAGE — ONE HIT</div>
+    <div class="res"><span class="k">MINIMUM <span class="hint">no crit, blocked, worst roll</span></span><span class="v min" id="dmin">0</span></div>
+    <div class="res"><span class="k">EXPECTED <span class="hint">no crit, no block, mean roll</span></span><span class="v exp" id="dexp">0</span></div>
+    <div class="res"><span class="k">MAXIMUM <span class="hint">crit, no block, best roll</span></span><span class="v max" id="dmax">0</span></div>
+    <hr>
+    <div class="res"><span class="k">Probability-weighted, × hits</span><span class="v exp" id="dwt">0</span></div>
+    <div class="res"><span class="k">Hits to kill</span><span class="v exp" id="htk">0</span></div>
+    <hr>
+    <div class="res"><span class="k">Initiative <span class="hint">higher acts more often</span></span><span class="v dpt" id="ini">0</span></div>
+    <div class="res"><span class="k">Tick cost <span class="hint">internal; lower is faster</span></span><span class="v min" id="tick">0</span></div>
+    <div class="res"><span class="k">DAMAGE PER TICK <span class="hint">the comparison metric</span></span><span class="v dpt" id="dpt">0</span></div>
+    <div class="note" id="extra"></div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">MITIGATION MODEL — can K be removed?</div>
+    <div class="f"><label>K <span class="hint">DEF = K halves damage. Drag it and watch the curve.</span></label><input type="number" id="kval" value="25"></div>
+    <div class="chain" id="kchain"></div>
+    <div class="warn" id="kwarn"></div>
+    <div class="note">
+      <b>Short answer: no.</b> Every workable mitigation model needs a constant of this kind —
+      the real question is its value, not its existence.
+      <br><br><b>Subtractive (ATK − DEF)</b> zeroes out. Across the game's real stat ranges,
+      <b>7 of 24</b> attacker/defender pairs deal zero or negative damage — a LV1 attacker
+      literally cannot scratch a LV20 defender, so progress stops rather than slows.
+      <br><br><b>Pure ratio (ATK ÷ DEF)</b> is unbounded as DEF falls. At ATK 66 vs DEF 8 it deals
+      165 against the current model's 50 — low-DEF enemies get one-shot and the curve has no floor
+      to tune against.
+      <br><br><b>Percentage reduction with another constant</b> is the same formula wearing a
+      different name. K=10, K=25 and K=60 are one family; only the steepness changes.
+      <br><br><b>So the honest framing:</b> K is <i>not</i> a level mechanic. Its level scaling
+      (<code>23 + 2×level</code>) is dead code, because <code>level</code> is always 1. It is a
+      single tuning knob for how much DEF matters, and the only live questions are what value it
+      takes and whether it should scale with depth.
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="sect">WHERE THE CODE DIVERGES FROM GDD §3</div>
+    <div class="note">
+      <b>1. K is a constant 25.</b> <code>K_of(l)=23+2*l</code>, but <code>makeUnit</code> is called
+      with <code>level:1</code> everywhere and level is never incremented — v1.0 moved growth into
+      per-unit stat curves. Mitigation does <i>not</i> soften as you level, whatever the doc says.
+      <br><br><b>2. Enrage is not a step in this chain.</b> It mutates the attacker's base ATK
+      after that unit acts, so it compounds into effective offence on later turns rather than
+      multiplying damage. It looks like a damage step and isn't.
+      <br><br><b>3. Evade is physical-only.</b> §3.3 lists it as step 1 without that
+      qualification. Magic cannot miss.
+      <br><br><b>4. Crit, block and evade are fully symmetric</b> — <code>resolveHit</code> has no
+      <code>isParty</code> check. The only party-only terms are the three row modifiers.
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var CRIT_MUL=1.75, BLOCK_MUL=0.5, CAP_CRIT=0.70, CAP_BLOCK=0.50, CAP_EVADE=0.70,
+    ROW_PHYS=0.70, WARD=0.60;
+/* v1.1: variance roll REMOVED — base damage is deterministic */
+var VAR_MIN=1, VAR_MEAN=1, VAR_MAX=1;
+/* v1.1: both camps can be evaded AND blocked, with camp-specific effectiveness */
+var NEG={phys:{blk:1.00,evd:0.50}, mag:{blk:0.50,evd:1.00}};
+
+/* real shipped action table (v1.0) */
+var ACTIONS=[
+ ['Strike',1.00,1,1.00,0,0,1,'starter — the DPT 1.00 baseline'],
+ ['Ember',1.05,1,1.05,0,0,0,'starter — hits RES, full power from the back row'],
+ ['Mend (heal)',1.20,1,1.05,0,0,0,'HEAL: no mitigation, no crit, no block. Damage figures do not apply.'],
+ ['Pierce',1.00,1,1.50,0.75,0,1,'wins vs heavy armour ONLY — try DEF 34 then DEF 12'],
+ ['Cleave',0.66,1,1.30,0,0,1,'all foes, physical — Thorn Shrike reflects this'],
+ ['Flurry',0.43,3,1.25,0,0,1,'3 hits, each rolling crit — best home for crit investment'],
+ ['Execute (below 30% HP)',2.90,1,1.45,0,0,1,'0.60 above 30% HP'],
+ ['Guard Break',0.85,1,1.10,0,0,1,'applies Sundered'],
+ ['Daunt',0.60,1,1.00,0,0,1,'applies Enfeebled'],
+ ['Cripple',0.70,1,1.15,0,0,1,'Slowed: 33% fewer enemy turns AND slower enrage. DPT understates it badly.'],
+ ['Brace',0,1,0.65,0,0,1,'fastest action in the game — the ×1.54 anchor'],
+ ['Vengeance (near death)',2.10,1,1.30,0,0,1,'0.55 at full HP'],
+ ['Onslaught (first turn)',2.20,1,1.45,0,0,1,'0.65 thereafter'],
+ ['Gale',0.62,1,1.30,0,0,0,'magic AoE — safe against Thorn Shrike'],
+ ['Sear',0.62,1,1.10,0,0,0,'Burning adds 5% max HP per victim turn on top'],
+ ['Hex',0.68,1,1.05,0,0,0,'applies Frail'],
+ ['Smother',0.60,1,1.05,0,0,0,'Dulled — the answer to the Fen Priest'],
+ ['Siphon',1.00,1,1.30,0,0,0,'heals the attacker 50% of damage dealt'],
+ ['Bulwark',0,1,0.90,0,0,0,'applies Warded'],
+ ["Wayfarer's Oath ⚡",4.20,1,1.80,0,0.30,1,'CHARGE, Kesh'],
+ ['Ninefold Rain ⚡',0.48,9,1.90,0,0,1,'CHARGE, Vey — 9 hits, each retargeted at random'],
+ ['Ashfall ⚡',1.90,1,2.00,0,0,0,'CHARGE, Mirel — slowest in the game, ×0.50'],
+ ['— enemy: Bite',1.00,1,1.00,0,0,1,'Wolf, Knight, Priest, Shrike'],
+ ['— enemy: Rake',0.85,1,0.85,0,0,1,'Mire Hound — fast, which is why it was lethal pre-heal'],
+ ['— enemy: Maul',1.45,1,1.45,0,0,1,'Stone Ox'],
+ ["— boss: Warden's Maul ⚡",3.10,1,1.75,0,0.10,1,'fires about every 5 boss turns']];
+
+var $=function(s){return document.querySelector(s);};
+var st={enf:0,dul:0,bli:0,rowo:0,sun:0,fra:0,bra:0,blu:0,war:0,rowi:0};
+var isPhys=1;
+
+var sel=$('#act');
+ACTIONS.forEach(function(a,i){var o=document.createElement('option');
+ o.value=i;o.textContent=a[0];sel.appendChild(o);});
+sel.value=6;
+sel.onchange=function(){var a=ACTIONS[+sel.value];
+ $('#power').value=a[1];$('#hits').value=a[2];$('#rank').value=a[3];
+ $('#pierce').value=a[4];$('#critb').value=a[5];
+ isPhys=a[6];$('#phys').classList.toggle('on',!!isPhys);
+ $('#phys').textContent=isPhys?'PHYSICAL (ATK vs DEF, can be evaded)':'MAGIC (MAG vs RES, never misses)';
+ calc();};
+
+$('#phys').onclick=function(){isPhys=isPhys?0:1;
+ this.classList.toggle('on',!!isPhys);
+ this.textContent=isPhys?'PHYSICAL (ATK vs DEF, can be evaded)':'MAGIC (MAG vs RES, never misses)';
+ calc();};
+Array.prototype.forEach.call(document.querySelectorAll('.tog button[data-t]'),function(b){
+ b.onclick=function(){var k=b.dataset.t;st[k]=st[k]?0:1;b.classList.toggle('on',!!st[k]);calc();};});
+Array.prototype.forEach.call(document.querySelectorAll('input[type=number]'),function(i){
+ i.oninput=calc;});
+
+function n(id){var v=parseFloat($(id).value);return isNaN(v)?0:v;}
+function f2(x){return (Math.round(x*100)/100).toFixed(2);}
+function f3(x){return (Math.round(x*1000)/1000).toFixed(3);}
+
+function calc(){
+ var power=n('#power'), hits=Math.max(1,n('#hits')), rank=Math.max(0.01,n('#rank')),
+     pierce=n('#pierce'), critb=n('#critb');
+ var ATK=n('#atk'), MAG=n('#mag'), critRate=n('#crit'), SPD=Math.max(1,n('#spd')), enr=n('#enr');
+ var DEF=n('#def'), RES=n('#res'), blk=n('#blk'), evd=n('#evd'), HP=Math.max(1,n('#hp'));
+
+ /* step 3a — effective offence (enrage compounds in here, not as a damage step) */
+ var effAtk = ATK * (st.enf?0.75:1) * Math.pow(1.05, enr);
+ var effMag = MAG * (st.dul?0.75:1);
+ var off = isPhys ? effAtk : effMag;
+ /* step 3b/3c — effective defence, then pierce */
+ var effDef = DEF * (st.bra?1.40:1) * (st.sun?0.75:1);
+ var effRes = RES * (st.fra?0.75:1);
+ var defRaw = isPhys ? effDef : effRes;
+ var defEff = defRaw * (1 - pierce);
+ /* step 3d/3e */
+ var K = Math.max(0.01, n('#kval'));
+ var mit = K / (K + defEff);
+ var base = power * off * mit;
+ /* steps 1, 2, 6 — chances. v1.1: BOTH camps evadeable AND blockable, with
+    camp-specific effectiveness (sword gets parried, spell goes wide). */
+ var NG = isPhys ? NEG.phys : NEG.mag;
+ var evadeCh = Math.min(CAP_EVADE, (evd + (st.blu?0.20:0)) * NG.evd + (st.bli?0.30:0));
+ var critCh  = Math.min(CAP_CRIT, critRate + critb);
+ var blockCh = Math.min(CAP_BLOCK, (blk + (st.bra?0.30:0)) * NG.blk);
+ /* steps 7, 8 — flat multipliers */
+ var ward = st.war ? WARD : 1;
+ var rowOut = (isPhys && st.rowo) ? ROW_PHYS : 1;
+ var rowIn  = (isPhys && st.rowi) ? ROW_PHYS : 1;
+ var row = rowOut * rowIn;
+
+ var dmin = Math.max(1, Math.floor(base * VAR_MIN  * BLOCK_MUL * ward * row));
+ var dexp = Math.max(1, Math.floor(base * VAR_MEAN *             ward * row));
+ var dmax = Math.max(1, Math.floor(base * VAR_MAX  * CRIT_MUL  * ward * row));
+ var weighted = base * VAR_MEAN * ward * row
+              * (1 + critCh * (CRIT_MUL - 1))
+              * (1 - blockCh * (1 - BLOCK_MUL))
+              * (1 - evadeCh);
+ var perAction = weighted * hits;
+ var tick = Math.max(1, Math.round(10000 * rank / SPD));
+ var dpt = perAction / tick;
+
+ $('#chain').innerHTML=[
+  ['0. K (mitigation constant)', K + '  — a tuning knob, not a level mechanic'],
+  ['1. evade chance', f3(evadeCh) + '   (evade × ' + NG.evd + ' vs ' + (isPhys?'physical':'magic') + ')'],
+  ['2. crit chance', f3(critCh) + '   (rolled here, applied at step 5)'],
+  ['3a. effective offence', f2(off) + (enr?'   (incl. ×'+f2(Math.pow(1.05,enr))+' enrage)':'')],
+  ['3b. effective defence', f2(defRaw)],
+  ['3c. after ' + f2(pierce*100) + '% pierce', f2(defEff)],
+  ['3d. mitigation K/(K+def)', f3(mit)],
+  ['3e. base = power × off × mit', f2(base) + '   ← deterministic'],
+  ['4. variance roll', 'REMOVED in v1.1 — base damage is exact'],
+  ['5. crit multiplier', '×' + CRIT_MUL],
+  ['6. block chance / multiplier', f3(blockCh) + '  →  ×' + BLOCK_MUL +
+    '   (block × ' + NG.blk + ' vs ' + (isPhys?'physical':'magic') + ')'],
+  ['7. ward multiplier', '×' + f2(ward)],
+  ['8. row multiplier (out × in)', '×' + f2(row)],
+  ['9. floor', 'max(1, floor(d))']
+ ].map(function(r){return '<div class="r"><span>'+r[0]+'</span><b>'+r[1]+'</b></div>';}).join('');
+
+ $('#dmin').textContent=dmin;
+ $('#dexp').textContent=dexp;
+ $('#dmax').textContent=dmax;
+ $('#dwt').textContent=f2(perAction);
+ $('#htk').textContent=Math.ceil(HP/Math.max(perAction,1));
+ $('#ini').textContent='×'+f2(1/rank);
+ $('#tick').textContent=tick;
+ $('#dpt').textContent=f3(dpt);
+
+ var notes=[];
+ var a=ACTIONS[+sel.value];
+ if(a) notes.push('<b>'+a[0]+':</b> '+a[7]);
+ if(hits>1) notes.push('Multi-hit: each of the '+hits+' hits rolls crit independently, so crit '+
+  'investment is worth more here than the single-hit figures suggest.');
+ if(!isPhys) notes.push('Magic ignores evade entirely and is exempt from row modifiers — that is '+
+  'why Ember stays at full power from the back rank.');
+ if(pierce>0) notes.push('Pierce cuts DEFENCE before mitigation, not damage after it, so its value '+
+  'rises steeply with the target’s DEF. Compare DEF 12 against DEF 34.');
+ $('#extra').innerHTML=notes.join('<br><br>');
+
+ /* --- mitigation model comparison, at the current ATK and power --- */
+ var DEFS=[8,12,20,33,50,76];
+ function row(label,fn,warnNeg){
+  var cells=DEFS.map(function(d){var v=fn(d);
+   var bad=(v===null||v<=0);
+   return '<b style="min-width:52px;text-align:right;'+(bad?'color:var(--bad)':'')+'">'+
+    (v===null?'n/a':(Math.round(v*10)/10).toFixed(1))+'</b>';}).join('');
+  return '<div class="r"><span>'+label+'</span><span style="display:flex;gap:6px">'+cells+'</span></div>';}
+ var hdr='<div class="r"><span style="color:var(--dim)">model \\ DEF</span><span style="display:flex;gap:6px">'+
+  DEFS.map(function(d){return '<b style="min-width:52px;text-align:right;color:var(--dim)">'+d+'</b>';}).join('')+
+  '</span></div>';
+ $('#kchain').innerHTML = hdr
+  + row('CURRENT — ×K/(K+DEF)', function(d){return power*off*(K/(K+d));})
+  + row('Subtractive — ATK−DEF', function(d){return power*off-d;})
+  + row('Pure ratio — ATK/DEF×20', function(d){return d<=0?null:power*off/d*20;})
+  + row('Same family, K=10', function(d){return power*off*(10/(10+d));})
+  + row('Same family, K=60', function(d){return power*off*(60/(60+d));});
+ var neg=DEFS.filter(function(d){return power*off-d<=0;});
+ $('#kwarn').innerHTML = neg.length
+  ? 'Subtractive deals ZERO or negative at DEF ' + neg.join(', ') +
+    ' with your current attacker — that attacker simply cannot hurt those defenders.'
+  : 'Subtractive survives at this ATK. Lower ATK to 26 (a LV1 attacker) and watch it collapse.';
+}
+$('#kval').oninput=calc;
+sel.onchange();
+})();
+</script>
+</body>
+</html>
