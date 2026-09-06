@@ -773,12 +773,16 @@ function renderUnits(){
      Math.round(recoveryOf(u.id)*100)+'%<span style="color:var(--dimmer)"> — HP regained between waves'+
      (recoveryMaxed(u.id)?' · at cap':'')+'</span></div>':'')+
    ((!u.isParty&&G.enrage)?(function(){
-     var st=C.enrageStacks(u),to=C.ENRAGE_AFTER-u.turnsTaken;
-     return st>0
-      ? '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-        Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% ATK, rising each of its turns</div>'
-      : '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages in '+to+
-        ' of its turns</div>';})():'')+
+     /* Gate is now battle-wide (G.battle.beat vs C.ENRAGE_AFTER), not this
+        unit's own turn count — see the ENRAGE comment in core.js's step().
+        Once open, an enemy that hasn't acted since still reads "calm" until
+        its own next turn actually applies a stack. */
+     var st=C.enrageStacks(u),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
+     if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
+       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% ATK, rising each of its turns</div>';
+     if(gateOpen)return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages on its next turn</div>';
+     return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
+       ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
    '<div>'+pills(u)+'</div>';
   host.appendChild(d);});
  Array.prototype.forEach.call(host.querySelectorAll('[data-row]'),function(el){
@@ -1187,8 +1191,55 @@ function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks()
 function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
+/* ===== PARTY ROSTER EDITOR =====
+ * Was no way to change who's fielded at all — G.party only ever changed via
+ * the boss-milestone auto-join and a pull auto-fielding when there was room
+ * (doPull() in this file). Lives at the top of the GAMBITS tab rather than
+ * its own tab: picking who's in the party and setting their gambits are the
+ * same "build your team" task, so keeping them on one screen beats a tab
+ * hop, and this app already has eight tabs to scroll on a phone. */
+function availableForParty(){
+ var away={};if(G.expedition)G.expedition.partyIds.forEach(function(uid){away[uid]=1;});
+ return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!away[uid];});}
+function benchUnit(uid){
+ if(G.party.length<=1)return false;             /* never allow an empty party */
+ var i=G.party.indexOf(uid);if(i<0)return false;
+ G.party.splice(i,1);
+ return true;}
+function fieldUnit(uid){
+ if(!G.owned[uid]||G.party.indexOf(uid)>=0)return false;
+ if(G.expedition&&G.expedition.partyIds.indexOf(uid)>=0)return false;   /* away units aren't available */
+ if(G.party.length>=P.PARTY_CAP)return false;
+ G.party.push(uid);
+ autoEquip();                                    /* same default-rule pass a pull/boss-join gets */
+ return true;}
+function renderPartyRoster(host){
+ var box=document.createElement('div');box.style.marginBottom='14px';
+ var h='<div class="tiny" style="margin-bottom:6px"><b>PARTY</b> — '+G.party.length+' of '+P.PARTY_CAP+
+  ' fielded. Changes take effect on the next wave, not the one in progress.</div>';
+ G.party.forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+   '<span><span class="uname p">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   ' · LV '+levelOf(uid)+'</span></span>'+
+   '<button class="mini pb-bench" data-u="'+uid+'"'+(G.party.length<=1?' disabled':'')+'>Bench</button></div>';});
+ var avail=availableForParty();
+ h+='<div class="tiny" style="margin:8px 0 4px;color:var(--dimmer)">BENCHED'+
+  (avail.length?'':' — none available')+'</div>';
+ avail.forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+   '<span><span class="uname">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   ' · LV '+levelOf(uid)+'</span></span>'+
+   '<button class="mini pb-field" data-u="'+uid+'"'+(G.party.length>=P.PARTY_CAP?' disabled':'')+'>Field</button></div>';});
+ box.innerHTML=h;host.appendChild(box);
+ Array.prototype.forEach.call(box.querySelectorAll('.pb-bench'),function(el){
+  el.onclick=function(){if(benchUnit(el.dataset.u)){buildGambits();renderAll();}};});
+ Array.prototype.forEach.call(box.querySelectorAll('.pb-field'),function(el){
+  el.onclick=function(){if(fieldUnit(el.dataset.u)){buildGambits();renderAll();}};});}
 function buildGambits(){
  var host=$('#gambits');host.innerHTML='';
+ renderPartyRoster(host);
  G.party.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var sl=ensureLoadout(uid);
@@ -1413,8 +1464,8 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)doSav
 $('#btnEnrage').onclick=function(){G.enrage=!G.enrage;
  this.textContent='Enrage: '+(G.enrage?'ON':'OFF');this.classList.toggle('on',G.enrage);
  if(G.battle)G.battle.enrage=G.enrage;
- sysLog(G.enrage?'<b>The clock is running.</b> <span class="tiny">Enemies enrage after 8 of their '+
-  'own turns, +5% ATK each turn after. Offence and speed now matter; healing is optional.</span>'
+ sysLog(G.enrage?'<b>The clock is running.</b> <span class="tiny">Enemies enrage after turn 20 of '+
+  'the fight, +5% ATK each turn after. Offence and speed now matter; healing is optional.</span>'
   :'<b style="color:var(--crit)">The clock is off.</b> <span class="tiny">Healing is now unbounded '+
   'sustain and worth +173% — expect every build to collapse onto the heal rule.</span>');};
 Array.prototype.forEach.call(document.querySelectorAll('.spd'),function(b){

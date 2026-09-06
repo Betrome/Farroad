@@ -16,7 +16,7 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
 var TICK_K=10000,CRIT_MUL=1.75,BLOCK_MUL=.5,CAP_EVADE=.40,CAP_BLOCK=.50,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
-var ENRAGE_AFTER=8, ENRAGE_PCT=0.05;   /* grace in the enemy's OWN turns, then +5%/turn */
+var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
 /* ===== NEGATION PARITY + ASYMMETRY (v1.1) =====
  * Both camps are now subject to BOTH evade and block (magic could not be evaded
  * before; block already applied to both — confirmed at the old line 581, which
@@ -525,11 +525,12 @@ function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit
  return {id:cfg.id,name:cfg.name,isParty:!!cfg.isParty,level:cfg.level||1,slotIndex:cfg.slotIndex||0,base:d,
   maxHp:cfg.maxHp!=null?cfg.maxHp:d.hp,hp:cfg.hp!=null?cfg.hp:d.hp,charge:cfg.charge||0,
   chargeAction:cfg.chargeAction||null,slots:cfg.slots||[{cond:'none',action:'strike'},{cond:'none',action:'strike'}],
-  st:newSt(),nextActAt:0,alternateFlag:0,turnsTaken:0,row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
+  st:newSt(),nextActAt:0,alternateFlag:0,turnsTaken:0,enrageN:0,
+  row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
 function makeBattle(units,opts){opts=opts||{};
  var b={units:units,t:0,beat:0,elapsedMs:0,log:[],over:null,rng:opts.rng||makeRNG(1),det:!!opts.deterministic,
   gambitMode:'topdown',smartHeal:true,enrage:!!opts.enrage};
- for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.alternateFlag=0;}
+ for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageN=0;u.alternateFlag=0;}
  return b;}
 function pickNext(b){var best=null;
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
@@ -630,16 +631,25 @@ function step(b){
   if(act.selfTaunt){apply(u,'taunted',act.selfTaunt);e.notes.push('taunting');}}
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
- /* ENRAGE (v1.0, on by default). Counted in the ENEMY'S OWN TURNS, not beats and
-    not rounds - CTB has no rounds, and beats are global and abstract, whereas a
-    stack that ticks when you watch that unit act is legible. It also means a
-    Slowed enemy enrages more slowly, so Cripple answers the clock as well as the
-    damage - a synergy that falls out of the definition rather than being added.
-    Grace of 8 own-turns, then +5%/turn. Ian asked for 5 turns; at 5 the effect on
-    offensive gambits largely evaporates (Cripple +2.0% vs +14.7% at 8). */
- if(b.enrage&&!u.isParty&&u.hp>0&&u.turnsTaken>ENRAGE_AFTER){
+ /* ENRAGE (v1.0, on by default; v2.9 gate reworked). Was gated on the
+    ENEMY'S OWN TURNS (grace of 8), which meant a fast enemy raced to its own
+    enrage threshold in real fight-time regardless of how the fight was
+    actually going, sometimes ramping up before the party had a real chance
+    to respond — a crippling start. Gate is now the battle's TOTAL turn
+    count (b.beat, both sides combined, grace of 20) instead, so enrage
+    timing tracks how long the FIGHT has run rather than how fast any one
+    enemy happens to act. Once the gate is open, growth is still applied
+    per-unit-action (u.enrageN counts THIS unit's own actions taken since
+    the gate opened, same +5%/turn compounding as before) — a fast enemy
+    still racks up stacks faster than a slow one from that point on, same as
+    always, it just can no longer get there ahead of the fight itself.
+    (This does give up the old Slow/Cripple-delays-enrage synergy the gate
+    used to have for free, since the gate itself is no longer keyed to any
+    one unit's own turn count.) */
+ if(b.enrage&&!u.isParty&&u.hp>0&&b.beat>ENRAGE_AFTER){
+  u.enrageN=(u.enrageN||0)+1;
   u.base.atk=u.base.atk*(1+ENRAGE_PCT);
-  e.enrageStacks=u.turnsTaken-ENRAGE_AFTER;
+  e.enrageStacks=u.enrageN;
   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*100)+'% ATK)');}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
@@ -724,5 +734,5 @@ F.ENRAGE_AFTER=ENRAGE_AFTER;F.ENRAGE_PCT=ENRAGE_PCT;
    so window.FarroadCore was never assigned and the whole page died. */
 F.waveScale=waveScale;F.K_BASE=K_BASE;F.levelCurve=levelCurve;F.GAIN_RATIO=GAIN_RATIO;
 F.setWave=function(w){CURRENT_WAVE=w;};F.getK=function(){return K_of(1);};
-F.enrageStacks=function(u){return Math.max(0,u.turnsTaken-ENRAGE_AFTER);};
+F.enrageStacks=function(u){return u.enrageN||0;};
 return F;})();

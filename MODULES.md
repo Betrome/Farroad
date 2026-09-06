@@ -548,3 +548,87 @@ open a fresh tab to observe, to avoid the `beforeunload`-autosave race):
 world map, a dedicated adventure-log screen (the log itself is already being
 written to `G.expeditionLog`), the quest board, and per-companion origin
 story chains.
+
+## Enrage gate is now battle-wide, not per-enemy
+
+`ENRAGE_AFTER` (`farroad-core.js`) went 8→20, and its meaning changed from a
+grace period in each ENEMY'S OWN turn count to one in the BATTLE's total turn
+count (`b.beat`, both sides combined). Was: a fast enemy (e.g. Mire Hound,
+spd 124) raced to its own 8-turn threshold in real fight-time regardless of
+how the fight was actually going, sometimes ramping up ATK before the party
+had a real chance to respond — a crippling start. The gate condition in
+`step()` moved from `u.turnsTaken>ENRAGE_AFTER` to `b.beat>ENRAGE_AFTER`, so
+enrage timing now tracks how long the FIGHT has run, not how fast any one
+enemy happens to act.
+
+Growth is still applied per-unit-action once the gate is open — a new
+`u.enrageN` field counts THIS unit's own actions taken since the gate
+opened (same +5%/turn compounding as before), so a fast enemy still racks up
+stacks faster than a slow one from that point on, it just can no longer get
+there ahead of the fight itself. `C.enrageStacks(u)` now simply reads
+`u.enrageN` rather than computing `turnsTaken - ENRAGE_AFTER`. This does give
+up the old free Slow/Cripple-delays-enrage synergy the gate used to have (a
+Slowed enemy no longer enrages more slowly, since the gate itself is no
+longer keyed to any one unit's own turn count) — a known, accepted tradeoff,
+not an oversight.
+
+Covered by a new headless smoke check (two near-immortal units — HP raised
+to 1e9, not just DEF, so the test doesn't depend on `C.setWave()`'s ambient
+`CURRENT_WAVE` — see the bugfix note below) confirming zero stacks before
+the gate opens and accumulation after. Verified live: the in-game enrage
+copy (shell.html's clock explainer, the enrage-toggle log message, and each
+enemy's own "calm — enrages after turn N" display) all updated to match.
+
+**Found and fixed in passing**: the smoke test's own "free-variable sweep"
+(section 2 — calls every exported function with no arguments to catch
+undeclared-identifier bugs) calls `C.setWave()` with no argument as a side
+effect of that sweep, which sets the module-level `CURRENT_WAVE` to
+`undefined` for the rest of the test run. Every damage calculation after
+that silently read `NaN` out of `K_of()`, which is how this session's new
+enrage test first surfaced it — nothing before it happened to run a real
+multi-hit battle where that mattered. Fixed by resetting `C.setWave(1)`
+right after the sweep, rather than leaving its side effect to leak into
+every section that follows it.
+
+## Aether/Marks income divided by 5
+
+`P.AETHER_RATE` (0.90→0.18) and `P.MARKS_RATE` (0.65→0.13) — both already the
+single shared multiplier feeding every Aether/Marks source in the game
+(idle trickle, per-kill reward, boss hoards, and the duplicate-unit
+conversion all either use these directly via `P.idlePerSec`/`P.killReward`
+or derive from them), so one cut here reaches everything uniformly. Applied
+here rather than to the idle base coefficients specifically because
+expeditions (roadmap item 4) call `P.killReward()` directly for each battle
+they resolve, not `P.idlePerSec()` — cutting only the idle side would have
+left expedition income, a second automated income stream now running
+alongside live play, completely untouched.
+
+## Party roster editor — built (previously no way to change who's fielded)
+
+`G.party` could previously only change via the boss-milestone auto-join and
+a pull's auto-fielding-when-there's-room — no way to manually bench a
+fielded unit or field a benched one. `renderPartyRoster()` (`farroad-ui.js`)
+adds that: a PARTY section listing current fielded units with a `Bench`
+button each, and a BENCHED section listing owned-but-unfielded units with a
+`Field` button each, using the same `benchedUnits()`-style filtering
+established for expeditions — units currently away on an expedition are
+excluded from what's available to field (`availableForParty()`, which
+additionally checks `G.expedition.partyIds`).
+
+Lives at the TOP of the existing GAMBITS tab rather than a new tab of its
+own: picking who's in the party and setting their gambits is one "build your
+team" task, and this app already has eight tabs to scroll through on a
+phone (a live concern now that Ian is playing on his). `fieldUnit()` runs
+the same `autoEquip()` pass a pull or boss-join gets, so a newly-fielded
+unit doesn't sit with a bare default loadout. `benchUnit()` refuses to empty
+the party (disables its own button once only one unit remains) — nothing
+else in the engine expects `G.party` to ever be empty. Neither function
+retroactively touches an in-progress fight; the change takes effect at the
+next `buildParty()` call (next wave, or after a wipe), same as any other
+roster-composition change, and the roster panel says so explicitly.
+
+Verified live: fielding a benched unit correctly moved it out of BENCHED and
+into the PARTY list, gave it an auto-equipped loadout and its own gambit box
+below, and updated the party-size counter; benching correctly reversed all
+of that; and the last remaining party member's own Bench button was
+confirmed disabled.

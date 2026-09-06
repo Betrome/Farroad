@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 14:32 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 15:15 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -271,10 +271,10 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 14:32 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 15:15 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
-    v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is
+    v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
     what makes <b>healing optional</b> rather than mandatory, without easier waves or a third slot.</div>
 
   <!-- Drop notice: non-blocking by design. An idle game cannot afford a modal that
@@ -388,11 +388,12 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="expt" style="border-style:solid;border-color:var(--line)">
       <div class="spread"><b>THE CLOCK <span class="tiny">(v1.0, on by default)</span></b>
         <button id="btnEnrage" class="mini on">Enrage: ON</button></div>
-      <div class="tiny" style="margin-top:4px">After <b>8 of its own turns</b>, an enemy gains
-        <b>+5% ATK per turn it takes</b>, compounding. Counted in the enemy's own turns because
-        CTB has no rounds and beats are abstract — a stack that ticks when you watch that unit act
-        is the only legible unit. A <b>Slowed</b> enemy therefore enrages more slowly, so Cripple
-        answers the clock as well as the damage.
+      <div class="tiny" style="margin-top:4px">After <b>turn 20 of the fight</b> (total, both sides
+        combined — not any one enemy's own turn count), every enemy action from then on gains
+        <b>+5% ATK per turn it takes</b>, compounding. Gated on the fight's total turns rather than
+        each enemy's own so a fast enemy can no longer race to its own enrage threshold ahead of
+        the fight itself, sometimes cutting a run short before the party had a real chance to
+        respond.
         <br><br><b>This is what makes healing optional.</b> Without a clock, a heal rule is
         unbounded sustain and nothing else is, so it is worth <b>+173%</b> and every build
         converges on it. With the clock, out-sustaining stops working: solo, heal drops to
@@ -421,7 +422,7 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
 var TICK_K=10000,CRIT_MUL=1.75,BLOCK_MUL=.5,CAP_EVADE=.40,CAP_BLOCK=.50,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
-var ENRAGE_AFTER=8, ENRAGE_PCT=0.05;   /* grace in the enemy's OWN turns, then +5%/turn */
+var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
 /* ===== NEGATION PARITY + ASYMMETRY (v1.1) =====
  * Both camps are now subject to BOTH evade and block (magic could not be evaded
  * before; block already applied to both — confirmed at the old line 581, which
@@ -930,11 +931,12 @@ function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit
  return {id:cfg.id,name:cfg.name,isParty:!!cfg.isParty,level:cfg.level||1,slotIndex:cfg.slotIndex||0,base:d,
   maxHp:cfg.maxHp!=null?cfg.maxHp:d.hp,hp:cfg.hp!=null?cfg.hp:d.hp,charge:cfg.charge||0,
   chargeAction:cfg.chargeAction||null,slots:cfg.slots||[{cond:'none',action:'strike'},{cond:'none',action:'strike'}],
-  st:newSt(),nextActAt:0,alternateFlag:0,turnsTaken:0,row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
+  st:newSt(),nextActAt:0,alternateFlag:0,turnsTaken:0,enrageN:0,
+  row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
 function makeBattle(units,opts){opts=opts||{};
  var b={units:units,t:0,beat:0,elapsedMs:0,log:[],over:null,rng:opts.rng||makeRNG(1),det:!!opts.deterministic,
   gambitMode:'topdown',smartHeal:true,enrage:!!opts.enrage};
- for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.alternateFlag=0;}
+ for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageN=0;u.alternateFlag=0;}
  return b;}
 function pickNext(b){var best=null;
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
@@ -1035,16 +1037,25 @@ function step(b){
   if(act.selfTaunt){apply(u,'taunted',act.selfTaunt);e.notes.push('taunting');}}
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
- /* ENRAGE (v1.0, on by default). Counted in the ENEMY'S OWN TURNS, not beats and
-    not rounds - CTB has no rounds, and beats are global and abstract, whereas a
-    stack that ticks when you watch that unit act is legible. It also means a
-    Slowed enemy enrages more slowly, so Cripple answers the clock as well as the
-    damage - a synergy that falls out of the definition rather than being added.
-    Grace of 8 own-turns, then +5%/turn. Ian asked for 5 turns; at 5 the effect on
-    offensive gambits largely evaporates (Cripple +2.0% vs +14.7% at 8). */
- if(b.enrage&&!u.isParty&&u.hp>0&&u.turnsTaken>ENRAGE_AFTER){
+ /* ENRAGE (v1.0, on by default; v2.9 gate reworked). Was gated on the
+    ENEMY'S OWN TURNS (grace of 8), which meant a fast enemy raced to its own
+    enrage threshold in real fight-time regardless of how the fight was
+    actually going, sometimes ramping up before the party had a real chance
+    to respond — a crippling start. Gate is now the battle's TOTAL turn
+    count (b.beat, both sides combined, grace of 20) instead, so enrage
+    timing tracks how long the FIGHT has run rather than how fast any one
+    enemy happens to act. Once the gate is open, growth is still applied
+    per-unit-action (u.enrageN counts THIS unit's own actions taken since
+    the gate opened, same +5%/turn compounding as before) — a fast enemy
+    still racks up stacks faster than a slow one from that point on, same as
+    always, it just can no longer get there ahead of the fight itself.
+    (This does give up the old Slow/Cripple-delays-enrage synergy the gate
+    used to have for free, since the gate itself is no longer keyed to any
+    one unit's own turn count.) */
+ if(b.enrage&&!u.isParty&&u.hp>0&&b.beat>ENRAGE_AFTER){
+  u.enrageN=(u.enrageN||0)+1;
   u.base.atk=u.base.atk*(1+ENRAGE_PCT);
-  e.enrageStacks=u.turnsTaken-ENRAGE_AFTER;
+  e.enrageStacks=u.enrageN;
   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*100)+'% ATK)');}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
@@ -1129,7 +1140,7 @@ F.ENRAGE_AFTER=ENRAGE_AFTER;F.ENRAGE_PCT=ENRAGE_PCT;
    so window.FarroadCore was never assigned and the whole page died. */
 F.waveScale=waveScale;F.K_BASE=K_BASE;F.levelCurve=levelCurve;F.GAIN_RATIO=GAIN_RATIO;
 F.setWave=function(w){CURRENT_WAVE=w;};F.getK=function(){return K_of(1);};
-F.enrageStacks=function(u){return Math.max(0,u.turnsTaken-ENRAGE_AFTER);};
+F.enrageStacks=function(u){return u.enrageN||0;};
 return F;})();
 </script>
 
@@ -1371,15 +1382,25 @@ P.checkpoint=function(bossesCleared){
    the rate itself has to carry it. 0.65 holds the roster curve Ian asked for —
    a workable party by wave 500 and a genuine tail after it — where full rate had
    the roster effectively complete around wave 900 and the tail collapsing. */
-P.MARKS_RATE=0.65;
-/* v2.8: a further -10% on Aether, on top of the v2.3 halving of idle and boss
-   Aether. Applied to the two SOURCES (idle + kills); the boss hoard and the
+/* v2.9: both rates divided by 5 (Marks 0.65->0.13, Aether 0.90->0.18) — total
+   Aether/Marks gain still ran too high, passive idle income especially, and
+   now doubly so with expeditions (roadmap item 4) adding a SECOND automated
+   income stream on top of live play. Applied here rather than to the idle
+   base coefficients specifically because expeditions call P.killReward()
+   directly (not P.idlePerSec()) for each battle they resolve — cutting only
+   the idle coefficients would have left expedition income untouched. Both
+   rates already feed every Aether/Marks source in the game (idle trickle,
+   per-kill reward — including expeditions' own — boss hoards, and the
+   duplicate-unit conversion, all either use these directly or derive from
+   idlePerSec/killReward), so one cut here reaches everything uniformly. */
+P.MARKS_RATE=0.13;
+/* Applied to the two SOURCES (idle + kills); the boss hoard and the
    duplicate-unit grant are both expressed in waves-of-current-income, so they
    inherit the cut automatically instead of needing their own factor.
    Math.round removed from the kill reward: at 0.9x it was rounding a fractional
    result to an integer BEFORE multiplying by enemy count, which quantised the
    cut away at low waves (14*1.0*0.9 = 12.6 -> 13, only a 7% cut not 10%). */
-P.AETHER_RATE=0.90;
+P.AETHER_RATE=0.18;
 /* Base coefficients cut twice: 0.7->0.1->0.01 (aether), 0.35->0.05->0.005
    (marks). The first cut (to 0.1/0.05) still left wave-1 idle income at ~7.8k
    Aether / ~1.3k Marks per 24h, judged still too fast — and waves run into the
@@ -1388,8 +1409,8 @@ P.AETHER_RATE=0.90;
    w10000" figure quoted elsewhere, which predates the v2.1 refit), waveScale
    is 1 at wave 1, ~4.4 at 200, ~8.8 at 1000, ~26 at 10000 — so a rate that
    feels only "somewhat too generous" at wave 1 is ~26x that at wave 10000.
-   AETHER_RATE/MARKS_RATE are left as-is; they are late-game throttles (roster
-   pacing, the v2.8 Aether cut) layered on TOP of this base, not the base
+   AETHER_RATE/MARKS_RATE are separate, further throttles (roster pacing, the
+   v2.8 Aether cut, the v2.9 /5 cut above) layered on TOP of this base, not the base
    rate itself. */
 P.idlePerSec=function(farthest){var S=C.waveScale(farthest);return {
  aether:0.01*S*P.AETHER_RATE, marks:0.005*S*P.MARKS_RATE};};
@@ -2555,12 +2576,16 @@ function renderUnits(){
      Math.round(recoveryOf(u.id)*100)+'%<span style="color:var(--dimmer)"> — HP regained between waves'+
      (recoveryMaxed(u.id)?' · at cap':'')+'</span></div>':'')+
    ((!u.isParty&&G.enrage)?(function(){
-     var st=C.enrageStacks(u),to=C.ENRAGE_AFTER-u.turnsTaken;
-     return st>0
-      ? '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-        Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% ATK, rising each of its turns</div>'
-      : '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages in '+to+
-        ' of its turns</div>';})():'')+
+     /* Gate is now battle-wide (G.battle.beat vs C.ENRAGE_AFTER), not this
+        unit's own turn count — see the ENRAGE comment in core.js's step().
+        Once open, an enemy that hasn't acted since still reads "calm" until
+        its own next turn actually applies a stack. */
+     var st=C.enrageStacks(u),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
+     if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
+       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% ATK, rising each of its turns</div>';
+     if(gateOpen)return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages on its next turn</div>';
+     return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
+       ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
    '<div>'+pills(u)+'</div>';
   host.appendChild(d);});
  Array.prototype.forEach.call(host.querySelectorAll('[data-row]'),function(el){
@@ -2969,8 +2994,55 @@ function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks()
 function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
+/* ===== PARTY ROSTER EDITOR =====
+ * Was no way to change who's fielded at all — G.party only ever changed via
+ * the boss-milestone auto-join and a pull auto-fielding when there was room
+ * (doPull() in this file). Lives at the top of the GAMBITS tab rather than
+ * its own tab: picking who's in the party and setting their gambits are the
+ * same "build your team" task, so keeping them on one screen beats a tab
+ * hop, and this app already has eight tabs to scroll on a phone. */
+function availableForParty(){
+ var away={};if(G.expedition)G.expedition.partyIds.forEach(function(uid){away[uid]=1;});
+ return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!away[uid];});}
+function benchUnit(uid){
+ if(G.party.length<=1)return false;             /* never allow an empty party */
+ var i=G.party.indexOf(uid);if(i<0)return false;
+ G.party.splice(i,1);
+ return true;}
+function fieldUnit(uid){
+ if(!G.owned[uid]||G.party.indexOf(uid)>=0)return false;
+ if(G.expedition&&G.expedition.partyIds.indexOf(uid)>=0)return false;   /* away units aren't available */
+ if(G.party.length>=P.PARTY_CAP)return false;
+ G.party.push(uid);
+ autoEquip();                                    /* same default-rule pass a pull/boss-join gets */
+ return true;}
+function renderPartyRoster(host){
+ var box=document.createElement('div');box.style.marginBottom='14px';
+ var h='<div class="tiny" style="margin-bottom:6px"><b>PARTY</b> — '+G.party.length+' of '+P.PARTY_CAP+
+  ' fielded. Changes take effect on the next wave, not the one in progress.</div>';
+ G.party.forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+   '<span><span class="uname p">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   ' · LV '+levelOf(uid)+'</span></span>'+
+   '<button class="mini pb-bench" data-u="'+uid+'"'+(G.party.length<=1?' disabled':'')+'>Bench</button></div>';});
+ var avail=availableForParty();
+ h+='<div class="tiny" style="margin:8px 0 4px;color:var(--dimmer)">BENCHED'+
+  (avail.length?'':' — none available')+'</div>';
+ avail.forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
+   '<span><span class="uname">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   ' · LV '+levelOf(uid)+'</span></span>'+
+   '<button class="mini pb-field" data-u="'+uid+'"'+(G.party.length>=P.PARTY_CAP?' disabled':'')+'>Field</button></div>';});
+ box.innerHTML=h;host.appendChild(box);
+ Array.prototype.forEach.call(box.querySelectorAll('.pb-bench'),function(el){
+  el.onclick=function(){if(benchUnit(el.dataset.u)){buildGambits();renderAll();}};});
+ Array.prototype.forEach.call(box.querySelectorAll('.pb-field'),function(el){
+  el.onclick=function(){if(fieldUnit(el.dataset.u)){buildGambits();renderAll();}};});}
 function buildGambits(){
  var host=$('#gambits');host.innerHTML='';
+ renderPartyRoster(host);
  G.party.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var sl=ensureLoadout(uid);
@@ -3195,8 +3267,8 @@ document.addEventListener('visibilitychange',function(){if(document.hidden)doSav
 $('#btnEnrage').onclick=function(){G.enrage=!G.enrage;
  this.textContent='Enrage: '+(G.enrage?'ON':'OFF');this.classList.toggle('on',G.enrage);
  if(G.battle)G.battle.enrage=G.enrage;
- sysLog(G.enrage?'<b>The clock is running.</b> <span class="tiny">Enemies enrage after 8 of their '+
-  'own turns, +5% ATK each turn after. Offence and speed now matter; healing is optional.</span>'
+ sysLog(G.enrage?'<b>The clock is running.</b> <span class="tiny">Enemies enrage after turn 20 of '+
+  'the fight, +5% ATK each turn after. Offence and speed now matter; healing is optional.</span>'
   :'<b style="color:var(--crit)">The clock is off.</b> <span class="tiny">Healing is now unbounded '+
   'sustain and worth +173% — expect every build to collapse onto the heal rule.</span>');};
 Array.prototype.forEach.call(document.querySelectorAll('.spd'),function(b){

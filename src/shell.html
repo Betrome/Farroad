@@ -274,7 +274,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
   <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px"><!--@@BUILD_STAMP@@--></div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
-    v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is
+    v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
     what makes <b>healing optional</b> rather than mandatory, without easier waves or a third slot.</div>
 
   <!-- Drop notice: non-blocking by design. An idle game cannot afford a modal that
@@ -388,11 +388,12 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="expt" style="border-style:solid;border-color:var(--line)">
       <div class="spread"><b>THE CLOCK <span class="tiny">(v1.0, on by default)</span></b>
         <button id="btnEnrage" class="mini on">Enrage: ON</button></div>
-      <div class="tiny" style="margin-top:4px">After <b>8 of its own turns</b>, an enemy gains
-        <b>+5% ATK per turn it takes</b>, compounding. Counted in the enemy's own turns because
-        CTB has no rounds and beats are abstract — a stack that ticks when you watch that unit act
-        is the only legible unit. A <b>Slowed</b> enemy therefore enrages more slowly, so Cripple
-        answers the clock as well as the damage.
+      <div class="tiny" style="margin-top:4px">After <b>turn 20 of the fight</b> (total, both sides
+        combined — not any one enemy's own turn count), every enemy action from then on gains
+        <b>+5% ATK per turn it takes</b>, compounding. Gated on the fight's total turns rather than
+        each enemy's own so a fast enemy can no longer race to its own enrage threshold ahead of
+        the fight itself, sometimes cutting a run short before the party had a real chance to
+        respond.
         <br><br><b>This is what makes healing optional.</b> Without a clock, a heal rule is
         unbounded sustain and nothing else is, so it is worth <b>+173%</b> and every build
         converges on it. With the clock, out-sustaining stops working: solo, heal drops to

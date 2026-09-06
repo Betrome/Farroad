@@ -236,15 +236,25 @@ P.checkpoint=function(bossesCleared){
    the rate itself has to carry it. 0.65 holds the roster curve Ian asked for —
    a workable party by wave 500 and a genuine tail after it — where full rate had
    the roster effectively complete around wave 900 and the tail collapsing. */
-P.MARKS_RATE=0.65;
-/* v2.8: a further -10% on Aether, on top of the v2.3 halving of idle and boss
-   Aether. Applied to the two SOURCES (idle + kills); the boss hoard and the
+/* v2.9: both rates divided by 5 (Marks 0.65->0.13, Aether 0.90->0.18) — total
+   Aether/Marks gain still ran too high, passive idle income especially, and
+   now doubly so with expeditions (roadmap item 4) adding a SECOND automated
+   income stream on top of live play. Applied here rather than to the idle
+   base coefficients specifically because expeditions call P.killReward()
+   directly (not P.idlePerSec()) for each battle they resolve — cutting only
+   the idle coefficients would have left expedition income untouched. Both
+   rates already feed every Aether/Marks source in the game (idle trickle,
+   per-kill reward — including expeditions' own — boss hoards, and the
+   duplicate-unit conversion, all either use these directly or derive from
+   idlePerSec/killReward), so one cut here reaches everything uniformly. */
+P.MARKS_RATE=0.13;
+/* Applied to the two SOURCES (idle + kills); the boss hoard and the
    duplicate-unit grant are both expressed in waves-of-current-income, so they
    inherit the cut automatically instead of needing their own factor.
    Math.round removed from the kill reward: at 0.9x it was rounding a fractional
    result to an integer BEFORE multiplying by enemy count, which quantised the
    cut away at low waves (14*1.0*0.9 = 12.6 -> 13, only a 7% cut not 10%). */
-P.AETHER_RATE=0.90;
+P.AETHER_RATE=0.18;
 /* Base coefficients cut twice: 0.7->0.1->0.01 (aether), 0.35->0.05->0.005
    (marks). The first cut (to 0.1/0.05) still left wave-1 idle income at ~7.8k
    Aether / ~1.3k Marks per 24h, judged still too fast — and waves run into the
@@ -253,8 +263,8 @@ P.AETHER_RATE=0.90;
    w10000" figure quoted elsewhere, which predates the v2.1 refit), waveScale
    is 1 at wave 1, ~4.4 at 200, ~8.8 at 1000, ~26 at 10000 — so a rate that
    feels only "somewhat too generous" at wave 1 is ~26x that at wave 10000.
-   AETHER_RATE/MARKS_RATE are left as-is; they are late-game throttles (roster
-   pacing, the v2.8 Aether cut) layered on TOP of this base, not the base
+   AETHER_RATE/MARKS_RATE are separate, further throttles (roster pacing, the
+   v2.8 Aether cut, the v2.9 /5 cut above) layered on TOP of this base, not the base
    rate itself. */
 P.idlePerSec=function(farthest){var S=C.waveScale(farthest);return {
  aether:0.01*S*P.AETHER_RATE, marks:0.005*S*P.MARKS_RATE};};

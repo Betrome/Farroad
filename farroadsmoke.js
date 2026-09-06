@@ -72,6 +72,19 @@ Object.keys(P).forEach(k => {
     if (e instanceof ReferenceError) fail(`progression.${k}: ReferenceError — ${e.message}`);
   }
 });
+/* BUGFIX: the sweep above calls every exported function with no args at all,
+   including C.setWave() — which sets the module-level CURRENT_WAVE to
+   undefined as a real side effect, not a no-op. Every damage calculation
+   after that reads NaN out of K_of() (K_BASE*waveScale(undefined)), which
+   silently zeroes out combat: a hit's damage becomes NaN, HP comparisons
+   against NaN are always false, and checkEnd() reads that as an instant
+   win/loss. digestRun() above never noticed only because its foes array is
+   always empty (P.buildEnemies doesn't exist — see note there) and reproduc-
+   ibility doesn't care WHAT the corrupted value is, only that it's the same
+   both times. Any later section that runs a real multi-hit battle inherits
+   the corruption silently. Reset explicitly rather than leaving the sweep's
+   side effect to leak into every section that follows it. */
+if (C.setWave) C.setWave(1);
 
 /* ===================== 3. DETERMINISM / NO-OP PROOF ======================= *
  * Same seed must give the same fight, every time. This is what makes the
@@ -360,6 +373,39 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   C.ROSTER.filter(function(r){return r.id==='dorrek';})[0].hp,5);
  ok('P.statsAt (used to build an expedition party from a benched unit\'s level) returns a full stat block',
   st&&st.hp>0&&st.atk>0&&st.spd>0);
+})();
+
+/* =================== 11. ENRAGE GATE IS BATTLE-WIDE (v2.9) =================
+ * Was gated on each enemy's OWN turn count (grace of 8); now gated on the
+ * battle's TOTAL turn count (b.beat, both sides combined, grace of 20) so a
+ * fast enemy can no longer race to its own enrage threshold in real
+ * fight-time regardless of how long the fight has actually run. Two
+ * near-immortal units (huge HP/DEF, so the fight runs long enough to prove
+ * the point) confirm: zero stacks while b.beat<=ENRAGE_AFTER, stacks
+ * accumulate on the enemy's own subsequent turns once it's open. */
+(function(){
+ /* HP is set absurdly high (not just DEF) so this doesn't depend on the
+    mitigation formula or on C.setWave()'s ambient CURRENT_WAVE — an earlier
+    section in this same run may have left it elevated, which raises K_of()
+    and weakens a DEF-only "near-invincible" unit enough to die in 1-2 beats
+    (caught by this test itself failing exactly that way before the fix). */
+ C.setWave(1);   /* known-good K_of() baseline — see the sweep bugfix note above */
+ var rng=C.makeRNG(777);
+ var tank=C.makeUnit({id:'p1',name:'Tank',isParty:true,level:1,slotIndex:0,row:'front',
+  stats:{atk:1,mag:1,def:9999,res:9999,spd:100,evade:0,block:0},maxHp:1e9,hp:1e9,
+  slots:[{cond:'none',action:'strike'}]});
+ var foe=C.makeUnit({id:'e1',name:'Foe',isParty:false,level:1,slotIndex:10,
+  stats:{atk:20,mag:1,def:9999,res:9999,spd:100,evade:0,block:0},maxHp:1e9,hp:1e9,
+  slots:[{cond:'none',action:'strike'}]});
+ var b=C.makeBattle([tank,foe],{rng:rng,enrage:true});
+ var guard=0;
+ while(b.beat<C.ENRAGE_AFTER&&guard++<1000)C.step(b);
+ ok('enrage: no stacks anywhere before the battle-wide gate opens',
+  C.enrageStacks(foe)===0, 'beat='+b.beat+' stacks='+C.enrageStacks(foe));
+ var guard2=0;
+ while(b.beat<C.ENRAGE_AFTER+10&&guard2++<1000)C.step(b);
+ ok('enrage: stacks accumulate on the enemy\'s own turns once the gate is open',
+  C.enrageStacks(foe)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(foe));
 })();
 
 /* ------------------------------- report ---------------------------------- */
