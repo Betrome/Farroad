@@ -920,7 +920,7 @@ function renderLore(){
   'and the curated sequence never repeats itself — so it stays at zero until drops turn random '+
   'after the wave-20 boss. That is by design, not a stall.</div>';return;}
  host.innerHTML='<div class="tiny" style="margin-bottom:6px">'+free+' of '+Math.floor(G.lore)+
-  ' Lore free · '+C.BONUS_COST+' per bonus</div>';
+  ' Lore free · each action\'s next upgrade costs one more Lore than its last</div>';
  /* v2.8: charge actions now appear here. They never could before — this loop read
     only ensureLoadout(), i.e. the GAMBIT SLOTS, and a unit's charge action lives
     in u.chargeAction and fires as an override, never from a slot. The engine
@@ -943,32 +943,28 @@ function renderLore(){
      9, so the filtered list is short and self-explanatory, whereas greying six
      dead rows on every action is the noise this was meant to remove. */
   var live=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);});
+  /* v2.9: price is now keyed to the ACTION's total upgrade count (every
+     non-broad bonus on it, combined — see actionBonusTotal in core.js), not
+     any one bonus's own stack count, so it's computed once per action and
+     reused for every bonus row below rather than per-bonus. */
+  var totalOnAction=C.actionBonusTotal(b);
   live.forEach(function(bid){
    var inf=C.BONUSES[bid],n=b[bid]||0;
-   /* base = what stack #1 costs (swift's speed-tiered 2/4/6, or the flat
-      BONUS_COST for everything else); price = what THIS stack (the n+1'th)
-      actually costs once BONUS_GROWTH's per-stack escalation is applied.
-      Kept separate so the two different reasons a price can be elevated —
-      "this action is already quick" (swift only, fixed) vs. "you already
-      own several of this" (every bonus, rises every stack) — get their own
-      messaging instead of one conflating the other. */
-   var base=(bid==='swift')?C.swiftCost(a):(bid==='broad'?C.BONUS_COST_BROAD:C.BONUS_COST);
-   var price=C.bonusPrice(a,bid,n);
-   var swiftPremium=(bid==='swift'&&base>C.BONUS_COST);
-   /* Broad is flat (see bonusPrice) — buying past stack 1 does nothing and
-      costs the same as stack 1, so it never counts as "escalated". */
-   var escalated=(bid!=='broad'&&n>0);
+   var price=C.bonusPrice(a,bid,totalOnAction);
+   /* Broad is flat (see bonusPrice) and doesn't feed the counter above, so
+      it never reads as "escalated" — every other bonus does the moment this
+      action already has ANY upgrade on it, regardless of which bonus. */
+   var escalated=(bid!=='broad'&&totalOnAction>0);
    /* v2.9 LAYOUT: was a single flex row holding the name, a full sentence of
       description AND three controls. At 375px the description had no min-width:0
       so it refused to shrink, pushing the −/count/+ group off the edge. Now the
       text is its own block and the controls sit on their own right-aligned row,
       which is also what makes the 44px touch targets fit. */
    h+='<div class="bslot">'+
-    '<div class="bname">'+inf.n+
-     (price!==C.BONUS_COST?' <b style="color:var(--crit)">'+price+' Lore</b>':'')+'</div>'+
+    '<div class="bname">'+inf.n+' <b style="color:var(--crit)">'+price+' Lore</b></div>'+
     '<div class="bdesc">'+inf.d+
-     (swiftPremium?' — costs more because this action is already quick.':'')+
-     (escalated?' <span style="color:var(--dimmer)">— stack '+(n+1)+', up from '+base+' base.</span>':'')+
+     (escalated?' <span style="color:var(--dimmer)">— this action\'s upgrade #'+(totalOnAction+1)+
+      '; every upgrade on the same action costs one more.</span>':'')+
      '</div>'+
     '<div class="bctl">'+
      '<button class="mini bm" data-a="'+aid+'" data-b="'+bid+'"'+(n?'':' disabled')+'>−</button>'+

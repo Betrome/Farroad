@@ -242,40 +242,37 @@ var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
    five axes above define where they sit; see VERIFICATION for the coverage
    grid. */
 /* ---- Lore bonuses (v0.8) ---- */
-var BONUS_COST=2;
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
-/* Swift's Lore price rises with how fast the action ALREADY is. The logarithmic
-   curve alone leaves swift live on every action (a fast action still gains +11%
-   on its first stack), which is the auto-buy shape Ian asked to remove. Rather
-   than special-casing the curve, the CURVE stays universal and the PRICE varies:
-   2 Lore on a sluggish action, 6 on an already-quick one. */
-function swiftCost(a){var ini=1/((a&&a.rank)||1);
- return ini<0.85?BONUS_COST:(ini<1.15?BONUS_COST*2:BONUS_COST*3);}
-/* ===== ESCALATING STACK COST =====
- * Every bonus's Lore price used to be FLAT per stack forever — the 1st and
- * the 50th cost the same. With idle Marks (and the duplicates they can't
- * help but produce at endgame, once everything is already owned) landing in
- * the tens of thousands over long play, flat pricing meant no bonus ever
- * stopped being an auto-buy; it just took longer to afford the next one.
- * BONUS_GROWTH multiplies the base price by itself once per stack ALREADY
- * owned, so cost rises every level rather than staying constant: at the
- * default 1.15, stack 1 is still base price, stack 11 is ~4x base, stack 21
- * is ~16x, stack 31 is ~66x — a real soft cap without an arbitrary hard one.
- * Swift keeps its existing speed-tiered BASE price (2/4/6 Lore) — this
- * multiplies ON TOP of that, it doesn't replace it. */
-var BONUS_GROWTH=1.15;
-/* Broad is exempt from both the escalation above and the flat BONUS_COST
-   below it applies to. It's not a per-stack magnitude bonus like the others
-   — applyBonuses() flips the action from single- to multi-target the moment
-   ONE stack exists (`if(b.broad){...}`) and every stack after that does
-   nothing. A strong one-time unlock priced like a repeatable magnitude
-   bonus was underpriced, so it gets its own flat cost instead of inheriting
-   either curve. */
+/* ===== PER-ACTION LINEAR STACK COST (v2.9) =====
+ * Was a per-BONUS geometric curve: BONUS_GROWTH (1.15) compounded the price
+ * of EACH bonus type's OWN stacks, and swift additionally had a speed-tiered
+ * base (2/4/6 Lore) to stop it specifically being an auto-buy. Both were
+ * scoped to a single (action, bonus) pair, which left a loophole: spreading
+ * purchases across DIFFERENT bonus types on the same action never escalated
+ * — stack 1 of five different bonuses on one action was five separate
+ * "stack 1" base prices, so an action could still be maxed out cheaply as
+ * long as no single bonus was stacked deep.
+ * Replaced with a price keyed to the ACTION's total upgrade count — every
+ * non-broad bonus on it, combined — instead of any one bonus's own count:
+ * the Nth Lore upgrade bought for an action, whatever type it is, costs N.
+ * A fresh action's first upgrade is 1 Lore; every further upgrade on that
+ * SAME action costs one more than the last, directly taxing "put everything
+ * into one action" instead of leaving the old per-bonus workaround. Swift's
+ * speed-tiered base is retired along with it — the per-action counter now
+ * discourages over-investing in any one action generally, not just swift
+ * specifically, so the narrower mechanism is redundant. */
+function actionBonusTotal(b){
+ var t=0;Object.keys(b||{}).forEach(function(bid){if(bid!=='broad')t+=b[bid]||0;});
+ return t;}
+/* Broad stays exempt and flat, same reasoning as before this rework: it is a
+   one-time unlock (applyBonuses flips behaviour the moment ONE stack exists;
+   further stacks do nothing), not a repeatable magnitude buy — it neither
+   pays into NOR counts toward the linear total the other bonuses escalate
+   against. */
 var BONUS_COST_BROAD=50;
-function bonusPrice(a,bid,n){
+function bonusPrice(a,bid,totalOnAction){
  if(bid==='broad')return BONUS_COST_BROAD;
- var base=(bid==='swift')?swiftCost(a):BONUS_COST;
- return Math.max(1,Math.round(base*Math.pow(BONUS_GROWTH,n||0)));}
+ return (totalOnAction||0)+1;}
 /* ===== LORE BONUSES =====
  * v2.2 (item 5): support actions had NO upgrade path — Mend did not scale at all
  * while attacks had piercing/keen/weighty. Six support bonuses added below.
@@ -330,8 +327,10 @@ function bonusApplies(a,bid){
  switch(bid){
   /* swift is now DEAD on actions that are already quick — at ×1.25+ a stack is
      worth under 3%, so it is hidden rather than offered as a trap purchase. */
-  /* under the logarithmic curve every action gains something, so swift is live
-     everywhere and is priced by swiftCost() instead of being hidden. */
+  /* under the logarithmic curve every action gains something, so swift stays
+     live everywhere (its diminishing value on an already-fast action is a
+     property of its own effect curve, SWIFT_CEIL/SWIFT_DECAY — unrelated to
+     what it costs, which is now the same per-action counter every bonus uses). */
   case 'swift':     return true;
   case 'potent':    return !!a.power;
   case 'lasting':   return !!a.applies;
@@ -390,18 +389,20 @@ function applyBonuses(map){snapshot();
    Object.keys(b).forEach(function(k){if(k!=='thrifty')ups+=b[k]||0;});
    a.chargeCost=Math.max(CHARGE_COST_MIN,Math.min(CHARGE_COST_MAX,
     CHARGE_FULL+CHARGE_UP_COST*ups-CHARGE_THRIFT*(b.thrifty||0)));}});}
-/* v2.9 BUGFIX: this counted stacks and multiplied by the flat BONUS_COST, which
-   stopped being true in v2.6 when swift became priced by the action's initiative
-   (2, 4 or 6). Free Lore was therefore overstated on any swift purchase and the
-   player could spend past their total. Now each stack is priced the same way the
-   LORE tab prices it — including the per-stack escalation above, so a re-spend
-   from scratch (e.g. after a save round-trip) always reconstructs the same total
-   rather than assuming every owned stack cost today's flat rate. */
+/* Reconstructs total Lore spent from final stack counts, not stacks x
+   today's price, same reasoning as the v2.9 bugfix this replaced: a re-spend
+   from scratch (e.g. after a save round-trip) must always land on the same
+   total the player actually paid. Since price now depends only on the
+   ACTION's running total (not on which bonus each purchase was — see
+   bonusPrice/actionBonusTotal above), the total cost of K non-broad stacks
+   on one action is the closed-form triangular sum 1+2+...+K =
+   K*(K+1)/2, regardless of how those K stacks are split across bonus types
+   or the order they were bought in — no need to replay a purchase sequence. */
 function bonusSpend(map){var n=0;
- Object.keys(map||{}).forEach(function(aid){var a=ACTIONS[aid];
-  Object.keys(map[aid]).forEach(function(bid){
-   var stacks=map[aid][bid]||0;
-   for(var i=0;i<stacks;i++)n+=bonusPrice(a,bid,i);});});
+ Object.keys(map||{}).forEach(function(aid){
+  var b=map[aid],total=actionBonusTotal(b);
+  n+=total*(total+1)/2;
+  n+=(b.broad||0)*BONUS_COST_BROAD;});
  return n;}
 function living(b,p){var o=[];for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp>0&&p(u))o.push(u);}return o;}
 function foes(b,u){return living(b,function(x){return x.isParty!==u.isParty;});}
@@ -708,8 +709,8 @@ F.CAP_CRIT=CAP_CRIT;F.CRIT_MUL=CRIT_MUL;
 F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
-F.BONUSES=BONUSES;F.BONUS_COST=BONUS_COST;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
-F.bonusApplies=bonusApplies;F.swiftCost=swiftCost;F.bonusPrice=bonusPrice;F.BONUS_GROWTH=BONUS_GROWTH;
+F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
+F.bonusApplies=bonusApplies;F.bonusPrice=bonusPrice;F.actionBonusTotal=actionBonusTotal;
 F.BONUS_COST_BROAD=BONUS_COST_BROAD;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;
 F.costOfCharge=costOfCharge;F.CHARGE_UP_COST=CHARGE_UP_COST;

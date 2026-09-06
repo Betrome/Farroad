@@ -242,41 +242,44 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   P.MC_CHARGE_DROP_CHANCE>0 && P.MC_CHARGE_DROP_CHANCE<=0.10);
 })();
 
-/* =================== 8. ESCALATING LORE BONUS COST ========================
- * Bonus stacks used to be flat-priced forever. bonusPrice(a,bid,n) must rise
- * every stack (not just occasionally), stack #1 must still cost exactly the
- * old flat/tiered base (no regression for a first-time buyer), and
- * bonusSpend must reconstruct the SAME total a player actually paid by
- * summing the escalating series rather than stacks x today's price. */
+/* =================== 8. PER-ACTION LINEAR LORE BONUS COST ==================
+ * v2.9 rework: price is keyed to the ACTION's total upgrade count (every
+ * non-broad bonus on it, combined), not any one bonus's own stack count — a
+ * fresh action's first upgrade costs 1 Lore, and every further upgrade on
+ * that SAME action costs one more than the last, whichever bonus type it is.
+ * This must hold: stack 1 on a fresh action costs exactly 1; the price for
+ * ANY bonus rises purely from how many upgrades the ACTION already has, so
+ * buying bonus A then bonus B on the same action escalates B's price even
+ * though B itself has zero stacks; broad stays flat and doesn't feed or pay
+ * into that counter; and bonusSpend's closed-form total matches summing the
+ * actual per-purchase prices in sequence. */
 (function(){
  var strike=C.ACTIONS.strike;
- var slow={rank:2.0}, fast={rank:0.7};   /* synthetic — ini 0.5 (sluggish) vs 1.43 (already-quick) */
- ok('bonusPrice: stack 1 (n=0) costs exactly the flat base for a non-swift bonus',
-  C.bonusPrice(strike,'potent',0)===C.BONUS_COST);
- /* Rounding an integer Lore price means a single extra stack can round to the
-    SAME number at small bases (2 x 1.15 = 2.3 -> still 2) — that is fine, the
-    guarantee that matters is the trend over several stacks, not that every
-    single adjacent pair strictly differs. */
- var p0=C.bonusPrice(strike,'potent',0),p5=C.bonusPrice(strike,'potent',5),p15=C.bonusPrice(strike,'potent',15);
- ok('bonusPrice: cost is non-decreasing and meaningfully higher after several stacks',
-  p5>=p0 && p15>p5 && p15>=p0*4, p0+','+p5+','+p15);
- ok('bonusPrice: swift\'s speed-tiered base still holds at stack 1 (sluggish cheaper than quick)',
-  C.bonusPrice(slow,'swift',0)<C.bonusPrice(fast,'swift',0));
- ok('bonusPrice: swift also escalates with stacks, same as every other bonus',
-  C.bonusPrice(slow,'swift',15)>C.bonusPrice(slow,'swift',0));
- var map={strike:{potent:3}};
- var expected=C.bonusPrice(strike,'potent',0)+C.bonusPrice(strike,'potent',1)+C.bonusPrice(strike,'potent',2);
- ok('bonusSpend sums the escalating series, not stacks x current price',
-  C.bonusSpend(map)===expected, C.bonusSpend(map)+' vs '+expected);
+ ok('bonusPrice: a fresh action\'s first upgrade (total=0) costs exactly 1 Lore',
+  C.bonusPrice(strike,'potent',0)===1);
+ ok('bonusPrice: each further upgrade on the same action costs one more than the last',
+  C.bonusPrice(strike,'potent',1)===2 && C.bonusPrice(strike,'potent',2)===3 &&
+  C.bonusPrice(strike,'potent',9)===10);
+ ok('bonusPrice: price depends on the ACTION\'s total, not the bonus\'s own stack count — '+
+  'a bonus with zero stacks of its own still costs more once the action has other upgrades',
+  C.bonusPrice(strike,'lasting',0)===1 && C.bonusPrice(strike,'lasting',3)===4);
+ ok('actionBonusTotal: sums every non-broad bonus on the action, excludes broad',
+  C.actionBonusTotal({potent:2,lasting:1,broad:5})===3 && C.actionBonusTotal({broad:5})===0);
  /* Broad is a one-time unlock (applyBonuses flips single->multi target the
-    moment ONE stack exists; further stacks do nothing), so it is exempt from
-    BOTH the swift-style tiering and the per-stack escalation — it should
-    just cost its own flat price forever. */
- ok('bonusPrice: Broad is flat at BONUS_COST_BROAD regardless of stacks already owned',
+    moment ONE stack exists; further stacks do nothing), so it stays exempt
+    from the linear counter — it should just cost its own flat price forever,
+    regardless of the action's other upgrades, and never inflate their price. */
+ ok('bonusPrice: Broad is flat at BONUS_COST_BROAD regardless of the action\'s total',
   C.bonusPrice(strike,'broad',0)===C.BONUS_COST_BROAD &&
   C.bonusPrice(strike,'broad',10)===C.BONUS_COST_BROAD);
- ok('bonusPrice: Broad\'s flat price is not the same as the normal per-stack base (visibly distinct)',
-  C.BONUS_COST_BROAD!==C.BONUS_COST);
+ ok('actionBonusTotal excludes broad from what OTHER bonuses escalate against',
+  C.bonusPrice(strike,'potent',C.actionBonusTotal({broad:7}))===1);
+ var map={strike:{potent:2,lasting:1,broad:3}};
+ var expectedLinear=1+2+3;                       /* 3 non-broad stacks total, triangular sum */
+ var expectedBroad=3*C.BONUS_COST_BROAD;
+ ok('bonusSpend: closed-form total matches the triangular sum of non-broad stacks plus flat broad',
+  C.bonusSpend(map)===expectedLinear+expectedBroad,
+  C.bonusSpend(map)+' vs '+(expectedLinear+expectedBroad));
 })();
 
 /* =================== 9. ROSTER EXPANSION 5->10 (prereq for item 4) ========

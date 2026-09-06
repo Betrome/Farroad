@@ -115,7 +115,7 @@ it like a repeatable bonus undersold a strong one-time unlock, so
 the underlying math (`critBonus += 0.08 x stacks`, clamped to `CAP_CRIT`
 at combat time) didn't change.
 
-## Lore bonus cost now escalates per stack (idle-rate follow-up)
+## Lore bonus cost — now a per-action linear counter (two follow-ups)
 
 Idle Aether/Marks were cut hard this session (`P.idlePerSec`'s base
 coefficients: 0.7/0.35 -> 0.1/0.05 -> 0.01/0.005 — see progression.js for the
@@ -126,14 +126,53 @@ forever (`BONUS_COST=2`, or a fixed swift tier of 2/4/6 based on the
 action's speed) — the 1st and 50th stack were identical, so nothing ever
 stopped being an auto-buy once Lore was abundant.
 
-`core.js`'s `bonusPrice(a, bid, n)` now multiplies that base by
-`BONUS_GROWTH` (1.15) once per stack already owned: stack 1 is unchanged,
-stack 11 is ~4x base, stack 21 is ~16x — a soft cap that isn't an arbitrary
-hard limit. `bonusSpend` was updated to sum the escalating series (each
-owned stack priced at what IT cost, not `stacks x today's price`) so the
-"free Lore" total stays exactly reconstructible after a save round-trip.
-Swift keeps its existing speed-tiered base price; the escalation multiplies
-on top of it rather than replacing it.
+**First pass** made `bonusPrice(a, bid, n)` multiply that base by
+`BONUS_GROWTH` (1.15) once per stack of THAT bonus already owned on the
+action. It worked, but left a loophole: escalation was scoped to a single
+(action, bonus) pair, so spreading purchases across DIFFERENT bonus types on
+one action never triggered it — stack 1 of five different bonuses on the
+same action was five separate "stack 1" base prices, so an action could
+still be maxed out cheaply as long as no single bonus was stacked deep. That
+directly worked against the actual goal (discourage dumping everything into
+one action), so it was reworked rather than tuned further:
+
+**Current model**: price is keyed to the ACTION's total upgrade count —
+every non-broad bonus on it, combined (`actionBonusTotal(b)`) — not any one
+bonus's own stack count. A fresh action's first Lore upgrade, whichever
+bonus it is, costs 1; every further upgrade on that SAME action costs one
+more than the last, regardless of which bonus type. Buying Swift then Potent
+on one action prices Potent's first stack at 2, not 1, because the action
+already has one upgrade — this is what actually taxes "focus everything on
+a single action," at the action level rather than the bonus level. Swift's
+old speed-tiered base (2/4/6) is retired along with the geometric curve —
+redundant once the per-action counter does that job for every bonus, not
+just swift. Broad stays exempt and flat at `BONUS_COST_BROAD` (50): a
+one-time unlock (`applyBonuses` flips behaviour the moment ONE stack exists;
+further stacks do nothing), not a repeatable magnitude buy, so it neither
+pays into nor counts toward the linear total other bonuses escalate against.
+
+`bonusSpend` no longer needs to replay a purchase sequence — since price
+depends only on the action's running total, not on which specific bonus or
+what order, the total cost of K non-broad stacks on one action is the
+closed-form triangular sum `K*(K+1)/2`, plus `stacks x BONUS_COST_BROAD`
+for broad, regardless of how those stacks are split across bonus types.
+Covered by headless smoke checks (§ above, item 8) and verified live: buying
+one bonus on Strike correctly raised the LISTED price of every OTHER
+(unbought) bonus on Strike to 2, while a completely separate action (Kesh's
+charge action) stayed at 1 — confirming the escalation is per-action, not
+global — and refunding the purchase correctly reset both the price and the
+free-Lore total.
+
+## Unit level-up cost doubled (Aether outpacing difficulty)
+
+`P.expFor(L)` (progression.js — the cumulative-cost curve `P.marginal`/
+`P.costToNext` derive a unit's next-level Aether cost from) had its
+coefficient doubled, 0.4->0.8: every level now costs exactly 2x what it did.
+The exponent (2.8), and so the curve's overall SHAPE, is untouched — this is
+a flat rescale of the whole curve, not a steeper ramp, because Aether income
+was outpacing the intended difficulty curve broadly, not specifically at
+early or late levels. Reference costs: LV 10 252->505, LV 50 22,865->45,731,
+LV 100 159,243->318,486, LV 1000 100.5M->201.0M.
 
 ## Save / load — built
 

@@ -321,14 +321,18 @@ P.GROWTH={
  sael  :{hp:19,atk:0.6,mag:2.0,def:0.9,res:1.3,spd:2.7}}; /* swift support      */
 /* Verified distinct rather than noise: at L20, spd:def runs 1.46 (Dorrek) to 5.94
    (Vey), and atk:mag runs 0.29 (Mirel) to 2.69 (Dorrek). */
-/* v2.1: cost exponent 2.6, coefficient 1.5 — solved as a fixed point against the
+/* v2.1: cost exponent 2.8, coefficient 0.4 — solved as a fixed point against the
    income curve so that LV 100 lands at wave 1000 exactly.
    Shape check (levels per wave): 0.8 at w1-10, then 0.1 from w100 onward — early
    levels arrive in a rush, later ones grind, which is the requested feel.
-   LV 10 costs 616 · LV 50 costs 40,416 · LV 100 costs 245,036 · LV 1000 costs 97.5M.
    Part of the late slowdown is intentionally NOT in this curve: it comes from the
-   shared pool being split across more units and more Lore sinks competing. */
-P.expFor=function(L){return Math.round(0.4*Math.pow(L,2.8));};
+   shared pool being split across more units and more Lore sinks competing.
+   v2.9: coefficient doubled, 0.4->0.8 — Aether income was outpacing the intended
+   difficulty curve, so every level now costs exactly 2x what it did (the exponent,
+   and so the curve's SHAPE, is untouched — this is a flat rescale, not a steeper
+   ramp). LV 10 costs 252->505 · LV 50 costs 22,865->45,731 · LV 100 costs
+   159,243->318,486 · LV 1000 costs 100.5M->201.0M. */
+P.expFor=function(L){return Math.round(0.8*Math.pow(L,2.8));};
 /* ===== OPTION 2 — costs are RELATIVE to the roster ratchet =====
  * R = the highest level ANY owned unit has ever reached, monotonic. A unit's next
  * level costs the absolute marginal x clamp(L/R, 0.15, 1), so units that are BEHIND
