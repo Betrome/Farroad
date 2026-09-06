@@ -150,6 +150,20 @@ var ACTIONS={
  hearthlight:A({id:'hearthlight',name:'Hearthlight',camp:'mag',tk:'allAllies',power:2.40,rank:1.65,isCharge:true,heal:true,cleanse:1,note:'CHARGE · Ansa.'}),
  vowofstone:A({id:'vowofstone',name:'Vow of Stone',camp:'atk',tk:'allAllies',rank:1.55,isCharge:true,applies:'warded',turns:3,selfTaunt:3,note:'CHARGE · Dorrek.'}),
  ashfall:A({id:'ashfall',name:'Ashfall',camp:'mag',tk:'allFoes',power:1.90,rank:2.00,isCharge:true,applies:'burning',turns:3,note:'CHARGE · Mirel.'}),
+ /* ===== ROSTER EXPANSION 5->10 (prereq for roadmap item 4) =====
+  * Idle quests need units to actually BE benched, which needs a roster bigger
+  * than PARTY_CAP — these five exist to make "owned but not fielded" a real,
+  * sustained state instead of a transient one. Stats/growth are bounded by
+  * the ORIGINAL five's own min/max (see P.MC_STAT_RANGE/MC_GROWTH_RANGE in
+  * progression.js) — new combinations within the existing envelope, not new
+  * extremes, so nothing here silently changes what the customisable MC can
+  * reach. Acquired via Marks pulls only (doPull() already draws from all of
+  * ROSTER generically) — no boss-milestone wave is assigned to any of them. */
+ bloodfury:A({id:'bloodfury',name:'Bloodfury',camp:'atk',tk:'foe',power:3.60,rank:1.70,isCharge:true,critBonus:.40,lifesteal:.25,note:'CHARGE · Skarn. Big single-target hit, heavy crit bonus, partial lifesteal — a reckless crit-fisher that sustains itself.'}),
+ spellbrand:A({id:'spellbrand',name:'Spellbrand',camp:'atk',tk:'foe',power:3.20,rank:1.60,isCharge:true,defPierce:.20,applies:'frail',turns:3,note:'CHARGE · Sorin. Armor-piercing blade strike that sears the target Frail — melee delivery, magic payload.'}),
+ wardcurse:A({id:'wardcurse',name:'Warding Curse',camp:'mag',tk:'allFoes',power:.65,rank:1.75,isCharge:true,applies:'enfeebled',turns:4,note:'CHARGE · Nyra. Light AoE damage plus Enfeebled on every foe — shuts down enemy offense from the back line.'}),
+ aegisstep:A({id:'aegisstep',name:'Aegis Step',camp:'mag',tk:'self',rank:1.45,isCharge:true,applies:'blurred',turns:3,selfTaunt:3,note:'CHARGE · Brenn. Self Blurred (+0.20 evade) plus self-taunt — draws every attack, then dodges most of them. The dodge-tank answer to Vow of Stone.'}),
+ quicksilver:A({id:'quicksilver',name:'Quicksilver Blessing',camp:'mag',tk:'allAllies',power:1.40,rank:1.55,isCharge:true,heal:true,applies:'hasted',turns:2,note:'CHARGE · Sael. Light party heal plus Hasted — trades raw healing for tempo.'}),
  /* ===== MC GENERIC STARTERS (roadmap item 2) =====
   * The customisable MC needs an opening charge action that ISN'T one of the
   * "corner" actions below — those were deliberately written to occupy space
@@ -220,11 +234,13 @@ var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt'
 var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken'];
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
+ 'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
  'heavystrike','wildfire','greatheal',
  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
-/* 16 of a target 25 authored (13 + the 3 MC generic starters above). The
-   remaining 9 are content, not design — the five axes above define where
-   they sit; see VERIFICATION for the coverage grid. */
+/* 21 of a target 25 authored (13 + the 3 MC generic starters + the 5 roster-
+   expansion companions above). The remaining 4 are content, not design — the
+   five axes above define where they sit; see VERIFICATION for the coverage
+   grid. */
 /* ---- Lore bonuses (v0.8) ---- */
 var BONUS_COST=2;
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
@@ -675,7 +691,14 @@ var ROSTER=[
  {id:'ansa',name:'Ansa',role:'healer',row:'back',hp:320,chargeAction:'hearthlight',stats:{atk:14,mag:26,def:14,res:22,spd:96,atkCrit:.04,magCrit:.06,chargeRate:1,block:.02,evade:.04}},
  {id:'dorrek',name:'Dorrek',role:'tank',row:'front',hp:560,chargeAction:'vowofstone',stats:{atk:22,mag:10,def:30,res:20,spd:84,atkCrit:.04,magCrit:.03,chargeRate:1,block:.10,evade:.02}},
  {id:'vey',name:'Vey',role:'rogue',row:'front',hp:300,chargeAction:'ninefold',stats:{atk:24,mag:12,def:14,res:12,spd:124,atkCrit:.12,magCrit:.04,chargeRate:1,block:.02,evade:.10}},
- {id:'mirel',name:'Mirel',role:'mage',row:'back',hp:270,chargeAction:'ashfall',stats:{atk:12,mag:30,def:12,res:20,spd:92,atkCrit:.03,magCrit:.10,chargeRate:1,block:.02,evade:.04}}];
+ {id:'mirel',name:'Mirel',role:'mage',row:'back',hp:270,chargeAction:'ashfall',stats:{atk:12,mag:30,def:12,res:20,spd:92,atkCrit:.03,magCrit:.10,chargeRate:1,block:.02,evade:.04}},
+ /* Roster expansion 5->10, pull-only (no boss-milestone wave assigned) — see
+    the CHARGE ACTIONS comment above for why these bounds and this shape. */
+ {id:'skarn',name:'Skarn',role:'berserker',row:'front',hp:340,chargeAction:'bloodfury',stats:{atk:25,mag:10,def:13,res:13,spd:110,atkCrit:.11,magCrit:.03,chargeRate:1,block:.02,evade:.05}},
+ {id:'sorin',name:'Sorin',role:'battlemage',row:'front',hp:380,chargeAction:'spellbrand',stats:{atk:20,mag:20,def:17,res:15,spd:98,atkCrit:.06,magCrit:.06,chargeRate:1,block:.04,evade:.04}},
+ {id:'nyra',name:'Nyra',role:'warden',row:'back',hp:310,chargeAction:'wardcurse',stats:{atk:15,mag:21,def:17,res:20,spd:90,atkCrit:.04,magCrit:.07,chargeRate:1,block:.04,evade:.04}},
+ {id:'brenn',name:'Brenn',role:'sentinel',row:'front',hp:480,chargeAction:'aegisstep',stats:{atk:13,mag:11,def:18,res:19,spd:102,atkCrit:.04,magCrit:.04,chargeRate:1,block:.03,evade:.09}},
+ {id:'sael',name:'Sael',role:'courier',row:'back',hp:290,chargeAction:'quicksilver',stats:{atk:12,mag:24,def:12,res:16,spd:114,atkCrit:.03,magCrit:.07,chargeRate:1,block:.02,evade:.06}}];
 F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE_FULL;
 /* v2.9: exported because buildEnemies (progression scope) now clamps scaled
    enemy crit against CAP_CRIT. The progression IIFE is a SEPARATE scope under

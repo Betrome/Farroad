@@ -266,14 +266,19 @@ P.killReward=function(w,n){var S=C.waveScale(w);return {
 P.travelSec=function(w){return 8+0.08*w;};
 P.wavesPerHour=function(w){return 3600/(20+P.travelSec(w));};
 /* ===== OFFLINE PROGRESS (save/load) =====
- * This is the FLAT-RATE credit only: elapsed real time since the last save,
- * multiplied by the same idlePerSec() rate the live idle loop already uses,
- * capped so a long absence cannot be gamed into unbounded income. It is
- * deliberately NOT the node-by-node offline simulator specified in GDD §1.4
- * (danger-halt, auto-invest, Waymark stops) — that is a separate, larger,
- * not-yet-built system. The cap value is reused from that same spec (12h,
- * chosen there over Melvor's 24h) so the two systems agree on one number if
- * §1.4 is ever built on top of this. */
+ * Bounds simulateOfflineProgress() in the UI layer: on resume, the road is
+ * actually played forward with the real combat core for however many waves
+ * fit in the elapsed real time (each wave costing 20+travelSec(w) seconds,
+ * the same per-wave cost P.wavesPerHour() is derived from), capped here so
+ * a long absence can't be gamed into unbounded progress. Real fights mean a
+ * real wipe can happen while you're away — Ian chose full fidelity over
+ * GDD §1.4's "offline never wipes" rule. It's still not that section's
+ * full node/Waymark estimator (auto-invest, danger-halt, node-by-node
+ * pacing) — this prototype has no node-based map to advance along, only
+ * wave numbers, so it's the same combat core run unattended rather than a
+ * separate simulation model. The cap value is reused from that same spec
+ * (12h, chosen there over Melvor's 24h) so the two systems agree on one
+ * number if §1.4's fuller model is ever built on top of this. */
 P.OFFLINE_CAP_SEC=12*3600;
 
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
@@ -294,7 +299,15 @@ P.GROWTH={
  ansa  :{hp:22,atk:0.8,mag:2.3,def:0.9,res:1.7,spd:2.0},  /* caster / support   */
  dorrek:{hp:48,atk:1.6,mag:0.5,def:2.4,res:1.4,spd:1.4},  /* wall               */
  vey   :{hp:21,atk:2.0,mag:0.7,def:0.9,res:0.8,spd:3.2},  /* fast, fragile      */
- mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9}}; /* glass caster       */
+ mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9},  /* glass caster       */
+ /* Roster expansion 5->10 (prereq for roadmap item 4 — see the ROSTER
+    EXPANSION comment in core.js). Every unit's atk+mag+def+res+spd growth
+    sums to 7.5, matching the original five's 7.3-7.7 band. */
+ skarn :{hp:19,atk:1.7,mag:0.7,def:1.3,res:1.2,spd:2.6},  /* berserker          */
+ sorin :{hp:30,atk:1.6,mag:1.6,def:1.3,res:1.2,spd:1.8},  /* battle-mage        */
+ nyra  :{hp:20,atk:0.9,mag:1.7,def:1.6,res:1.6,spd:1.7},  /* warden / debuffer  */
+ brenn :{hp:38,atk:1.1,mag:1.0,def:1.5,res:1.5,spd:2.4},  /* evasion tank       */
+ sael  :{hp:19,atk:0.6,mag:2.0,def:0.9,res:1.3,spd:2.7}}; /* swift support      */
 /* Verified distinct rather than noise: at L20, spd:def runs 1.46 (Dorrek) to 5.94
    (Vey), and atk:mag runs 0.29 (Mirel) to 2.69 (Dorrek). */
 /* v2.1: cost exponent 2.6, coefficient 1.5 — solved as a fixed point against the
@@ -394,14 +407,19 @@ P.dupUnitAether=function(w){
  return Math.round(P.DUP_UNIT_WAVES*(kr+idle));};
 
 /* ===== CUSTOMISABLE FIRST UNIT (roadmap item 1) =====
- * Bounds are the ROSTER's OWN min/max per stat (read off C.ROSTER below), so a
- * player-built character can never exceed what an existing, already-balanced
- * specialist already has in that stat. That matters because the difficulty
- * curve is tuned primarily against the starting unit's stats (see the "solo
- * character survival requirement" notes throughout this file) — a build the
- * game has never effectively seen would make every one of those measurements
- * suspect. Keeping every stat inside an already-shipped range means the curve
- * stays valid no matter what the player picks.
+ * Bounds ORIGINATE from the ROSTER's own min/max per stat, but as of the
+ * 1-10 -> 0-15 point-scale widening, they are no longer CLAMPED to it: the
+ * ceiling scales by the same factor the point-max did (10 -> 15 = x1.5) and
+ * the floor scales down by the same factor (/1.5) — evade's [0.02,0.10]
+ * becoming [0,0.15] is the worked example that set this rule (x1.5 lands
+ * exactly on 0.15; 0 is used for the floor instead of /1.5 specifically for
+ * the four percentage stats, since 0% is a normal, functional value for
+ * them). A player-built character CAN now exceed every existing specialist
+ * in a stat — a deliberate tradeoff of the "never exceed shipped content"
+ * safety property for more build variance, per Ian's explicit request. The
+ * difficulty curve is tuned against the ORIGINAL five's stats (see the "solo
+ * character survival requirement" notes throughout this file); an extreme
+ * custom build can now go meaningfully beyond what those measurements cover.
  *
  * EVERY stat the engine tracks is here — ATK/MAG/DEF/RES/SPD/HP plus
  * ATK-CRIT/MAG-CRIT/BLOCK/EVADE — with one deliberate exception: chargeRate is
@@ -410,17 +428,61 @@ P.dupUnitAether=function(w){
  * a choice against, so — consistent with the rule above — none is invented;
  * every unit's charge gauge fills at the same rate regardless of build.
  *
- * Growth is bounded from the ROSTER's own growth min/max the same way, and
- * tied to the SAME point spent on that stat's base value — which isn't a new
- * rule, it's one the shipped five already follow: whichever unit has a stat's
- * highest base value also has that stat's highest growth (Vey/SPD 124+3.2,
- * Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4, Ansa/RES 22+1.7, Kesh/ATK 26+2.1,
- * Dorrek/HP 560+48). Matched here explicitly instead of leaving it to
- * coincidence. ATK-CRIT/MAG-CRIT/BLOCK/EVADE have no growth curve to bound —
- * P.statsAt() copies them straight from base for every unit in the game, not
- * just a custom one, so a level-1 point is this stat for the whole run. */
-P.MC_STAT_RANGE={atk:[12,26],mag:[10,30],def:[12,30],res:[12,22],spd:[84,124],
- hp:[270,560],atkCrit:[0.03,0.12],magCrit:[0.03,0.10],block:[0.02,0.10],evade:[0.02,0.10]};
+ * Growth (P.MC_GROWTH_RANGE below) is UNCHANGED by this — still clamped to
+ * the original five's own min/max, not widened. Ian's ask was specifically
+ * about the stat gates (the evade example has no growth curve at all), and
+ * long-run levelling power is a more sensitive lever than a starting stat,
+ * so it wasn't touched without being asked. Growth is still tied to the SAME
+ * point spent on a stat's base value — the shipped five's own rule
+ * (whichever unit has a stat's highest base value also has that stat's
+ * highest growth: Vey/SPD 124+3.2, Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4,
+ * Ansa/RES 22+1.7, Kesh/ATK 26+2.1, Dorrek/HP 560+48) — just no longer
+ * matched by an equally widened base-stat ceiling. ATK-CRIT/MAG-CRIT/BLOCK/
+ * EVADE have no growth curve to bound either way — P.statsAt() copies them
+ * straight from base for every unit in the game, not just a custom one, so
+ * a level-1 point is this stat for the whole run.
+ *
+ * CORRECTION (post-widening balance test): a "max this stat, spread the rest
+ * of the pool evenly" specialist was simulated wave-by-wave (real enemy
+ * curve, real leveling off real Aether income, 150 seeds/stat) for all ten
+ * stats. Seven landed within noise of a 5.0-wave mean, but the naive x1.5
+ * ceiling badly overshot for three linearly-scaling combat stats — atk 14.1,
+ * mag 14.6, spd 13.8 mean waves survived, vs. ~5.0 for everything else
+ * (DEF/RES are self-limiting by the K/(K+stat) mitigation curve, HP/CRIT/
+ * BLOCK/EVADE are all capped or sub-linear, but raw ATK/MAG damage and SPD's
+ * turn-order/action-count advantage compound directly).
+ *
+ * First attempt just binary-searched each of the three stats' OWN maxed-mean
+ * back to 5.0 in isolation (atk 39->19, mag 45->19, spd 186->110) — that
+ * over-corrected: those same three stats also supply the "spread the rest of
+ * the pool evenly" points every OTHER build's atk/mag/spd draws from, so
+ * shrinking their ceiling that far also starved every non-outlier build,
+ * dragging def/res/hp/crit/block/evade down to 2.1-4.5 (previously ~5.0 at
+ * full widening). Re-solved as a joint problem instead — swept a shared
+ * scale-down factor across all three ceilings together, checking BOTH each
+ * stat's own maxed-mean AND a same-methodology def-maxed build (a stand-in
+ * for every "spread" build) at each step, until both landed on 5.0 at once.
+ * That equilibrium is atk 39->26, mag 45->29, spd 186->131 (all three, and
+ * the def proxy, measured within 0.06 waves of a 5.0 mean at this setting;
+ * pool-shifted at the same rate they were widened, without the 39/45/186
+ * ceilings' compounding payoff). mag's ceiling is bumped one further point,
+ * 29->30, to stay >= Mirel's own mag base stat (30) — the smoke test asserts
+ * every shipped ROSTER stat still falls inside MC_STAT_RANGE, and 29 would
+ * put the MC's own cap a point below a shipped companion's; the 1-point
+ * nudge is inside the sweep's own noise band and doesn't reopen the mag
+ * outlier gap. Floors are UNCHANGED (still the /1.5-widened floor from
+ * above) — only the ceiling needed correcting.
+ *
+ * MANUAL ADJUSTMENT (post-correction, Ian's explicit values): atk 26->28,
+ * res 33->40, magCrit/block/evade 0.15->0.18. Re-run against the same
+ * specialist simulation: atk's own maxed-mean rose back to 5.4 (an 8% gap
+ * over the pack, vs. the fitted equilibrium's 0%), and res/block/evade rose
+ * from 4.0-4.1 to 4.1-4.3 — a small, deliberate re-opening of the atk gap
+ * traded for a little headroom on res/block/evade, not re-verified against
+ * the joint "spread" methodology above since these were requested values,
+ * not re-fit ones. */
+P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
+ hp:[180,840],atkCrit:[0,0.18],magCrit:[0,0.18],block:[0,0.18],evade:[0,0.18]};
 P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
  hp:[18,48]};
 /* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
@@ -428,14 +490,22 @@ P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[
    interpolating to raw floating point would imply a precision the roster
    itself doesn't have (nothing is tuned to e.g. 7.3% block). */
 P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
-/* 10 stats x a default of 5 each = a balanced build spends exactly the pool,
-   same as every stat starting at its own midpoint. 1-10 is a familiar scale
-   that keeps the allocator UI simple: a stepper per stat, remaining points
-   ticking down to zero before the player can confirm. */
+/* Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
+   always maps to statRange[0], so 0 points never means a literal 0 in-game
+   stat) rather than a pre-filled midpoint, so building toward a plan means
+   only ever ADDING points, never having to first subtract from stats you
+   don't want. Range widened 1-10 -> 0-15 for more room to specialize before
+   the fixed pool runs out. POOL is deliberately HALF of the theoretical max
+   spend (10 stats x 15 = 150) rather than derived from a per-stat default —
+   there is no default to derive it from any more — so an even split still
+   lands mid-range on every stat (75/10=7.5, roughly half of 15), while a
+   focused build can afford to max 5 of the 10 stats outright (5x15=75) and
+   leave the rest at floor, which is more extreme specialization than the
+   old 1-10/pool-50 scheme allowed. */
 P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
-P.MC_POINTS_TOTAL=P.MC_STAT_KEYS.length*5;
-P.MC_POINT_MIN=1;
-P.MC_POINT_MAX=10;
+P.MC_POINT_MIN=0;
+P.MC_POINT_MAX=15;
+P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
 /* ===== MC CHARGE ACTIONS: starter pick vs. rare acquisition (roadmap 2) =====
  * Creation only offers the three GENERIC starters (core.js's "MC GENERIC
  * STARTERS" — plain bulk-physical, bulk-magic, or heal, no attached effect).

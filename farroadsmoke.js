@@ -176,7 +176,11 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
 (function(){
  var keys=P.MC_STAT_KEYS;   /* single source of truth — see progression.js */
  var lo={}, hi={}, mid={};
- keys.forEach(function(k){lo[k]=P.MC_POINT_MIN;hi[k]=P.MC_POINT_MAX;mid[k]=5;});
+ /* An even split doesn't divide cleanly (75/10 stats = 7.5) — spread the
+    remainder across the first few stats rather than assume any specific
+    divisibility, so this keeps working if the pool or stat count changes. */
+ var base=Math.floor(P.MC_POINTS_TOTAL/keys.length),remainder=P.MC_POINTS_TOTAL-base*keys.length;
+ keys.forEach(function(k,i){lo[k]=P.MC_POINT_MIN;hi[k]=P.MC_POINT_MAX;mid[k]=base+(i<remainder?1:0);});
  var atFloor=P.mcBuildStats(lo), atCeil=P.mcBuildStats(hi), atMid=P.mcBuildStats(mid);
  function valOf(built,k){return k==='hp'?built.hp:built.stats[k];}
  ok('mcBuildStats: all-min points land exactly on each stat\'s roster floor',
@@ -192,8 +196,13 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   P.MC_PCT_STATS.every(function(k){return atFloor.growth[k]===undefined;}));
  ok('mcPointsSpent: a balanced 5-per-stat build spends exactly the pool',
   P.mcPointsSpent(mid)===P.MC_POINTS_TOTAL);
- ok('MC_POINTS_TOTAL matches 5 points per offered stat',
-  P.MC_POINTS_TOTAL===P.MC_STAT_KEYS.length*5);
+ ok('MC_POINTS_TOTAL is exactly half of the theoretical max spend (stats x MC_POINT_MAX)',
+  P.MC_POINTS_TOTAL===(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2);
+ ok('MC_POINT_MIN is 0 — every stat can be dumped to its roster floor with no points spent',
+  P.MC_POINT_MIN===0);
+ ok('a build that maxes exactly half the stats (5x15) and floors the rest spends exactly the pool',
+  (function(){var half={};keys.forEach(function(k,i){half[k]=i<5?P.MC_POINT_MAX:P.MC_POINT_MIN;});
+   return P.mcPointsSpent(half)===P.MC_POINTS_TOTAL;})());
  var allChargeIds=P.MC_STARTER_CHARGES.concat(P.MC_CHARGE_DROP_POOL);
  var allChargesReal=allChargeIds.every(function(id){var a=C.ACTIONS[id];return !!a&&!!a.isCharge;});
  ok('every starter/drop-pool charge id resolves to a real charge action in C.ACTIONS',
@@ -245,6 +254,57 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   C.bonusPrice(strike,'broad',10)===C.BONUS_COST_BROAD);
  ok('bonusPrice: Broad\'s flat price is not the same as the normal per-stack base (visibly distinct)',
   C.BONUS_COST_BROAD!==C.BONUS_COST);
+})();
+
+/* =================== 9. ROSTER EXPANSION 5->10 (prereq for item 4) ========
+ * A hand-authored batch is exactly where a copy-paste slip (duplicate id,
+ * a stat pushed past the range it's supposed to respect, a charge action
+ * reused from the MC's reserved pools) survives review by eye. These reuse
+ * the SAME bounds the customisable-MC screen is gated on, so they double as
+ * a regression guard for any future roster edit, not just this one. */
+(function(){
+ var R=C.ROSTER;
+ ok('ROSTER has exactly 10 entries', R.length===10, 'got '+R.length);
+ var ids=R.map(function(r){return r.id;});
+ var uniqueIds=ids.filter(function(id,i){return ids.indexOf(id)===i;});
+ ok('every ROSTER id is unique', uniqueIds.length===ids.length,
+  ids.filter(function(id,i){return ids.indexOf(id)!==i;}).join(','));
+ var statKeys=['atk','mag','def','res','spd','atkCrit','magCrit','block','evade'];
+ var outOfRange=[];
+ R.forEach(function(r){
+  statKeys.forEach(function(k){
+   var range=P.MC_STAT_RANGE[k];if(!range)return;
+   var v=r.stats[k];
+   if(v<range[0]||v>range[1])outOfRange.push(r.id+'.'+k+'='+v+' (range '+range[0]+'-'+range[1]+')');});
+  var hpRange=P.MC_STAT_RANGE.hp;
+  if(r.hp<hpRange[0]||r.hp>hpRange[1])outOfRange.push(r.id+'.hp='+r.hp+' (range '+hpRange[0]+'-'+hpRange[1]+')');});
+ ok('every ROSTER unit\'s stats (incl. hp) fall within P.MC_STAT_RANGE', outOfRange.length===0, outOfRange.join('; '));
+ var growthKeys2=['atk','mag','def','res','spd','hp'];
+ var growthOut=[];
+ R.forEach(function(r){
+  var g=P.GROWTH[r.id];if(!g){growthOut.push(r.id+': no P.GROWTH entry');return;}
+  growthKeys2.forEach(function(k){
+   var range=P.MC_GROWTH_RANGE[k];if(!range)return;
+   if(g[k]<range[0]||g[k]>range[1])growthOut.push(r.id+'.'+k+'='+g[k]+' (range '+range[0]+'-'+range[1]+')');});});
+ ok('every ROSTER unit has a P.GROWTH entry within P.MC_GROWTH_RANGE', growthOut.length===0, growthOut.join('; '));
+ var newFive=['skarn','sorin','nyra','brenn','sael'];
+ var budgetOff=newFive.filter(function(id){
+  var g=P.GROWTH[id];var sum=g.atk+g.mag+g.def+g.res+g.spd;
+  return Math.abs(sum-7.5)>1e-9;});
+ ok('the 5 new companions\' atk+mag+def+res+spd growth each sum to exactly 7.5',
+  budgetOff.length===0, budgetOff.join(','));
+ var chargeIds=R.map(function(r){return r.chargeAction;});
+ var uniqueCharges=chargeIds.filter(function(id,i){return chargeIds.indexOf(id)===i;});
+ ok('every ROSTER chargeAction id is unique across the roster',
+  uniqueCharges.length===chargeIds.length,
+  chargeIds.filter(function(id,i){return chargeIds.indexOf(id)!==i;}).join(','));
+ var badCharge=chargeIds.filter(function(id){var a=C.ACTIONS[id];return !a||!a.isCharge;});
+ ok('every ROSTER chargeAction id resolves to a real charge action in C.ACTIONS',
+  badCharge.length===0, badCharge.join(','));
+ var reserved=P.MC_STARTER_CHARGES.concat(P.MC_CHARGE_DROP_POOL);
+ var collision=chargeIds.filter(function(id){return reserved.indexOf(id)>=0;});
+ ok('no ROSTER chargeAction collides with the MC\'s reserved starter/drop-pool charges',
+  collision.length===0, collision.join(','));
 })();
 
 /* ------------------------------- report ---------------------------------- */

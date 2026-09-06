@@ -235,7 +235,13 @@ function renderDropNote(){
    ' <span class="dn-kind">'+d.kind+(d.wave?' · wave '+d.wave:'')+'</span></div>'+
    (d.body?'<div class="dn-body">'+d.body+'</div>':'')+
    (d.why?'<div class="dn-why">▸ '+d.why+'</div>':'')+
-   (d.pair?'<div class="dn-pair">'+d.pair+'</div>':'')+'</div>';});
+   (d.pair?'<div class="dn-pair">'+d.pair+'</div>':'')+
+   /* note: was written by every doPull() outcome (duplicate-unit trivia,
+      pairing hints, "you now hold N copies") and read by NOTHING — dropped
+      silently everywhere. Rendered here with the same dim treatment as
+      `pair`, since unlike the fielded/benched question above (promoted to
+      `why`), these are genuinely secondary asides. */
+   (d.note?'<div class="dn-pair">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;
  var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];renderDropNote();};}
 function grantDrops(w){
@@ -449,21 +455,52 @@ function autoSave(){
 function readSavedSnapshot(){
  try{var raw=localStorage.getItem(SAVE_KEY);return raw?JSON.parse(raw):null;}
  catch(e){return null;}}
-/* Flat-rate offline credit — see P.OFFLINE_CAP_SEC for why this is not the
-   full node-by-node offline simulator described in GDD §1.4. */
-function grantOfflineProgress(snap){
+/* Real offline simulation — replaces the old flat-rate estimate. Plays the
+   actual road forward using the SAME functions live play uses (startWave,
+   C.step, afterWaveCleared, onWipe), for however many waves fit in the
+   capped elapsed time, at the SAME per-wave time cost P.wavesPerHour() is
+   itself derived from (20s fight-equivalent + P.travelSec(w)). Because it's
+   the real engine and not an estimate, a wipe can genuinely happen while
+   you're away and send you back to your last checkpoint — Ian chose full
+   fidelity over the GDD §1.4 "offline never wipes" rule. It's still not
+   that section's full node/Waymark estimator (this prototype has no node
+   map to advance along), just the same combat core run unattended, which is
+   exactly the shape the smoke test's 200-fight headless batch proved out.
+   G.battle must already be valid before this runs (see tryResumeSave) —
+   this only ever ADVANCES from wherever the caller left it. */
+function simulateOfflineProgress(snap){
  var elapsedSec=Math.max(0,(Date.now()-(snap.savedAt||Date.now()))/1000);
  if(elapsedSec<5)return;
  var capped=Math.min(elapsedSec,P.OFFLINE_CAP_SEC);
+ var waveBefore=G.wave,wipesBefore=G.wipes,aetherBefore=G.aether,marksBefore=G.marks;
+ /* Ambient idle trickle for the whole capped stretch — this runs alongside
+    combat during live play too (tick()'s G.idleAcc branch), independent of
+    whether any individual wave is won, so it's credited for the full
+    duration regardless of how many whole waves the loop below fits in. */
  var r=P.idlePerSec(G.farthest);
- var aetherGain=Math.round(r.aether*capped);
- var marksGain=r.marks*P.marksMul(G)*capped;
- G.aether+=aetherGain;G.marks+=marksGain;
+ G.aether+=r.aether*capped;G.marks+=r.marks*P.marksMul(G)*capped;
+ var remaining=capped,guard=0;
+ while(remaining>0&&guard++<200000){
+  if(!G.battle)break;
+  var cost=20+P.travelSec(G.wave);
+  if(cost>remaining)break;
+  var beatGuard=0;
+  while(!G.battle.over&&beatGuard++<4000)C.step(G.battle);
+  if(G.battle.over==='party'){afterWaveCleared();startWave(G.wave+1);}
+  else if(G.battle.over==='enemy'){onWipe();}
+  else break;                     /* shouldn't happen — safety valve, not a real path */
+  remaining-=cost;}
+ var waveDelta=G.wave-waveBefore,wipeDelta=G.wipes-wipesBefore;
+ var aetherGain=Math.round(G.aether-aetherBefore),marksGain=G.marks-marksBefore;
  var awayTxt=elapsedSec>=3600?(elapsedSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(elapsedSec/60))+' minutes';
+ var progressTxt=waveDelta>0?('cleared '+waveDelta+' wave'+(waveDelta===1?'':'s')+', now at wave '+G.wave)
+   :'not enough time passed to clear another wave';
+ var wipeTxt=wipeDelta>0?(' <span style="color:var(--bad)">(wiped '+wipeDelta+' time'+(wipeDelta===1?'':'s')+
+   ' — back to checkpoint)</span>'):'';
  sysLog('<b>Welcome back.</b> <span class="tiny">'+awayTxt+' away'+
-  (elapsedSec>P.OFFLINE_CAP_SEC?' (offline income capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+
-  ' — earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
-  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b> at your idle rate.</span>');}
+  (elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+' — '+progressTxt+'.'+wipeTxt+
+  ' Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
+  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.</span>');}
 /* Only called once, at boot — there is no manual Load button (autosave means
    there is nothing to manually load FROM except what boot already resumes).
    Returns false on first-ever visit or a corrupt/missing save, which tells the
@@ -476,10 +513,13 @@ function tryResumeSave(){
  G=loaded;
  applyCustomMC();
  $('#log').innerHTML='';
- sysLog('<b>Resuming your saved run.</b> <span class="tiny">Back to wave '+(G.wave||1)+
-  ', fresh — a reload restarts the current wave\'s fight rather than freezing it mid-battle.</span>');
- grantOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
+ /* Rebuild the battle for the wave the player was actually on BEFORE
+    simulating forward — skipDrops:true because that wave was not cleared
+    when saved, so grantDrops(w) must not treat resuming it as a fresh
+    visit. Once G.battle is valid, simulateOfflineProgress can step it
+    forward exactly like live play would, including past this same wave. */
  startWave(G.wave||1,true);
+ simulateOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
  buildGambits();renderAll();
  return true;}
 
@@ -873,7 +913,10 @@ function doPull(){
     body:pick.role+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
      (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||''):''),
-    note:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
+    /* why, not note — the "did this actually join my party" question is the
+       whole point of the notification, so it gets the same prominent styling
+       curated-teaching moments use, not the dim secondary-aside treatment. */
+    why:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});}
  }else if(kind==='action'){
   var id=C.EQUIPPABLE[G.rng.nextInt(C.EQUIPPABLE.length)];
@@ -925,7 +968,12 @@ function renderDrops(){
  hist.forEach(function(d){
   h+='<div class="drop"><div class="spread"><span><span class="dw">w'+(d.wave||'?')+
    '</span> <b>'+d.name+'</b></span><span class="tiny">'+d.kind+'</span></div>'+
-   (d.body?'<div class="tiny">'+d.body+'</div>':'')+'</div>';});
+   (d.body?'<div class="tiny">'+d.body+'</div>':'')+
+   /* why/note were dropped here too — a player checking history after being
+      away had no record of whether a pulled companion joined the party or
+      the bench, same gap as the live banner. */
+   (d.why?'<div class="tiny" style="color:var(--hp)">▸ '+d.why+'</div>':'')+
+   (d.note?'<div class="tiny" style="color:var(--dimmer)">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();}
 function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
@@ -1194,7 +1242,7 @@ function boot(seed,mc){
    size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
 var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
  atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
-var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
 var mcChargeChoice=null;
 function mcSanitizeName(raw){
  return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
@@ -1255,7 +1303,7 @@ function showMcCreate(){
  /* Reset the form itself, not just the save — otherwise Reset run would show
     the PREVIOUS character's name and charge pick still sitting there, one
     click away from silently recreating the character it just deleted. */
- mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+ mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
  mcChargeChoice=null;
  $('#mcName').value='';
  $('#app').classList.add('hidden');

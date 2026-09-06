@@ -142,9 +142,31 @@ on top of it rather than replacing it.
 covered by `farroad-smoke.js`'s round-trip test (fields preserved, RNG restored
 to the exact call position, no exceptions on a JSON round-trip). The UI layer
 (`farroad-ui.js`) owns everything the save module deliberately doesn't: reading
-and writing `localStorage`, and the offline-progress grant on load
+and writing `localStorage`, and the offline-progress simulation on load
 (`P.OFFLINE_CAP_SEC`, 12h — see progression.js for why that number and not the
-full §1.4 simulator).
+full §1.4 estimator).
+
+**Offline progress is a real simulation, not an estimate.**
+`simulateOfflineProgress()` plays the road forward on resume using the exact
+same functions live play uses — `startWave`, `C.step`, `afterWaveCleared`,
+`onWipe` — for however many waves fit in the elapsed time at `20+
+P.travelSec(w)` seconds each (the same per-wave cost `P.wavesPerHour()` is
+itself derived from), plus the ambient `idlePerSec()` trickle live play earns
+concurrently, both capped at `P.OFFLINE_CAP_SEC`. `tryResumeSave()` calls
+`startWave(G.wave||1,true)` FIRST (rebuilding a valid `G.battle` for the
+wave the player was actually on, `skipDrops` so it isn't re-granted) and
+only then runs the simulation — the loop needs a real battle in progress to
+step forward from, and `Save.deserialize()` always hands back `battle:null`.
+
+Because it's the real engine and not a formula, **a wipe can genuinely
+happen while the player is away**, sending them back to their last
+checkpoint exactly as it would live — a deliberate choice of full fidelity
+over GDD §1.4's stated "offline never wipes" rule (see that section for the
+tradeoff). This is still not §1.4's full node/Waymark estimator (no
+auto-invest, no danger-halt) since this prototype has no node-based map to
+advance along — it's the same combat core simply run unattended, which is
+exactly the shape the smoke test's 200-fight headless batch already proved
+out safe to do at scale.
 
 **No manual Save/Load/Clear-save controls.** Saving is fully automatic: it is
 hooked into `renderAll()`, which already runs after essentially every state
@@ -183,22 +205,38 @@ single, explicit place to extend.
 Shown once, only when there is no save to resume (`showMcCreate()` in the UI
 bootstrap) — an existing run's Kesh, custom or default, is never touched. The
 formula lives in `progression.js` (`P.MC_STAT_KEYS`, `MC_STAT_RANGE`,
-`MC_GROWTH_RANGE`, `MC_PCT_STATS`, `mcBuildStats`), bounded by the ROSTER's
-own min/max per stat so a player build can never exceed an already-shipped,
-already-balanced specialist in any one stat — see the comment block above
-those constants for the full reasoning and the correlation it's matching
-(highest base stat = highest growth in that stat, already true of the shipped
-five). Covered by a headless smoke test (§ above, item 7).
+`MC_GROWTH_RANGE`, `MC_PCT_STATS`, `mcBuildStats`), originally bounded by the
+ROSTER's own min/max per stat, then widened per Ian's request for more build
+variance — ceilings scale up and floors scale down from those roster bounds,
+so a player build CAN now exceed a shipped specialist in a stat (a deliberate
+tradeoff of the earlier "never exceed shipped values" guarantee). See the
+comment block above those constants for the full reasoning, the correlation
+it's matching (highest base stat = highest growth in that stat, still true of
+the shipped five), and the balance-correction note (below). Covered by a
+headless smoke test (§ above, item 7).
 
 **Every stat but one.** `P.MC_STAT_KEYS` lists all ten offered:
-ATK/MAG/DEF/RES/SPD/HP/ATK-CRIT/MAG-CRIT/BLOCK/EVADE, 50-point pool (10 x 5
-default). HP got its own point rather than riding the DEF choice as first
-shipped — cleaner and lets DEF and tankiness-via-HP be separate decisions.
-CRIT/BLOCK/EVADE have no growth curve, because `P.statsAt()` gives NONE of
-them a growth curve for any unit — a level-1 point is that stat for the whole
-run, same as it always has been for the five companions. `chargeRate` is the
-one field deliberately NOT offered: all five shipped units carry the same 1.0,
-so there is no already-played range to bound a choice against.
+ATK/MAG/DEF/RES/SPD/HP/ATK-CRIT/MAG-CRIT/BLOCK/EVADE, 75-point pool, 0-15 per
+stat, every stat starting at 0. HP got its own point rather than riding the
+DEF choice as first shipped — cleaner and lets DEF and tankiness-via-HP be
+separate decisions. CRIT/BLOCK/EVADE have no growth curve, because
+`P.statsAt()` gives NONE of them a growth curve for any unit — a level-1 point
+is that stat for the whole run, same as it always has been for the five
+companions. `chargeRate` is the one field deliberately NOT offered: all five
+shipped units carry the same 1.0, so there is no already-played range to
+bound a choice against.
+
+**Balance correction.** A "max one stat, spread the rest of the pool evenly"
+specialist was simulated wave-by-wave (real enemy curve, real leveling off
+real Aether income) for all ten stats after the widening: seven landed within
+noise of a 5-wave mean, but ATK/MAG/SPD's ceiling let them compound (linear
+damage/turn-order stats, unlike DEF/RES's diminishing-returns mitigation or
+the capped CRIT/BLOCK/EVADE) to a 14+ wave mean. Their ceilings were re-fit
+as a joint problem — not just each stat's own maxed mean, but the "spread"
+contribution every OTHER build draws from those same three stats — landing at
+atk 39->26, mag 45->30, spd 186->131. All ten now cluster at a 4-5 wave mean
+with no dominant pick; floors were untouched since they never drove the
+imbalance.
 
 **No ROSTER/GROWTH factory.** Rather than threading a per-unit override
 through every `C.ROSTER` lookup site (nine of them — buildParty, renderLore,
@@ -273,4 +311,78 @@ far less invasive than auditing every call site.
 
 **What GDD item 1 asked for that this doesn't touch:** the 20 unwritten
 companions still want to be authored as data rather than as ROSTER literals —
-that part of the original implication is untouched by this change.
+that part of the original implication is untouched by this change. (Update:
+5 of those 20 are now written — see below.)
+
+## Roster expansion 5→10 — prerequisite for item 4 (idle quests)
+
+Item 4 (idle quests for benched units) is explicitly paused, but it needs
+units to actually BE benched, which the game couldn't do: `G.owned` vs
+`G.party` already existed as separate concepts (the pull UI already labelled
+the state "Benched"), but with only 5 companions authored against
+`PARTY_CAP=5`, every owned unit was always fielded — the instant all 5 were
+owned, every further pull or boss reward converted straight to Aether instead
+of ever producing a 6th owned unit. `skarn, sorin, nyra, brenn, sael` (10 of
+a target 25) exist to make a real, persistent bench possible.
+
+**Pull-only, no engine changes needed.** New companions are acquired purely
+through the existing Marks pull (`doPull()` in farroad-ui.js already draws
+generically from `C.ROSTER.filter(!G.owned[id])` with zero unit-count
+assumptions) — the boss-milestone schedule (waves 20/150/500/1500) is
+untouched and none of the five get a milestone wave. Every other system that
+touches `C.ROSTER` (buildParty, renderLore, the loadout editor's charge box,
+save/load) already iterates it generically, so this was close to pure data
+addition — no new mechanics, only new numbers.
+
+**Numbers are bounded by the existing five, not new extremes.** Every stat
+and growth value sits inside the ranges `P.MC_STAT_RANGE`/`MC_GROWTH_RANGE`
+already encode (themselves derived from the original five) — new
+combinations within the existing envelope, so the customisable-MC creation
+screen needed zero changes. Each new unit's `atk+mag+def+res+spd` growth
+sums to exactly 7.5, matching the original five's 7.3–7.7 band. No new unit
+ties or exceeds an existing per-stat champion; two were placed one notch
+under a leader on purpose (Skarn's atkCrit .11 under Vey's .12; Brenn's
+evade .09 under Vey's .10) so that leader's identity stays unambiguous.
+Design rationale for each unit and its charge action lives in
+farroadgdd.md's roadmap item 4 note and this session's plan file.
+
+**Covered by 6 new headless smoke-test checks**, all pure data validation
+(no combat/UI needed): exactly 10 unique `ROSTER` ids; every unit's stats
+(including hp) fall within `P.MC_STAT_RANGE`; every unit has a `P.GROWTH`
+entry within `P.MC_GROWTH_RANGE`; the 5 new units' growth budgets sum to
+exactly 7.5; every `chargeAction` id is unique across the roster, resolves to
+a real `isCharge` action, and doesn't collide with the MC's reserved
+`MC_STARTER_CHARGES`/`MC_CHARGE_DROP_POOL` ids. These double as a regression
+guard for any future roster edit, not just this one.
+
+**Verified live via Marks pulls** (not just manual save edits): pulled
+against the expanded roster until the party filled to 5, then confirmed the
+next two companion pulls correctly landed as owned-but-benched rather than
+fielded or lost.
+
+**Found in passing, fixed in a follow-up.** The pull's companion-drop object
+carried a `note` field ("Fielded immediately" / "Benched — your party is
+full...") that neither `renderDropNote()` nor `renderDrops()` ever read (both
+only read `why`/`pair`/`body`) — a player pulling a new companion was never
+actually told, anywhere in the UI, whether it joined the party or the bench.
+Pre-existing (the same class of dead-field bug as `G.chargeAction`), only
+became reachable/noticeable once benching was sustainable.
+
+**The fix:** rather than patch just the companion case, `note` turned out to
+be written by all six `doPull()` outcomes and read by none of them — a
+systemic gap, not a one-off. The fielded/benched question is the one thing
+the notification actually exists to answer, so that specific field was
+promoted from `note` to `why` (already rendered, with the same prominent
+`--hp`-colored styling curated-teaching moments use) rather than just wired
+up as one more dim aside. The other five `note` uses (duplicate-currency
+trivia, pairing hints, "you now hold N copies") are genuinely secondary, so
+`note` rendering was added to both `renderDropNote()` (the live banner) and
+the drop-history list in `renderDrops()` using the same dim treatment as
+`pair` — fixing the history view too, which had the identical gap.
+
+**Not touched:** `farroadunits.csv`, `farroadcontentdesigner.html`, and
+`farroadcsvREADME.md` are the user's own authoring-workflow files (the CSV
+still mirrors the original 5; the tool and README describe that same CSV
+pipeline) — left alone rather than updated to a count they don't reflect.
+`src/farroad-save.js` needed no changes (all persistence is already generic
+dictionaries keyed by unit id).

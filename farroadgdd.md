@@ -12,17 +12,29 @@
 > growth curve, name and charge action for their main character, shown once on
 > a genuinely fresh save (never retroactively, so an existing run's Kesh is
 > left alone).
-> *As built:* a 50-point pool across EVERY stat the engine tracks except
+> *As built:* a 75-point pool across EVERY stat the engine tracks except
 > chargeRate — ATK/MAG/DEF/RES/SPD/HP plus ATK-CRIT/MAG-CRIT/BLOCK/EVADE
-> (1-10 each, default 5) — where each stat is linearly interpolated between
-> the ROSTER's own min and max for that stat — so a player build can never
-> exceed what an already-shipped, already-balanced specialist has in any one
-> stat, which is what keeps the difficulty curve (tuned primarily against the
-> starting unit) valid regardless of the build. chargeRate is the one field
-> left out: the five shipped units all carry the identical value (1.0), so
-> there is no already-played range to bound a choice against — inventing one
-> would break the "never exceed shipped values" guarantee everything else
-> here relies on.
+> (0-15 each, every stat starts at 0 so a build is chosen from scratch rather
+> than nudged off a pre-filled midpoint) — where each stat is linearly
+> interpolated between a range derived from the ROSTER's own min and max for
+> that stat, per Ian's request for more build variance: ceilings scale up and
+> floors scale down from the roster's own bounds (originally x1.5/÷1.5,
+> matching the point-scale widening 10->15), so a player build CAN now exceed
+> every shipped specialist in a stat — a deliberate tradeoff of the earlier
+> "never exceed shipped values" guarantee for more variance. chargeRate is
+> the one field left out: the five original units all carry the identical
+> value (1.0), so there is no already-played range to bound a choice against.
+> *Balance correction:* dumping the full pool into one stat and spreading the
+> rest evenly was simulated wave-by-wave for all ten stats — seven landed
+> within noise of a 5-wave mean, but ATK/MAG/SPD's naive x1.5 ceiling let them
+> compound (linear damage/turn-order stats) far past the others (14+ wave
+> mean vs. ~5). Their ceilings were walked back as a joint fit — not just
+> each stat's own maxed mean, but the "spread the rest of the pool" contribution
+> every OTHER build draws from those same three stats — landing at
+> atk 39->26, mag 45->30 (nudged up 1 from the fitted 29 to stay >= Mirel's
+> own mag stat), spd 186->131. All ten stats now cluster at a 4-5 wave mean
+> with no dominant pick. Floors were untouched — only the ceiling drove the
+> imbalance.
 > Growth per level (for ATK/MAG/DEF/RES/SPD/HP only — CRIT/BLOCK/EVADE never
 > grow with level for ANY unit in the game, `P.statsAt()` copies them straight
 > from base) is interpolated the same way from the same point, which isn't a
@@ -49,7 +61,9 @@
 > already used on `C.ROSTER`), which every existing lookup site — buildParty,
 > renderLore, the loadout editor's charge box — already reads from, so nothing
 > else needed to change. The 20 unwritten companions still want to be authored
-> as data from the start; that part of the implication stands.
+> as data from the start; that part of the implication stands. (Update: 5 of
+> those 20 are now written — `skarn, sorin, nyra, brenn, sael`, 10 of 25 total
+> — see roadmap item 4's note on why.)
 >
 > **2. Swappable charge actions — MC only — BUILT.** Change your charge action
 > when you acquire a new one. This applies **only to the Main Character**
@@ -84,8 +98,9 @@
 > `base → level → status`; equipment inserts between level and status. Mettal has
 > had no source and no sink since it was specified, which is why it is hidden.
 >
-> **4. Idle quests for benched units** — unused units go on automated party quests
-> earning currencies, actions, gambits and equipment.
+> **4. Idle quests for benched units — PAUSED, prerequisite now built.** Unused
+> units go on automated party quests earning currencies, actions, gambits and
+> equipment.
 > ***This is the architecturally significant one.*** It requires running combat
 > **headlessly, away from the main loop, potentially many times per tick**. That
 > is exactly why the module split was drawn where it was: `farroad-core.js` and
@@ -95,6 +110,33 @@
 > budgeted against a real number rather than guessed.
 > It also solves a live design problem: benched units currently have no purpose
 > and no reason to be levelled, which gets worse as the roster grows toward 25.
+>
+> **Prerequisite discovered and closed:** benching was mechanically real
+> (`G.owned` vs `G.party` already existed as separate concepts) but never
+> SUSTAINABLE — with only 5 companions authored against a `PARTY_CAP` of 5,
+> every owned unit was always fielded; the instant all 5 were owned, every
+> further pull or boss reward converted straight to Aether instead of ever
+> creating a 6th owned unit. Roster expanded 5→10 (`skarn, sorin, nyra, brenn,
+> sael` — see the ROSTER EXPANSION comment in core.js) specifically to make a
+> real, persistent bench possible. Item 4 itself remains unbuilt; this only
+> clears the ground for it.
+>
+> **Fuller mechanic, as discussed when scoping the roster expansion (not yet
+> built, recorded here for when this is picked back up):** benched units form
+> QUEST PARTIES of up to `PARTY_CAP` (5), same as the main party. A quest
+> party can either take a specific quest or go EXPLORING open-endedly. Every
+> member's stats affect quest success and reward quality — not just a flat
+> per-unit rate. An exploring party keeps going until its HP drops to a
+> critical threshold, at which point it automatically turns back (mirrors the
+> main party's existing wipe→checkpoint safety net, but self-triggered before
+> an actual wipe rather than after one). A party out for long enough can
+> discover a dungeon or event — this is how roadmap item 5 (dungeons, bosses
+> and events) actually gets found; item 5 cannot be built before this, since
+> the discovery mechanism IS an idle-quest outcome. Once found, the player
+> chooses whether to attempt it with the QUESTING party or pull back the MAIN
+> party to attempt it instead. Reward rate for a full quest party was set at
+> roughly HALF the main idle-income rate when this was scoped — a real second
+> income stream, deliberately secondary to actively fielding a strong party.
 >
 > **5. Dungeons, bosses and events** discovered through quests, attempted with the
 > main party — a content/encounter system distinct from wave progression.
@@ -179,13 +221,19 @@
 > layer. See MODULES.md's "Save / load — built" section for what's actually
 > covered.
 >
-> **This is the flat-rate credit, not the simulator below.** Offline progress is
-> currently: elapsed real time since the last save × the same `idlePerSec()` rate
-> the live idle loop already uses, capped at 12h (`P.OFFLINE_CAP_SEC`, reusing the
-> number chosen here rather than inventing a second one). It is deliberately NOT
-> the node-by-node estimator described next in this section — no danger-halt, no
-> auto-invest, no Waymark stop. That fuller system is still open work if the
-> simple linear credit ever needs to become the real thing.
+> **Upgraded from a flat-rate credit to a real simulation.** Offline progress
+> now actually plays the road forward on resume, using the SAME combat core
+> live play uses (`simulateOfflineProgress()` in farroad-ui.js) — real fights,
+> real wave advancement, real drops — for however many waves fit in the
+> elapsed time (capped at 12h, `P.OFFLINE_CAP_SEC`), plus the same ambient
+> idle trickle (`idlePerSec()`) live play already earns concurrently. Because
+> it's the real engine, a wipe can genuinely happen while you're away and
+> send you back to your last checkpoint — **a deliberate choice of full
+> fidelity over this section's "offline never wipes" rule.** It is still NOT
+> the node-by-node estimator described next in this section — no danger-halt,
+> no auto-invest, no Waymark stop — because this prototype has no node-based
+> map to advance along, only sequential wave numbers; that fuller model
+> remains open work if the map itself is ever built.
 
 > ## §0.1 — FIRST END-TO-END PLAY RESULT (v2.8 tuning)
 >

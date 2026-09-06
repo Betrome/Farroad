@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 01:19 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 07:30 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -247,7 +247,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
   <div class="panel">
     <div class="spread" style="margin-bottom:6px">
       <label style="margin:0">Stats</label>
-      <span class="tiny" id="mcPointsLbl">50 points remaining</span>
+      <span class="tiny" id="mcPointsLbl">75 points remaining</span>
     </div>
     <div id="mcStats"></div>
     <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
@@ -271,7 +271,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 01:19 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 07:30 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is
@@ -549,6 +549,20 @@ var ACTIONS={
  hearthlight:A({id:'hearthlight',name:'Hearthlight',camp:'mag',tk:'allAllies',power:2.40,rank:1.65,isCharge:true,heal:true,cleanse:1,note:'CHARGE · Ansa.'}),
  vowofstone:A({id:'vowofstone',name:'Vow of Stone',camp:'atk',tk:'allAllies',rank:1.55,isCharge:true,applies:'warded',turns:3,selfTaunt:3,note:'CHARGE · Dorrek.'}),
  ashfall:A({id:'ashfall',name:'Ashfall',camp:'mag',tk:'allFoes',power:1.90,rank:2.00,isCharge:true,applies:'burning',turns:3,note:'CHARGE · Mirel.'}),
+ /* ===== ROSTER EXPANSION 5->10 (prereq for roadmap item 4) =====
+  * Idle quests need units to actually BE benched, which needs a roster bigger
+  * than PARTY_CAP — these five exist to make "owned but not fielded" a real,
+  * sustained state instead of a transient one. Stats/growth are bounded by
+  * the ORIGINAL five's own min/max (see P.MC_STAT_RANGE/MC_GROWTH_RANGE in
+  * progression.js) — new combinations within the existing envelope, not new
+  * extremes, so nothing here silently changes what the customisable MC can
+  * reach. Acquired via Marks pulls only (doPull() already draws from all of
+  * ROSTER generically) — no boss-milestone wave is assigned to any of them. */
+ bloodfury:A({id:'bloodfury',name:'Bloodfury',camp:'atk',tk:'foe',power:3.60,rank:1.70,isCharge:true,critBonus:.40,lifesteal:.25,note:'CHARGE · Skarn. Big single-target hit, heavy crit bonus, partial lifesteal — a reckless crit-fisher that sustains itself.'}),
+ spellbrand:A({id:'spellbrand',name:'Spellbrand',camp:'atk',tk:'foe',power:3.20,rank:1.60,isCharge:true,defPierce:.20,applies:'frail',turns:3,note:'CHARGE · Sorin. Armor-piercing blade strike that sears the target Frail — melee delivery, magic payload.'}),
+ wardcurse:A({id:'wardcurse',name:'Warding Curse',camp:'mag',tk:'allFoes',power:.65,rank:1.75,isCharge:true,applies:'enfeebled',turns:4,note:'CHARGE · Nyra. Light AoE damage plus Enfeebled on every foe — shuts down enemy offense from the back line.'}),
+ aegisstep:A({id:'aegisstep',name:'Aegis Step',camp:'mag',tk:'self',rank:1.45,isCharge:true,applies:'blurred',turns:3,selfTaunt:3,note:'CHARGE · Brenn. Self Blurred (+0.20 evade) plus self-taunt — draws every attack, then dodges most of them. The dodge-tank answer to Vow of Stone.'}),
+ quicksilver:A({id:'quicksilver',name:'Quicksilver Blessing',camp:'mag',tk:'allAllies',power:1.40,rank:1.55,isCharge:true,heal:true,applies:'hasted',turns:2,note:'CHARGE · Sael. Light party heal plus Hasted — trades raw healing for tempo.'}),
  /* ===== MC GENERIC STARTERS (roadmap item 2) =====
   * The customisable MC needs an opening charge action that ISN'T one of the
   * "corner" actions below — those were deliberately written to occupy space
@@ -619,11 +633,13 @@ var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt'
 var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken'];
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
+ 'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
  'heavystrike','wildfire','greatheal',
  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
-/* 16 of a target 25 authored (13 + the 3 MC generic starters above). The
-   remaining 9 are content, not design — the five axes above define where
-   they sit; see VERIFICATION for the coverage grid. */
+/* 21 of a target 25 authored (13 + the 3 MC generic starters + the 5 roster-
+   expansion companions above). The remaining 4 are content, not design — the
+   five axes above define where they sit; see VERIFICATION for the coverage
+   grid. */
 /* ---- Lore bonuses (v0.8) ---- */
 var BONUS_COST=2;
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
@@ -1074,7 +1090,14 @@ var ROSTER=[
  {id:'ansa',name:'Ansa',role:'healer',row:'back',hp:320,chargeAction:'hearthlight',stats:{atk:14,mag:26,def:14,res:22,spd:96,atkCrit:.04,magCrit:.06,chargeRate:1,block:.02,evade:.04}},
  {id:'dorrek',name:'Dorrek',role:'tank',row:'front',hp:560,chargeAction:'vowofstone',stats:{atk:22,mag:10,def:30,res:20,spd:84,atkCrit:.04,magCrit:.03,chargeRate:1,block:.10,evade:.02}},
  {id:'vey',name:'Vey',role:'rogue',row:'front',hp:300,chargeAction:'ninefold',stats:{atk:24,mag:12,def:14,res:12,spd:124,atkCrit:.12,magCrit:.04,chargeRate:1,block:.02,evade:.10}},
- {id:'mirel',name:'Mirel',role:'mage',row:'back',hp:270,chargeAction:'ashfall',stats:{atk:12,mag:30,def:12,res:20,spd:92,atkCrit:.03,magCrit:.10,chargeRate:1,block:.02,evade:.04}}];
+ {id:'mirel',name:'Mirel',role:'mage',row:'back',hp:270,chargeAction:'ashfall',stats:{atk:12,mag:30,def:12,res:20,spd:92,atkCrit:.03,magCrit:.10,chargeRate:1,block:.02,evade:.04}},
+ /* Roster expansion 5->10, pull-only (no boss-milestone wave assigned) — see
+    the CHARGE ACTIONS comment above for why these bounds and this shape. */
+ {id:'skarn',name:'Skarn',role:'berserker',row:'front',hp:340,chargeAction:'bloodfury',stats:{atk:25,mag:10,def:13,res:13,spd:110,atkCrit:.11,magCrit:.03,chargeRate:1,block:.02,evade:.05}},
+ {id:'sorin',name:'Sorin',role:'battlemage',row:'front',hp:380,chargeAction:'spellbrand',stats:{atk:20,mag:20,def:17,res:15,spd:98,atkCrit:.06,magCrit:.06,chargeRate:1,block:.04,evade:.04}},
+ {id:'nyra',name:'Nyra',role:'warden',row:'back',hp:310,chargeAction:'wardcurse',stats:{atk:15,mag:21,def:17,res:20,spd:90,atkCrit:.04,magCrit:.07,chargeRate:1,block:.04,evade:.04}},
+ {id:'brenn',name:'Brenn',role:'sentinel',row:'front',hp:480,chargeAction:'aegisstep',stats:{atk:13,mag:11,def:18,res:19,spd:102,atkCrit:.04,magCrit:.04,chargeRate:1,block:.03,evade:.09}},
+ {id:'sael',name:'Sael',role:'courier',row:'back',hp:290,chargeAction:'quicksilver',stats:{atk:12,mag:24,def:12,res:16,spd:114,atkCrit:.03,magCrit:.07,chargeRate:1,block:.02,evade:.06}}];
 F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE_FULL;
 /* v2.9: exported because buildEnemies (progression scope) now clamps scaled
    enemy crit against CAP_CRIT. The progression IIFE is a SEPARATE scope under
@@ -1371,14 +1394,19 @@ P.killReward=function(w,n){var S=C.waveScale(w);return {
 P.travelSec=function(w){return 8+0.08*w;};
 P.wavesPerHour=function(w){return 3600/(20+P.travelSec(w));};
 /* ===== OFFLINE PROGRESS (save/load) =====
- * This is the FLAT-RATE credit only: elapsed real time since the last save,
- * multiplied by the same idlePerSec() rate the live idle loop already uses,
- * capped so a long absence cannot be gamed into unbounded income. It is
- * deliberately NOT the node-by-node offline simulator specified in GDD §1.4
- * (danger-halt, auto-invest, Waymark stops) — that is a separate, larger,
- * not-yet-built system. The cap value is reused from that same spec (12h,
- * chosen there over Melvor's 24h) so the two systems agree on one number if
- * §1.4 is ever built on top of this. */
+ * Bounds simulateOfflineProgress() in the UI layer: on resume, the road is
+ * actually played forward with the real combat core for however many waves
+ * fit in the elapsed real time (each wave costing 20+travelSec(w) seconds,
+ * the same per-wave cost P.wavesPerHour() is derived from), capped here so
+ * a long absence can't be gamed into unbounded progress. Real fights mean a
+ * real wipe can happen while you're away — Ian chose full fidelity over
+ * GDD §1.4's "offline never wipes" rule. It's still not that section's
+ * full node/Waymark estimator (auto-invest, danger-halt, node-by-node
+ * pacing) — this prototype has no node-based map to advance along, only
+ * wave numbers, so it's the same combat core run unattended rather than a
+ * separate simulation model. The cap value is reused from that same spec
+ * (12h, chosen there over Melvor's 24h) so the two systems agree on one
+ * number if §1.4's fuller model is ever built on top of this. */
 P.OFFLINE_CAP_SEC=12*3600;
 
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
@@ -1399,7 +1427,15 @@ P.GROWTH={
  ansa  :{hp:22,atk:0.8,mag:2.3,def:0.9,res:1.7,spd:2.0},  /* caster / support   */
  dorrek:{hp:48,atk:1.6,mag:0.5,def:2.4,res:1.4,spd:1.4},  /* wall               */
  vey   :{hp:21,atk:2.0,mag:0.7,def:0.9,res:0.8,spd:3.2},  /* fast, fragile      */
- mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9}}; /* glass caster       */
+ mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9},  /* glass caster       */
+ /* Roster expansion 5->10 (prereq for roadmap item 4 — see the ROSTER
+    EXPANSION comment in core.js). Every unit's atk+mag+def+res+spd growth
+    sums to 7.5, matching the original five's 7.3-7.7 band. */
+ skarn :{hp:19,atk:1.7,mag:0.7,def:1.3,res:1.2,spd:2.6},  /* berserker          */
+ sorin :{hp:30,atk:1.6,mag:1.6,def:1.3,res:1.2,spd:1.8},  /* battle-mage        */
+ nyra  :{hp:20,atk:0.9,mag:1.7,def:1.6,res:1.6,spd:1.7},  /* warden / debuffer  */
+ brenn :{hp:38,atk:1.1,mag:1.0,def:1.5,res:1.5,spd:2.4},  /* evasion tank       */
+ sael  :{hp:19,atk:0.6,mag:2.0,def:0.9,res:1.3,spd:2.7}}; /* swift support      */
 /* Verified distinct rather than noise: at L20, spd:def runs 1.46 (Dorrek) to 5.94
    (Vey), and atk:mag runs 0.29 (Mirel) to 2.69 (Dorrek). */
 /* v2.1: cost exponent 2.6, coefficient 1.5 — solved as a fixed point against the
@@ -1499,14 +1535,19 @@ P.dupUnitAether=function(w){
  return Math.round(P.DUP_UNIT_WAVES*(kr+idle));};
 
 /* ===== CUSTOMISABLE FIRST UNIT (roadmap item 1) =====
- * Bounds are the ROSTER's OWN min/max per stat (read off C.ROSTER below), so a
- * player-built character can never exceed what an existing, already-balanced
- * specialist already has in that stat. That matters because the difficulty
- * curve is tuned primarily against the starting unit's stats (see the "solo
- * character survival requirement" notes throughout this file) — a build the
- * game has never effectively seen would make every one of those measurements
- * suspect. Keeping every stat inside an already-shipped range means the curve
- * stays valid no matter what the player picks.
+ * Bounds ORIGINATE from the ROSTER's own min/max per stat, but as of the
+ * 1-10 -> 0-15 point-scale widening, they are no longer CLAMPED to it: the
+ * ceiling scales by the same factor the point-max did (10 -> 15 = x1.5) and
+ * the floor scales down by the same factor (/1.5) — evade's [0.02,0.10]
+ * becoming [0,0.15] is the worked example that set this rule (x1.5 lands
+ * exactly on 0.15; 0 is used for the floor instead of /1.5 specifically for
+ * the four percentage stats, since 0% is a normal, functional value for
+ * them). A player-built character CAN now exceed every existing specialist
+ * in a stat — a deliberate tradeoff of the "never exceed shipped content"
+ * safety property for more build variance, per Ian's explicit request. The
+ * difficulty curve is tuned against the ORIGINAL five's stats (see the "solo
+ * character survival requirement" notes throughout this file); an extreme
+ * custom build can now go meaningfully beyond what those measurements cover.
  *
  * EVERY stat the engine tracks is here — ATK/MAG/DEF/RES/SPD/HP plus
  * ATK-CRIT/MAG-CRIT/BLOCK/EVADE — with one deliberate exception: chargeRate is
@@ -1515,17 +1556,61 @@ P.dupUnitAether=function(w){
  * a choice against, so — consistent with the rule above — none is invented;
  * every unit's charge gauge fills at the same rate regardless of build.
  *
- * Growth is bounded from the ROSTER's own growth min/max the same way, and
- * tied to the SAME point spent on that stat's base value — which isn't a new
- * rule, it's one the shipped five already follow: whichever unit has a stat's
- * highest base value also has that stat's highest growth (Vey/SPD 124+3.2,
- * Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4, Ansa/RES 22+1.7, Kesh/ATK 26+2.1,
- * Dorrek/HP 560+48). Matched here explicitly instead of leaving it to
- * coincidence. ATK-CRIT/MAG-CRIT/BLOCK/EVADE have no growth curve to bound —
- * P.statsAt() copies them straight from base for every unit in the game, not
- * just a custom one, so a level-1 point is this stat for the whole run. */
-P.MC_STAT_RANGE={atk:[12,26],mag:[10,30],def:[12,30],res:[12,22],spd:[84,124],
- hp:[270,560],atkCrit:[0.03,0.12],magCrit:[0.03,0.10],block:[0.02,0.10],evade:[0.02,0.10]};
+ * Growth (P.MC_GROWTH_RANGE below) is UNCHANGED by this — still clamped to
+ * the original five's own min/max, not widened. Ian's ask was specifically
+ * about the stat gates (the evade example has no growth curve at all), and
+ * long-run levelling power is a more sensitive lever than a starting stat,
+ * so it wasn't touched without being asked. Growth is still tied to the SAME
+ * point spent on a stat's base value — the shipped five's own rule
+ * (whichever unit has a stat's highest base value also has that stat's
+ * highest growth: Vey/SPD 124+3.2, Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4,
+ * Ansa/RES 22+1.7, Kesh/ATK 26+2.1, Dorrek/HP 560+48) — just no longer
+ * matched by an equally widened base-stat ceiling. ATK-CRIT/MAG-CRIT/BLOCK/
+ * EVADE have no growth curve to bound either way — P.statsAt() copies them
+ * straight from base for every unit in the game, not just a custom one, so
+ * a level-1 point is this stat for the whole run.
+ *
+ * CORRECTION (post-widening balance test): a "max this stat, spread the rest
+ * of the pool evenly" specialist was simulated wave-by-wave (real enemy
+ * curve, real leveling off real Aether income, 150 seeds/stat) for all ten
+ * stats. Seven landed within noise of a 5.0-wave mean, but the naive x1.5
+ * ceiling badly overshot for three linearly-scaling combat stats — atk 14.1,
+ * mag 14.6, spd 13.8 mean waves survived, vs. ~5.0 for everything else
+ * (DEF/RES are self-limiting by the K/(K+stat) mitigation curve, HP/CRIT/
+ * BLOCK/EVADE are all capped or sub-linear, but raw ATK/MAG damage and SPD's
+ * turn-order/action-count advantage compound directly).
+ *
+ * First attempt just binary-searched each of the three stats' OWN maxed-mean
+ * back to 5.0 in isolation (atk 39->19, mag 45->19, spd 186->110) — that
+ * over-corrected: those same three stats also supply the "spread the rest of
+ * the pool evenly" points every OTHER build's atk/mag/spd draws from, so
+ * shrinking their ceiling that far also starved every non-outlier build,
+ * dragging def/res/hp/crit/block/evade down to 2.1-4.5 (previously ~5.0 at
+ * full widening). Re-solved as a joint problem instead — swept a shared
+ * scale-down factor across all three ceilings together, checking BOTH each
+ * stat's own maxed-mean AND a same-methodology def-maxed build (a stand-in
+ * for every "spread" build) at each step, until both landed on 5.0 at once.
+ * That equilibrium is atk 39->26, mag 45->29, spd 186->131 (all three, and
+ * the def proxy, measured within 0.06 waves of a 5.0 mean at this setting;
+ * pool-shifted at the same rate they were widened, without the 39/45/186
+ * ceilings' compounding payoff). mag's ceiling is bumped one further point,
+ * 29->30, to stay >= Mirel's own mag base stat (30) — the smoke test asserts
+ * every shipped ROSTER stat still falls inside MC_STAT_RANGE, and 29 would
+ * put the MC's own cap a point below a shipped companion's; the 1-point
+ * nudge is inside the sweep's own noise band and doesn't reopen the mag
+ * outlier gap. Floors are UNCHANGED (still the /1.5-widened floor from
+ * above) — only the ceiling needed correcting.
+ *
+ * MANUAL ADJUSTMENT (post-correction, Ian's explicit values): atk 26->28,
+ * res 33->40, magCrit/block/evade 0.15->0.18. Re-run against the same
+ * specialist simulation: atk's own maxed-mean rose back to 5.4 (an 8% gap
+ * over the pack, vs. the fitted equilibrium's 0%), and res/block/evade rose
+ * from 4.0-4.1 to 4.1-4.3 — a small, deliberate re-opening of the atk gap
+ * traded for a little headroom on res/block/evade, not re-verified against
+ * the joint "spread" methodology above since these were requested values,
+ * not re-fit ones. */
+P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
+ hp:[180,840],atkCrit:[0,0.18],magCrit:[0,0.18],block:[0,0.18],evade:[0,0.18]};
 P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
  hp:[18,48]};
 /* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
@@ -1533,14 +1618,22 @@ P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[
    interpolating to raw floating point would imply a precision the roster
    itself doesn't have (nothing is tuned to e.g. 7.3% block). */
 P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
-/* 10 stats x a default of 5 each = a balanced build spends exactly the pool,
-   same as every stat starting at its own midpoint. 1-10 is a familiar scale
-   that keeps the allocator UI simple: a stepper per stat, remaining points
-   ticking down to zero before the player can confirm. */
+/* Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
+   always maps to statRange[0], so 0 points never means a literal 0 in-game
+   stat) rather than a pre-filled midpoint, so building toward a plan means
+   only ever ADDING points, never having to first subtract from stats you
+   don't want. Range widened 1-10 -> 0-15 for more room to specialize before
+   the fixed pool runs out. POOL is deliberately HALF of the theoretical max
+   spend (10 stats x 15 = 150) rather than derived from a per-stat default —
+   there is no default to derive it from any more — so an even split still
+   lands mid-range on every stat (75/10=7.5, roughly half of 15), while a
+   focused build can afford to max 5 of the 10 stats outright (5x15=75) and
+   leave the rest at floor, which is more extreme specialization than the
+   old 1-10/pool-50 scheme allowed. */
 P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
-P.MC_POINTS_TOTAL=P.MC_STAT_KEYS.length*5;
-P.MC_POINT_MIN=1;
-P.MC_POINT_MAX=10;
+P.MC_POINT_MIN=0;
+P.MC_POINT_MAX=15;
+P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
 /* ===== MC CHARGE ACTIONS: starter pick vs. rare acquisition (roadmap 2) =====
  * Creation only offers the three GENERIC starters (core.js's "MC GENERIC
  * STARTERS" — plain bulk-physical, bulk-magic, or heal, no attached effect).
@@ -1895,7 +1988,13 @@ function renderDropNote(){
    ' <span class="dn-kind">'+d.kind+(d.wave?' · wave '+d.wave:'')+'</span></div>'+
    (d.body?'<div class="dn-body">'+d.body+'</div>':'')+
    (d.why?'<div class="dn-why">▸ '+d.why+'</div>':'')+
-   (d.pair?'<div class="dn-pair">'+d.pair+'</div>':'')+'</div>';});
+   (d.pair?'<div class="dn-pair">'+d.pair+'</div>':'')+
+   /* note: was written by every doPull() outcome (duplicate-unit trivia,
+      pairing hints, "you now hold N copies") and read by NOTHING — dropped
+      silently everywhere. Rendered here with the same dim treatment as
+      `pair`, since unlike the fielded/benched question above (promoted to
+      `why`), these are genuinely secondary asides. */
+   (d.note?'<div class="dn-pair">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;
  var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];renderDropNote();};}
 function grantDrops(w){
@@ -2109,21 +2208,52 @@ function autoSave(){
 function readSavedSnapshot(){
  try{var raw=localStorage.getItem(SAVE_KEY);return raw?JSON.parse(raw):null;}
  catch(e){return null;}}
-/* Flat-rate offline credit — see P.OFFLINE_CAP_SEC for why this is not the
-   full node-by-node offline simulator described in GDD §1.4. */
-function grantOfflineProgress(snap){
+/* Real offline simulation — replaces the old flat-rate estimate. Plays the
+   actual road forward using the SAME functions live play uses (startWave,
+   C.step, afterWaveCleared, onWipe), for however many waves fit in the
+   capped elapsed time, at the SAME per-wave time cost P.wavesPerHour() is
+   itself derived from (20s fight-equivalent + P.travelSec(w)). Because it's
+   the real engine and not an estimate, a wipe can genuinely happen while
+   you're away and send you back to your last checkpoint — Ian chose full
+   fidelity over the GDD §1.4 "offline never wipes" rule. It's still not
+   that section's full node/Waymark estimator (this prototype has no node
+   map to advance along), just the same combat core run unattended, which is
+   exactly the shape the smoke test's 200-fight headless batch proved out.
+   G.battle must already be valid before this runs (see tryResumeSave) —
+   this only ever ADVANCES from wherever the caller left it. */
+function simulateOfflineProgress(snap){
  var elapsedSec=Math.max(0,(Date.now()-(snap.savedAt||Date.now()))/1000);
  if(elapsedSec<5)return;
  var capped=Math.min(elapsedSec,P.OFFLINE_CAP_SEC);
+ var waveBefore=G.wave,wipesBefore=G.wipes,aetherBefore=G.aether,marksBefore=G.marks;
+ /* Ambient idle trickle for the whole capped stretch — this runs alongside
+    combat during live play too (tick()'s G.idleAcc branch), independent of
+    whether any individual wave is won, so it's credited for the full
+    duration regardless of how many whole waves the loop below fits in. */
  var r=P.idlePerSec(G.farthest);
- var aetherGain=Math.round(r.aether*capped);
- var marksGain=r.marks*P.marksMul(G)*capped;
- G.aether+=aetherGain;G.marks+=marksGain;
+ G.aether+=r.aether*capped;G.marks+=r.marks*P.marksMul(G)*capped;
+ var remaining=capped,guard=0;
+ while(remaining>0&&guard++<200000){
+  if(!G.battle)break;
+  var cost=20+P.travelSec(G.wave);
+  if(cost>remaining)break;
+  var beatGuard=0;
+  while(!G.battle.over&&beatGuard++<4000)C.step(G.battle);
+  if(G.battle.over==='party'){afterWaveCleared();startWave(G.wave+1);}
+  else if(G.battle.over==='enemy'){onWipe();}
+  else break;                     /* shouldn't happen — safety valve, not a real path */
+  remaining-=cost;}
+ var waveDelta=G.wave-waveBefore,wipeDelta=G.wipes-wipesBefore;
+ var aetherGain=Math.round(G.aether-aetherBefore),marksGain=G.marks-marksBefore;
  var awayTxt=elapsedSec>=3600?(elapsedSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(elapsedSec/60))+' minutes';
+ var progressTxt=waveDelta>0?('cleared '+waveDelta+' wave'+(waveDelta===1?'':'s')+', now at wave '+G.wave)
+   :'not enough time passed to clear another wave';
+ var wipeTxt=wipeDelta>0?(' <span style="color:var(--bad)">(wiped '+wipeDelta+' time'+(wipeDelta===1?'':'s')+
+   ' — back to checkpoint)</span>'):'';
  sysLog('<b>Welcome back.</b> <span class="tiny">'+awayTxt+' away'+
-  (elapsedSec>P.OFFLINE_CAP_SEC?' (offline income capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+
-  ' — earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
-  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b> at your idle rate.</span>');}
+  (elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+' — '+progressTxt+'.'+wipeTxt+
+  ' Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
+  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.</span>');}
 /* Only called once, at boot — there is no manual Load button (autosave means
    there is nothing to manually load FROM except what boot already resumes).
    Returns false on first-ever visit or a corrupt/missing save, which tells the
@@ -2136,10 +2266,13 @@ function tryResumeSave(){
  G=loaded;
  applyCustomMC();
  $('#log').innerHTML='';
- sysLog('<b>Resuming your saved run.</b> <span class="tiny">Back to wave '+(G.wave||1)+
-  ', fresh — a reload restarts the current wave\'s fight rather than freezing it mid-battle.</span>');
- grantOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
+ /* Rebuild the battle for the wave the player was actually on BEFORE
+    simulating forward — skipDrops:true because that wave was not cleared
+    when saved, so grantDrops(w) must not treat resuming it as a fresh
+    visit. Once G.battle is valid, simulateOfflineProgress can step it
+    forward exactly like live play would, including past this same wave. */
  startWave(G.wave||1,true);
+ simulateOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
  buildGambits();renderAll();
  return true;}
 
@@ -2533,7 +2666,10 @@ function doPull(){
     body:pick.role+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
      (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||''):''),
-    note:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
+    /* why, not note — the "did this actually join my party" question is the
+       whole point of the notification, so it gets the same prominent styling
+       curated-teaching moments use, not the dim secondary-aside treatment. */
+    why:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});}
  }else if(kind==='action'){
   var id=C.EQUIPPABLE[G.rng.nextInt(C.EQUIPPABLE.length)];
@@ -2585,7 +2721,12 @@ function renderDrops(){
  hist.forEach(function(d){
   h+='<div class="drop"><div class="spread"><span><span class="dw">w'+(d.wave||'?')+
    '</span> <b>'+d.name+'</b></span><span class="tiny">'+d.kind+'</span></div>'+
-   (d.body?'<div class="tiny">'+d.body+'</div>':'')+'</div>';});
+   (d.body?'<div class="tiny">'+d.body+'</div>':'')+
+   /* why/note were dropped here too — a player checking history after being
+      away had no record of whether a pulled companion joined the party or
+      the bench, same gap as the live banner. */
+   (d.why?'<div class="tiny" style="color:var(--hp)">▸ '+d.why+'</div>':'')+
+   (d.note?'<div class="tiny" style="color:var(--dimmer)">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();}
 function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
@@ -2854,7 +2995,7 @@ function boot(seed,mc){
    size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
 var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
  atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
-var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
 var mcChargeChoice=null;
 function mcSanitizeName(raw){
  return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
@@ -2915,7 +3056,7 @@ function showMcCreate(){
  /* Reset the form itself, not just the save — otherwise Reset run would show
     the PREVIOUS character's name and charge pick still sitting there, one
     click away from silently recreating the character it just deleted. */
- mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+ mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
  mcChargeChoice=null;
  $('#mcName').value='';
  $('#app').classList.add('hidden');
