@@ -281,6 +281,17 @@ P.wavesPerHour=function(w){return 3600/(20+P.travelSec(w));};
  * number if §1.4's fuller model is ever built on top of this. */
 P.OFFLINE_CAP_SEC=12*3600;
 
+/* ===== EXPEDITIONS (roadmap item 4, phase 1) =====
+ * Benched units sent out on real wall-clock expeditions, resolved with the
+ * same combat core as offline progress (resolveExpedition() in the UI layer
+ * mirrors simulateOfflineProgress() above) but against the expedition's OWN
+ * synthetic wave counter, not G.wave — exploring is its own escalating-
+ * difficulty track, independent of road progress, using the same
+ * C.waveScale/P.archetypeFor curve and the same P.travelSec pacing so the
+ * two systems agree on how fast difficulty and real time move. */
+P.EXPED_RETURN_HP_FRAC=0.25;      /* auto-return once carried HP drops below this */
+P.EXPED_CAP_SEC=P.OFFLINE_CAP_SEC;  /* same 12h ceiling per catch-up pass */
+
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
  * Measured justification: player-directed allocation was worth almost nothing.
  * Six very different allocations of the same 20-node budget produced a depth

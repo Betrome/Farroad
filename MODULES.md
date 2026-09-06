@@ -386,3 +386,126 @@ still mirrors the original 5; the tool and README describe that same CSV
 pipeline) — left alone rather than updated to a count they don't reflect.
 `src/farroad-save.js` needed no changes (all persistence is already generic
 dictionaries keyed by unit id).
+
+## Expeditions, phase 1 — built (GDD §0.2 item 4)
+
+The shared "send a benched party out, real time passes, they come back with
+rewards" engine — open-ended exploration only, no dungeons/events/map/log/
+quest-board/origin-chains yet (see the approved plan for phases 2-5).
+
+**Reuses the offline-progress shape rather than inventing a new one.**
+`resolveExpedition()` (`farroad-ui.js`) is `simulateOfflineProgress()`'s exact
+pattern applied to a different clock: elapsed real seconds since
+`G.expedition.lastResolvedAt`, capped at `P.EXPED_CAP_SEC` (=
+`P.OFFLINE_CAP_SEC`), spent on battles at the identical `20+P.travelSec(w)`
+per-wave pacing. The one real difference is the wave source: an expedition
+tracks its own synthetic counter (`G.expedition.ew`, starting at 1) instead
+of `G.wave`, so exploring is its own escalating-difficulty track — built by
+feeding `ew` through the exact same `C.waveScale`/`P.archetypeFor`/
+`buildEnemies()` machinery the main road uses (confirmed by this session's
+own research: difficulty in this engine is a pure function of a wave-like
+integer, nothing else, so no new scaling math was needed).
+
+**Kept fully separate from the live battle.** An expedition builds its own
+party (`buildExpeditionParty()`) and its own `C.makeBattle` instance — it
+never touches `G.wave`/`G.battle`/`G.units`/`G.enemies`/`G.hpCarry`, so it can
+resolve (including from the 30s background interval, below) without
+disturbing a fight the player is actively watching. The one shared piece of
+engine state is `C.setWave()`'s module-level `CURRENT_WAVE` (read by `K_of()`
+for damage mitigation) — every expedition enemy build bumps it to `ew`, and
+`resolveExpedition()` always restores it to `G.wave` before returning, so it
+never leaks into a concurrent real fight's damage math.
+
+**HP-triggered turn-back**, not a wipe-to-checkpoint. A carried HP fraction
+(`G.expedition.hpFrac`, one scalar across the whole party, not per-unit)
+mirrors `G.hpCarry` between expedition battles; once it drops below
+`P.EXPED_RETURN_HP_FRAC` (0.25) — or the party is actually wiped — the party
+turns back (`beginReturnTrip()`).
+
+**Turning back — HP threshold or manual recall, same rule — isn't instant
+and doesn't bank early.** The trip home costs HALF the real time the party
+spent out, computed from a real timestamp (`decisionMoment`, the actual
+wall-clock moment the turn-back happened — which for a big catch-up pass, or
+a recall issued well into an expedition, can be well in the past relative to
+"now") rather than a countdown, specifically so a long-enough absence can
+resolve the WHOLE round trip — explore, turn back, travel home — in one
+catch-up pass instead of leaving the party stuck "returning" until the next
+check. `G.expedition.homeAt` holds that arrival timestamp; `resolveExpedition()`
+checks it first and, once set, skips the battle loop entirely (no more
+combat happens on the way home) and only asks "have they arrived yet".
+Rewards sit in `G.expedition.bank` until `settleExpedition()` actually fires
+on arrival — a recall never grants anything early.
+
+**`recallExpedition()`** catches up on elapsed real time first (which may
+itself trigger and even fully resolve an auto turn-back along the way), then
+calls `beginReturnTrip(Date.now(),'recalled.')` if the party isn't already
+heading home — i.e. it decides "turn back now" rather than later, the exact
+same path an HP-triggered turn-back takes, just called from the button
+instead of from inside the battle loop. A recall issued right after
+departure reads as instant in practice (half of a couple seconds rounds to
+nothing), not because it's special-cased, but because the shared formula
+naturally produces a near-zero trip for a near-zero absence.
+
+**A dedicated `setTimeout`, not just the 30s background poll, wakes a
+turned-back party the moment it's actually due.** `scheduleExpeditionCheck()`
+is called from `beginReturnTrip()` whenever `homeAt` lands in the future,
+so a short remaining wait (a party recalled 10s into an expedition, say)
+resolves itself on screen a few seconds later with no further click and no
+reload needed, rather than sitting stale until the next 30s tick.
+
+**Picked up two ways**, since there's no other "time has passed while the tab
+stayed open" poller in this codebase (`tick()` only runs during active
+combat playback): once on load via `tryResumeSave()` (same catch-up moment
+`simulateOfflineProgress()` already uses) and once every 30s via a dedicated
+`setInterval`, so a returning party shows up without requiring a reload.
+
+**New save state**, same dictionary/id-keyed convention as `G.lvl`/`G.bank`/
+`G.owned`: `G.expedition` (null, or the live record) and `G.expeditionLog`
+(capped history array, same cap-and-unshift shape as `G.dropHistory`) — both
+added to `farroad-save.js`'s `FIELDS`, with default-fill (`null`/`[]`) for
+saves from before this shipped.
+
+**UI**: one more tab (`EXPEDITION`), following the existing flat button+panel
+tab pattern exactly — a benched-unit picker (click to select up to
+`P.PARTY_CAP`) when nothing's out, live status (synthetic wave reached, time
+away, banked-so-far) and a recall button when something is, and an inline
+expedition log underneath either way.
+
+**Covered by 8 new headless smoke-test checks**: the round-trip and
+old-save-default-fill checks for `G.expedition`/`G.expeditionLog` in
+`farroad-save.js`'s existing save/load section; `P.EXPED_RETURN_HP_FRAC`/
+`P.EXPED_CAP_SEC` sanity; and that `P.killReward`/`P.isBossWave`/
+`P.bossAether`/`P.travelSec`/`P.statsAt` — the exact primitives
+`resolveExpedition()` calls against its own synthetic wave — stay
+non-negative and finite across a synthetic climb well past where the curated
+road ends. `sendExpedition()`/`resolveExpedition()` themselves are UI-layer
+(DOM-bound) like `buildParty`/`buildEnemies`/`simulateOfflineProgress`, so
+per this file's existing convention they're verified live instead (below),
+not unit-tested headlessly.
+
+**Verified live in-browser**, not just by reading the code, across several
+rounds (same localStorage-edit technique used throughout this session for
+offline-progress testing — edit from a tab that won't itself navigate, then
+open a fresh tab to observe, to avoid the `beforeunload`-autosave race):
+- A 5-hour backdated expedition caught up to synthetic wave 16, turned back
+  on low HP, AND fully completed its (well inside 5h) trip home in the same
+  load — settled with the exact reward total on top of seeded currency.
+- A 10-minute backdated expedition turned back mid-catch-up but hadn't yet
+  finished its trip home — correctly showed "heading home, ETA ~1 minute"
+  rather than settling early.
+- A save seeded with `homeAt` already 2 minutes in the past (turn-back
+  happened on an earlier check, party now overdue) settled correctly on the
+  very next load with its pre-banked reward.
+- Live through the real UI: the party picker (click to select, caps at
+  `PARTY_CAP`), send, the active-expedition status view, and manual recall
+  all work end-to-end. Recall specifically: issued ~1-2s after departure it
+  settled with no visible "heading home" state at all; issued ~10s into an
+  expedition it correctly showed "heading home" with nothing banked yet,
+  then self-settled a few seconds later via the scheduled check with no
+  further clicks — confirming rewards don't bank until arrival, but a
+  near-immediate recall still feels instant.
+
+**Not yet built** (phases 2-5 of the approved plan): dungeons, events, the
+world map, a dedicated adventure-log screen (the log itself is already being
+written to `G.expeditionLog`), the quest board, and per-companion origin
+story chains.

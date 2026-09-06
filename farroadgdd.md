@@ -98,45 +98,71 @@
 > `base → level → status`; equipment inserts between level and status. Mettal has
 > had no source and no sink since it was specified, which is why it is hidden.
 >
-> **4. Idle quests for benched units — PAUSED, prerequisite now built.** Unused
-> units go on automated party quests earning currencies, actions, gambits and
-> equipment.
+> **4. Idle quests for benched units — PHASE 1 BUILT (open exploration core
+> loop); dungeons/events/map/log/quest-board/origin-chains still to come.**
+> Unused units go on automated expeditions, earning currencies now, with
+> quests/dungeons/events/equipment layered on in later phases. See the
+> approved plan for the full five-phase breakdown; only phase 1 is built.
 > ***This is the architecturally significant one.*** It requires running combat
 > **headlessly, away from the main loop, potentially many times per tick**. That
 > is exactly why the module split was drawn where it was: `farroad-core.js` and
 > `farroad-progression.js` are verified DOM-free and the build fails if that ever
-> stops being true. The smoke test already runs 200 headless fights as a batch to
-> prove the shape works and to measure throughput, so quest resolution can be
-> budgeted against a real number rather than guessed.
+> stops being true. The smoke test's 200-headless-fight batch (~0.01ms/fight)
+> proved that budget out before phase 1 was built, and `resolveExpedition()`
+> (UI layer) exercises exactly that: potentially dozens of headless battles
+> resolved in one pass to catch up after hours away.
 > It also solves a live design problem: benched units currently have no purpose
 > and no reason to be levelled, which gets worse as the roster grows toward 25.
 >
-> **Prerequisite discovered and closed:** benching was mechanically real
-> (`G.owned` vs `G.party` already existed as separate concepts) but never
-> SUSTAINABLE — with only 5 companions authored against a `PARTY_CAP` of 5,
-> every owned unit was always fielded; the instant all 5 were owned, every
-> further pull or boss reward converted straight to Aether instead of ever
-> creating a 6th owned unit. Roster expanded 5→10 (`skarn, sorin, nyra, brenn,
-> sael` — see the ROSTER EXPANSION comment in core.js) specifically to make a
-> real, persistent bench possible. Item 4 itself remains unbuilt; this only
-> clears the ground for it.
+> **Prerequisite (roster expansion) closed, then phase 1 built on top of it.**
+> Benching was mechanically real (`G.owned` vs `G.party` already existed as
+> separate concepts) but never SUSTAINABLE at 5 companions against a
+> `PARTY_CAP` of 5 — roster expanded 5→10 (`skarn, sorin, nyra, brenn, sael`)
+> to make a real, persistent bench possible first.
 >
-> **Fuller mechanic, as discussed when scoping the roster expansion (not yet
-> built, recorded here for when this is picked back up):** benched units form
-> QUEST PARTIES of up to `PARTY_CAP` (5), same as the main party. A quest
-> party can either take a specific quest or go EXPLORING open-endedly. Every
-> member's stats affect quest success and reward quality — not just a flat
-> per-unit rate. An exploring party keeps going until its HP drops to a
-> critical threshold, at which point it automatically turns back (mirrors the
-> main party's existing wipe→checkpoint safety net, but self-triggered before
-> an actual wipe rather than after one). A party out for long enough can
-> discover a dungeon or event — this is how roadmap item 5 (dungeons, bosses
-> and events) actually gets found; item 5 cannot be built before this, since
-> the discovery mechanism IS an idle-quest outcome. Once found, the player
-> chooses whether to attempt it with the QUESTING party or pull back the MAIN
-> party to attempt it instead. Reward rate for a full quest party was set at
-> roughly HALF the main idle-income rate when this was scoped — a real second
-> income stream, deliberately secondary to actively fielding a strong party.
+> **Phase 1, as built:** a benched party of 1-5 units (`sendExpedition()`,
+> `farroad-ui.js`) explores in REAL WALL-CLOCK TIME, resolved the same way
+> offline progress is (`resolveExpedition()` mirrors `simulateOfflineProgress()`
+> exactly — elapsed real seconds, capped at `P.EXPED_CAP_SEC`, spent on
+> battles at the same `20+P.travelSec(w)`-second pacing) but against the
+> expedition's OWN synthetic wave counter (`G.expedition.ew`), not `G.wave` —
+> exploring is its own escalating-difficulty track, using the same
+> `C.waveScale`/`P.archetypeFor` curve so difficulty climbs exactly like the
+> main road's does, just on a separate counter. The party auto-returns (banks
+> whatever it earned and comes home on its own) once its carried HP fraction
+> drops below `P.EXPED_RETURN_HP_FRAC` — the "turns back before an actual
+> wipe" behaviour scoped when this was first discussed. Turning back — by
+> the HP threshold OR by a manual recall — is never instant and never banks
+> early: the trip home takes HALF the real time the party was out
+> (`G.expedition.homeAt`), and rewards stay in `G.expedition.bank`, not the
+> real economy, until they actually arrive. A recall placed right after
+> departure still reads as instant in practice, since half of "a few seconds"
+> rounds away to nothing — that's the natural result of the same rule, not a
+> special case. A precisely-timed check (not just the 30s background poll)
+> is scheduled the moment a party turns back, so a short remaining wait
+> settles itself on screen without requiring another click or a reload.
+> Verified live in-browser: a backdated 5-hour expedition correctly caught up
+> to synthetic wave 16, turned back on low HP, and — since the return trip
+> was also well inside that 5-hour window — arrived home and banked exact
+> rewards into the real economy in the same load; a party recalled ~10s into
+> exploring correctly showed "heading home" with nothing banked yet, then
+> self-settled a few seconds later with no further clicks; and a party
+> recalled within ~1-2s of departing settled immediately, with no visible
+> "heading home" state at all.
+>
+> **Not yet built (phases 2-5, recorded in the approved plan):** dungeons (a
+> themed, RE-RUNNABLE fixed wave sequence + boss + bonus, discovered past a
+> ~6h expedition threshold) and events (one-off random rolls, same threshold);
+> the world map (abstract progress-nodes, confirmed scope for v1) and a
+> readable adventure log UI (state already being written to
+> `G.expeditionLog` since phase 1, just no dedicated log screen yet — the
+> EXPEDITION tab shows it inline for now); the quest board itself (dynamic,
+> data-driven `P.QUESTS` definitions with party-size/level requirements,
+> hours-to-days duration, fail/retry, and daily/weekly repeatables layered on
+> top of the phase 1 expedition engine); and one origin-story quest chain per
+> companion, triggered on first acquiring them, using the quest board's
+> chain-linking fields — wholly new narrative content, since `ROSTER` carries
+> no flavor/origin text today.
 >
 > **5. Dungeons, bosses and events** discovered through quests, attempted with the
 > main party — a content/encounter system distinct from wave progression.

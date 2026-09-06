@@ -145,7 +145,10 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   recovery:{kesh:2},loadout:{kesh:[{cond:'none',action:'strike'}]},
   hpCarry:{kesh:0.8},touched:{},clearedWaves:{1:1,2:1},
   lvl:{kesh:5,ansa:1},bank:{kesh:12,ansa:0},maxLevelEver:5,owned:{kesh:1,ansa:1},
-  enrage:true,idleAcc:3,dropQueue:[],dropHistory:[]};
+  enrage:true,idleAcc:3,dropQueue:[],dropHistory:[],
+  expedition:{partyIds:['dorrek','vey'],startedAt:1700000000000-3600000,
+   lastResolvedAt:1700000000000-3600000,ew:3,hpFrac:0.7,bank:{aether:40,marks:5}},
+  expeditionLog:[{at:1700000000000,text:'Dorrek, Vey set out to explore.'}]};
  var restored=null,threw=null;
  try{
   var snap=V.serialize(fakeG,1700000000000);
@@ -161,10 +164,30 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   ok('save round-trip preserves actions/conditions/loadout',
    restored.actions.indexOf('sear')>=0&&restored.conditions.indexOf('foe_armoured')>=0&&
    restored.loadout.kesh&&restored.loadout.kesh[0].action==='strike');
+  ok('save round-trip preserves an in-progress expedition',
+   restored.expedition&&restored.expedition.partyIds.length===2&&
+   restored.expedition.partyIds[0]==='dorrek'&&restored.expedition.ew===3&&
+   restored.expedition.bank.aether===40);
+  ok('save round-trip preserves the expedition log',
+   restored.expeditionLog&&restored.expeditionLog.length===1&&
+   restored.expeditionLog[0].text.indexOf('Dorrek')>=0);
   var expectedNext=rng.next(), actualNext=restored.rng.next();
   ok('save round-trip rebuilds the RNG to the exact saved position',
    expectedNext===actualNext, expectedNext+' vs '+actualNext);
  }
+ /* OLD-SAVE COMPAT: a snapshot from before phase 1 has neither field at all —
+    deserialize must default them (null/[]) rather than throw or leave them
+    undefined, the same contract every other FIELDS entry already gets. */
+ var oldSnap=null,oldThrew=null,oldRestored=null;
+ try{
+  oldSnap=V.serialize(fakeG,1700000000000);
+  delete oldSnap.expedition; delete oldSnap.expeditionLog;
+  oldRestored=V.deserialize(JSON.parse(JSON.stringify(oldSnap)),C);
+ }catch(e){oldThrew=e;}
+ ok('old save missing expedition fields does not throw', !oldThrew, oldThrew&&oldThrew.message);
+ ok('old save missing expedition fields defaults to null/[]',
+  !!oldRestored&&oldRestored.expedition===null&&Array.isArray(oldRestored.expeditionLog)&&
+  oldRestored.expeditionLog.length===0);
 })();
 
 /* =================== 7. CUSTOMISABLE FIRST UNIT (roadmap 1) ===============
@@ -305,6 +328,35 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var collision=chargeIds.filter(function(id){return reserved.indexOf(id)>=0;});
  ok('no ROSTER chargeAction collides with the MC\'s reserved starter/drop-pool charges',
   collision.length===0, collision.join(','));
+})();
+
+/* =================== 10. EXPEDITIONS (roadmap item 4, phase 1) ============
+ * sendExpedition()/resolveExpedition() themselves live in the DOM-bound UI
+ * layer (same reason buildParty/buildEnemies/simulateOfflineProgress aren't
+ * unit-tested here either — see farroad-ui.js's own header comment) and are
+ * exercised via the browser check instead. What IS headless and checked
+ * here: the progression constants those functions are built on are sane,
+ * and — since P.travelSec/P.killReward/P.isBossWave/P.bossAether/P.statsAt
+ * are the exact primitives resolveExpedition() calls against its own
+ * synthetic wave counter — that they behave sensibly fed a wave sequence
+ * that keeps climbing well past where the curated road ends. */
+(function(){
+ ok('P.EXPED_RETURN_HP_FRAC is a sane fraction',
+  P.EXPED_RETURN_HP_FRAC>0&&P.EXPED_RETURN_HP_FRAC<1, ''+P.EXPED_RETURN_HP_FRAC);
+ ok('P.EXPED_CAP_SEC is positive and matches P.OFFLINE_CAP_SEC',
+  P.EXPED_CAP_SEC>0&&P.EXPED_CAP_SEC===P.OFFLINE_CAP_SEC, ''+P.EXPED_CAP_SEC);
+ var bad=[];
+ for(var ew=1;ew<=200;ew++){
+  var r=P.killReward(ew,1);
+  if(!(r.aether>=0)||!(r.marks>=0))bad.push('killReward('+ew+')');
+  if(P.isBossWave(ew)&&!(P.bossAether(ew)>0))bad.push('bossAether('+ew+')');
+  if(!(P.travelSec(ew)>0))bad.push('travelSec('+ew+')');}
+ ok('reward/pacing primitives stay non-negative and finite across a long synthetic climb',
+  bad.length===0, bad.slice(0,5).join('; '));
+ var st=P.statsAt('dorrek',C.ROSTER.filter(function(r){return r.id==='dorrek';})[0].stats,
+  C.ROSTER.filter(function(r){return r.id==='dorrek';})[0].hp,5);
+ ok('P.statsAt (used to build an expedition party from a benched unit\'s level) returns a full stat block',
+  st&&st.hp>0&&st.atk>0&&st.spd>0);
 })();
 
 /* ------------------------------- report ---------------------------------- */

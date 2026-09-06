@@ -29,7 +29,12 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  /* the player-built starting character (roadmap item 1), or null for the
     hardcoded default — see applyCustomMC() in the UI layer, which is what
     actually turns this back into stats/growth on the 'kesh' roster slot. */
- 'mc'];
+ 'mc',
+ /* roadmap item 4, phase 1 — see resolveExpedition()/sendExpedition() in the
+    UI layer. 'expedition' is null when no party is out, else the live
+    {partyIds,startedAt,lastResolvedAt,ew,hpFrac,bank} record; 'expeditionLog'
+    is a capped history array, same cap-and-unshift shape as dropHistory. */
+ 'expedition','expeditionLog'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -72,6 +77,8 @@ S.deserialize=function(snap,C){
  G.wave=G.wave||0;G.farthest=G.farthest||1;G.bossesCleared=G.bossesCleared||0;
  G.aether=G.aether||0;G.lore=G.lore||0;G.marks=G.marks||0;G.wipes=G.wipes||0;
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
+ if(G.expedition===undefined)G.expedition=null;
+ G.expeditionLog=G.expeditionLog||[];
  return G;};
 
 return S;})();

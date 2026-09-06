@@ -31,7 +31,7 @@ function newGame(seed,mc){
   clearedWaves:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
-  mc:mc||null};}
+  mc:mc||null, expedition:null, expeditionLog:[]};}
 
 /* Applies a player-built character onto the 'kesh' slot. This mutates the
    shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
@@ -121,13 +121,16 @@ function buildParty(){
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
  return out;}
 
-function buildEnemies(w){
+/* @param quiet skips the variety-roll sysLog line — used by expedition
+   resolution (resolveExpedition() below), which builds enemies against its
+   own synthetic wave counter and must not spam the ROAD log with them. */
+function buildEnemies(w,quiet){
  var boss=P.isBossWave(w);
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
  var n=boss?1:(variety?P.rollCount(G.rng):P.enemyCount(w));
  var vMul=variety?(P.countStrength(n)*P.bandRoll(G.rng)):1;
- if(variety)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
+ if(variety&&!quiet)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
   (n===1?' foe — <b style="color:var(--boss)">ELITE</b>':' foes')+
   ' <span class="tiny">· each at ×'+vMul.toFixed(2)+' strength</span>');
  C.setWave(w);                      /* K tracks the wave, not the level */
@@ -501,6 +504,158 @@ function simulateOfflineProgress(snap){
   (elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+' — '+progressTxt+'.'+wipeTxt+
   ' Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
   '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.</span>');}
+
+/* ===== EXPEDITIONS (roadmap item 4, phase 1) =====
+ * A benched party (1-5 units) can be sent exploring in real wall-clock time.
+ * Resolution reuses the exact shape of simulateOfflineProgress() above —
+ * elapsed real seconds, capped, spent on battles at the same per-wave pacing
+ * — but against the expedition's OWN synthetic wave counter (G.expedition.ew)
+ * and its own party/battle objects, entirely separate from G.wave/G.battle,
+ * so an expedition can resolve without disturbing a fight the player is
+ * actively watching. The one shared piece of engine state is C.setWave()'s
+ * module-level CURRENT_WAVE (read by K_of() for damage mitigation) — every
+ * enemy build here bumps it to the expedition's synthetic wave, so it is
+ * always restored to G.wave before returning control, never left pointing
+ * at expedition state for the main battle to read by accident. */
+var expedTimer=null;
+/* Precisely wakes up resolveExpedition() when a party is actually due home,
+   instead of leaving a short wait to whenever the 30s background interval
+   next happens to fire — without this, a party turning back only a few
+   seconds from arriving would still sit "heading home" for up to 30s. */
+function scheduleExpeditionCheck(delayMs){
+ clearTimeout(expedTimer);
+ expedTimer=setTimeout(function(){
+  if(G.expedition)resolveExpedition();
+  renderAll();},Math.max(0,delayMs));}
+function benchedUnits(){
+ return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0;});}
+function pushExpeditionLog(text){
+ G.expeditionLog=G.expeditionLog||[];
+ G.expeditionLog.unshift({at:Date.now(),text:text});
+ while(G.expeditionLog.length>40)G.expeditionLog.pop();}
+function buildExpeditionParty(partyIds,hpFrac){
+ var out=[];
+ partyIds.forEach(function(uid,i){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
+  var mh=st.hp;
+  var frac=(hpFrac==null)?1:Math.min(1,hpFrac+recoveryOf(uid));
+  var hp=Math.max(1,Math.round(mh*frac));
+  out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
+   maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
+   slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
+ return out;}
+/* Grants whatever the expedition has banked into the real economy and
+   clears the live record — reached once a party that has turned back
+   (G.expedition.homeAt set, whether by the HP threshold or a recall)
+   actually arrives home; see beginReturnTrip() below. */
+function settleExpedition(reason){
+ var exp=G.expedition;if(!exp)return;
+ var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ G.aether+=exp.bank.aether;G.marks+=exp.bank.marks;
+ pushExpeditionLog(names+' — '+reason+' Reached wave '+exp.ew+'. Brought back '+
+  Math.round(exp.bank.aether)+' Aether, '+Math.floor(exp.bank.marks)+' Marks.');
+ sysLog('<b>Expedition returned.</b> <span class="tiny">'+names+' — '+reason+
+  ' Earned <b style="color:var(--aether)">+'+Math.round(exp.bank.aether)+' Aether</b> and '+
+  '<b style="color:var(--marks)">+'+Math.floor(exp.bank.marks)+' Marks</b> over '+exp.ew+' wave'+
+  (exp.ew===1?'':'s')+'.</span>');
+ G.expedition=null;}
+/* Turning back — whether the HP threshold tripped it or the player recalled
+   the party — is not instant: the trip home takes HALF the real time the
+   party has been out (measured from G.expedition.startedAt to this decision
+   moment), same road, half the ground already covered. Rewards stay in
+   G.expedition.bank, not the real economy, until settleExpedition() actually
+   fires — recalling doesn't bank anything early, it just decides "turn back
+   now" instead of later. A recall placed right after departure still reads
+   as instant: awaySec is ~0 there, so the computed trip is ~0 too.
+   decisionMoment is a real timestamp rather than "now": a big catch-up pass
+   (resolveExpedition below) can cross the turn-back threshold partway
+   through a long absence, so the return-trip clock has to start from THAT
+   point, not from whenever the player happens to check back in. If enough
+   real time has already passed by the time this runs, the party has already
+   made it home and this settles immediately; otherwise a precisely-timed
+   check is scheduled so a short remaining wait doesn't sit stale until the
+   next 30s background poll. */
+function beginReturnTrip(decisionMoment,reason){
+ var exp=G.expedition;if(!exp||exp.homeAt)return;
+ var awaySec=Math.max(0,(decisionMoment-exp.startedAt)/1000);
+ exp.homeAt=decisionMoment+(awaySec/2)*1000;
+ var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ pushExpeditionLog(names+' — '+reason+' Heading home now.');
+ if(Date.now()>=exp.homeAt)settleExpedition('arrived home.');
+ else scheduleExpeditionCheck(exp.homeAt-Date.now());}
+/* Validates and starts a new expedition — one at a time in phase 1. Every
+   unit must be owned and currently benched (not in G.party); duplicates and
+   an oversized party are rejected rather than silently truncated. */
+function sendExpedition(partyIds){
+ if(G.expedition)return false;
+ if(!partyIds||!partyIds.length||partyIds.length>P.PARTY_CAP)return false;
+ var seen={};
+ for(var i=0;i<partyIds.length;i++){
+  var uid=partyIds[i];
+  if(seen[uid])return false;seen[uid]=1;
+  if(!G.owned[uid]||G.party.indexOf(uid)>=0)return false;}
+ G.expedition={partyIds:partyIds.slice(),startedAt:Date.now(),lastResolvedAt:Date.now(),
+  ew:1,hpFrac:1,bank:{aether:0,marks:0},homeAt:null};
+ var names=partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ pushExpeditionLog(names+' set out to explore.');
+ sysLog('<b>Expedition departs.</b> <span class="tiny">'+names+' head out into the road beyond.</span>');
+ return true;}
+/* The real-time resolution loop — see simulateOfflineProgress() above for
+   the identical shape this mirrors. Called from tryResumeSave() (catch-up
+   on load) and from a periodic check while the tab stays open, so it must
+   be safe to call often and cheap to no-op when nothing has happened yet.
+   Once a party has turned back (homeAt set) there is no more combat to
+   resolve — just a real-time wait — so that branch skips the battle loop
+   entirely and only checks whether they've arrived yet. */
+function resolveExpedition(){
+ var exp=G.expedition;if(!exp)return;
+ if(exp.homeAt){if(Date.now()>=exp.homeAt)settleExpedition('arrived home.');return;}
+ var elapsedSec=Math.max(0,(Date.now()-exp.lastResolvedAt)/1000);
+ if(elapsedSec<5)return;
+ var resolveStartedAt=exp.lastResolvedAt;
+ var capped=Math.min(elapsedSec,P.EXPED_CAP_SEC);
+ var remaining=capped,guard=0,savedWave=G.wave,turnedBack=false;
+ while(remaining>0&&guard++<200000){
+  var cost=20+P.travelSec(exp.ew);
+  if(cost>remaining)break;
+  var party=buildExpeditionParty(exp.partyIds,exp.hpFrac);
+  var enemies=buildEnemies(exp.ew,true);
+  var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+  var beatGuard=0;
+  while(!battle.over&&beatGuard++<4000)C.step(battle);
+  if(battle.over==='party'){
+   var r=P.killReward(exp.ew,enemies.length);
+   exp.bank.aether+=r.aether;exp.bank.marks+=r.marks*P.marksMul(G);
+   if(P.isBossWave(exp.ew))exp.bank.aether+=P.bossAether(exp.ew);
+   var alive=party.filter(function(u){return u.hp>0;});
+   exp.hpFrac=alive.length?
+    alive.reduce(function(s,u){return s+u.hp/u.maxHp;},0)/alive.length:0;
+   exp.ew++;
+  }else{
+   exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
+  }
+  remaining-=cost;
+  if(exp.hpFrac<P.EXPED_RETURN_HP_FRAC){turnedBack=true;break;}}
+ C.setWave(savedWave);            /* restore CURRENT_WAVE for K_of() before returning */
+ exp.lastResolvedAt=Date.now();
+ if(turnedBack)beginReturnTrip(resolveStartedAt+(capped-remaining)*1000,
+  'injuries mounted and the party turned back.');}
+/* Player-initiated early return: catch up on whatever real time has passed
+   (which may itself trigger and even fully resolve an auto turn-back), then
+   decide to turn back right now if the party isn't already doing so — same
+   half-time trip an auto turn-back gets (see beginReturnTrip), so rewards
+   don't bank until they actually arrive. A no-op if they're already heading
+   home (that trip is already running on its own schedule) or already
+   settled during the catch-up above. */
+function recallExpedition(){
+ if(!G.expedition)return;
+ resolveExpedition();
+ if(G.expedition&&!G.expedition.homeAt)beginReturnTrip(Date.now(),'recalled.');}
+
 /* Only called once, at boot — there is no manual Load button (autosave means
    there is nothing to manually load FROM except what boot already resumes).
    Returns false on first-ever visit or a corrupt/missing save, which tells the
@@ -520,11 +675,13 @@ function tryResumeSave(){
     forward exactly like live play would, including past this same wave. */
  startWave(G.wave||1,true);
  simulateOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
+ if(G.expedition)resolveExpedition();   /* catch up any expedition the same way */
  buildGambits();renderAll();
  return true;}
 
 /* ---------------------------------------------------------------- loop --- */
 var playing=false,timer=null,speed=1,lastActor=null;
+var mcExpedPick=[];   /* UI-only: units checked in the expedition party picker */
 function doStep(){
  if(!G.battle)return;
  if(G.battle.over==='party'){afterWaveCleared();startWave(G.wave+1);renderAll();return;}
@@ -975,7 +1132,62 @@ function renderDrops(){
    (d.why?'<div class="tiny" style="color:var(--hp)">▸ '+d.why+'</div>':'')+
    (d.note?'<div class="tiny" style="color:var(--dimmer)">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;}
-function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();}
+function renderExpedition(){
+ var host=$('#expeditionView');if(!host)return;
+ var exp=G.expedition,h='';
+ if(exp){
+  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+   return d?d.name:uid;}).join(', ');
+  if(exp.homeAt){
+   var etaSec=Math.max(0,(exp.homeAt-Date.now())/1000);
+   var etaTxt=etaSec>=3600?(etaSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(etaSec/60))+' minutes';
+   h+='<div class="slot"><div class="uname">'+names+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">Heading home — back in about '+etaTxt+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
+    ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div></div>';
+  }else{
+   var awaySec=Math.max(0,(Date.now()-exp.startedAt)/1000);
+   var awayTxt=awaySec>=3600?(awaySec/3600).toFixed(1)+' hours':Math.max(1,Math.round(awaySec/60))+' minutes';
+   h+='<div class="slot"><div class="uname">'+names+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">Away '+awayTxt+' · reached wave '+exp.ew+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
+    ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div>'+
+    '<button class="mini" id="btnExpedRecall" style="margin-top:6px">Recall party</button></div>';}
+ }else{
+  var bench=benchedUnits();
+  mcExpedPick=mcExpedPick.filter(function(uid){return bench.indexOf(uid)>=0;});
+  if(!bench.length){
+   h+='<div class="tiny">No benched units — everyone owned is already fielded.</div>';
+  }else{
+   h+='<div class="tiny" style="margin-bottom:6px">Send up to '+P.PARTY_CAP+' benched units '+
+    'exploring in real time — click to pick them. The longer they\'re out, the harder what they '+
+    'meet gets, and they turn back on their own if hurt too badly. The trip home takes half as '+
+    'long as they were out.</div>';
+   bench.forEach(function(uid){
+    var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+    var picked=mcExpedPick.indexOf(uid)>=0;
+    h+='<div class="slot expick'+(picked?' on':'')+'" data-uid="'+uid+'" style="cursor:pointer">'+
+     '<div class="uname">'+(d?d.name:uid)+'</div>'+
+     '<div class="tiny">'+(d?d.role:'')+' · LV '+levelOf(uid)+'</div></div>';});
+   h+='<button class="mini" id="btnExpedSend" style="margin-top:6px">Send expedition ('+
+    mcExpedPick.length+'/'+P.PARTY_CAP+')</button>';}}
+ h+='<hr><div class="tiny" style="margin-bottom:6px"><b>EXPEDITION LOG</b> — most recent first ('+
+  (G.expeditionLog||[]).length+')</div>';
+ var log=G.expeditionLog||[];
+ if(!log.length)h+='<div class="tiny">Nothing yet.</div>';
+ log.forEach(function(e){h+='<div class="drop"><div class="tiny">'+e.text+'</div></div>';});
+ host.innerHTML=h;
+ Array.prototype.forEach.call(host.querySelectorAll('.expick'),function(el){
+  el.onclick=function(){var uid=el.dataset.uid,i=mcExpedPick.indexOf(uid);
+   if(i>=0)mcExpedPick.splice(i,1);
+   else if(mcExpedPick.length<P.PARTY_CAP)mcExpedPick.push(uid);
+   renderExpedition();};});
+ var sendBtn=$('#btnExpedSend');
+ if(sendBtn)sendBtn.onclick=function(){
+  if(sendExpedition(mcExpedPick)){mcExpedPick=[];renderAll();}};
+ var recallBtn=$('#btnExpedRecall');
+ if(recallBtn)recallBtn.onclick=function(){recallExpedition();renderAll();};}
+function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();renderExpedition();}
 function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
@@ -1217,7 +1429,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
  b.onclick=function(){
   Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(x){x.classList.remove('on');});
   b.classList.add('on');
-  ['log','gambits','aether','lore','marks','drops','tests'].forEach(function(t){
+  ['log','gambits','aether','lore','marks','expedition','drops','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
 function boot(seed,mc){
@@ -1320,6 +1532,15 @@ $('#btnMcConfirm').onclick=function(){
  $('#app').classList.remove('hidden');
  boot(7,mc);
  doSave();};
+
+/* Expeditions run on real wall-clock time and must be picked up even if the
+   player never reloads the page — there is no other "time has passed"
+   poller in this file (tick() only runs during active combat playback), so
+   this is new plumbing rather than a reuse of an existing loop. 30s is
+   frequent enough that a returning party shows up promptly without adding
+   any meaningful cost (resolveExpedition() no-ops in under 5s anyway). */
+setInterval(function(){
+ if(G&&G.expedition){resolveExpedition();renderAll();}},30000);
 
 if(!tryResumeSave())showMcCreate();
 })();
