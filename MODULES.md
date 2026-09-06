@@ -87,8 +87,53 @@ node build.js                               # emit the fused HTML
 7. **Customisable-first-unit math** — point-buy bounds land exactly on the
    ROSTER's own floor/ceiling for all ten offered stats, growth rises with
    points spent on every stat that has a growth curve, CRIT/BLOCK/EVADE
-   correctly get none, and every offered charge action resolves to a real,
-   actually-a-charge-action entry with no overlap with the five companions'.
+   correctly get none, and every starter/drop-pool charge id resolves to a
+   real charge action with no overlap with the five companions'.
+8. **Charge action starter/drop-pool separation** — the three starters are
+   provably plain (power present, no attached status/lifesteal/revive), the
+   starter set and the rare-drop pool never share an id, and the drop chance
+   is a real, appropriately low probability.
+9. **Escalating Lore bonus cost** — a first stack still costs the old flat/
+   swift-tiered base, cost is non-decreasing and meaningfully higher after
+   several stacks (not just occasionally), swift's speed-tier rule still
+   holds at stack 1 with the same escalation layered on top, and
+   `bonusSpend` reconstructs the exact total paid by summing the series
+   rather than `stacks x current price`. Broad is provably flat at its own
+   `BONUS_COST_BROAD` regardless of stacks already owned, and distinct from
+   the normal per-stack base.
+
+**Broad is priced separately: flat 50, no escalation.** It isn't a magnitude
+bonus like the other eight — `applyBonuses()` flips the action from single-
+to multi-target the instant ONE stack exists, and every stack after that
+does nothing (and `bonusApplies` correctly hides it once the action is
+already multi-target, so a wasted 2nd purchase isn't even offered). Pricing
+it like a repeatable bonus undersold a strong one-time unlock, so
+`bonusPrice()` special-cases `bid==='broad'` to return `BONUS_COST_BROAD`
+(50) unconditionally, before the swift/escalation branches even run.
+
+**Keen's description now reads "+8% crit"**, not "+8pp" — cosmetic only,
+the underlying math (`critBonus += 0.08 x stacks`, clamped to `CAP_CRIT`
+at combat time) didn't change.
+
+## Lore bonus cost now escalates per stack (idle-rate follow-up)
+
+Idle Aether/Marks were cut hard this session (`P.idlePerSec`'s base
+coefficients: 0.7/0.35 -> 0.1/0.05 -> 0.01/0.005 — see progression.js for the
+full reasoning), but at endgame most Marks-funded drops are duplicates
+anyway and become Lore regardless of the idle rate, so Lore bonuses needed
+their own fix. Before this, every bonus stack cost the same flat price
+forever (`BONUS_COST=2`, or a fixed swift tier of 2/4/6 based on the
+action's speed) — the 1st and 50th stack were identical, so nothing ever
+stopped being an auto-buy once Lore was abundant.
+
+`core.js`'s `bonusPrice(a, bid, n)` now multiplies that base by
+`BONUS_GROWTH` (1.15) once per stack already owned: stack 1 is unchanged,
+stack 11 is ~4x base, stack 21 is ~16x — a soft cap that isn't an arbitrary
+hard limit. `bonusSpend` was updated to sum the escalating series (each
+owned stack priced at what IT cost, not `stacks x today's price`) so the
+"free Lore" total stays exactly reconstructible after a save round-trip.
+Swift keeps its existing speed-tiered base price; the escalation multiplies
+on top of it rather than replacing it.
 
 ## Save / load — built
 
@@ -167,22 +212,55 @@ established: fresh creation and resuming a save. (Reset run no longer calls
 back through creation instead, so `applyCustomMC()` runs again there too, on
 whatever the player builds next.)
 
-**Charge action choice reuses existing content.** The 8 options offered are
-the "corner" charge actions already authored in core.js's CHARGE ACTION
-DESIGN SPACE (`tideturn`, `lastlight`, `sunder`, `gravewind`, `reckoning`,
-`bulwarkoath`, `emberglut`, `hollowtoll`) — balance-considered content that
-existed but wasn't assigned to any roster unit, not new numbers invented for
-this feature. Each card also shows "N of 10 Lore upgrades apply to this
-action" (same count `renderLore()` computes in-game via `C.bonusApplies`) —
-support/utility picks like Tideturn (3 of 10) or Last Light (2 of 10)
-genuinely have fewer live bonuses than a damage-shaped one like Reckoning
-(6 of 10). That's the deadness matrix working as designed, not a missing
-feature — the Lore tab already offered the same upgrades before this, the
-count just wasn't visible until the point of picking.
+**Creation offers 3 GENERIC starters, not the 8 corners.** `heavystrike`,
+`wildfire`, `greatheal` (core.js's "MC GENERIC STARTERS") are plain bulk
+physical / bulk magic / heal, no attached effect — deliberately NOT the
+build-around "corner" actions (`tideturn`, `lastlight`, `sunder`, `gravewind`,
+`reckoning`, `bulwarkoath`, `emberglut`, `hollowtoll`) from core.js's CHARGE
+ACTION DESIGN SPACE, which used to be the creation-time offer and are now the
+rare-drop pool below instead (`P.MC_STARTER_CHARGES` vs. `P.MC_CHARGE_DROP_POOL`
+in progression.js). Each card shows "N of 10 Lore upgrades apply to this
+action" (same count `renderLore()` computes via `C.bonusApplies`) — an AoE or
+heal-shaped pick is dead on more of the ten than a single-target damage one
+(6 / 4 / 4 across the three starters), which is the deadness matrix working
+as designed, visible before committing rather than only after.
 
-**Persistence:** `G.mc` (`{name, stats, hp, growth, chargeAction}`, or `null`
-for the hardcoded default) round-trips through `farroad-save.js`'s `FIELDS`
-list like everything else. An old save from before this feature simply has no
+## Charge action acquisition & swapping — built (GDD §0.2 item 2)
+
+The 8 "corner" charge actions are now a rare RANDOM drop, gated to `G.mc`
+existing (MC only) and the random-drop phase only (`randomDrop()` in
+farroad-ui.js, post wave-20 — `grantDrops` never calls it during the curated
+run, so the authored tutorial is untouched). `P.MC_CHARGE_DROP_CHANCE` (5%)
+is checked first, before the normal action/condition branch, and REPLACES
+that wave's drop rather than adding to it — a charge action is a bigger deal
+than either, so it costs the player their usual item that wave. A duplicate
+converts to Lore exactly like a duplicate action or condition. At 5%, the
+coupon-collector expectation for completing the 8-action pool is 8 x H(8) ≈
+21.7 drop events, i.e. on the order of 400+ waves of random drops — "much
+more rare" than the guaranteed per-wave drop it can replace.
+
+Acquired ids live in `G.mc.acquiredCharges` (starts as `[starterPick]` at
+creation; an old save from before this existed gets backfilled to the same
+shape by `applyCustomMC()` the first time it runs). The swap control appears
+in the GAMBITS tab's per-unit box — the same place the charge action was
+already shown — as a `<select>` once `acquiredCharges.length>1`, replacing
+the former dead branch that read `G.chargeAction` (a field nothing ever set,
+left over from a v0.8→v0.9 rename). Swapping is free and instant, and does
+TWO things: `applyCustomMC()` updates the ROSTER template (so the next wave
+picks it up), and the handler ALSO patches the live `G.units` entry directly
+— without that second step a swap mid-fight would silently do nothing until
+the wave ended, since `buildParty()` only copies `chargeAction` onto a unit
+once, at wave start. Found by testing, not by inspection.
+
+**Lore already follows the action, not the unit** — the GDD's own
+recommendation for this, true for free: `G.bonuses` was already keyed by
+action id everywhere in the codebase, so each acquired charge action keeps
+its own Lore stacks independently, and switching back restores whatever was
+bought on it. No new bookkeeping needed.
+
+**Persistence:** `G.mc` (`{name, stats, hp, growth, chargeAction,
+acquiredCharges}`, or `null` for the hardcoded default) round-trips through
+`farroad-save.js`'s `FIELDS` list like everything else. An old save from before this feature simply has no
 `mc` field, which `applyCustomMC()` treats as "use the hardcoded Kesh" — no
 migration needed.
 

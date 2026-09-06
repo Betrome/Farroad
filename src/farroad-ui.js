@@ -44,6 +44,11 @@ function newGame(seed,mc){
    which leaves the hardcoded Kesh exactly as shipped. */
 function applyCustomMC(){
  if(!G.mc)return;
+ /* Back-fill for a save made before charge-action acquisition existed: it has
+    chargeAction but no pool. Without this the swap UI never appears (needs
+    length>1 to show at all) and a rare-drop duplicate-check would crash on
+    an undefined array — treat "one fixed action" as "a pool of one". */
+ if(!G.mc.acquiredCharges||!G.mc.acquiredCharges.length)G.mc.acquiredCharges=[G.mc.chargeAction];
  var keshDef=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')keshDef=r;});
  if(!keshDef)return;
  keshDef.name=G.mc.name;
@@ -260,6 +265,20 @@ function grantDrops(w){
      why:curated&&d.why?d.why:null,
      pair:pairingHint(d.id)});}
    sysLog('<span class="dw">WAVE '+w+' · ACTION</span> <b>'+C.ACTIONS[d.id].name+'</b>');
+  }else if(d.kind==='charge'){
+   G.mc.acquiredCharges=G.mc.acquiredCharges||[];
+   var dupC=G.mc.acquiredCharges.indexOf(d.id)>=0;
+   if(!dupC)G.mc.acquiredCharges.push(d.id); else G.lore+=1;
+   var infoC=describeAction(d.id);
+   if(dupC){
+    pushDrop({wave:w,kind:'DUPLICATE CHARGE ACTION → +1 Lore',name:infoC.name,
+     body:'You already hold this. Duplicates become <b style="color:var(--lore)">Lore</b>.'});
+   }else{
+    pushDrop({wave:w,kind:'NEW CHARGE ACTION',name:infoC.name,
+     body:infoC.body+(infoC.note?'<br>'+infoC.note:''),
+     pair:'Swap to it any time from the GAMBITS tab — no cost, and Lore upgrades '+
+      'are kept per action, so switching back restores what you bought.'});}
+   sysLog('<span class="dw">WAVE '+w+' · CHARGE ACTION</span> <b>'+C.ACTIONS[d.id].name+'</b>');
   }else{
    G.condCounts[d.id]=(G.condCounts[d.id]||0)+1;
    var dup2=G.conditions.indexOf(d.id)>=0;
@@ -302,6 +321,15 @@ function autoEquip(){
 
 function randomDrop(w){
  if(w%2!==0 && w%2!==1)return [];
+ /* Rare charge-action drop — MC only (roadmap item 2), and only in the
+    random-drop phase: rolled BEFORE the action/condition branch below and
+    REPLACES that wave's drop rather than adding to it, so it costs the
+    player their usual per-wave item rather than stacking a bonus on top.
+    Never rolled during the curated run (grantDrops only calls randomDrop
+    post wave-20), so the authored tutorial sequence is untouched. */
+ if(G.mc&&G.rng.next()<P.MC_CHARGE_DROP_CHANCE){
+  var chargePool=P.MC_CHARGE_DROP_POOL;
+  return [{kind:'charge',id:chargePool[G.rng.nextInt(chargePool.length)],why:'rare charge-action drop'}];}
  var out=[];
  if(w%2===0){var pool=C.EQUIPPABLE;
   out.push({kind:'action',id:pool[G.rng.nextInt(pool.length)],why:'random drop'});}
@@ -720,7 +748,19 @@ function renderLore(){
   var live=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);});
   live.forEach(function(bid){
    var inf=C.BONUSES[bid],n=b[bid]||0;
-   var price=(bid==='swift')?C.swiftCost(a):C.BONUS_COST;
+   /* base = what stack #1 costs (swift's speed-tiered 2/4/6, or the flat
+      BONUS_COST for everything else); price = what THIS stack (the n+1'th)
+      actually costs once BONUS_GROWTH's per-stack escalation is applied.
+      Kept separate so the two different reasons a price can be elevated —
+      "this action is already quick" (swift only, fixed) vs. "you already
+      own several of this" (every bonus, rises every stack) — get their own
+      messaging instead of one conflating the other. */
+   var base=(bid==='swift')?C.swiftCost(a):(bid==='broad'?C.BONUS_COST_BROAD:C.BONUS_COST);
+   var price=C.bonusPrice(a,bid,n);
+   var swiftPremium=(bid==='swift'&&base>C.BONUS_COST);
+   /* Broad is flat (see bonusPrice) — buying past stack 1 does nothing and
+      costs the same as stack 1, so it never counts as "escalated". */
+   var escalated=(bid!=='broad'&&n>0);
    /* v2.9 LAYOUT: was a single flex row holding the name, a full sentence of
       description AND three controls. At 375px the description had no min-width:0
       so it refused to shrink, pushing the −/count/+ group off the edge. Now the
@@ -730,7 +770,9 @@ function renderLore(){
     '<div class="bname">'+inf.n+
      (price!==C.BONUS_COST?' <b style="color:var(--crit)">'+price+' Lore</b>':'')+'</div>'+
     '<div class="bdesc">'+inf.d+
-     (price!==C.BONUS_COST?' — costs more because this action is already quick.':'')+'</div>'+
+     (swiftPremium?' — costs more because this action is already quick.':'')+
+     (escalated?' <span style="color:var(--dimmer)">— stack '+(n+1)+', up from '+base+' base.</span>':'')+
+     '</div>'+
     '<div class="bctl">'+
      '<button class="mini bm" data-a="'+aid+'" data-b="'+bid+'"'+(n?'':' disabled')+'>−</button>'+
      '<span class="bstack">'+n+'</span>'+
@@ -928,11 +970,14 @@ function buildGambits(){
    box.appendChild(w);});
   /* ITEM 6: the unit's CHARGE ACTION, shown where loadout decisions are made.
      13 charge actions with no comparison surface was worse than 5. */
-  /* FIX: this said `cfg`, which does not exist in the renderer — the v0.8 file used
-     `cfg`, v0.9 renamed the game state to `G`. An UNDECLARED identifier throws
-     ReferenceError (an undefined PROPERTY would have been harmless), which killed
-     boot() and every subsequent render pass. */
-  var ca=(G.loadout&&G.chargeAction&&G.chargeAction[uid])||def.chargeAction;
+  /* Swappable — MC only (roadmap item 2). Every other unit stays locked to
+     def.chargeAction, same as always; only the player-built 'kesh' has a
+     pool to choose from at all. This replaces a dead branch that read
+     `G.chargeAction`, a field nothing ever set — the v0.8 file used `cfg`,
+     v0.9 renamed the game state to `G` and this line was never updated, so
+     it always silently fell through to def.chargeAction. */
+  var mcOwns=(uid==='kesh'&&G.mc&&G.mc.acquiredCharges&&G.mc.acquiredCharges.length);
+  var ca=mcOwns?G.mc.chargeAction:def.chargeAction;
   if(ca&&C.ACTIONS[ca]){
    var a=C.ACTIONS[ca];
    var chargePerTurn=22;                       /* typical basic-action charge gain */
@@ -943,17 +988,36 @@ function buildGambits(){
    var kind=a.heal?'heal':a.revive?'revive':(a.power?'damage':'effect');
    var cbox=document.createElement('div');cbox.className='slot';
    cbox.style.borderColor='var(--charge)';
+   var swappable=mcOwns&&G.mc.acquiredCharges.length>1;
+   var nameRow=swappable?
+    '<select class="mcc-swap mono" style="margin-top:2px;color:var(--charge);border-color:var(--charge)">'+
+     G.mc.acquiredCharges.map(function(id){var ai=C.ACTIONS[id];
+      return '<option value="'+id+'"'+(id===ca?' selected':'')+'>'+(ai?ai.name:id)+'</option>';}).join('')+
+     '</select>'
+    :'<div class="uname" style="color:var(--charge);margin-top:2px">'+a.name+'</div>';
    cbox.innerHTML='<div class="spread"><span class="lbl" style="color:var(--charge)">'+
      '⚡ CHARGE ACTION</span><span class="tiny">'+initTag(a.rank)+'</span></div>'+
-    '<div class="uname" style="color:var(--charge);margin-top:2px">'+a.name+'</div>'+
+    nameRow+
     '<div class="tiny" style="margin-top:4px">hits <b>'+shape+'</b> · '+kind+
      (a.power?' ×'+a.power:'')+(a.applies?' · applies <b>'+a.applies+'</b> '+(a.turns||3)+' turns':'')+
      (a.revive?' at '+Math.round(a.revive*100)+'% HP':'')+
      (a.lifesteal?' · heals you '+Math.round(a.lifesteal*100)+'% of it':'')+
      (a.hits>1?' · '+a.hits+' hits':'')+'</div>'+
     '<div class="tiny" style="margin-top:4px;color:var(--dimmer)">fills in roughly <b>'+
-     turnsToFill+'</b> of this unit’s turns · '+(a.note||'')+'</div>';
-   box.appendChild(cbox);}
+     turnsToFill+'</b> of this unit’s turns · '+(a.note||'')+'</div>'+
+    (swappable?'<div class="tiny" style="margin-top:2px;color:var(--dim)">'+
+     G.mc.acquiredCharges.length+' charge actions acquired — swap freely, no cost. Lore '+
+     'upgrades are kept per action, so switching back restores any you bought.</div>':'');
+   box.appendChild(cbox);
+   if(swappable)cbox.querySelector('.mcc-swap').onchange=function(){
+    G.mc.chargeAction=this.value;applyCustomMC();
+    /* applyCustomMC() only updates the ROSTER TEMPLATE — buildParty() copies
+       chargeAction onto the live unit once, at wave start, so a fight already
+       in progress would otherwise keep firing the old action until the next
+       wave. Patch the live unit directly so a swap takes effect immediately,
+       matching "swap freely, no cost" rather than "on your next wave". */
+    if(G.units)G.units.forEach(function(u){if(u.id==='kesh')u.chargeAction=G.mc.chargeAction;});
+    buildGambits();renderAll();};}
   host.appendChild(box);});}
 function syncLoadout(uid){
  if(!G.units)return;
@@ -1162,14 +1226,15 @@ function renderMcStats(){
  if(lbl)lbl.textContent=(P.MC_POINTS_TOTAL-P.mcPointsSpent(mcPoints))+' points remaining';}
 function renderMcCharges(){
  var host=$('#mcCharges');if(!host)return;host.innerHTML='';
- P.MC_CHARGE_CHOICES.forEach(function(id){
+ P.MC_STARTER_CHARGES.forEach(function(id){
   var a=C.ACTIONS[id];if(!a)return;
   var info=describeAction(id);
   /* Same "N of M Lore upgrades apply" count renderLore() shows in-game, up
-     front at the point of choice — a support/utility charge action (no
-     `power` field) naturally has fewer live bonuses than a damage one, same
-     as it would for any of the five companions' own charge actions, but that
-     was previously only visible after already committing to a pick. */
+     front at the point of choice — an AoE or heal-shaped action is dead on
+     more of the ten bonuses (piercing/keen/broad assume a single target and
+     no heal) than a single-target damage one, so even among three plain
+     starters the count still varies (6 / 4 / 4) and is worth seeing before
+     committing rather than only after. */
   var liveCount=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);}).length;
   var card=document.createElement('div');
   card.className='slot mcc'+(mcChargeChoice===id?' on':'');
@@ -1201,7 +1266,8 @@ $('#btnMcConfirm').onclick=function(){
  var name=mcSanitizeName($('#mcName').value);
  if(!name||P.mcPointsSpent(mcPoints)!==P.MC_POINTS_TOTAL||!mcChargeChoice)return;
  var built=P.mcBuildStats(mcPoints);
- var mc={name:name,stats:built.stats,hp:built.hp,growth:built.growth,chargeAction:mcChargeChoice};
+ var mc={name:name,stats:built.stats,hp:built.hp,growth:built.growth,chargeAction:mcChargeChoice,
+  acquiredCharges:[mcChargeChoice]};
  $('#mcCreate').classList.add('hidden');
  $('#app').classList.remove('hidden');
  boot(7,mc);

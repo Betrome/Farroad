@@ -194,14 +194,57 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   P.mcPointsSpent(mid)===P.MC_POINTS_TOTAL);
  ok('MC_POINTS_TOTAL matches 5 points per offered stat',
   P.MC_POINTS_TOTAL===P.MC_STAT_KEYS.length*5);
- var allChargesReal=P.MC_CHARGE_CHOICES.every(function(id){
-  var a=C.ACTIONS[id];return !!a&&!!a.isCharge;});
- ok('every MC_CHARGE_CHOICES id resolves to a real charge action in C.ACTIONS',
-  allChargesReal, P.MC_CHARGE_CHOICES.join(','));
- ok('MC_CHARGE_CHOICES has no overlap with the five companions\' own charge actions',
-  P.MC_CHARGE_CHOICES.indexOf('oath')<0 && P.MC_CHARGE_CHOICES.indexOf('hearthlight')<0 &&
-  P.MC_CHARGE_CHOICES.indexOf('vowofstone')<0 && P.MC_CHARGE_CHOICES.indexOf('ninefold')<0 &&
-  P.MC_CHARGE_CHOICES.indexOf('ashfall')<0);
+ var allChargeIds=P.MC_STARTER_CHARGES.concat(P.MC_CHARGE_DROP_POOL);
+ var allChargesReal=allChargeIds.every(function(id){var a=C.ACTIONS[id];return !!a&&!!a.isCharge;});
+ ok('every starter/drop-pool charge id resolves to a real charge action in C.ACTIONS',
+  allChargesReal, allChargeIds.join(','));
+ var companionCharges=['oath','hearthlight','vowofstone','ninefold','ashfall'];
+ ok('starter/drop-pool charges have no overlap with the five companions\' own',
+  allChargeIds.every(function(id){return companionCharges.indexOf(id)<0;}));
+ ok('starter charges have no overlap with the rare-drop pool (a starter pick is never a duplicate drop)',
+  P.MC_STARTER_CHARGES.every(function(id){return P.MC_CHARGE_DROP_POOL.indexOf(id)<0;}));
+ ok('every starter charge is plain: power present, no attached status/lifesteal/revive',
+  P.MC_STARTER_CHARGES.every(function(id){var a=C.ACTIONS[id];
+   return !!a.power && !a.applies && !a.lifesteal && !a.revive;}));
+ ok('MC_CHARGE_DROP_CHANCE is a real probability, low enough to read as "rare"',
+  P.MC_CHARGE_DROP_CHANCE>0 && P.MC_CHARGE_DROP_CHANCE<=0.10);
+})();
+
+/* =================== 8. ESCALATING LORE BONUS COST ========================
+ * Bonus stacks used to be flat-priced forever. bonusPrice(a,bid,n) must rise
+ * every stack (not just occasionally), stack #1 must still cost exactly the
+ * old flat/tiered base (no regression for a first-time buyer), and
+ * bonusSpend must reconstruct the SAME total a player actually paid by
+ * summing the escalating series rather than stacks x today's price. */
+(function(){
+ var strike=C.ACTIONS.strike;
+ var slow={rank:2.0}, fast={rank:0.7};   /* synthetic — ini 0.5 (sluggish) vs 1.43 (already-quick) */
+ ok('bonusPrice: stack 1 (n=0) costs exactly the flat base for a non-swift bonus',
+  C.bonusPrice(strike,'potent',0)===C.BONUS_COST);
+ /* Rounding an integer Lore price means a single extra stack can round to the
+    SAME number at small bases (2 x 1.15 = 2.3 -> still 2) — that is fine, the
+    guarantee that matters is the trend over several stacks, not that every
+    single adjacent pair strictly differs. */
+ var p0=C.bonusPrice(strike,'potent',0),p5=C.bonusPrice(strike,'potent',5),p15=C.bonusPrice(strike,'potent',15);
+ ok('bonusPrice: cost is non-decreasing and meaningfully higher after several stacks',
+  p5>=p0 && p15>p5 && p15>=p0*4, p0+','+p5+','+p15);
+ ok('bonusPrice: swift\'s speed-tiered base still holds at stack 1 (sluggish cheaper than quick)',
+  C.bonusPrice(slow,'swift',0)<C.bonusPrice(fast,'swift',0));
+ ok('bonusPrice: swift also escalates with stacks, same as every other bonus',
+  C.bonusPrice(slow,'swift',15)>C.bonusPrice(slow,'swift',0));
+ var map={strike:{potent:3}};
+ var expected=C.bonusPrice(strike,'potent',0)+C.bonusPrice(strike,'potent',1)+C.bonusPrice(strike,'potent',2);
+ ok('bonusSpend sums the escalating series, not stacks x current price',
+  C.bonusSpend(map)===expected, C.bonusSpend(map)+' vs '+expected);
+ /* Broad is a one-time unlock (applyBonuses flips single->multi target the
+    moment ONE stack exists; further stacks do nothing), so it is exempt from
+    BOTH the swift-style tiering and the per-stack escalation — it should
+    just cost its own flat price forever. */
+ ok('bonusPrice: Broad is flat at BONUS_COST_BROAD regardless of stacks already owned',
+  C.bonusPrice(strike,'broad',0)===C.BONUS_COST_BROAD &&
+  C.bonusPrice(strike,'broad',10)===C.BONUS_COST_BROAD);
+ ok('bonusPrice: Broad\'s flat price is not the same as the normal per-stack base (visibly distinct)',
+  C.BONUS_COST_BROAD!==C.BONUS_COST);
 })();
 
 /* ------------------------------- report ---------------------------------- */

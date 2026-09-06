@@ -150,6 +150,24 @@ var ACTIONS={
  hearthlight:A({id:'hearthlight',name:'Hearthlight',camp:'mag',tk:'allAllies',power:2.40,rank:1.65,isCharge:true,heal:true,cleanse:1,note:'CHARGE · Ansa.'}),
  vowofstone:A({id:'vowofstone',name:'Vow of Stone',camp:'atk',tk:'allAllies',rank:1.55,isCharge:true,applies:'warded',turns:3,selfTaunt:3,note:'CHARGE · Dorrek.'}),
  ashfall:A({id:'ashfall',name:'Ashfall',camp:'mag',tk:'allFoes',power:1.90,rank:2.00,isCharge:true,applies:'burning',turns:3,note:'CHARGE · Mirel.'}),
+ /* ===== MC GENERIC STARTERS (roadmap item 2) =====
+  * The customisable MC needs an opening charge action that ISN'T one of the
+  * "corner" actions below — those were deliberately written to occupy space
+  * the plain kind axis (damage-physical / damage-magic / heal) does NOT, so
+  * offering them as a first pick would start every custom character on a
+  * build-around rather than a baseline. These three ARE that plain baseline:
+  * no attached status, no lifesteal, no conditional scaling — just the kind
+  * axis's three basic values, at the same rank/power a signature move gets
+  * (see oath/ashfall/hearthlight above) minus the one flourish each of those
+  * has (critBonus / burning / cleanse), with power nudged up slightly to
+  * compensate for going without it. Not tied to a companion identity, since
+  * the MC's name is the player's own. */
+ heavystrike:A({id:'heavystrike',name:'Heavy Strike',camp:'atk',tk:'foe',power:4.20,rank:1.80,
+  isCharge:true,note:'CHARGE · Bulk physical damage to one foe.'}),
+ wildfire:A({id:'wildfire',name:'Wildfire',camp:'mag',tk:'allFoes',power:2.10,rank:2.00,
+  isCharge:true,note:'CHARGE · Bulk magic damage to all foes.'}),
+ greatheal:A({id:'greatheal',name:'Great Heal',camp:'mag',tk:'allAllies',power:2.60,rank:1.65,
+  isCharge:true,heal:true,note:'CHARGE · Heals the whole party.'}),
  /* ===== CHARGE ACTION DESIGN SPACE (v2.1) =====
   * 25 units need 25 charge actions that are NOT 25 damage numbers. Five axes:
   *   1 SHAPE     one foe / all foes / one ally / all allies / self / the dead
@@ -202,9 +220,11 @@ var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt'
 var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken'];
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
+ 'heavystrike','wildfire','greatheal',
  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
-/* 13 of a target 25 authored. The 12 outstanding are content, not design — the
-   five axes above define where they sit; see VERIFICATION for the coverage grid. */
+/* 16 of a target 25 authored (13 + the 3 MC generic starters above). The
+   remaining 9 are content, not design — the five axes above define where
+   they sit; see VERIFICATION for the coverage grid. */
 /* ---- Lore bonuses (v0.8) ---- */
 var BONUS_COST=2;
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
@@ -215,6 +235,31 @@ var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
    2 Lore on a sluggish action, 6 on an already-quick one. */
 function swiftCost(a){var ini=1/((a&&a.rank)||1);
  return ini<0.85?BONUS_COST:(ini<1.15?BONUS_COST*2:BONUS_COST*3);}
+/* ===== ESCALATING STACK COST =====
+ * Every bonus's Lore price used to be FLAT per stack forever — the 1st and
+ * the 50th cost the same. With idle Marks (and the duplicates they can't
+ * help but produce at endgame, once everything is already owned) landing in
+ * the tens of thousands over long play, flat pricing meant no bonus ever
+ * stopped being an auto-buy; it just took longer to afford the next one.
+ * BONUS_GROWTH multiplies the base price by itself once per stack ALREADY
+ * owned, so cost rises every level rather than staying constant: at the
+ * default 1.15, stack 1 is still base price, stack 11 is ~4x base, stack 21
+ * is ~16x, stack 31 is ~66x — a real soft cap without an arbitrary hard one.
+ * Swift keeps its existing speed-tiered BASE price (2/4/6 Lore) — this
+ * multiplies ON TOP of that, it doesn't replace it. */
+var BONUS_GROWTH=1.15;
+/* Broad is exempt from both the escalation above and the flat BONUS_COST
+   below it applies to. It's not a per-stack magnitude bonus like the others
+   — applyBonuses() flips the action from single- to multi-target the moment
+   ONE stack exists (`if(b.broad){...}`) and every stack after that does
+   nothing. A strong one-time unlock priced like a repeatable magnitude
+   bonus was underpriced, so it gets its own flat cost instead of inheriting
+   either curve. */
+var BONUS_COST_BROAD=50;
+function bonusPrice(a,bid,n){
+ if(bid==='broad')return BONUS_COST_BROAD;
+ var base=(bid==='swift')?swiftCost(a):BONUS_COST;
+ return Math.max(1,Math.round(base*Math.pow(BONUS_GROWTH,n||0)));}
 /* ===== LORE BONUSES =====
  * v2.2 (item 5): support actions had NO upgrade path — Mend did not scale at all
  * while attacks had piercing/keen/weighty. Six support bonuses added below.
@@ -245,7 +290,7 @@ var BONUSES={
  deepening:{n:'Deepening',d:'debuff bites 25% harder — dead on buffs and on damage'},
  surge:{n:'Surge',d:'+10 charge gain — dead on charge actions themselves'},
  piercing:{n:'Piercing',d:'+0.15 armour pierce — worth most vs armour'},
- keen:{n:'Keen',d:'+8pp crit — worth most on multi-hit'},
+ keen:{n:'Keen',d:'+8% crit — worth most on multi-hit'},
  broad:{n:'Broad',d:'+1 target covered — dead on a self or already-multi action'},
  cleansing:{n:'Cleansing',d:'the heal also strips one debuff — dead if it does not heal'},
  /* v2.8: the counterweight to CHARGE_UP_COST. Only a charge action has a gauge
@@ -333,12 +378,14 @@ function applyBonuses(map){snapshot();
    stopped being true in v2.6 when swift became priced by the action's initiative
    (2, 4 or 6). Free Lore was therefore overstated on any swift purchase and the
    player could spend past their total. Now each stack is priced the same way the
-   LORE tab prices it. */
+   LORE tab prices it — including the per-stack escalation above, so a re-spend
+   from scratch (e.g. after a save round-trip) always reconstructs the same total
+   rather than assuming every owned stack cost today's flat rate. */
 function bonusSpend(map){var n=0;
  Object.keys(map||{}).forEach(function(aid){var a=ACTIONS[aid];
-  Object.keys(map[aid]).forEach(function(b){
-   var per=(b==='swift')?swiftCost(a):BONUS_COST;
-   n+=(map[aid][b]||0)*per;});});
+  Object.keys(map[aid]).forEach(function(bid){
+   var stacks=map[aid][bid]||0;
+   for(var i=0;i<stacks;i++)n+=bonusPrice(a,bid,i);});});
  return n;}
 function living(b,p){var o=[];for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp>0&&p(u))o.push(u);}return o;}
 function foes(b,u){return living(b,function(x){return x.isParty!==u.isParty;});}
@@ -639,7 +686,8 @@ F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
 F.BONUSES=BONUSES;F.BONUS_COST=BONUS_COST;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
-F.bonusApplies=bonusApplies;F.swiftCost=swiftCost;
+F.bonusApplies=bonusApplies;F.swiftCost=swiftCost;F.bonusPrice=bonusPrice;F.BONUS_GROWTH=BONUS_GROWTH;
+F.BONUS_COST_BROAD=BONUS_COST_BROAD;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;
 F.costOfCharge=costOfCharge;F.CHARGE_UP_COST=CHARGE_UP_COST;
 F.CHARGE_THRIFT=CHARGE_THRIFT;F.CHARGE_COST_MIN=CHARGE_COST_MIN;

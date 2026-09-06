@@ -51,26 +51,32 @@
 > else needed to change. The 20 unwritten companions still want to be authored
 > as data from the start; that part of the implication stands.
 >
-> **2. Swappable charge actions — MC only — PARTIALLY BUILT.** Change your
-> charge action when you acquire a new one. This applies **only to the Main
-> Character** (item 1's customisable first unit); every other unit stays
-> locked to its own charge action, as today.
-> *What's built:* the ONE-TIME pick at character creation, from a fixed pool
-> of 8 (see item 1). *What's not:* swapping to a NEWLY ACQUIRED charge action
-> later — there is no acquisition mechanism yet (nothing currently drops a
-> charge action for the MC to add to a pool) and no swap UI. The rest of this
-> entry's implication is still open work.
-> *Implication:* charge actions decouple from unit identity **for the MC alone**.
-> The MC needs its own pool of unlockable/acquirable charge actions to swap
-> between — a list distinct from the fixed one-action-per-unit model the rest of
-> the roster keeps. `chargeAction` remains a fixed field on non-MC roster
-> definitions; only the MC's unit instance gains an equippable charge-action slot
-> plus the acquired-actions list it draws from.
-> Note this interacts with the v2.8 charge-cost rule: upgrades are bought against
-> a specific charge action, so swapping must decide whether Lore follows the unit
-> or the action. Recommend it follows the **action**, consistent with how every
-> other Lore upgrade already works — this still applies since it's the MC's own
-> Lore stacks per acquired action that are at stake.
+> **2. Swappable charge actions — MC only — BUILT.** Change your charge action
+> when you acquire a new one. This applies **only to the Main Character**
+> (item 1's customisable first unit); every other unit stays locked to its own
+> charge action, as today.
+> *Creation gives access to three GENERIC starters only* — plain bulk physical
+> damage, bulk magic damage, or heal, no attached effect (`heavystrike`,
+> `wildfire`, `greatheal` in core.js) — not the 8 "corner" build-around actions
+> item 1 originally offered at creation. Those 8 are now a **rare random drop**
+> instead (`P.MC_CHARGE_DROP_POOL`, rolled at `P.MC_CHARGE_DROP_CHANCE` = 5%
+> per random-phase wave, post wave-20 only — never during the curated run),
+> replacing that wave's usual action/condition drop rather than stacking on
+> top of it. A duplicate charge drop converts to Lore, same as a duplicate
+> action or gambit condition. Collecting all 8 takes on the order of 400+
+> waves of random drops at that rate (coupon-collector expectation) — "much
+> more rare" than the guaranteed per-wave drop it replaces.
+> *Swap UI* lives where the charge action was already displayed — the
+> per-unit box in the GAMBITS tab — and becomes a `<select>` once the MC has
+> acquired more than one. Swapping is free and instant, and patches the LIVE
+> battle unit directly (not just the roster template), so it applies to the
+> fight in progress rather than waiting for the next wave.
+> *Lore follows the action, not the unit* — exactly the recommendation below,
+> and true for free with no extra work: `G.bonuses` was already keyed by
+> action id, so each acquired charge action keeps its own upgrade stacks
+> independently and switching back restores whatever was bought on it.
+> Covered by 5 new headless smoke-test checks (pool composition, no overlap
+> with the five companions', starter plainness, drop-chance sanity).
 >
 > **3. Equipment, with Mettal as its currency** — specified in §0 economy, never
 > built. A new item layer on units.

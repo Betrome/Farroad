@@ -245,8 +245,19 @@ P.MARKS_RATE=0.65;
    result to an integer BEFORE multiplying by enemy count, which quantised the
    cut away at low waves (14*1.0*0.9 = 12.6 -> 13, only a 7% cut not 10%). */
 P.AETHER_RATE=0.90;
+/* Base coefficients cut twice: 0.7->0.1->0.01 (aether), 0.35->0.05->0.005
+   (marks). The first cut (to 0.1/0.05) still left wave-1 idle income at ~7.8k
+   Aether / ~1.3k Marks per 24h, judged still too fast — and waves run into the
+   TENS OF THOUSANDS, so idle income at depth is this base times waveScale on
+   top: measured directly against the CURRENT curve (not the older "=86 at
+   w10000" figure quoted elsewhere, which predates the v2.1 refit), waveScale
+   is 1 at wave 1, ~4.4 at 200, ~8.8 at 1000, ~26 at 10000 — so a rate that
+   feels only "somewhat too generous" at wave 1 is ~26x that at wave 10000.
+   AETHER_RATE/MARKS_RATE are left as-is; they are late-game throttles (roster
+   pacing, the v2.8 Aether cut) layered on TOP of this base, not the base
+   rate itself. */
 P.idlePerSec=function(farthest){var S=C.waveScale(farthest);return {
- aether:0.7*S*P.AETHER_RATE, marks:0.35*S*P.MARKS_RATE};};
+ aether:0.01*S*P.AETHER_RATE, marks:0.005*S*P.MARKS_RATE};};
 P.killReward=function(w,n){var S=C.waveScale(w);return {
  aether:14*S*P.AETHER_RATE*n, marks:3*S*P.MARKS_RATE*n};};
 /* TRAVEL TIME is the real throttle — it is what turns "thousands of waves" into
@@ -425,13 +436,27 @@ P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','
 P.MC_POINTS_TOTAL=P.MC_STAT_KEYS.length*5;
 P.MC_POINT_MIN=1;
 P.MC_POINT_MAX=10;
-/* New charge actions for the player to choose between at creation. These are
-   not new authoring — they are the "corner" charge actions already written
-   into ACTIONS/CHARGE_ACTIONS (see core.js's CHARGE ACTION DESIGN SPACE
-   comment) specifically to prove the design space beyond the five originals,
-   and were sitting unused by any roster unit until now. */
-P.MC_CHARGE_CHOICES=['tideturn','lastlight','sunder','gravewind','reckoning',
+/* ===== MC CHARGE ACTIONS: starter pick vs. rare acquisition (roadmap 2) =====
+ * Creation only offers the three GENERIC starters (core.js's "MC GENERIC
+ * STARTERS" — plain bulk-physical, bulk-magic, or heal, no attached effect).
+ * The eight "corner" charge actions — build-around options with an attached
+ * status, a conditional, or a resource effect instead of raw numbers — are
+ * withheld at creation and become a RARE random drop instead, exactly like
+ * an equippable action or gambit condition except far less frequent (see
+ * MC_CHARGE_DROP_CHANCE) and gated to the random-drop phase only (post
+ * wave-20) so the curated tutorial sequence is never disturbed by one. */
+P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal'];
+P.MC_CHARGE_DROP_POOL=['tideturn','lastlight','sunder','gravewind','reckoning',
  'bulwarkoath','emberglut','hollowtoll'];
+/* Checked once per random-phase wave, replacing that wave's normal action/
+   condition drop rather than stacking on top of it — a charge action is a
+   bigger deal than either, so it doesn't also cost the player their usual
+   drop that wave. At 5% per wave, one charge-drop event lands roughly every
+   20 waves; collecting all 8 (a coupon-collector problem, expectation
+   8 x H(8) ≈ 21.7 events) takes on the order of 400+ waves of random drops —
+   "much more rare" than the guaranteed per-wave action/condition drop it
+   can replace. */
+P.MC_CHARGE_DROP_CHANCE=0.05;
 P.mcLerp=function(range,point){
  return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
 P.mcPointsSpent=function(points){
