@@ -381,4 +381,69 @@ P.dupUnitAether=function(w){
  var kr=P.killReward(w,P.enemyCount(w)).aether;
  var idle=P.idlePerSec(w).aether*P.NOMINAL_WAVE_SEC;
  return Math.round(P.DUP_UNIT_WAVES*(kr+idle));};
+
+/* ===== CUSTOMISABLE FIRST UNIT (roadmap item 1) =====
+ * Bounds are the ROSTER's OWN min/max per stat (read off C.ROSTER below), so a
+ * player-built character can never exceed what an existing, already-balanced
+ * specialist already has in that stat. That matters because the difficulty
+ * curve is tuned primarily against the starting unit's stats (see the "solo
+ * character survival requirement" notes throughout this file) — a build the
+ * game has never effectively seen would make every one of those measurements
+ * suspect. Keeping every stat inside an already-shipped range means the curve
+ * stays valid no matter what the player picks.
+ *
+ * EVERY stat the engine tracks is here — ATK/MAG/DEF/RES/SPD/HP plus
+ * ATK-CRIT/MAG-CRIT/BLOCK/EVADE — with one deliberate exception: chargeRate is
+ * not offered, because it is the one field where the five shipped units carry
+ * IDENTICAL values (1.0, every one). There is no already-played range to bound
+ * a choice against, so — consistent with the rule above — none is invented;
+ * every unit's charge gauge fills at the same rate regardless of build.
+ *
+ * Growth is bounded from the ROSTER's own growth min/max the same way, and
+ * tied to the SAME point spent on that stat's base value — which isn't a new
+ * rule, it's one the shipped five already follow: whichever unit has a stat's
+ * highest base value also has that stat's highest growth (Vey/SPD 124+3.2,
+ * Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4, Ansa/RES 22+1.7, Kesh/ATK 26+2.1,
+ * Dorrek/HP 560+48). Matched here explicitly instead of leaving it to
+ * coincidence. ATK-CRIT/MAG-CRIT/BLOCK/EVADE have no growth curve to bound —
+ * P.statsAt() copies them straight from base for every unit in the game, not
+ * just a custom one, so a level-1 point is this stat for the whole run. */
+P.MC_STAT_RANGE={atk:[12,26],mag:[10,30],def:[12,30],res:[12,22],spd:[84,124],
+ hp:[270,560],atkCrit:[0.03,0.12],magCrit:[0.03,0.10],block:[0.02,0.10],evade:[0.02,0.10]};
+P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
+ hp:[18,48]};
+/* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
+   whole percent, matching the granularity every shipped value already uses —
+   interpolating to raw floating point would imply a precision the roster
+   itself doesn't have (nothing is tuned to e.g. 7.3% block). */
+P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
+/* 10 stats x a default of 5 each = a balanced build spends exactly the pool,
+   same as every stat starting at its own midpoint. 1-10 is a familiar scale
+   that keeps the allocator UI simple: a stepper per stat, remaining points
+   ticking down to zero before the player can confirm. */
+P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
+P.MC_POINTS_TOTAL=P.MC_STAT_KEYS.length*5;
+P.MC_POINT_MIN=1;
+P.MC_POINT_MAX=10;
+/* New charge actions for the player to choose between at creation. These are
+   not new authoring — they are the "corner" charge actions already written
+   into ACTIONS/CHARGE_ACTIONS (see core.js's CHARGE ACTION DESIGN SPACE
+   comment) specifically to prove the design space beyond the five originals,
+   and were sitting unused by any roster unit until now. */
+P.MC_CHARGE_CHOICES=['tideturn','lastlight','sunder','gravewind','reckoning',
+ 'bulwarkoath','emberglut','hollowtoll'];
+P.mcLerp=function(range,point){
+ return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
+P.mcPointsSpent=function(points){
+ var sum=0,i;for(i=0;i<P.MC_STAT_KEYS.length;i++)sum+=points[P.MC_STAT_KEYS[i]]||0;
+ return sum;};
+/* @param points one P.MC_POINT_MIN..P.MC_POINT_MAX value per P.MC_STAT_KEYS */
+P.mcBuildStats=function(points){
+ var stats={},growth={},i,k,v;
+ for(i=0;i<P.MC_STAT_KEYS.length;i++){
+  k=P.MC_STAT_KEYS[i];v=P.mcLerp(P.MC_STAT_RANGE[k],points[k]);
+  stats[k]=(P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)/100:Math.round(v);
+  if(P.MC_GROWTH_RANGE[k])growth[k]=Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],points[k])*10)/10;}
+ var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
+ return {stats:stats,hp:hp,growth:growth};};
 return P;})(window.FarroadCore);

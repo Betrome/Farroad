@@ -11,7 +11,7 @@
  --threat:#e0794f;--row:#9fd0e8;--aether:#8fb8f0;--lore:#6fd8c8;--marks:#e0b060;--boss:#e05a7a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-#app{max-width:560px;margin:0 auto;padding:8px 8px 40px}
+#app,#mcCreate{max-width:560px;margin:0 auto;padding:8px 8px 40px}
 h1{font-size:14px;margin:0;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:600}
 .vbadge{background:var(--charge);color:#12100e;border-radius:3px;padding:1px 6px;font-weight:700}
 .sub{font-size:11px;color:var(--dimmer);margin:3px 0 8px}
@@ -221,6 +221,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 .copy{font-size:13px;padding:4px 9px}
 .slot{padding:10px;border-radius:7px;margin-bottom:8px}
 .expt{padding:10px;border-radius:7px;margin-top:10px}
+.mcc.on{border-color:var(--charge);background:#2a2216}
 
 /* --- narrow phones: keep the tab grid usable and stop any overflow --- */
 @media (max-width:400px){
@@ -232,8 +233,45 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 </style>
 </head>
 <body>
+<div id="mcCreate" class="hidden">
+  <h1>Farroad <span class="vbadge">v2.9</span></h1>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-05 23:59 UTC</div>
+  <div class="sub">Before the road begins — build your character.</div>
+
+  <div class="panel">
+    <label for="mcName">Name</label>
+    <input id="mcName" type="text" maxlength="20" placeholder="Your character's name" autocomplete="off"
+      style="width:100%;background:#0e0c0a;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:7px 8px;font:inherit;font-size:13px">
+  </div>
+
+  <div class="panel">
+    <div class="spread" style="margin-bottom:6px">
+      <label style="margin:0">Stats</label>
+      <span class="tiny" id="mcPointsLbl">50 points remaining</span>
+    </div>
+    <div id="mcStats"></div>
+    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
+      ATK/MAG/DEF/RES/SPD/HP also raise that stat's growth per level — a heavy
+      investment now means a bigger lead in that stat for the whole run, the
+      same tradeoff every companion already makes. CRIT/BLOCK/EVADE don't grow
+      with level for any unit in the game, so a point there is fixed for the run.
+    </div>
+  </div>
+
+  <div class="panel">
+    <label style="margin-bottom:2px">Charge action</label>
+    <div class="tiny" style="margin-bottom:6px;color:var(--dimmer)">
+      Fills as you act in battle and fires on its own for a big effect. Pick one.
+    </div>
+    <div id="mcCharges"></div>
+  </div>
+
+  <button id="btnMcConfirm" disabled style="width:100%">Begin the road</button>
+</div>
+
 <div id="app">
-  <h1>Farroad <span class="vbadge">v1.0</span></h1>
+  <h1>Farroad <span class="vbadge">v2.9</span></h1>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-05 23:59 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is
@@ -1400,6 +1438,71 @@ P.dupUnitAether=function(w){
  var kr=P.killReward(w,P.enemyCount(w)).aether;
  var idle=P.idlePerSec(w).aether*P.NOMINAL_WAVE_SEC;
  return Math.round(P.DUP_UNIT_WAVES*(kr+idle));};
+
+/* ===== CUSTOMISABLE FIRST UNIT (roadmap item 1) =====
+ * Bounds are the ROSTER's OWN min/max per stat (read off C.ROSTER below), so a
+ * player-built character can never exceed what an existing, already-balanced
+ * specialist already has in that stat. That matters because the difficulty
+ * curve is tuned primarily against the starting unit's stats (see the "solo
+ * character survival requirement" notes throughout this file) — a build the
+ * game has never effectively seen would make every one of those measurements
+ * suspect. Keeping every stat inside an already-shipped range means the curve
+ * stays valid no matter what the player picks.
+ *
+ * EVERY stat the engine tracks is here — ATK/MAG/DEF/RES/SPD/HP plus
+ * ATK-CRIT/MAG-CRIT/BLOCK/EVADE — with one deliberate exception: chargeRate is
+ * not offered, because it is the one field where the five shipped units carry
+ * IDENTICAL values (1.0, every one). There is no already-played range to bound
+ * a choice against, so — consistent with the rule above — none is invented;
+ * every unit's charge gauge fills at the same rate regardless of build.
+ *
+ * Growth is bounded from the ROSTER's own growth min/max the same way, and
+ * tied to the SAME point spent on that stat's base value — which isn't a new
+ * rule, it's one the shipped five already follow: whichever unit has a stat's
+ * highest base value also has that stat's highest growth (Vey/SPD 124+3.2,
+ * Mirel/MAG 30+2.7, Dorrek/DEF 30+2.4, Ansa/RES 22+1.7, Kesh/ATK 26+2.1,
+ * Dorrek/HP 560+48). Matched here explicitly instead of leaving it to
+ * coincidence. ATK-CRIT/MAG-CRIT/BLOCK/EVADE have no growth curve to bound —
+ * P.statsAt() copies them straight from base for every unit in the game, not
+ * just a custom one, so a level-1 point is this stat for the whole run. */
+P.MC_STAT_RANGE={atk:[12,26],mag:[10,30],def:[12,30],res:[12,22],spd:[84,124],
+ hp:[270,560],atkCrit:[0.03,0.12],magCrit:[0.03,0.10],block:[0.02,0.10],evade:[0.02,0.10]};
+P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
+ hp:[18,48]};
+/* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
+   whole percent, matching the granularity every shipped value already uses —
+   interpolating to raw floating point would imply a precision the roster
+   itself doesn't have (nothing is tuned to e.g. 7.3% block). */
+P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
+/* 10 stats x a default of 5 each = a balanced build spends exactly the pool,
+   same as every stat starting at its own midpoint. 1-10 is a familiar scale
+   that keeps the allocator UI simple: a stepper per stat, remaining points
+   ticking down to zero before the player can confirm. */
+P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
+P.MC_POINTS_TOTAL=P.MC_STAT_KEYS.length*5;
+P.MC_POINT_MIN=1;
+P.MC_POINT_MAX=10;
+/* New charge actions for the player to choose between at creation. These are
+   not new authoring — they are the "corner" charge actions already written
+   into ACTIONS/CHARGE_ACTIONS (see core.js's CHARGE ACTION DESIGN SPACE
+   comment) specifically to prove the design space beyond the five originals,
+   and were sitting unused by any roster unit until now. */
+P.MC_CHARGE_CHOICES=['tideturn','lastlight','sunder','gravewind','reckoning',
+ 'bulwarkoath','emberglut','hollowtoll'];
+P.mcLerp=function(range,point){
+ return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
+P.mcPointsSpent=function(points){
+ var sum=0,i;for(i=0;i<P.MC_STAT_KEYS.length;i++)sum+=points[P.MC_STAT_KEYS[i]]||0;
+ return sum;};
+/* @param points one P.MC_POINT_MIN..P.MC_POINT_MAX value per P.MC_STAT_KEYS */
+P.mcBuildStats=function(points){
+ var stats={},growth={},i,k,v;
+ for(i=0;i<P.MC_STAT_KEYS.length;i++){
+  k=P.MC_STAT_KEYS[i];v=P.mcLerp(P.MC_STAT_RANGE[k],points[k]);
+  stats[k]=(P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)/100:Math.round(v);
+  if(P.MC_GROWTH_RANGE[k])growth[k]=Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],points[k])*10)/10;}
+ var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
+ return {stats:stats,hp:hp,growth:growth};};
 return P;})(window.FarroadCore);
 </script>
 
@@ -1430,7 +1533,11 @@ S.VERSION=1;
 var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
  'loadout','hpCarry','touched','clearedWaves','lvl','bank','maxLevelEver','owned',
- 'enrage','idleAcc','dropQueue','dropHistory'];
+ 'enrage','idleAcc','dropQueue','dropHistory',
+ /* the player-built starting character (roadmap item 1), or null for the
+    hardcoded default — see applyCustomMC() in the UI layer, which is what
+    actually turns this back into stats/growth on the 'kesh' roster slot. */
+ 'mc'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -1499,7 +1606,9 @@ var $=function(s){return document.querySelector(s);};
 var SAVE_KEY='farroad-save-v1';
 
 var G;   /* game state */
-function newGame(seed){
+/* @param mc optional {name,stats,hp,growth,chargeAction} from character
+   creation (see applyCustomMC below) — null keeps the hardcoded Kesh. */
+function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
   aether:0, lore:0, marks:0, wipes:0,
   party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
@@ -1508,7 +1617,34 @@ function newGame(seed){
      by dying and replaying. This records which waves have ever been cleared. */
   clearedWaves:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
-  battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0};}
+  battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
+  mc:mc||null};}
+
+/* Applies a player-built character onto the 'kesh' slot. This mutates the
+   shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
+   override through every C.ROSTER lookup (buildParty, renderLore, the
+   loadout editor's charge-action box, etc. — nine call sites) — the same
+   pattern the row-toggle button already uses on C.ROSTER. Both tables are
+   plain in-memory objects rebuilt fresh on every page load, so this is safe:
+   it never touches anything persisted, only the live session's copy. A no-op
+   when G.mc is null (an old save, or a fresh boot before creation runs),
+   which leaves the hardcoded Kesh exactly as shipped. */
+function applyCustomMC(){
+ if(!G.mc)return;
+ var keshDef=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')keshDef=r;});
+ if(!keshDef)return;
+ keshDef.name=G.mc.name;
+ keshDef.hp=G.mc.hp;
+ keshDef.chargeAction=G.mc.chargeAction;
+ /* chargeRate is the one field NOT offered at creation (see P.MC_STAT_RANGE's
+    comment — the five shipped units never vary it, so there is no already-
+    played range to bound a choice against); it stays fixed at 1 same as
+    every other unit. */
+ keshDef.stats={atk:G.mc.stats.atk,mag:G.mc.stats.mag,def:G.mc.stats.def,res:G.mc.stats.res,spd:G.mc.stats.spd,
+  atkCrit:G.mc.stats.atkCrit,magCrit:G.mc.stats.magCrit,chargeRate:1,
+  block:G.mc.stats.block,evade:G.mc.stats.evade};
+ P.GROWTH.kesh={hp:G.mc.growth.hp,atk:G.mc.growth.atk,mag:G.mc.growth.mag,
+  def:G.mc.growth.def,res:G.mc.growth.res,spd:G.mc.growth.spd};}
 
 /* Recovery: base + purchased steps, hard-capped at the measured saturation point. */
 function recoveryOf(uid){
@@ -1897,6 +2033,7 @@ function tryResumeSave(){
  var loaded=Save.deserialize(snap,C);
  if(!loaded){sysLog('<span style="color:var(--bad)">Save was corrupt — starting a fresh run.</span>');return false;}
  G=loaded;
+ applyCustomMC();
  $('#log').innerHTML='';
  sysLog('<b>Resuming your saved run.</b> <span class="tiny">Back to wave '+(G.wave||1)+
   ', fresh — a reload restarts the current wave\'s fight rather than freezing it mid-battle.</span>');
@@ -2525,7 +2662,15 @@ $('#tThr').onclick=function(){show(tThreshold());};
 /* --------------------------------------------------------------- wiring --- */
 $('#btnPlay').onclick=function(){playing?stop():play();};
 $('#btnStep').onclick=function(){stop();doStep();};
-$('#btnReset').onclick=function(){stop();boot(Math.floor(Math.random()*9999));doSave();};
+/* FULL reset: clears the save and sends the player back through character
+   creation, rather than restarting the same character at a new seed. A
+   built character represents real investment (name, 50 stat points, a
+   charge pick), so this is confirmed rather than firing on a stray tap. */
+$('#btnReset').onclick=function(){
+ if(!confirm('Reset everything? This deletes your save and your character — you\'ll build a new one.'))return;
+ stop();
+ try{localStorage.removeItem(SAVE_KEY);}catch(e){}
+ showMcCreate();};
 $('#btnClear').onclick=function(){$('#log').innerHTML='';};
 /* Catch tab close/refresh and backgrounding — the two ways a session ends
    without a combat beat or purchase around to trigger the renderAll() autosave
@@ -2550,16 +2695,106 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
   ['log','gambits','aether','lore','marks','drops','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
-function boot(seed){
- G=newGame(seed);
+function boot(seed,mc){
+ G=newGame(seed,mc||(G&&G.mc));   /* Reset run keeps the same custom character */
+ applyCustomMC();
  C.applyBonuses({});
  $('#log').innerHTML='';
- sysLog('<b>You set out alone.</b><div class="tiny">One character, Strike and Ember, and no rules yet. '+
+ var openerName=G.mc?G.mc.name:null;
+ sysLog('<b>'+(openerName?openerName+' sets out alone.':'You set out alone.')+
+  '</b><div class="tiny">One character, Strike and Ember, and no rules yet. '+
   'Tools arrive on a curated schedule to wave 20 — an action every two waves, a gambit condition '+
   'between them. Write rules in the GAMBITS tab; spend what you earn in AETHER, LORE and MARKS.</div>');
  startWave(1);
  buildGambits();renderAll();}
-if(!tryResumeSave()){boot(7);doSave();}
+
+/* ============================================================ character
+ * creation (roadmap item 1) — shown only when there is no save to resume,
+ * i.e. a genuine first-ever visit. An existing save's Kesh (custom or
+ * hardcoded default) is never retroactively replaced. ==================== */
+/* Every stat P.MC_STAT_RANGE offers, in creation-screen display order. Kept as
+   a single source of truth in progression.js (P.MC_STAT_KEYS) so the pool
+   size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
+var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
+ atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
+var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+var mcChargeChoice=null;
+function mcSanitizeName(raw){
+ return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
+function mcStatDisplay(k,point){
+ var v=P.mcLerp(P.MC_STAT_RANGE[k],point);
+ return (P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)+'%':Math.round(v);}
+function renderMcStats(){
+ var host=$('#mcStats');if(!host)return;host.innerHTML='';
+ P.MC_STAT_KEYS.forEach(function(k){
+  var val=mcStatDisplay(k,mcPoints[k]);
+  var hasGrowth=!!P.MC_GROWTH_RANGE[k];
+  var grow=hasGrowth?Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],mcPoints[k])*10)/10:null;
+  var row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
+  row.innerHTML='<span class="tiny" style="width:56px">'+MC_STAT_LABELS[k]+'</span>'+
+   '<button class="mini mcm" data-k="'+k+'" style="min-width:30px">−</button>'+
+   '<span class="mono" style="min-width:22px;text-align:center">'+mcPoints[k]+'</span>'+
+   '<button class="mini mcp" data-k="'+k+'" style="min-width:30px">+</button>'+
+   '<span class="tiny mono" style="flex:1;text-align:right;color:var(--dimmer)">'+val+
+   (hasGrowth?' <span style="color:var(--dim)">(+'+grow+'/lvl)</span>':'')+'</span>';
+  host.appendChild(row);});
+ Array.prototype.forEach.call(host.querySelectorAll('.mcm'),function(b){
+  b.onclick=function(){var k=b.dataset.k;
+   if(mcPoints[k]>P.MC_POINT_MIN)mcPoints[k]--;renderMcStats();updateMcConfirm();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.mcp'),function(b){
+  b.onclick=function(){var k=b.dataset.k;
+   if(mcPoints[k]<P.MC_POINT_MAX&&P.mcPointsSpent(mcPoints)<P.MC_POINTS_TOTAL)mcPoints[k]++;
+   renderMcStats();updateMcConfirm();};});
+ var lbl=$('#mcPointsLbl');
+ if(lbl)lbl.textContent=(P.MC_POINTS_TOTAL-P.mcPointsSpent(mcPoints))+' points remaining';}
+function renderMcCharges(){
+ var host=$('#mcCharges');if(!host)return;host.innerHTML='';
+ P.MC_CHARGE_CHOICES.forEach(function(id){
+  var a=C.ACTIONS[id];if(!a)return;
+  var info=describeAction(id);
+  /* Same "N of M Lore upgrades apply" count renderLore() shows in-game, up
+     front at the point of choice — a support/utility charge action (no
+     `power` field) naturally has fewer live bonuses than a damage one, same
+     as it would for any of the five companions' own charge actions, but that
+     was previously only visible after already committing to a pick. */
+  var liveCount=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);}).length;
+  var card=document.createElement('div');
+  card.className='slot mcc'+(mcChargeChoice===id?' on':'');
+  card.style.cursor='pointer';card.style.marginBottom='5px';card.dataset.id=id;
+  card.innerHTML='<div class="uname" style="color:var(--charge)">⚡ '+info.name+'</div>'+
+   '<div class="tiny" style="margin-top:2px">'+info.body+'</div>'+
+   (info.note?'<div class="tiny" style="margin-top:2px;color:var(--dimmer)">'+info.note+'</div>':'')+
+   '<div class="tiny" style="margin-top:2px;color:var(--dim)">'+liveCount+' of '+
+    Object.keys(C.BONUSES).length+' Lore upgrades apply to this action</div>';
+  card.onclick=function(){mcChargeChoice=id;renderMcCharges();updateMcConfirm();};
+  host.appendChild(card);});}
+function updateMcConfirm(){
+ var btn=$('#btnMcConfirm');if(!btn)return;
+ var nameOk=mcSanitizeName($('#mcName').value).length>0;
+ var pointsOk=P.mcPointsSpent(mcPoints)===P.MC_POINTS_TOTAL;
+ btn.disabled=!(nameOk&&pointsOk&&mcChargeChoice);}
+function showMcCreate(){
+ /* Reset the form itself, not just the save — otherwise Reset run would show
+    the PREVIOUS character's name and charge pick still sitting there, one
+    click away from silently recreating the character it just deleted. */
+ mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+ mcChargeChoice=null;
+ $('#mcName').value='';
+ $('#app').classList.add('hidden');
+ $('#mcCreate').classList.remove('hidden');
+ renderMcStats();renderMcCharges();updateMcConfirm();}
+$('#mcName').oninput=updateMcConfirm;
+$('#btnMcConfirm').onclick=function(){
+ var name=mcSanitizeName($('#mcName').value);
+ if(!name||P.mcPointsSpent(mcPoints)!==P.MC_POINTS_TOTAL||!mcChargeChoice)return;
+ var built=P.mcBuildStats(mcPoints);
+ var mc={name:name,stats:built.stats,hp:built.hp,growth:built.growth,chargeAction:mcChargeChoice};
+ $('#mcCreate').classList.add('hidden');
+ $('#app').classList.remove('hidden');
+ boot(7,mc);
+ doSave();};
+
+if(!tryResumeSave())showMcCreate();
 })();
 </script>
 </body>

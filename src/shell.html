@@ -11,7 +11,7 @@
  --threat:#e0794f;--row:#9fd0e8;--aether:#8fb8f0;--lore:#6fd8c8;--marks:#e0b060;--boss:#e05a7a}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-#app{max-width:560px;margin:0 auto;padding:8px 8px 40px}
+#app,#mcCreate{max-width:560px;margin:0 auto;padding:8px 8px 40px}
 h1{font-size:14px;margin:0;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);font-weight:600}
 .vbadge{background:var(--charge);color:#12100e;border-radius:3px;padding:1px 6px;font-weight:700}
 .sub{font-size:11px;color:var(--dimmer);margin:3px 0 8px}
@@ -221,6 +221,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 .copy{font-size:13px;padding:4px 9px}
 .slot{padding:10px;border-radius:7px;margin-bottom:8px}
 .expt{padding:10px;border-radius:7px;margin-top:10px}
+.mcc.on{border-color:var(--charge);background:#2a2216}
 
 /* --- narrow phones: keep the tab grid usable and stop any overflow --- */
 @media (max-width:400px){
@@ -232,8 +233,45 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 </style>
 </head>
 <body>
+<div id="mcCreate" class="hidden">
+  <h1>Farroad <span class="vbadge"><!--@@VERSION@@--></span></h1>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px"><!--@@BUILD_STAMP@@--></div>
+  <div class="sub">Before the road begins — build your character.</div>
+
+  <div class="panel">
+    <label for="mcName">Name</label>
+    <input id="mcName" type="text" maxlength="20" placeholder="Your character's name" autocomplete="off"
+      style="width:100%;background:#0e0c0a;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:7px 8px;font:inherit;font-size:13px">
+  </div>
+
+  <div class="panel">
+    <div class="spread" style="margin-bottom:6px">
+      <label style="margin:0">Stats</label>
+      <span class="tiny" id="mcPointsLbl">50 points remaining</span>
+    </div>
+    <div id="mcStats"></div>
+    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
+      ATK/MAG/DEF/RES/SPD/HP also raise that stat's growth per level — a heavy
+      investment now means a bigger lead in that stat for the whole run, the
+      same tradeoff every companion already makes. CRIT/BLOCK/EVADE don't grow
+      with level for any unit in the game, so a point there is fixed for the run.
+    </div>
+  </div>
+
+  <div class="panel">
+    <label style="margin-bottom:2px">Charge action</label>
+    <div class="tiny" style="margin-bottom:6px;color:var(--dimmer)">
+      Fills as you act in battle and fires on its own for a big effect. Pick one.
+    </div>
+    <div id="mcCharges"></div>
+  </div>
+
+  <button id="btnMcConfirm" disabled style="width:100%">Begin the road</button>
+</div>
+
 <div id="app">
-  <h1>Farroad <span class="vbadge">v1.0</span></h1>
+  <h1>Farroad <span class="vbadge"><!--@@VERSION@@--></span></h1>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px"><!--@@BUILD_STAMP@@--></div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after 8 of their own turns, +5%/turn. That is

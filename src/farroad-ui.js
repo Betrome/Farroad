@@ -19,7 +19,9 @@ var $=function(s){return document.querySelector(s);};
 var SAVE_KEY='farroad-save-v1';
 
 var G;   /* game state */
-function newGame(seed){
+/* @param mc optional {name,stats,hp,growth,chargeAction} from character
+   creation (see applyCustomMC below) — null keeps the hardcoded Kesh. */
+function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
   aether:0, lore:0, marks:0, wipes:0,
   party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
@@ -28,7 +30,34 @@ function newGame(seed){
      by dying and replaying. This records which waves have ever been cleared. */
   clearedWaves:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
-  battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0};}
+  battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
+  mc:mc||null};}
+
+/* Applies a player-built character onto the 'kesh' slot. This mutates the
+   shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
+   override through every C.ROSTER lookup (buildParty, renderLore, the
+   loadout editor's charge-action box, etc. — nine call sites) — the same
+   pattern the row-toggle button already uses on C.ROSTER. Both tables are
+   plain in-memory objects rebuilt fresh on every page load, so this is safe:
+   it never touches anything persisted, only the live session's copy. A no-op
+   when G.mc is null (an old save, or a fresh boot before creation runs),
+   which leaves the hardcoded Kesh exactly as shipped. */
+function applyCustomMC(){
+ if(!G.mc)return;
+ var keshDef=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')keshDef=r;});
+ if(!keshDef)return;
+ keshDef.name=G.mc.name;
+ keshDef.hp=G.mc.hp;
+ keshDef.chargeAction=G.mc.chargeAction;
+ /* chargeRate is the one field NOT offered at creation (see P.MC_STAT_RANGE's
+    comment — the five shipped units never vary it, so there is no already-
+    played range to bound a choice against); it stays fixed at 1 same as
+    every other unit. */
+ keshDef.stats={atk:G.mc.stats.atk,mag:G.mc.stats.mag,def:G.mc.stats.def,res:G.mc.stats.res,spd:G.mc.stats.spd,
+  atkCrit:G.mc.stats.atkCrit,magCrit:G.mc.stats.magCrit,chargeRate:1,
+  block:G.mc.stats.block,evade:G.mc.stats.evade};
+ P.GROWTH.kesh={hp:G.mc.growth.hp,atk:G.mc.growth.atk,mag:G.mc.growth.mag,
+  def:G.mc.growth.def,res:G.mc.growth.res,spd:G.mc.growth.spd};}
 
 /* Recovery: base + purchased steps, hard-capped at the measured saturation point. */
 function recoveryOf(uid){
@@ -417,6 +446,7 @@ function tryResumeSave(){
  var loaded=Save.deserialize(snap,C);
  if(!loaded){sysLog('<span style="color:var(--bad)">Save was corrupt — starting a fresh run.</span>');return false;}
  G=loaded;
+ applyCustomMC();
  $('#log').innerHTML='';
  sysLog('<b>Resuming your saved run.</b> <span class="tiny">Back to wave '+(G.wave||1)+
   ', fresh — a reload restarts the current wave\'s fight rather than freezing it mid-battle.</span>');
@@ -1045,7 +1075,15 @@ $('#tThr').onclick=function(){show(tThreshold());};
 /* --------------------------------------------------------------- wiring --- */
 $('#btnPlay').onclick=function(){playing?stop():play();};
 $('#btnStep').onclick=function(){stop();doStep();};
-$('#btnReset').onclick=function(){stop();boot(Math.floor(Math.random()*9999));doSave();};
+/* FULL reset: clears the save and sends the player back through character
+   creation, rather than restarting the same character at a new seed. A
+   built character represents real investment (name, 50 stat points, a
+   charge pick), so this is confirmed rather than firing on a stray tap. */
+$('#btnReset').onclick=function(){
+ if(!confirm('Reset everything? This deletes your save and your character — you\'ll build a new one.'))return;
+ stop();
+ try{localStorage.removeItem(SAVE_KEY);}catch(e){}
+ showMcCreate();};
 $('#btnClear').onclick=function(){$('#log').innerHTML='';};
 /* Catch tab close/refresh and backgrounding — the two ways a session ends
    without a combat beat or purchase around to trigger the renderAll() autosave
@@ -1070,14 +1108,104 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
   ['log','gambits','aether','lore','marks','drops','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
-function boot(seed){
- G=newGame(seed);
+function boot(seed,mc){
+ G=newGame(seed,mc||(G&&G.mc));   /* Reset run keeps the same custom character */
+ applyCustomMC();
  C.applyBonuses({});
  $('#log').innerHTML='';
- sysLog('<b>You set out alone.</b><div class="tiny">One character, Strike and Ember, and no rules yet. '+
+ var openerName=G.mc?G.mc.name:null;
+ sysLog('<b>'+(openerName?openerName+' sets out alone.':'You set out alone.')+
+  '</b><div class="tiny">One character, Strike and Ember, and no rules yet. '+
   'Tools arrive on a curated schedule to wave 20 — an action every two waves, a gambit condition '+
   'between them. Write rules in the GAMBITS tab; spend what you earn in AETHER, LORE and MARKS.</div>');
  startWave(1);
  buildGambits();renderAll();}
-if(!tryResumeSave()){boot(7);doSave();}
+
+/* ============================================================ character
+ * creation (roadmap item 1) — shown only when there is no save to resume,
+ * i.e. a genuine first-ever visit. An existing save's Kesh (custom or
+ * hardcoded default) is never retroactively replaced. ==================== */
+/* Every stat P.MC_STAT_RANGE offers, in creation-screen display order. Kept as
+   a single source of truth in progression.js (P.MC_STAT_KEYS) so the pool
+   size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
+var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
+ atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
+var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+var mcChargeChoice=null;
+function mcSanitizeName(raw){
+ return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
+function mcStatDisplay(k,point){
+ var v=P.mcLerp(P.MC_STAT_RANGE[k],point);
+ return (P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)+'%':Math.round(v);}
+function renderMcStats(){
+ var host=$('#mcStats');if(!host)return;host.innerHTML='';
+ P.MC_STAT_KEYS.forEach(function(k){
+  var val=mcStatDisplay(k,mcPoints[k]);
+  var hasGrowth=!!P.MC_GROWTH_RANGE[k];
+  var grow=hasGrowth?Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],mcPoints[k])*10)/10:null;
+  var row=document.createElement('div');row.className='row';row.style.marginBottom='4px';
+  row.innerHTML='<span class="tiny" style="width:56px">'+MC_STAT_LABELS[k]+'</span>'+
+   '<button class="mini mcm" data-k="'+k+'" style="min-width:30px">−</button>'+
+   '<span class="mono" style="min-width:22px;text-align:center">'+mcPoints[k]+'</span>'+
+   '<button class="mini mcp" data-k="'+k+'" style="min-width:30px">+</button>'+
+   '<span class="tiny mono" style="flex:1;text-align:right;color:var(--dimmer)">'+val+
+   (hasGrowth?' <span style="color:var(--dim)">(+'+grow+'/lvl)</span>':'')+'</span>';
+  host.appendChild(row);});
+ Array.prototype.forEach.call(host.querySelectorAll('.mcm'),function(b){
+  b.onclick=function(){var k=b.dataset.k;
+   if(mcPoints[k]>P.MC_POINT_MIN)mcPoints[k]--;renderMcStats();updateMcConfirm();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.mcp'),function(b){
+  b.onclick=function(){var k=b.dataset.k;
+   if(mcPoints[k]<P.MC_POINT_MAX&&P.mcPointsSpent(mcPoints)<P.MC_POINTS_TOTAL)mcPoints[k]++;
+   renderMcStats();updateMcConfirm();};});
+ var lbl=$('#mcPointsLbl');
+ if(lbl)lbl.textContent=(P.MC_POINTS_TOTAL-P.mcPointsSpent(mcPoints))+' points remaining';}
+function renderMcCharges(){
+ var host=$('#mcCharges');if(!host)return;host.innerHTML='';
+ P.MC_CHARGE_CHOICES.forEach(function(id){
+  var a=C.ACTIONS[id];if(!a)return;
+  var info=describeAction(id);
+  /* Same "N of M Lore upgrades apply" count renderLore() shows in-game, up
+     front at the point of choice — a support/utility charge action (no
+     `power` field) naturally has fewer live bonuses than a damage one, same
+     as it would for any of the five companions' own charge actions, but that
+     was previously only visible after already committing to a pick. */
+  var liveCount=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);}).length;
+  var card=document.createElement('div');
+  card.className='slot mcc'+(mcChargeChoice===id?' on':'');
+  card.style.cursor='pointer';card.style.marginBottom='5px';card.dataset.id=id;
+  card.innerHTML='<div class="uname" style="color:var(--charge)">⚡ '+info.name+'</div>'+
+   '<div class="tiny" style="margin-top:2px">'+info.body+'</div>'+
+   (info.note?'<div class="tiny" style="margin-top:2px;color:var(--dimmer)">'+info.note+'</div>':'')+
+   '<div class="tiny" style="margin-top:2px;color:var(--dim)">'+liveCount+' of '+
+    Object.keys(C.BONUSES).length+' Lore upgrades apply to this action</div>';
+  card.onclick=function(){mcChargeChoice=id;renderMcCharges();updateMcConfirm();};
+  host.appendChild(card);});}
+function updateMcConfirm(){
+ var btn=$('#btnMcConfirm');if(!btn)return;
+ var nameOk=mcSanitizeName($('#mcName').value).length>0;
+ var pointsOk=P.mcPointsSpent(mcPoints)===P.MC_POINTS_TOTAL;
+ btn.disabled=!(nameOk&&pointsOk&&mcChargeChoice);}
+function showMcCreate(){
+ /* Reset the form itself, not just the save — otherwise Reset run would show
+    the PREVIOUS character's name and charge pick still sitting there, one
+    click away from silently recreating the character it just deleted. */
+ mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=5;});return o;})();
+ mcChargeChoice=null;
+ $('#mcName').value='';
+ $('#app').classList.add('hidden');
+ $('#mcCreate').classList.remove('hidden');
+ renderMcStats();renderMcCharges();updateMcConfirm();}
+$('#mcName').oninput=updateMcConfirm;
+$('#btnMcConfirm').onclick=function(){
+ var name=mcSanitizeName($('#mcName').value);
+ if(!name||P.mcPointsSpent(mcPoints)!==P.MC_POINTS_TOTAL||!mcChargeChoice)return;
+ var built=P.mcBuildStats(mcPoints);
+ var mc={name:name,stats:built.stats,hp:built.hp,growth:built.growth,chargeAction:mcChargeChoice};
+ $('#mcCreate').classList.add('hidden');
+ $('#app').classList.remove('hidden');
+ boot(7,mc);
+ doSave();};
+
+if(!tryResumeSave())showMcCreate();
 })();

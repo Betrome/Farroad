@@ -25,7 +25,11 @@ S.VERSION=1;
 var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
  'loadout','hpCarry','touched','clearedWaves','lvl','bank','maxLevelEver','owned',
- 'enrage','idleAcc','dropQueue','dropHistory'];
+ 'enrage','idleAcc','dropQueue','dropHistory',
+ /* the player-built starting character (roadmap item 1), or null for the
+    hardcoded default — see applyCustomMC() in the UI layer, which is what
+    actually turns this back into stats/growth on the 'kesh' roster slot. */
+ 'mc'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 

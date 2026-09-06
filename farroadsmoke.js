@@ -167,6 +167,43 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  }
 })();
 
+/* =================== 7. CUSTOMISABLE FIRST UNIT (roadmap 1) ===============
+ * The point-buy math (P.mcBuildStats) is what keeps a player-built character
+ * inside already-shipped bounds — see the comment above P.MC_STAT_RANGE in
+ * progression.js. This checks the bounds actually hold, that spend tracking
+ * is exact (the UI gates its confirm button on this being exactly right,
+ * not just close), and that every offered charge action is real. */
+(function(){
+ var keys=P.MC_STAT_KEYS;   /* single source of truth — see progression.js */
+ var lo={}, hi={}, mid={};
+ keys.forEach(function(k){lo[k]=P.MC_POINT_MIN;hi[k]=P.MC_POINT_MAX;mid[k]=5;});
+ var atFloor=P.mcBuildStats(lo), atCeil=P.mcBuildStats(hi), atMid=P.mcBuildStats(mid);
+ function valOf(built,k){return k==='hp'?built.hp:built.stats[k];}
+ ok('mcBuildStats: all-min points land exactly on each stat\'s roster floor',
+  keys.every(function(k){return valOf(atFloor,k)===P.MC_STAT_RANGE[k][0];}),
+  keys.filter(function(k){return valOf(atFloor,k)!==P.MC_STAT_RANGE[k][0];}).join(','));
+ ok('mcBuildStats: all-max points land exactly on each stat\'s roster ceiling',
+  keys.every(function(k){return valOf(atCeil,k)===P.MC_STAT_RANGE[k][1];}),
+  keys.filter(function(k){return valOf(atCeil,k)!==P.MC_STAT_RANGE[k][1];}).join(','));
+ var growthKeys=Object.keys(P.MC_GROWTH_RANGE);
+ ok('mcBuildStats: every stat with a growth curve rises with points spent on it',
+  growthKeys.length>0 && growthKeys.every(function(k){return atCeil.growth[k]>atFloor.growth[k];}));
+ ok('mcBuildStats: stats with no growth curve (crit/block/evade) are not given one',
+  P.MC_PCT_STATS.every(function(k){return atFloor.growth[k]===undefined;}));
+ ok('mcPointsSpent: a balanced 5-per-stat build spends exactly the pool',
+  P.mcPointsSpent(mid)===P.MC_POINTS_TOTAL);
+ ok('MC_POINTS_TOTAL matches 5 points per offered stat',
+  P.MC_POINTS_TOTAL===P.MC_STAT_KEYS.length*5);
+ var allChargesReal=P.MC_CHARGE_CHOICES.every(function(id){
+  var a=C.ACTIONS[id];return !!a&&!!a.isCharge;});
+ ok('every MC_CHARGE_CHOICES id resolves to a real charge action in C.ACTIONS',
+  allChargesReal, P.MC_CHARGE_CHOICES.join(','));
+ ok('MC_CHARGE_CHOICES has no overlap with the five companions\' own charge actions',
+  P.MC_CHARGE_CHOICES.indexOf('oath')<0 && P.MC_CHARGE_CHOICES.indexOf('hearthlight')<0 &&
+  P.MC_CHARGE_CHOICES.indexOf('vowofstone')<0 && P.MC_CHARGE_CHOICES.indexOf('ninefold')<0 &&
+  P.MC_CHARGE_CHOICES.indexOf('ashfall')<0);
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);

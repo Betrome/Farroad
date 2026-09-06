@@ -8,18 +8,58 @@
 >
 > ### Fits the current architecture (client-side, single file)
 >
-> **1. Customisable first unit** — the player chooses starting stats, growth
-> curve, name and charge action for their main character.
-> *Implication:* unit definitions must be fully data-driven. Kesh stops being a
-> hardcoded roster entry and becomes a template instantiated from player choices.
-> `ROSTER` is already a plain data array, so this is mostly a matter of moving
-> instantiation behind a factory — but the 20 unwritten companions should be
-> authored as data from the start rather than as literals.
+> **1. Customisable first unit — BUILT.** The player chooses starting stats,
+> growth curve, name and charge action for their main character, shown once on
+> a genuinely fresh save (never retroactively, so an existing run's Kesh is
+> left alone).
+> *As built:* a 50-point pool across EVERY stat the engine tracks except
+> chargeRate — ATK/MAG/DEF/RES/SPD/HP plus ATK-CRIT/MAG-CRIT/BLOCK/EVADE
+> (1-10 each, default 5) — where each stat is linearly interpolated between
+> the ROSTER's own min and max for that stat — so a player build can never
+> exceed what an already-shipped, already-balanced specialist has in any one
+> stat, which is what keeps the difficulty curve (tuned primarily against the
+> starting unit) valid regardless of the build. chargeRate is the one field
+> left out: the five shipped units all carry the identical value (1.0), so
+> there is no already-played range to bound a choice against — inventing one
+> would break the "never exceed shipped values" guarantee everything else
+> here relies on.
+> Growth per level (for ATK/MAG/DEF/RES/SPD/HP only — CRIT/BLOCK/EVADE never
+> grow with level for ANY unit in the game, `P.statsAt()` copies them straight
+> from base) is interpolated the same way from the same point, which isn't a
+> new rule — it's the one the original five already follow (Vey/SPD, Mirel/MAG,
+> Dorrek/DEF, Ansa/RES, Kesh/ATK, Dorrek/HP: whichever unit has a stat's
+> highest base value also has that stat's highest growth). HP got its own
+> point rather than riding the DEF choice as first implemented — the tankiness
+> correlation across the five (Dorrek highest DEF+HP, Mirel lowest of both)
+> was a nice pattern but conflated two choices a player should be able to make
+> independently. See `P.MC_STAT_RANGE`/`MC_GROWTH_RANGE`/`MC_STAT_KEYS` in
+> progression.js for the exact numbers and `P.mcBuildStats` for the formula;
+> covered by a headless test in farroadsmoke.js.
+> *Charge action:* one pick from 8 pre-authored "corner" charge actions (see
+> core.js's CHARGE ACTION DESIGN SPACE comment) that existed but were unused by
+> any roster unit — reused rather than newly written, so the choice is already
+> balance-considered content, not fresh numbers. Each option shows how many of
+> the 10 Lore bonuses actually apply to it (a support action like Tideturn
+> genuinely has fewer live upgrades than a damage one — 3 of 10 against
+> Reckoning's 6 of 10 — which is a property of what the action does, not a
+> bug, but is now visible before committing to the pick rather than after.
+> *Implementation note:* `ROSTER`/`GROWTH` were NOT turned into a factory.
+> Character creation instead mutates the existing `kesh` entries in
+> `C.ROSTER`/`P.GROWTH` in place (the same pattern the row-toggle button
+> already used on `C.ROSTER`), which every existing lookup site — buildParty,
+> renderLore, the loadout editor's charge box — already reads from, so nothing
+> else needed to change. The 20 unwritten companions still want to be authored
+> as data from the start; that part of the implication stands.
 >
-> **2. Swappable charge actions — MC only** — change your charge action when you
-> acquire a new one. This applies **only to the Main Character** (item 1's
-> customisable first unit); every other unit stays locked to its own charge
-> action, as today.
+> **2. Swappable charge actions — MC only — PARTIALLY BUILT.** Change your
+> charge action when you acquire a new one. This applies **only to the Main
+> Character** (item 1's customisable first unit); every other unit stays
+> locked to its own charge action, as today.
+> *What's built:* the ONE-TIME pick at character creation, from a fixed pool
+> of 8 (see item 1). *What's not:* swapping to a NEWLY ACQUIRED charge action
+> later — there is no acquisition mechanism yet (nothing currently drops a
+> charge action for the MC to add to a pool) and no swap UI. The rest of this
+> entry's implication is still open work.
 > *Implication:* charge actions decouple from unit identity **for the MC alone**.
 > The MC needs its own pool of unlockable/acquirable charge actions to swap
 > between — a list distinct from the fixed one-action-per-unit model the rest of

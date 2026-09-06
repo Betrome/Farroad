@@ -26,6 +26,14 @@ const VERSION = process.env.FARROAD_VERSION || 'v2.9';
 const srcDir  = path.join(__dirname, 'src');
 const outFile = path.join(__dirname, `farroad-prototype-${VERSION}.html`);
 
+/* Shown in-page (both the character-creation screen and the main app), so a
+   build sent for testing is identifiable at a glance instead of relying on
+   the delivered filename, which gets renamed/moved around (see MODULES.md).
+   VERSION alone isn't enough during a stretch of same-version iteration —
+   this project has shipped several distinct builds as "v2.9" in one day —
+   so a build timestamp disambiguates those the version number can't. */
+const BUILD_STAMP = 'built ' + new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+
 const read = f => fs.readFileSync(path.join(srcDir, f), 'utf8');
 
 const shell = read('shell.html');
@@ -38,13 +46,15 @@ const fused = shell
   .replace('<!--@@CORE@@-->',        `<script id="farroad-core">${core}</script>`)
   .replace('<!--@@PROGRESSION@@-->', `<script id="farroad-progression">${prog}</script>`)
   .replace('<!--@@SAVE@@-->',        `<script id="farroad-save">${save}</script>`)
-  .replace('<!--@@UI@@-->',          `<script>${ui}</script>`);
+  .replace('<!--@@UI@@-->',          `<script>${ui}</script>`)
+  .replace(/<!--@@VERSION@@-->/g,     VERSION)
+  .replace(/<!--@@BUILD_STAMP@@-->/g, BUILD_STAMP);
 
 /* --- fidelity checks that run on every build ------------------------------ */
 const problems = [];
 
 /* 1. every placeholder consumed */
-['@@CORE@@', '@@PROGRESSION@@', '@@SAVE@@', '@@UI@@'].forEach(p => {
+['@@CORE@@', '@@PROGRESSION@@', '@@SAVE@@', '@@UI@@', '@@VERSION@@', '@@BUILD_STAMP@@'].forEach(p => {
   if (fused.includes(p)) problems.push(`placeholder ${p} was not replaced`);
 });
 
@@ -107,6 +117,6 @@ if (problems.length) {
 
 if (!process.argv.includes('--check')) {
   fs.writeFileSync(outFile, fused);
-  console.log('built ' + path.basename(outFile) + '  (' + fused.length + ' bytes)');
+  console.log('built ' + path.basename(outFile) + '  (' + fused.length + ' bytes)  [' + VERSION + ', ' + BUILD_STAMP + ']');
 }
 console.log('checks passed: no DOM in core/progression/save, no stray globals');
