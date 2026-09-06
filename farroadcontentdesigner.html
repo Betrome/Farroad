@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Farroad — Content Designer</title>
+<style>
+:root{--bg:#12100e;--panel:#1c1916;--panel2:#241f1b;--line:#4a4038;--ink:#f0e8dc;--dim:#bcae9a;
+ --dimmer:#9c8f7f;--in:#ffd966;--out:#8fd89a;--big:#9fc8ff;--bad:#e87a68;--crit:#f5cc70;--ok:#8fd89a;--warn:#f5cc70}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+ font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#app{max-width:640px;margin:0 auto;padding:12px 12px 60px}
+h1{font-size:19px;margin:0 0 2px;letter-spacing:.06em}
+.sub{font-size:14px;color:var(--dim);margin-bottom:12px;line-height:1.5}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px}
+.sect{font-size:13px;font-weight:700;letter-spacing:.09em;color:#fff;background:#33475b;
+ border-radius:5px;padding:7px 10px;margin:0 0 10px}
+.f{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;flex-wrap:wrap}
+.f label{font-size:14px;color:var(--ink);flex:1;line-height:1.35;min-width:120px}
+.f .hint{display:block;font-size:12px;color:var(--dimmer)}
+input[type=number],input[type=text]{width:150px;background:#0e0c0a;color:var(--in);font:inherit;font-size:15px;
+ font-weight:700;border:1px solid #6b5a2e;border-radius:6px;padding:9px 8px;min-height:44px;text-align:right}
+input[type=text]{text-align:left;color:var(--ink);width:190px}
+select{background:#0e0c0a;color:var(--ink);font:inherit;font-size:15px;
+ border:1px solid var(--line);border-radius:6px;padding:9px 8px;min-height:44px;width:190px}
+input[type=checkbox]{width:20px;height:20px}
+textarea{width:100%;background:#0e0c0a;color:var(--out);font:inherit;font-size:13px;border:1px solid var(--line);
+ border-radius:6px;padding:8px;min-height:70px;resize:vertical}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tabs button{flex:1;min-width:130px;background:var(--panel2);color:var(--dim);border:1px solid var(--line);
+ border-radius:8px;padding:11px 6px;font:inherit;font-size:13px;font-weight:700;min-height:44px;cursor:pointer}
+.tabs button.on{background:#33475b;border-color:#5c7594;color:#fff}
+.tabpage{display:none}
+.tabpage.on{display:block}
+.chain{font-size:14px;line-height:1.75}
+.chain .r{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #2a2420}
+.chain .r span:first-child{color:var(--dim)}
+.chain .r b{color:var(--ink);font-variant-numeric:tabular-nums}
+.warnlist{display:flex;flex-direction:column;gap:6px}
+.warnlist .w{border-radius:6px;padding:8px 10px;font-size:13px;line-height:1.5}
+.w.ok{background:#1c2b1f;border:1px solid #345b3c;color:var(--ok)}
+.w.warn{background:#332b16;border:1px solid #6b5a2e;color:var(--warn)}
+.w.bad{background:#3a1f1b;border:1px solid #7a3a30;color:var(--bad)}
+.note{font-size:13px;color:var(--dimmer);line-height:1.55;margin-top:8px}
+.res{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:6px 0}
+.res .k{font-size:14px;color:var(--dim)}
+.res .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--big)}
+.copybtn{background:#33475b;color:#fff;border:none;border-radius:6px;padding:10px 14px;font:inherit;
+ font-size:13px;font-weight:700;cursor:pointer;min-height:42px}
+.copybtn:active{opacity:.8}
+.chk{display:flex;align-items:center;gap:8px;padding:6px 0}
+.chk label{font-size:14px;flex:1}
+hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+.bonusgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.bonuschip{border-radius:14px;padding:5px 10px;font-size:12px;border:1px solid var(--line)}
+.bonuschip.live{background:#1c2b1f;border-color:#345b3c;color:var(--ok)}
+.bonuschip.dead{background:#241f1b;border-color:var(--line);color:var(--dimmer)}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Farroad — Content Designer</h1>
+  <div class="sub">Draft a new action, unit, enemy, or gambit condition and check it against the real
+    balance rules from <code>farroadcsvREADME.md</code> before sending it back. Every computed number
+    below (initiative, DPT, lore-bonus deadness, damage-taken multiplier) is ported from the actual
+    formulas in <code>farroad-core.js</code>, not a re-guess. Nothing here writes to your CSVs — it
+    builds one row you copy into the matching file.</div>
+
+  <div class="tabs">
+    <button class="on" data-tab="action">ACTION</button>
+    <button data-tab="unit">UNIT</button>
+    <button data-tab="enemy">ENEMY</button>
+    <button data-tab="gambit">GAMBIT COND.</button>
+    <button data-tab="effect">EFFECT</button>
+  </div>
+
+  <!-- ============ ACTION ============ -->
+  <div class="tabpage on" id="page-action">
+    <div class="panel">
+      <div class="sect">IDENTITY</div>
+      <div class="f"><label>id <span class="hint">lowercase, no spaces</span></label><input type="text" id="a_id" value="newaction"></div>
+      <div class="f"><label>name</label><input type="text" id="a_name" value="New Action"></div>
+      <div class="f"><label>kind</label><select id="a_kind">
+        <option value="equippable">equippable</option><option value="charge">charge</option>
+        <option value="enemy_charge">enemy_charge</option><option value="enemy_basic">enemy_basic</option>
+        <option value="inert">inert</option></select></div>
+      <div class="f"><label>camp <span class="hint">damage type</span></label><select id="a_camp">
+        <option value="atk">atk (ATK vs DEF)</option><option value="mag">mag (MAG vs RES)</option></select></div>
+      <div class="f"><label>target</label><select id="a_target">
+        <option value="foe">foe</option><option value="allFoes">allFoes</option><option value="ally">ally</option>
+        <option value="allAllies">allAllies</option><option value="self">self</option><option value="deadAlly">deadAlly</option></select></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">NUMBERS</div>
+      <div class="f"><label>power <span class="hint">0 for non-damaging</span></label><input type="number" id="a_power" step="0.01" value="1.00"></div>
+      <div class="f"><label>power_dynamic <span class="hint">prose, if power varies (leave blank if flat)</span></label><input type="text" id="a_powerdyn" value=""></div>
+      <div class="f"><label>rank <span class="hint">higher = slower, 0.65–2.10</span></label><input type="number" id="a_rank" step="0.05" value="1.00"></div>
+      <div class="f"><label>hits <span class="hint">1, 3 (Flurry), 9 (Ninefold)</span></label><input type="number" id="a_hits" step="1" value="1"></div>
+      <div class="f"><label>def_pierce <span class="hint">0–0.85</span></label><input type="number" id="a_pierce" step="0.05" value="0"></div>
+      <div class="f"><label>crit_bonus <span class="hint">flat, 0–0.30</span></label><input type="number" id="a_critb" step="0.01" value="0"></div>
+      <div class="f"><label>crit_dynamic <span class="hint">prose, if crit varies</span></label><input type="text" id="a_critdyn" value=""></div>
+      <div class="f"><label>assumed base crit <span class="hint">for the DPT check below — 0.03–0.12 is the live unit range</span></label><input type="number" id="a_basecrit" step="0.01" value="0.05"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">STATUS / SUPPORT</div>
+      <div class="f"><label>applies_status</label><select id="a_status">
+        <option value="">(none)</option>
+        <optgroup label="debuffs">
+        <option value="sundered">sundered</option><option value="frail">frail</option>
+        <option value="enfeebled">enfeebled</option><option value="dulled">dulled</option>
+        <option value="slowed">slowed</option><option value="blinded">blinded</option><option value="burning">burning</option>
+        </optgroup><optgroup label="buffs">
+        <option value="hasted">hasted</option><option value="warded">warded</option><option value="taunted">taunted</option>
+        <option value="surging">surging</option><option value="bracing">bracing</option><option value="regen">regen</option>
+        <option value="blurred">blurred</option></optgroup></select></div>
+      <div class="f"><label>status_turns <span class="hint">2–4</span></label><input type="number" id="a_turns" step="1" value="3"></div>
+      <div class="chk"><input type="checkbox" id="a_heal"><label>heal (Mend-style: power × MAG, no mitigation/crit/block)</label></div>
+      <div class="f"><label>lifesteal <span class="hint">fraction of damage dealt, healed to self</span></label><input type="number" id="a_lifesteal" step="0.05" value="0"></div>
+      <div class="f"><label>revive <span class="hint">fraction of max HP, deadAlly only</span></label><input type="number" id="a_revive" step="0.05" value="0"></div>
+      <div class="f"><label>cleanse <span class="hint">debuffs stripped, heals only</span></label><input type="number" id="a_cleanse" step="1" value="0"></div>
+      <div class="chk"><input type="checkbox" id="a_selftaunt"><label>self_taunt</label></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">CHARGE ECONOMY</div>
+      <div class="f"><label>charge_gain <span class="hint">non-charge actions only, 16–45</span></label><input type="number" id="a_chargegain" step="1" value="20"></div>
+      <div class="f"><label>charge_cost <span class="hint">charge actions only, base 100</span></label><input type="number" id="a_chargecost" step="5" value="100"></div>
+      <div class="chk"><input type="checkbox" id="a_conditional"><label>Meant to be gated behind a gambit condition (situational, not a straight upgrade)</label></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">DERIVED — from the real formulas</div>
+      <div class="res"><span class="k">initiative (1/rank)</span><span class="v" id="a_out_ini">—</span></div>
+      <div class="res"><span class="k">DPT, no crit (power×hits/rank)</span><span class="v" id="a_out_dptraw">—</span></div>
+      <div class="res"><span class="k">DPT incl. assumed crit</span><span class="v" id="a_out_dpt">—</span></div>
+      <div class="res"><span class="k">vs Strike baseline (1.038)</span><span class="v" id="a_out_rel">—</span></div>
+      <div class="chain" id="a_chargechain" style="display:none"></div>
+      <div id="a_warnings" class="warnlist" style="margin-top:8px"></div>
+      <div class="note"><b>Lore-bonus deadness</b> (§ "no auto-buys" — every action needs ≥1 dead bonus,
+        and must never be legal for all 10):</div>
+      <div class="bonusgrid" id="a_bonusgrid"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">DESIGN NOTE</div>
+      <input type="text" id="a_note" value="" style="width:100%">
+    </div>
+
+    <div class="panel">
+      <div class="sect">CSV ROW — paste into farroadactions.csv</div>
+      <textarea id="a_csv" readonly></textarea>
+      <button class="copybtn" onclick="copyField('a_csv')">Copy row</button>
+    </div>
+  </div>
+
+  <!-- ============ UNIT ============ -->
+  <div class="tabpage" id="page-unit">
+    <div class="panel">
+      <div class="sect">IDENTITY</div>
+      <div class="f"><label>id</label><input type="text" id="u_id" value="newunit"></div>
+      <div class="f"><label>name</label><input type="text" id="u_name" value="New Unit"></div>
+      <div class="f"><label>role</label><input type="text" id="u_role" value="attacker"></div>
+      <div class="f"><label>row</label><select id="u_row"><option value="front">front (×1.35 physical taken)</option>
+        <option value="back">back (×0.75 physical taken)</option></select></div>
+    </div>
+    <div class="panel">
+      <div class="sect">STATS <span style="font-weight:400;color:var(--dim);letter-spacing:0"> — five authored units run HP 270–560, SPD 84–124</span></div>
+      <div class="f"><label>hp</label><input type="number" id="u_hp" value="350"></div>
+      <div class="f"><label>atk</label><input type="number" id="u_atk" value="20"></div>
+      <div class="f"><label>mag</label><input type="number" id="u_mag" value="20"></div>
+      <div class="f"><label>def</label><input type="number" id="u_def" value="18"></div>
+      <div class="f"><label>res</label><input type="number" id="u_res" value="18"></div>
+      <div class="f"><label>spd</label><input type="number" id="u_spd" value="100"></div>
+      <div class="f"><label>atk_crit <span class="hint">0.03–0.12, not level-scaled</span></label><input type="number" id="u_acrit" step="0.01" value="0.05"></div>
+      <div class="f"><label>mag_crit <span class="hint">0.03–0.12, not level-scaled</span></label><input type="number" id="u_mcrit" step="0.01" value="0.05"></div>
+      <div class="f"><label>block</label><input type="number" id="u_block" step="0.01" value="0.03"></div>
+      <div class="f"><label>evade</label><input type="number" id="u_evade" step="0.01" value="0.03"></div>
+      <div class="f"><label>charge_rate</label><input type="number" id="u_crate" step="0.1" value="1"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">CHARGE ACTION <span style="font-weight:400;color:var(--dim);letter-spacing:0"> — must be unique per unit</span></div>
+      <div class="f"><label>charge_action id</label><input type="text" id="u_chargeid" value="newunitcharge"></div>
+      <div class="f"><label>power</label><input type="number" id="u_chargepower" step="0.01" value="2.5"></div>
+      <div class="f"><label>rank</label><input type="number" id="u_chargerank" step="0.05" value="1.6"></div>
+      <div class="f"><label>target</label><select id="u_chargetarget">
+        <option value="foe">foe</option><option value="allFoes">allFoes</option><option value="ally">ally</option>
+        <option value="allAllies">allAllies</option><option value="self">self</option><option value="deadAlly">deadAlly</option></select></div>
+      <div class="f"><label>applies_status</label><input type="text" id="u_chargestatus" value=""></div>
+    </div>
+    <div class="panel">
+      <div class="sect">AVAILABILITY</div>
+      <div class="chk"><input type="checkbox" id="u_starting"><label>starting_unit</label></div>
+      <div class="f"><label>design_note</label><input type="text" id="u_note" value="" style="width:100%"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">DERIVED</div>
+      <div class="res"><span class="k">ATK+MAG+DEF+RES total</span><span class="v" id="u_out_total">—</span></div>
+      <div class="note">Existing five run 62–82 on that total (Vey 62, Mirel 74, Ansa 76, Kesh 80, Dorrek 82)
+        — it's a soft guideline, not a hard cap, since roles trade one stat for another.</div>
+      <div id="u_warnings" class="warnlist" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">CSV ROW — paste into farroadunits.csv</div>
+      <textarea id="u_csv" readonly></textarea>
+      <button class="copybtn" onclick="copyField('u_csv')">Copy row</button>
+    </div>
+  </div>
+
+  <!-- ============ ENEMY ============ -->
+  <div class="tabpage" id="page-enemy">
+    <div class="panel">
+      <div class="sect">IDENTITY</div>
+      <div class="f"><label>key</label><input type="text" id="e_key" value="newfoe"></div>
+      <div class="f"><label>name</label><input type="text" id="e_name" value="New Foe"></div>
+      <div class="f"><label>archetype_role</label><input type="text" id="e_role" value="baseline"></div>
+      <div class="f"><label>hp_multiplier <span class="hint">existing range 0.55–1.60</span></label><input type="number" id="e_hpmul" step="0.05" value="1.00"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">STATS</div>
+      <div class="f"><label>atk</label><input type="number" id="e_atk" value="21"></div>
+      <div class="f"><label>mag <span class="hint">blank unless it casts</span></label><input type="number" id="e_mag" value=""></div>
+      <div class="f"><label>def</label><input type="number" id="e_def" value="12"></div>
+      <div class="f"><label>res</label><input type="number" id="e_res" value="8"></div>
+      <div class="f"><label>spd</label><input type="number" id="e_spd" value="92"></div>
+      <div class="f"><label>atk_crit <span class="hint">0.03–0.08, not depth-scaled</span></label><input type="number" id="e_acrit" step="0.01" value="0.04"></div>
+      <div class="f"><label>mag_crit</label><input type="number" id="e_mcrit" step="0.01" value="0.04"></div>
+      <div class="f"><label>evade</label><input type="number" id="e_evade" step="0.01" value="0.05"></div>
+      <div class="f"><label>block</label><input type="number" id="e_block" step="0.01" value="0"></div>
+      <div class="f"><label>thorns <span class="hint">fraction of physical reflected</span></label><input type="number" id="e_thorns" step="0.01" value="0"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">KIT</div>
+      <div class="f"><label>charge_action id <span class="hint">blank if none</span></label><input type="text" id="e_chargeid" value=""></div>
+      <div class="f"><label>charge_action_effect</label><input type="text" id="e_chargefx" value=""></div>
+      <div class="f"><label>slot1_condition</label><input type="text" id="e_slot1cond" value="none"></div>
+      <div class="f"><label>slot1_action</label><input type="text" id="e_slot1act" value="bite"></div>
+      <div class="f"><label>slot2_condition</label><input type="text" id="e_slot2cond" value="none"></div>
+      <div class="f"><label>slot2_action</label><input type="text" id="e_slot2act" value="bite"></div>
+      <div class="f"><label>design_note</label><input type="text" id="e_note" value="" style="width:100%"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">DERIVED — ported from dmgTakenMul() in farroad-core.js</div>
+      <div class="chain" id="e_chain"></div>
+      <div class="res"><span class="k">damage_taken_multiplier</span><span class="v" id="e_out_dtm">—</span></div>
+      <div class="note">K=25, reference is the Roadwolf (def 12, evade 0.05, block 0.00) = 1.00.
+        Existing archetypes span 0.54 (Barrow Knight, very tanky) to 1.16 (Mire Hound, fragile).</div>
+      <div id="e_warnings" class="warnlist" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">CSV ROW — paste into farroadenemies.csv</div>
+      <textarea id="e_csv" readonly></textarea>
+      <button class="copybtn" onclick="copyField('e_csv')">Copy row</button>
+    </div>
+  </div>
+
+  <!-- ============ GAMBIT CONDITION ============ -->
+  <div class="tabpage" id="page-gambit">
+    <div class="panel">
+      <div class="sect">IDENTITY</div>
+      <div class="f"><label>id</label><input type="text" id="g_id" value="new_condition"></div>
+      <div class="f"><label>label</label><input type="text" id="g_label" value="New Condition"></div>
+      <div class="f"><label>scope</label><select id="g_scope"><option value="Foe">Foe</option>
+        <option value="Ally">Ally</option><option value="Self">Self</option><option value="Any">Any</option></select></div>
+      <div class="f"><label>what_it_tests</label><input type="text" id="g_tests" value="" style="width:100%"></div>
+      <div class="f"><label>state_it_reads</label><input type="text" id="g_reads" value="" style="width:100%"></div>
+      <div class="f"><label>returns_target</label><input type="text" id="g_returns" value="" style="width:100%"></div>
+      <div class="f"><label>pairs_well_with</label><input type="text" id="g_pairs" value=""></div>
+      <div class="f"><label>design_note</label><input type="text" id="g_note" value="" style="width:100%"></div>
+    </div>
+    <div class="panel">
+      <div class="sect">FLAGS</div>
+      <div class="chk"><input type="checkbox" id="g_multi"><label>needs_multiple_foes — false with one foe; dead solo, i.e. most of the first 20 waves</label></div>
+      <div class="chk"><input type="checkbox" id="g_reads_action"><label>reads_the_action — inspects the paired action's own fields (e.g. its applied status), not just battle state</label></div>
+    </div>
+    <div class="panel">
+      <div class="sect">CHECKLIST</div>
+      <div id="g_warnings" class="warnlist"></div>
+      <div class="note">Threshold conditions must compare against the ACTING unit's own stat, not an
+        absolute number (<code>foe DEF &gt; 1.4× yours</code>, not <code>foe DEF ≥ 25</code>) — absolute
+        thresholds go stale as stats scale with level and wave.</div>
+    </div>
+    <div class="panel">
+      <div class="sect">CSV ROW — paste into farroadgambitconditions.csv</div>
+      <textarea id="g_csv" readonly></textarea>
+      <button class="copybtn" onclick="copyField('g_csv')">Copy row</button>
+    </div>
+  </div>
+
+  <!-- ============ EFFECT ============ -->
+  <div class="tabpage" id="page-effect">
+    <div class="note" style="margin:-2px 0 12px">A status effect is a MECHANIC, not content — there is no
+      CSV for it. Every one of the 14 shipped effects (sundered, frail, enfeebled, dulled, slowed, blinded,
+      burning, hasted, warded, taunted, surging, bracing, regen, blurred) is a fixed-magnitude, timer-gated
+      flag (<code>u.st[id]</code> counts down to 0) wired into exactly one small hook in
+      <code>src/farroad-core.js</code>. This tab doesn't write code — it gets your new effect into the same
+      shape as the shipped ones, checks its magnitude against real numbers already in the game, and outputs
+      an implementation spec you hand back the way you'd hand back a CSV row. There's no support here for a
+      variable-intensity or stacking effect (charge stacks are the one exception, and that's a separate
+      system) — if what you want doesn't fit "on/off for N turns", say so and it needs a real design pass
+      first, not just this tab.</div>
+
+    <div class="panel">
+      <div class="sect">IDENTITY</div>
+      <div class="f"><label>id <span class="hint">lowercase, no spaces — becomes the applies_status value</span></label><input type="text" id="x_id" value="soaked"></div>
+      <div class="f"><label>name</label><input type="text" id="x_name" value="Soaked"></div>
+      <div class="f"><label>kind</label><select id="x_kind"><option value="d">debuff (goes in DEBUFFS — cleanse can strip it, deepening can buy it)</option>
+        <option value="b">buff (goes in BUFFS — deepening is dead on it)</option></select></div>
+      <div class="f"><label>default status_turns <span class="hint">2–4, matching the shipped band</span></label><input type="number" id="x_turns" step="1" value="3"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">MECHANIC — which hook this needs</div>
+      <div class="f"><label>category</label><select id="x_cat">
+        <option value="off">Offense multiplier (ATK or MAG) — like enfeebled/dulled</option>
+        <option value="def" selected>Defense multiplier (DEF or RES) — like sundered/frail/bracing</option>
+        <option value="flat">Flat block/evade add — like bracing's block or blurred's evade</option>
+        <option value="speed">Tick-cost multiplier — like hasted/slowed</option>
+        <option value="charge">Charge-rate multiplier — like surging</option>
+        <option value="incoming">Incoming-damage multiplier — like warded</option>
+        <option value="dot">Damage-over-time (debuff) — like burning</option>
+        <option value="hot">Heal-over-time (buff) — like regen</option>
+        <option value="threat">Targeting-weight modifier — like taunted</option>
+        <option value="novel">Doesn't fit any of these — novel mechanic</option></select></div>
+      <div class="f" id="x_statwrap"><label>which stat</label><select id="x_stat">
+        <option value="atk">ATK</option><option value="mag">MAG</option><option value="def">DEF</option>
+        <option value="res" selected>RES</option><option value="block">block</option><option value="evade">evade</option></select></div>
+      <div class="f"><label>magnitude <span class="hint" id="x_maghint">multiplier, e.g. 0.75</span></label><input type="number" id="x_mag" step="0.01" value="0.85"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">BALANCE CHECK — against what's actually shipped</div>
+      <div class="chain" id="x_chain"></div>
+      <div id="x_warnings" class="warnlist" style="margin-top:8px"></div>
+    </div>
+
+    <div class="panel">
+      <div class="sect">DESIGN NOTE</div>
+      <input type="text" id="x_note" value="" style="width:100%">
+    </div>
+
+    <div class="panel">
+      <div class="sect">IMPLEMENTATION SPEC — hand this back, it's a code change not a CSV row</div>
+      <textarea id="x_spec" readonly style="min-height:220px"></textarea>
+      <button class="copybtn" onclick="copyField('x_spec')">Copy spec</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var CRIT_MUL=1.75;
+var BUFFS=['hasted','warded','taunted','surging','bracing','regen','blurred'];
+function isBuffStatus(s){return BUFFS.indexOf(s)>=0;}
+var BONUSES=[
+ {id:'swift',n:'Swift'},{id:'potent',n:'Potent'},{id:'lasting',n:'Lasting'},{id:'deepening',n:'Deepening'},
+ {id:'surge',n:'Surge'},{id:'piercing',n:'Piercing'},{id:'keen',n:'Keen'},{id:'broad',n:'Broad'},
+ {id:'cleansing',n:'Cleansing'},{id:'thrifty',n:'Thrifty'}];
+/* exact port of bonusApplies() from src/farroad-core.js */
+function bonusApplies(a,bid){
+ switch(bid){
+  case 'swift':     return true;
+  case 'potent':    return !!a.power;
+  case 'lasting':   return !!a.applies;
+  case 'deepening': return !!(a.applies&&!isBuffStatus(a.applies));
+  case 'surge':     return !a.isCharge;
+  case 'piercing':  return !!(a.power&&a.camp==='atk'&&!a.heal);
+  case 'keen':      return !!(a.power&&!a.heal);
+  case 'broad':     return a.tk==='foe'||a.tk==='ally';
+  case 'cleansing': return !!a.heal;
+  case 'thrifty':   return !!a.isCharge;
+ }
+ return false;
+}
+var $=function(s){return document.querySelector(s);};
+function n(id){var v=parseFloat($('#'+id).value);return isNaN(v)?0:v;}
+function t(id){return $('#'+id).value;}
+function c(id){return $('#'+id).checked;}
+function f3(x){return (Math.round(x*1000)/1000).toFixed(3);}
+function f2(x){return (Math.round(x*100)/100).toFixed(2);}
+function warnRow(kind,text){return '<div class="w '+kind+'">'+text+'</div>';}
+/* CSV-safe field quoting, matching the convention already used in the shipped CSVs */
+function csvField(v){
+ if(v===null||v===undefined)v='';
+ v=String(v);
+ if(/[",\n]/.test(v)){v='"'+v.replace(/"/g,'""')+'"';}
+ return v;
+}
+function csvRow(fields){return fields.map(csvField).join(',');}
+function copyField(id){
+ var el=$('#'+id);el.select();el.setSelectionRange(0,999999);
+ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(el.value);}
+ else{document.execCommand('copy');}
+}
+window.copyField=copyField;
+
+/* ---------------- tabs ---------------- */
+Array.prototype.forEach.call(document.querySelectorAll('.tabs button'),function(b){
+ b.onclick=function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'),function(x){x.classList.remove('on');});
+  Array.prototype.forEach.call(document.querySelectorAll('.tabpage'),function(x){x.classList.remove('on');});
+  b.classList.add('on');
+  $('#page-'+b.dataset.tab).classList.add('on');
+ };
+});
+
+/* ================= ACTION ================= */
+function calcAction(){
+ var power=n('a_power'), rank=Math.max(0.01,n('a_rank')), hits=Math.max(1,n('a_hits')),
+     pierce=n('a_pierce'), critb=n('a_critb'), baseCrit=n('a_basecrit'),
+     camp=t('a_camp'), tk=t('a_target'), applies=t('a_status'), heal=c('a_heal'),
+     kind=t('a_kind'), isCharge=(kind==='charge'||kind==='enemy_charge'),
+     chargeGain=n('a_chargegain'), chargeCost=n('a_chargecost'), conditional=c('a_conditional');
+
+ var ini=1/rank;
+ $('#a_out_ini').textContent='×'+f3(ini);
+
+ var critChance=Math.min(1.00,baseCrit+critb);
+ var dptRaw=power*hits/rank;
+ var dptCrit=dptRaw*(1+critChance*(CRIT_MUL-1));
+ var STRIKE_BASELINE=1.00*1/1.00*(1+0.05*(CRIT_MUL-1)); /* 1.0375 — Strike itself */
+ $('#a_out_dptraw').textContent=f3(dptRaw);
+ $('#a_out_dpt').textContent=heal?'n/a (heal)':f3(dptCrit);
+ $('#a_out_rel').textContent=heal?'n/a':(f2(dptCrit/STRIKE_BASELINE*100)+'%');
+
+ var warnings=[];
+ if(!heal&&power>0){
+  var rel=dptCrit/STRIKE_BASELINE;
+  if(conditional){
+   if(rel>=1.00) warnings.push(warnRow('bad','§6.0 violation: this is flagged as conditional/situational, '+
+    'but its DPT ('+f2(rel*100)+'% of Strike) is AT OR ABOVE Strike even with the condition false. '+
+    'A gated action must be strictly worse than Strike outside its window, or the gambit teaches the '+
+    'player nothing — see Execute (0.63×) and Pierce (loses to Strike vs soft targets) for the pattern.'));
+   else warnings.push(warnRow('ok','Conditional and currently worse than Strike ('+f2(rel*100)+'%) when the '+
+    'condition is false — that is the shape §6.0 asks for. Make sure the payoff INSIDE the window clearly '+
+    'beats Strike, ideally via power_dynamic/crit_dynamic rather than rank.'));
+  } else {
+   if(rel>1.15) warnings.push(warnRow('warn','DPT is '+f2(rel*100)+'% of Strike with no condition attached — '+
+    'if this is meant to be an unconditional pick, double check it is not simply a strict upgrade over Strike.'));
+   else if(rel<0.55) warnings.push(warnRow('warn','DPT is only '+f2(rel*100)+'% of Strike and unconditional — '+
+    'this will read as a trap unless the applied status/utility justifies the loss (compare Daunt/Smother, ~0.58–0.60).'));
+   else warnings.push(warnRow('ok','DPT sits at '+f2(rel*100)+'% of Strike, in the normal band for an unconditional action.'));
+  }
+ }
+ if(rank<0.65||rank>2.10) warnings.push(warnRow('warn','rank '+rank+' is outside the shipped band 0.65–2.10.'));
+ if(pierce<0||pierce>0.85) warnings.push(warnRow('warn','def_pierce '+pierce+' is outside the shipped band 0–0.85.'));
+ if(critb<0||critb>0.30) warnings.push(warnRow('warn','crit_bonus '+critb+' is outside the shipped band 0–0.30.'));
+
+ /* lore bonus deadness */
+ var pseudo={power:power,camp:camp,heal:heal,applies:applies,isCharge:isCharge,tk:tk};
+ var live=0,dead=0,grid='';
+ BONUSES.forEach(function(b){
+  var ok=bonusApplies(pseudo,b.id);
+  if(ok)live++;else dead++;
+  grid+='<span class="bonuschip '+(ok?'live':'dead')+'">'+b.n+(ok?' ✓':' ✗')+'</span>';
+ });
+ $('#a_bonusgrid').innerHTML=grid;
+ if(live===10) warnings.push(warnRow('bad','Legal target for all 10 Lore bonuses — the README calls this a red '+
+  'flag ("no auto-buys"). Give it at least one dead axis (e.g. no applied status so lasting/deepening are dead).'));
+ else if(dead===0) warnings.push(warnRow('bad','No dead bonus at all — every action needs ≥1 bonus that does nothing for it.'));
+ else warnings.push(warnRow('ok',live+' of 10 bonuses live, '+dead+' dead — satisfies the "not an auto-buy" rule.'));
+
+ /* charge cadence */
+ if(isCharge){
+  $('#a_chargechain').style.display='block';
+  var atTen=100+12*10;
+  $('#a_chargechain').innerHTML=
+   '<div class="r"><span>charge_cost you set</span><b>'+(chargeCost||100)+'</b></div>'+
+   '<div class="r"><span>cost after 10 Lore stacks (100 + 12×10)</span><b>'+atTen+'</b></div>'+
+   '<div class="r"><span>this action\'s burst (power × hits)</span><b>'+f2(power*hits)+'</b></div>';
+  if(kind==='charge'){
+   warnings.push(warnRow('warn','Charge actions pay for Lore upgrades in cadence (each stack +12 to the gauge, '+
+    'thrifty −15). Sanity-check that firing at gauge '+atTen+' (10 stacks, no thrifty) still feels worth it — '+
+    'compare against the shipped set: single-target bursts sit near power 3.5–4.2 (Oath 4.20, Reckoning up to '+
+    '6.5 conditional), AoE ones near power 0.55–1.90 depending on whether the payload is damage or a status.'));
+  }
+ } else {
+  $('#a_chargechain').style.display='none';
+  if(chargeGain<16||chargeGain>45) warnings.push(warnRow('warn','charge_gain '+chargeGain+' is outside the shipped band 16–45.'));
+ }
+
+ $('#a_warnings').innerHTML=warnings.join('');
+
+ var row=csvRow([t('a_id'),t('a_name'),kind,camp,f2(power),t('a_powerdyn'),f2(rank),f3(ini),tk,hits,
+  applies,applies?n('a_turns'):'',pierce,critb,t('a_critdyn'),heal?'TRUE':'',
+  n('a_lifesteal')||'',n('a_revive')||'',n('a_cleanse')||'',c('a_selftaunt')?'TRUE':'',
+  isCharge?'':chargeGain, isCharge?chargeCost:'',
+  BONUSES.filter(function(b){return bonusApplies(pseudo,b.id);}).map(function(b){return b.id;}).join(','),
+  t('a_note')]);
+ $('#a_csv').value=row;
+}
+['a_id','a_name','a_kind','a_camp','a_target','a_power','a_powerdyn','a_rank','a_hits','a_pierce','a_critb',
+ 'a_critdyn','a_basecrit','a_status','a_turns','a_heal','a_lifesteal','a_revive','a_cleanse','a_selftaunt',
+ 'a_chargegain','a_chargecost','a_conditional','a_note'].forEach(function(id){
+  var el=$('#'+id);el.addEventListener('input',calcAction);el.addEventListener('change',calcAction);});
+
+/* ================= UNIT ================= */
+function calcUnit(){
+ var hp=n('u_hp'),atk=n('u_atk'),mag=n('u_mag'),def=n('u_def'),res=n('u_res'),spd=n('u_spd'),
+     acrit=n('u_acrit'),mcrit=n('u_mcrit');
+ var total=atk+mag+def+res;
+ $('#u_out_total').textContent=total;
+ var warnings=[];
+ if(hp<270||hp>560) warnings.push(warnRow('warn','HP '+hp+' is outside the authored band 270–560.'));
+ else warnings.push(warnRow('ok','HP '+hp+' fits the authored band 270–560.'));
+ if(spd<84||spd>124) warnings.push(warnRow('warn','SPD '+spd+' is outside the authored band 84–124.'));
+ else warnings.push(warnRow('ok','SPD '+spd+' fits the authored band 84–124.'));
+ if(acrit<0.03||acrit>0.12) warnings.push(warnRow('warn','atk_crit '+acrit+' is outside the shipped band 0.03–0.12 (and remember it never scales with level).'));
+ if(mcrit<0.03||mcrit>0.12) warnings.push(warnRow('warn','mag_crit '+mcrit+' is outside the shipped band 0.03–0.12 (and remember it never scales with level).'));
+ if(total<58||total>86) warnings.push(warnRow('warn','ATK+MAG+DEF+RES total '+total+' sits outside the existing 62–82 range — fine if deliberate, but double check it against the role you\'re building.'));
+ else warnings.push(warnRow('ok','Stat total '+total+' sits inside the existing five units\' 62–82 range.'));
+ var knownCharge=['oath','ninefold','hearthlight','vowofstone','ashfall','tideturn','lastlight','sunder',
+  'gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
+ var cid=t('u_chargeid');
+ if(!cid) warnings.push(warnRow('bad','charge_action id is blank — every unit needs a unique one.'));
+ else if(knownCharge.indexOf(cid)>=0) warnings.push(warnRow('bad','charge_action id "'+cid+'" collides with an already-authored charge action — pick a new id or reuse it deliberately only if this unit is meant to share it.'));
+ else warnings.push(warnRow('ok','charge_action id "'+cid+'" is new — no collision with the 13 authored charge actions.'));
+ $('#u_warnings').innerHTML=warnings.join('');
+
+ var row=csvRow([t('u_id'),t('u_name'),t('u_role'),t('u_row'),hp,atk,mag,def,res,spd,acrit,mcrit,
+  n('u_crate'),n('u_block'),n('u_evade'),cid,n('u_chargepower'),n('u_chargerank'),t('u_chargetarget'),
+  t('u_chargestatus'),c('u_starting')?'TRUE':'FALSE',t('u_note')]);
+ $('#u_csv').value=row;
+}
+['u_id','u_name','u_role','u_row','u_hp','u_atk','u_mag','u_def','u_res','u_spd','u_acrit','u_mcrit',
+ 'u_crate','u_block','u_evade','u_chargeid','u_chargepower','u_chargerank','u_chargetarget','u_chargestatus',
+ 'u_starting','u_note'].forEach(function(id){
+  var el=$('#'+id);el.addEventListener('input',calcUnit);el.addEventListener('change',calcUnit);});
+
+/* ================= ENEMY ================= */
+function dmgTakenMul(def,evade,block){
+ var K=25,REF={def:12,evade:.05,block:.00};
+ return ((K/(K+def))/(K/(K+REF.def)))*((1-evade)/(1-REF.evade))*((1-block*.5)/(1-REF.block*.5));
+}
+function calcEnemy(){
+ var def=n('e_def'),evade=n('e_evade'),block=n('e_block'),acrit=n('e_acrit'),mcrit=n('e_mcrit'),
+     hpmul=n('e_hpmul');
+ var dtm=dmgTakenMul(def,evade,block);
+ $('#e_out_dtm').textContent=f2(dtm);
+ $('#e_chain').innerHTML=
+  '<div class="r"><span>K / (K + def), vs reference def 12</span><b>'+f3((25/(25+def))/(25/(25+12)))+'</b></div>'+
+  '<div class="r"><span>(1−evade) / (1−0.05)</span><b>'+f3((1-evade)/(1-0.05))+'</b></div>'+
+  '<div class="r"><span>(1−block×0.5) / (1−0)</span><b>'+f3((1-block*.5))+'</b></div>';
+ var warnings=[];
+ if(dtm<0.35||dtm>1.80) warnings.push(warnRow('warn','damage_taken_multiplier '+f2(dtm)+' is well outside the existing 0.54–1.16 range — intentional for an extreme archetype, but double check.'));
+ else warnings.push(warnRow('ok','damage_taken_multiplier '+f2(dtm)+' sits within, or close to, the existing 0.54–1.16 range.'));
+ if(acrit<0.03||acrit>0.08) warnings.push(warnRow('warn','atk_crit '+acrit+' is outside the shipped enemy band 0.03–0.08 (crit does not scale with depth).'));
+ if(mcrit&&(mcrit<0.03||mcrit>0.08)) warnings.push(warnRow('warn','mag_crit '+mcrit+' is outside the shipped enemy band 0.03–0.08.'));
+ if(hpmul<0.5||hpmul>1.7) warnings.push(warnRow('warn','hp_multiplier '+hpmul+' is outside the existing 0.55–1.60 range.'));
+ $('#e_warnings').innerHTML=warnings.join('');
+
+ var row=csvRow([t('e_key'),t('e_name'),t('e_role'),hpmul,n('e_atk'),t('e_mag'),def,n('e_res'),n('e_spd'),
+  acrit,mcrit,evade,block,n('e_thorns')||'',t('e_chargeid'),t('e_chargefx'),t('e_slot1cond'),t('e_slot1act'),
+  t('e_slot2cond'),t('e_slot2act'),f2(dtm),t('e_note')]);
+ $('#e_csv').value=row;
+}
+['e_key','e_name','e_role','e_hpmul','e_atk','e_mag','e_def','e_res','e_spd','e_acrit','e_mcrit','e_evade',
+ 'e_block','e_thorns','e_chargeid','e_chargefx','e_slot1cond','e_slot1act','e_slot2cond','e_slot2act',
+ 'e_note'].forEach(function(id){
+  var el=$('#'+id);el.addEventListener('input',calcEnemy);el.addEventListener('change',calcEnemy);});
+
+/* ================= GAMBIT CONDITION ================= */
+function calcGambit(){
+ var multi=c('g_multi'),reads=c('g_reads_action'),tests=t('g_tests'),id=t('g_id');
+ var warnings=[];
+ if(!id) warnings.push(warnRow('bad','id is blank.'));
+ if(!tests) warnings.push(warnRow('warn','what_it_tests is blank — fill in what state this checks.'));
+ if(multi) warnings.push(warnRow('warn','needs_multiple_foes is set — this condition is FALSE with one foe, '+
+  'i.e. dead for most of the first 20 waves. Make sure it is not the only slot in a build.'));
+ if(reads) warnings.push(warnRow('ok','reads_the_action is set — make sure state_it_reads mentions the paired '+
+  'action\'s own field (e.g. "foe statuses + action.applies"), the way foe_lacks_debuff / ally_lacks_buff do.'));
+ if(/>=?\s*\d|<=?\s*\d/.test(tests)&&!/x|×|yours|own/i.test(tests))
+  warnings.push(warnRow('warn','what_it_tests looks like it may use an ABSOLUTE threshold — prefer relative '+
+   '("foe DEF > 1.4× yours") so the condition survives stat scaling, per foe_armoured/foe_warded.'));
+ if(warnings.length===0) warnings.push(warnRow('ok','No structural issues flagged — the rest is judgement.'));
+ $('#g_warnings').innerHTML=warnings.join('');
+
+ var row=csvRow([id,t('g_label'),t('g_scope'),tests,t('g_reads'),t('g_returns'),
+  multi?'TRUE':'FALSE',reads?'TRUE':'FALSE',t('g_pairs'),t('g_note')]);
+ $('#g_csv').value=row;
+}
+['g_id','g_label','g_scope','g_tests','g_reads','g_returns','g_multi','g_reads_action','g_pairs',
+ 'g_note'].forEach(function(id){
+  var el=$('#'+id);el.addEventListener('input',calcGambit);el.addEventListener('change',calcGambit);});
+
+/* ================= EFFECT ================= */
+/* exact magnitudes shipped in src/farroad-core.js, for the balance-check comparison table */
+var EXISTING_EFFECTS=[
+ {id:'enfeebled',kind:'d',cat:'off',mag:0.75,desc:'ATK ×0.75'},
+ {id:'dulled',kind:'d',cat:'off',mag:0.75,desc:'MAG ×0.75 (also cuts healing — heals read effMag)'},
+ {id:'sundered',kind:'d',cat:'def',mag:0.75,desc:'DEF ×0.75'},
+ {id:'frail',kind:'d',cat:'def',mag:0.75,desc:'RES ×0.75'},
+ {id:'bracing',kind:'b',cat:'def',mag:1.40,desc:'DEF ×1.40 (plus a flat +0.30 block — a two-stat effect)'},
+ {id:'blurred',kind:'b',cat:'flat',mag:0.20,desc:'evade +0.20 flat'},
+ {id:'blinded',kind:'d',cat:'flat',mag:0.30,desc:"+0.30 to the DEFENDER's evade roll for that hit — special-cased inline in resolveHit(), not effEvade(), since the attacker's status imposes it rather than the target's own"},
+ {id:'hasted',kind:'b',cat:'speed',mag:0.60,desc:'tick cost ×0.60 (faster)'},
+ {id:'slowed',kind:'d',cat:'speed',mag:1.50,desc:'tick cost ×1.50 (slower — "33% fewer turns")'},
+ {id:'surging',kind:'b',cat:'charge',mag:2.00,desc:'charge rate ×2.0'},
+ {id:'warded',kind:'b',cat:'incoming',mag:0.60,desc:'incoming damage ×0.60'},
+ {id:'burning',kind:'d',cat:'dot',mag:0.05,desc:'5% max HP lost per turn'},
+ {id:'regen',kind:'b',cat:'hot',mag:0.06,desc:'6% max HP healed per turn'},
+ {id:'taunted',kind:'b',cat:'threat',mag:8,desc:'AI targeting weight ×8'}];
+var EFFECT_HINTS={off:'multiplier, e.g. 0.75 (shipped offense debuffs cut by 25%)',
+ def:'multiplier, e.g. 0.75 debuff / 1.40 buff',
+ flat:'flat add to the 0–1 rate, e.g. 0.20–0.30',
+ speed:'tick-cost multiplier — under 1.0 is FASTER, over 1.0 is SLOWER',
+ charge:'multiplier on charge gain rate, e.g. 2.0',
+ incoming:'multiplier on damage taken, under 1.0 = mitigation',
+ dot:'fraction of max HP lost per turn, e.g. 0.05',
+ hot:'fraction of max HP healed per turn, e.g. 0.06',
+ threat:'multiplier on AI targeting weight, e.g. 8',
+ novel:'n/a — describe the mechanic in the design note instead'};
+function effectHookCode(id,mag,stat){
+ switch(t('x_cat')){
+  case 'off':
+   return stat==='atk'
+    ? "function effAtk(u){return u.base.atk*(has(u,'enfeebled')?.75:1)*(has(u,'"+id+"')?"+mag+":1);}"
+    : "function effMag(u){return u.base.mag*(has(u,'dulled')?.75:1)*(has(u,'"+id+"')?"+mag+":1);}";
+  case 'def':
+   return stat==='def'
+    ? "function effDef(u){return u.base.def*(has(u,'bracing')?1.40:1)*(has(u,'sundered')?.75:1)*(has(u,'"+id+"')?"+mag+":1);}"
+    : "function effRes(u){return u.base.res*(has(u,'frail')?.75:1)*(has(u,'"+id+"')?"+mag+":1);}";
+  case 'flat':
+   return (stat==='block'
+    ? "function effBlock(u){return u.base.block+(has(u,'bracing')?.30:0)+(has(u,'"+id+"')?"+mag+":0);}"
+    : "function effEvade(u){return u.base.evade+(has(u,'blurred')?.20:0)+(has(u,'"+id+"')?"+mag+":0);}")
+    +"\n// if this should instead raise the ATTACKER's miss chance for one swing (like blinded), it belongs\n"
+    +"// inline in resolveHit()'s o.evadeChance line, not in effEvade()/effBlock().";
+  case 'speed':
+   return "function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),rank*(has(u,'hasted')?.60:1)*(has(u,'slowed')?1.50:1)*(has(u,'"+id+"')?"+mag+":1));}";
+  case 'charge':
+   return "function effChargeRate(u){return u.base.chargeRate*(has(u,'surging')?2.0:1)*(has(u,'"+id+"')?"+mag+":1);}";
+  case 'incoming':
+   return "function incomingMul(u){return has(u,'warded')?.60:(has(u,'"+id+"')?"+mag+":1);}\n"
+    +"// chain the two conditions (e.g. multiply) instead if both should be able to apply at once.";
+  case 'dot':
+   return "if(has(u,'"+id+"')){var dot=Math.max(1,Math.ceil("+mag+"*u.maxHp));u.hp=Math.max(0,u.hp-dot);e.dot=(e.dot||0)+dot;}\n"
+    +"// add this alongside the existing `burning` block in step()";
+  case 'hot':
+   return "if(has(u,'"+id+"')&&u.hp>0){var rg=Math.max(1,Math.ceil("+mag+"*u.maxHp)),bf=u.hp;u.hp=Math.min(u.maxHp,u.hp+rg);e.regen=(e.regen||0)+(u.hp-bf);}\n"
+    +"// add this alongside the existing `regen` block in step()";
+  case 'threat':
+   return "function threatOf(src,u){var w=ROWMUL[u.row||'front']||1;\n if(has(u,'taunted'))w*=8;\n if(has(u,'"+id+"'))w*="+mag+";\n"
+    +" var p=PREF[src.arch];if(p)w*=p(u,hpPct(u));return Math.max(.01,w);}";
+  default:
+   return "// novel mechanic — none of the shipped hooks fit. It likely needs its own field on the unit\n"
+    +"// object and its own code path (most likely touched in resolveHit()/step()/choose()). Scope this\n"
+    +"// as a real design pass before implementation, not just a new status flag.";
+ }
+}
+function calcEffect(){
+ var id=t('x_id'),name=t('x_name'),kind=t('x_kind'),turns=n('x_turns'),cat=t('x_cat'),stat=t('x_stat'),
+     mag=n('x_mag'),note=t('x_note');
+ var needsStat=(cat==='off'||cat==='def'||cat==='flat');
+ $('#x_statwrap').style.display=needsStat?'flex':'none';
+ $('#x_maghint').textContent=EFFECT_HINTS[cat]||'';
+
+ var comparable=EXISTING_EFFECTS.filter(function(e){return e.cat===cat;});
+ $('#x_chain').innerHTML=comparable.length
+  ? comparable.map(function(e){return '<div class="r"><span>'+e.id+' ('+(e.kind==='d'?'debuff':'buff')+')</span><b>'+e.desc+'</b></div>';}).join('')
+  : '<div class="r"><span>no shipped effect in this category</span><b>—</b></div>';
+
+ var warnings=[];
+ if(!id) warnings.push(warnRow('bad','id is blank.'));
+ if(cat==='novel'){
+  warnings.push(warnRow('warn','Marked novel — none of the seven hook points (the eff* functions, tcOf, '+
+   'incomingMul, or the DOT/HOT branch in step()) cover this. That usually means a new field on the unit '+
+   'object and a new code path, not just a new status flag — scope it as its own design conversation before implementation.'));
+ } else {
+  var mags=comparable.map(function(e){return e.mag;});
+  if(mags.length){
+   var lo=Math.min.apply(null,mags),hi=Math.max.apply(null,mags);
+   var pad=(cat==='off'||cat==='def')?0.15:(cat==='dot'||cat==='hot')?0.03:(cat==='flat')?0.15:(cat==='threat')?4:0.3;
+   if(mag<lo-pad||mag>hi+pad) warnings.push(warnRow('warn','Magnitude '+mag+' is well outside the shipped range for this category ('+lo+'–'+hi+'). Not necessarily wrong, but worth a real fight test before locking it in.'));
+   else warnings.push(warnRow('ok','Magnitude '+mag+' sits close to the shipped range for this category ('+lo+'–'+hi+').'));
+  }
+  if(turns<2||turns>4) warnings.push(warnRow('warn','status_turns '+turns+' is outside the shipped band 2–4.'));
+  if(cat==='dot'&&kind!=='d') warnings.push(warnRow('warn','Every shipped DOT (burning) is a debuff — double check kind.'));
+  if(cat==='hot'&&kind!=='b') warnings.push(warnRow('warn','Every shipped HOT (regen) is a buff — double check kind.'));
+ }
+ $('#x_warnings').innerHTML=warnings.join('');
+
+ var hookLines=[];
+ hookLines.push("1. ST array — add '"+id+"'");
+ hookLines.push("2. STATUS_INFO — add "+id+":{n:'"+name+"',k:'"+kind+"'}   (drives the UI status pill automatically — no farroad-ui.js change needed)");
+ hookLines.push(kind==='d'
+  ? "3. DEBUFFS array — add '"+id+"'   (so a heal action's `cleanse` field can strip it)"
+  : "3. BUFFS array — add '"+id+"'   (so isBuffStatus() and Lore's `deepening` bonus correctly treat it as a buff — deepening stays dead on it)");
+ hookLines.push("4. Mechanic hook — the line that actually does something:\n"+effectHookCode(id,mag,stat));
+
+ var spec='NEW EFFECT — implementation spec (a code change in src/farroad-core.js, not a CSV row)\n\n'+
+  'id: '+id+'\nname: '+name+'\nkind: '+(kind==='d'?'debuff':'buff')+'\ndefault status_turns: '+turns+'\n'+
+  'category: '+cat+(needsStat?(' ('+stat.toUpperCase()+')'):'')+'\nmagnitude: '+mag+'\n\n'+
+  'Code sites to touch:\n\n'+hookLines.join('\n\n')+'\n\n'+
+  'To actually get it into a fight: give some action (new or existing) an applies_status of "'+id+'" and '+
+  'status_turns '+turns+' in the ACTION tab of this tool, and hand that CSV row back alongside this spec.\n\n'+
+  (note?('Design note: '+note+'\n\n'):'')+
+  "farroad-smoke.js's free-variable sweep and seeded-determinism checks should still pass unchanged after "+
+  "this, since it only adds one new branch guarded by has(u,'"+id+"') — every existing path is untouched.";
+ $('#x_spec').value=spec;
+}
+['x_id','x_name','x_kind','x_turns','x_cat','x_stat','x_mag','x_note'].forEach(function(id){
+ var el=$('#'+id);el.addEventListener('input',calcEffect);el.addEventListener('change',calcEffect);});
+
+calcAction();calcUnit();calcEnemy();calcGambit();calcEffect();
+})();
+</script>
+</body>
+</html>
