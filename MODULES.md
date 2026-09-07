@@ -952,3 +952,83 @@ seeded save: tab row reads "Strike ★ / Ember ★ / Brace ★ / Mend ★ / Sear
 unstarred and sorted last), and clicking Pierce's tab swaps the box to
 Pierce's own (unused, its own Lore total and bonus stacks) — confirming the
 tab switch, the star logic, and the sort all work together correctly.
+
+## Action levels, DROPS removed, MARKS trimmed, levels on the Road
+
+**Action "level" next to its name**: a new `actionLevel(aid)` reuses
+`C.actionBonusTotal` (the same escalating-upgrade count already driving
+Lore pricing and the "this action's upgrade #N" line) — shown as `LvN` on
+every LORE action tab and in the per-action box header.
+
+**Charge actions vanished from LORE — caught immediately, not shipped**:
+the per-action-tabs pass built its tab pool from `G.actions`, but charge
+actions are never entries in `G.actions` (a companion's `chargeAction` is a
+fixed roster property; the MC's come from `G.mc.acquiredCharges` — neither
+goes through the drop/pull unlock path `G.actions` tracks). Fixed by
+folding in every `isCharge` id already present in `used` (`usedActions()`,
+computed right there for the star/refund logic anyway) that isn't already
+in `G.actions`, rather than re-deriving a second scan.
+
+**DROPS tab removed**: the curated-checklist + collected-drops-history
+panel, tab button, and `renderDrops()` all deleted — "seems unnecessary at
+this point." `G.dropHistory` itself (and the separate `G.dropQueue`/
+`#dropnote` live-notification banner, which is unrelated and stays) is left
+as-is: still recorded on every drop, just no longer displayed anywhere.
+Left alone deliberately rather than also stripped from `FIELDS`/save
+schema — a save-format change wasn't asked for and the write side is
+harmless (capped at 60 entries) now that nothing reads it.
+
+**MARKS "income scales with wave" line removed**: not something the player
+acts on from that screen, and the idle rate already has its own readout at
+the top of the page (`#idleRate`).
+
+**Levels on the Road**: every unit/enemy name in the battle panel now shows
+`LvN`. Party level is the real `levelOf(uid)`. Enemies have no such stat —
+their level is `Math.round(C.levelCurve(wave))`, the exact wave→level-
+equivalent curve `waveScale()` itself is built from (already calibrated so
+its numbers read like a plausible party level for that depth — e.g.
+`levelCurve(150)≈37`, close to what a level-20-at-wave-150 player would be
+under-leveled against, which is the intended "gauge the difficulty" signal).
+Every enemy on a given wave shares that one number — a wave-difficulty
+proxy, not a precise per-enemy rating (a boss is tougher than its number
+alone suggests, by design).
+
+Verified live in one seeded pass: Strike/Oath show `Lv3`/`Lv1` matching
+seeded Potent stacks, all 5 companions' charge actions (previously just
+Oath was tested, but Hearthlight/Vow of Stone/Ninefold Rain/Ashfall all
+reappeared too) show up starred, DROPS is gone from the tab row, MARKS no
+longer shows the income line, and the wave-150 battle panel read "Kesh
+Lv20 FRONT" / "Thorn Shrike Lv37 indiscriminate".
+
+## Power Level
+
+"A value that accurately shows a player's total power level" at the top of
+the ROAD tab, combining every investment axis named — roster depth, unit
+levels, Lore, wave — per `P.powerLevel(g)` (`farroad-progression.js`), a
+plain sum of four terms each put on a comparable level-equivalent scale
+first, rather than a raw unweighted sum of wildly different-scale numbers
+(wave can run into the thousands, Lore/unit-count are single or double
+digits — summed raw, the latter two would be invisible):
+- **wave**: `C.levelCurve(wave)` — the exact same wave→level-equivalent
+  curve `waveScale()` (and the Road's own new per-enemy `Lv` tag, added
+  just before this) is already built from, so this reuses an
+  already-calibrated conversion instead of inventing a second one.
+- **unit levels**: `levelOf(uid)` summed across every OWNED unit (not just
+  fielded — a benched investment is still real), already level-scale.
+- **roster depth**: each owned unit worth a flat `P.POWER_PER_UNIT` (15) on
+  top of its own level term — recruiting a companion has value beyond its
+  current, possibly-low level.
+- **Lore**: `C.actionBonusTotal` summed across every action with any
+  investment, weighted `P.POWER_PER_LORE` (1) — literally the sum of every
+  `LvN` badge now on the LORE tabs, so the total is directly
+  cross-checkable against what's on screen there.
+
+`POWER_PER_UNIT`/`POWER_PER_LORE` are named, tunable constants — a
+reasoned starting weighting, not a simulated one (this is a display
+metric, not balance-critical), easy to retune if it doesn't feel right.
+6 new headless smoke checks (bringing the suite to 92/92): sane/positive
+output, independently responds to each of the four inputs, and an exact
+expected-sum check against a hand-computed example. Verified live with a
+seeded wave-150/2-unit/Lore save: displayed "POWER LEVEL 102", matching
+`round(levelCurve(150)≈37 + unit levels 30 + roster 2×15=30 + Lore 5)`
+exactly.

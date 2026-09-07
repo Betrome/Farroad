@@ -534,6 +534,37 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   C.tcOf?C.tcOf(frontFoe,1)<C.tcOf(backFoe,1):true);
 })();
 
+/* =================== 15. POWER LEVEL (v2.9) ================================
+ * "a value that accurately shows a player's total power level" — sums
+ * wave (via levelCurve, the same wave->level-equivalent curve the Road's
+ * per-enemy Lv tag also uses), summed owned-unit levels, a flat per-unit
+ * roster-depth bonus, and summed Lore levels (actionBonusTotal per action).
+ * Checks the formula responds to each of the four inputs independently and
+ * produces a sane baseline. */
+(function(){
+ var base={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{}};
+ var basePower=P.powerLevel(base);
+ ok('powerLevel is a positive finite number', isFinite(basePower)&&basePower>0, String(basePower));
+
+ var higherWave=P.powerLevel({wave:500,owned:{kesh:1},lvl:{kesh:1},bonuses:{}});
+ ok('powerLevel increases with wave', higherWave>basePower);
+
+ var higherLevel=P.powerLevel({wave:1,owned:{kesh:1},lvl:{kesh:50},bonuses:{}});
+ ok('powerLevel increases with unit level', higherLevel>basePower);
+
+ var moreUnits=P.powerLevel({wave:1,owned:{kesh:1,ansa:1},lvl:{kesh:1,ansa:1},bonuses:{}});
+ ok('powerLevel increases with roster size', moreUnits>basePower);
+
+ var moreLore=P.powerLevel({wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{strike:{potent:5}}});
+ ok('powerLevel increases with Lore levels', moreLore>basePower);
+
+ ok('powerLevel matches the sum of its own documented terms', (function(){
+  var g={wave:150,owned:{kesh:1,ansa:1},lvl:{kesh:20,ansa:10},bonuses:{strike:{potent:3},ember:{swift:2}}};
+  var expected=Math.round(C.levelCurve(150)+30+2*P.POWER_PER_UNIT+5*P.POWER_PER_LORE);
+  return P.powerLevel(g)===expected;
+ })());
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);

@@ -844,8 +844,19 @@ function renderUnits(){
   var tag=u.isParty?'<span class="rowtag '+(u.row==='front'?'front':'')+'" data-row="'+u.id+'">'+
     (u.row==='front'?'FRONT':'BACK')+'</span>'
    :'<span class="tiny">'+(u.isBoss?'boss':(C.PREF_TEXT[u.arch]||''))+'</span>';
+  /* v2.9: level readout next to every name — "that'll help players get a
+     feel for what level their units should be at, and for the difficulty
+     of the wave." Party level is the real, Aether-invested levelOf(); an
+     enemy has no such stat, so its "level" is levelCurve(wave) rounded —
+     the same wave->level-equivalent curve waveScale() itself is built from
+     (see farroad-core.js), already calibrated so its numbers read like a
+     sane party level for that depth. Every enemy on the same wave shares
+     that one number — a wave-difficulty proxy, not a precise per-enemy
+     power rating (a boss is tougher than its number alone suggests, by
+     design — see P.BOSS_HARD_EXTRA/bossSpdMul). */
+  var lvl=u.isParty?levelOf(u.id):Math.round(C.levelCurve(G.wave));
   d.innerHTML='<div class="spread"><span class="uname '+(u.isParty?'p':(u.isBoss?'b':'f'))+'">'+
-   u.name+(u.hp<=0?' — DOWN':'')+' '+tag+'</span>'+
+   u.name+' <span class="tiny">Lv'+lvl+'</span>'+(u.hp<=0?' — DOWN':'')+' '+tag+'</span>'+
    '<span class="tiny mono">'+Math.max(0,Math.round(u.hp))+' / '+u.maxHp+'</span></div>'+
    '<div class="bar hp"><i style="width:'+pct(u.hp,u.maxHp)+'%"></i></div>'+
    (u.chargeAction?'<div class="spread" style="margin-top:3px"><span class="tiny"'+
@@ -897,6 +908,14 @@ function renderHead(){
  $('#ckptLbl').innerHTML='farthest <b>'+G.farthest+'</b> · checkpoint <b>'+P.checkpoint(G.bossesCleared)+
   '</b> · next boss <b>'+nb+'</b>'+(G.wipes?' · wipes '+G.wipes:'')+
   (P.isCurated(G.wave)?' · <span class="ckpt">curated drops</span>':' · <span class="tiny">random drops</span>');}
+/* v2.9: "a value that accurately shows a player's total power level" at
+   the top of the ROAD tab — see P.powerLevel in progression.js for the
+   formula (roster depth + unit levels + Lore levels + wave, each put on a
+   comparable level-equivalent scale before summing). */
+function renderPowerLevel(){
+ var el=$('#powerLevel');if(!el)return;
+ el.innerHTML='<b>POWER LEVEL <span class="mono" style="color:var(--charge)">'+
+  P.powerLevel(G)+'</span></b>';}
 function logEntry(e){
  var d=document.createElement('div');d.className='le '+(e.isParty?'p':'f');
  var tags='',calc='';
@@ -1068,12 +1087,21 @@ function renderLore(){
  unusedIds.forEach(function(aid){var b=G.bonuses[aid],total=C.actionBonusTotal(b);
   refundTotal+=total*(total+1)/2+(b.broad||0)*C.BONUS_COST_BROAD;});
  /* v2.9: per-ACTION tabs, not per-unit — "I want Lore to have per action
-    tabs, with the ones in use having a star next to them." Tab pool is
-    G.actions (every action the player has ever unlocked, loadout basics
-    and charge actions alike — both are just entries in G.actions once
-    acquired), sorted used-first so the starred ones cluster at the front
-    of the row too, not just visually marked mid-list. */
- var actionIds=G.actions.slice().sort(function(x,y){
+    tabs, with the ones in use having a star next to them." Tab pool starts
+    as G.actions (every loadout-slot basic the player has unlocked), plus
+    any charge action currently in play — those are NEVER entries in
+    G.actions (a companion's chargeAction is a fixed roster property, the
+    MC's come from G.mc.acquiredCharges, neither goes through the
+    drop/pull unlock path G.actions tracks), so they'd silently vanish from
+    LORE without this — caught live: "charge actions aren't available on
+    the Lore tab now." `used` (usedActions(), computed above) already scans
+    exactly this same set for its own purposes, so reuse it rather than
+    re-deriving it. Sorted used-first so the starred ones cluster at the
+    front of the row too, not just visually marked mid-list. */
+ var actionIds=G.actions.slice();
+ Object.keys(used).forEach(function(id){
+  if(actionIds.indexOf(id)<0&&C.ACTIONS[id]&&C.ACTIONS[id].isCharge)actionIds.push(id);});
+ actionIds.sort(function(x,y){
   var ux=used[x]?0:1,uy=used[y]?0:1;return ux-uy;});   /* stable sort: used first, original order within each group */
  renderActionTabs(host,actionIds,used,function(){renderLore();});
  host.insertAdjacentHTML('beforeend','<div class="tiny" style="margin-bottom:6px">'+free+' of '+
@@ -1086,7 +1114,8 @@ function renderLore(){
   var holders=actionHolders(aid);
   var box=document.createElement('div');box.className='bon';
   var totalBonus=bonusTotalSummary(aid);
-  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+'</b><span class="tiny">cost '+
+  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+' <span class="tiny">Lv'+
+   actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
    '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
@@ -1183,11 +1212,9 @@ function renderMarks(){
    (G.party.length>=P.PARTY_CAP?' <b>Party full — new units arrive benched.</b>':'')+
    '</div></div>';
  }
- h+='<div class="tiny">Income scales with your <b>farthest wave ('+G.farthest+')</b>: '+
-  Math.round(P.idlePerSec(G.farthest).marks*60)+' Marks/min idle, plus '+
-  Math.round(P.killReward(G.wave,1).marks)+' per kill.</div>';
- /* v2.9: removed the wave-28-wall clear-rate history (23% -> 100%) — that was the
-    justification for a past change, not something the player acts on. */
+ /* v2.9: removed the "income scales with wave" line — not something the
+    player acts on from this screen, and idle rate already has its own
+    readout up in #idleRate. */
  host.innerHTML=h;
  Array.prototype.forEach.call(host.querySelectorAll('.pull'),function(el){
   el.onclick=function(){doPull();};});}
@@ -1272,36 +1299,6 @@ function doPull(){
    pushDrop({name:'+1 Lore',kind:'PULL · duplicate gambit',wave:G.wave,
     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.'});}}
  buildGambits();renderAll();}
-function renderDrops(){
- var host=$('#dropsView'),h='';
- h+='<div class="tiny" style="margin-bottom:6px">Holding <b>'+G.actions.length+'</b> actions, <b>'+
-  G.conditions.length+'</b> conditions.</div>';
- P.CURATED.forEach(function(d){
-  var got=d.w<=G.wave;
-  h+='<div class="drop" style="'+(got?'':'opacity:.35')+'"><div class="spread">'+
-   '<span><span class="dw">w'+d.w+'</span> '+(d.kind==='action'?
-     '<b>'+C.ACTIONS[d.id].name+'</b> <span class="tiny">'+(d.cat||'')+'</span>':
-     '<b>'+C.condById(d.id).label+'</b> <span class="tiny">condition</span>')+'</span>'+
-   '<span class="tiny">'+(got?'✔':'—')+'</span></div>'+
-   '<div class="tiny">'+d.why+'</div></div>';});
- h+='<div class="tiny" style="margin-top:6px">After wave 20 drops are random — an action on even '+
-  'waves, a condition on odd. Duplicates become Lore.</div>';
- /* HISTORY — so a player back from an idle session can see everything they
-    collected while away, rather than watching notices scroll past. */
- var hist=G.dropHistory||[];
- h+='<hr><div class="tiny" style="margin-bottom:6px"><b>COLLECTED</b> — most recent first ('+
-  hist.length+')</div>';
- if(!hist.length)h+='<div class="tiny">Nothing yet.</div>';
- hist.forEach(function(d){
-  h+='<div class="drop"><div class="spread"><span><span class="dw">w'+(d.wave||'?')+
-   '</span> <b>'+d.name+'</b></span><span class="tiny">'+d.kind+'</span></div>'+
-   (d.body?'<div class="tiny">'+d.body+'</div>':'')+
-   /* why/note were dropped here too — a player checking history after being
-      away had no record of whether a pulled companion joined the party or
-      the bench, same gap as the live banner. */
-   (d.why?'<div class="tiny" style="color:var(--hp)">▸ '+d.why+'</div>':'')+
-   (d.note?'<div class="tiny" style="color:var(--dimmer)">'+d.note+'</div>':'')+'</div>';});
- host.innerHTML=h;}
 function renderExpedition(){
  var host=$('#expeditionView');if(!host)return;
  /* v2.9: party allocation moved here from the top of GAMBITS — "let's change
@@ -1366,8 +1363,8 @@ function renderExpedition(){
   if(sendExpedition(mcExpedPick)){mcExpedPick=[];renderAll();}};
  var recallBtn=$('#btnExpedRecall');
  if(recallBtn)recallBtn.onclick=function(){recallExpedition();renderAll();};}
-function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderDrops();renderExpedition();}
-function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
+function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();}
+function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
 /* ===== PARTY ROSTER EDITOR =====
@@ -1434,6 +1431,12 @@ var selectedActionTab=null;
 function currentSelectedAction(actionIds){
  if(!selectedActionTab||actionIds.indexOf(selectedActionTab)<0)selectedActionTab=actionIds[0];
  return selectedActionTab;}
+/* "level" = how many escalating (non-broad) Lore upgrades an action has —
+   the same count bonusPrice already uses to escalate cost and the "this
+   action's upgrade #N" line already shows, just surfaced next to the name
+   instead of buried in each bonus row. Broad is excluded (flat-priced,
+   doesn't feed the escalating counter — see actionBonusTotal in core.js). */
+function actionLevel(aid){return C.actionBonusTotal(G.bonuses[aid]||{});}
 function renderActionTabs(host,actionIds,used,onChange){
  var box=document.createElement('div');box.className='row';
  box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
@@ -1441,7 +1444,7 @@ function renderActionTabs(host,actionIds,used,onChange){
  actionIds.forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;
   h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
-   a.name+(used[aid]?' ★':'')+'</button>';});
+   a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(used[aid]?' ★':'')+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
@@ -1689,7 +1692,6 @@ function smokeTest(waves){
  attempt('renderAether()',function(){renderAether();});
  attempt('renderLore()',function(){renderLore();});
  attempt('renderMarks()',function(){renderMarks();});
- attempt('renderDrops()',function(){renderDrops();});
  attempt('renderDropNote()',function(){renderDropNote();});
  attempt('describeAction()/pairingHint()',function(){
   C.EQUIPPABLE.forEach(function(id){describeAction(id);pairingHint(id);});});
@@ -1765,7 +1767,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
  b.onclick=function(){
   Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(x){x.classList.remove('on');});
   b.classList.add('on');
-  ['log','gambits','aether','lore','marks','expedition','drops','tests'].forEach(function(t){
+  ['log','gambits','aether','lore','marks','expedition','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
 function boot(seed,mc){

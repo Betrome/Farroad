@@ -299,7 +299,6 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
     <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
     <button data-t="marks">MARKS</button><button data-t="expedition">EXPEDITION</button>
-    <button data-t="drops">DROPS</button>
     <button data-t="tests">TESTS</button>
   </div>
 
@@ -339,11 +338,6 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="tiny" style="margin-bottom:6px">Benched units can be sent exploring in real time —
       away while you do something else, back with rewards when you check in.</div>
     <div id="expeditionView"></div></div>
-
-  <div class="panel hidden" id="tab-drops">
-    <div class="tiny" style="margin-bottom:6px">Curated to wave 20 — an action every 2 waves, a
-      condition between, each landing just before the threat it answers. Random thereafter.</div>
-    <div id="dropsView"></div></div>
 
   <div class="panel hidden" id="tab-tests">
     <div class="grid2">
@@ -414,7 +408,9 @@ pre{font-size:13px;line-height:1.6;padding:10px}
        sits below it now, so nothing can shift. Tab switching is id-based
        (`#tab-`+dataset.t), not DOM-order-based, so this is a purely visual
        move; nothing about how tabs work changed. -->
-  <div class="panel" id="tab-log"><div class="spread" style="margin-bottom:4px">
+  <div class="panel" id="tab-log">
+    <div class="tiny" id="powerLevel" style="margin-bottom:6px"></div>
+    <div class="spread" style="margin-bottom:4px">
     <span class="tiny">THE ROAD — every roll, drop and checkpoint</span>
     <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
 </div>

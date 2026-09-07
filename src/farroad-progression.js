@@ -658,4 +658,40 @@ P.mcBuildStats=function(points){
   if(P.MC_GROWTH_RANGE[k])growth[k]=Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],points[k])*10)/10;}
  var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
  return {stats:stats,hp:hp,growth:growth};};
+
+/* ===== v2.9: POWER LEVEL =====
+ * One number combining every investment axis into a single "how far along
+ * am I" readout — roster depth, character levels, Lore, and wave reached.
+ * Each term is put on a comparable, level-equivalent scale before summing,
+ * so no one input silently dominates or vanishes at typical pace:
+ *   - wave: run through C.levelCurve(), the SAME wave->level-equivalent
+ *     curve waveScale()/enemy difficulty is already built from (and the
+ *     same one the Road's per-enemy Lv tag uses) — reuses an already-
+ *     calibrated conversion rather than inventing a second one.
+ *   - unit levels: summed across every OWNED unit (not just fielded — a
+ *     benched investment is still a real one), already level-scale by
+ *     construction.
+ *   - unit count: each owned unit worth a flat POWER_PER_UNIT on top of
+ *     its own level term — recruiting a companion has value (roster
+ *     depth, more gambit/action coverage) beyond just its current,
+ *     possibly-low level.
+ *   - Lore: summed actionBonusTotal() across every action with any
+ *     investment — literally the sum of every LvN badge already visible
+ *     on the LORE tabs, so the total is directly cross-checkable against
+ *     what's on screen there.
+ * POWER_PER_UNIT/POWER_PER_LORE are named, tunable constants rather than
+ * inlined literals — this is a display metric, not balance-critical, so a
+ * reasoned starting weighting (not a simulated one) is appropriate, but
+ * kept easy to retune if it doesn't feel right in practice. */
+P.POWER_PER_UNIT=15;
+P.POWER_PER_LORE=1;
+P.powerLevel=function(g){
+ var waveLevel=C.levelCurve(g.wave||1);
+ var unitLevels=0,unitCount=0;
+ Object.keys(g.owned||{}).forEach(function(uid){
+  unitCount++;unitLevels+=(g.lvl&&g.lvl[uid])||1;});
+ var loreLevels=0;
+ Object.keys(g.bonuses||{}).forEach(function(aid){
+  loreLevels+=C.actionBonusTotal(g.bonuses[aid]);});
+ return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE);};
 return P;})(window.FarroadCore);
