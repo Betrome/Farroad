@@ -813,9 +813,14 @@ function renderPurse(){
  $('#cAether').textContent=Math.floor(G.aether);
  $('#cLore').textContent=Math.floor(G.lore);
  $('#cMarks').textContent=Math.floor(G.marks);
+ /* v2.9: per-5-minutes with 2 decimals, not per-minute rounded to a whole
+    number — at depth the per-minute Marks figure rounds to 0 and reads as
+    "income stopped" even though it's still trickling in (e.g. ~0.26/min at
+    wave 558 displayed as a flat "0"). x300 (5 min) with .toFixed(2) keeps a
+    real, non-zero-looking number much further into the run. */
  var r=P.idlePerSec(G.farthest),el=$('#idleRate');
- if(el)el.textContent='idle: '+Math.round(r.aether*60)+' Aether/min · '+
-  Math.round(r.marks*P.marksMul(G)*60)+' Marks/min';}
+ if(el)el.textContent='idle: '+(r.aether*300).toFixed(2)+' Aether/5min · '+
+  (r.marks*P.marksMul(G)*300).toFixed(2)+' Marks/5min';}
 function renderUnits(){
  var host=$('#units');host.innerHTML='';
  if(!G.battle)return;

@@ -264,12 +264,39 @@ P.AETHER_RATE=0.18;
    is 1 at wave 1, ~4.4 at 200, ~8.8 at 1000, ~26 at 10000 — so a rate that
    feels only "somewhat too generous" at wave 1 is ~26x that at wave 10000.
    AETHER_RATE/MARKS_RATE are separate, further throttles (roster pacing, the
-   v2.8 Aether cut, the v2.9 /5 cut above) layered on TOP of this base, not the base
-   rate itself. */
-P.idlePerSec=function(farthest){var S=C.waveScale(farthest);return {
- aether:0.01*S*P.AETHER_RATE, marks:0.005*S*P.MARKS_RATE};};
+   v2.8 Aether cut, the v2.9 /5 cut above) layered on TOP of this base — for
+   killReward below, which still uses this exact model. */
 P.killReward=function(w,n){var S=C.waveScale(w);return {
  aether:14*S*P.AETHER_RATE*n, marks:3*S*P.MARKS_RATE*n};};
+/* ===== IDLE INCOME — v2.9 REDESIGN (floor + tempered growth) =====
+ * idlePerSec used to be the same multiplicative shape as killReward above —
+ * base x C.waveScale(farthest) x RATE — which meant idle income inherited
+ * combat's own scaling curve wholesale (that 26x-by-wave-10000 growth two
+ * paragraphs up), and at very early waves the raw product could round to a
+ * visibly "0/5min" display even though a trickle was technically accruing
+ * (see the idleRate UI note). Replaced with an explicit floor: BOTH Aether
+ * and Marks idle income are exactly P.IDLE_FLOOR_PER_5MIN (1) per 5 minutes
+ * at wave 1, guaranteed regardless of any rate constant, and grow from
+ * there using P.idleGrowth — sqrt(waveScale), the same "want growth but not
+ * the raw curve" tempering already used for enemy crit scaling — rather
+ * than the raw waveScale curve killReward still uses.
+ * Aether and Marks grow at DIFFERENT rates ABOVE that shared floor:
+ * Aether at half (P.IDLE_AETHER_GROWTH_MUL), Marks at double
+ * (P.IDLE_MARKS_GROWTH_MUL) — Marks fund pulls (needed in bulk, so idle
+ * income should lean toward it over a long run) where Aether funds
+ * per-unit levelling (a slower, more deliberate spend). The multiplier is
+ * applied to the GROWTH TERM only (g-1), not the floor itself, so wave 1
+ * stays exactly 1/5min for both no matter how asymmetric the growth is —
+ * the floor is a hard guarantee, not a side effect of the rate math. */
+P.IDLE_FLOOR_PER_5MIN=1;
+P.IDLE_AETHER_GROWTH_MUL=0.5;
+P.IDLE_MARKS_GROWTH_MUL=2.0;
+P.idleGrowth=function(w){return Math.sqrt(C.waveScale(w));};
+P.idlePerSec=function(farthest){
+ var g=P.idleGrowth(farthest);
+ var aether5=P.IDLE_FLOOR_PER_5MIN+(g-1)*P.IDLE_AETHER_GROWTH_MUL;
+ var marks5=P.IDLE_FLOOR_PER_5MIN+(g-1)*P.IDLE_MARKS_GROWTH_MUL;
+ return {aether:aether5/300, marks:marks5/300};};
 /* TRAVEL TIME is the real throttle — it is what turns "thousands of waves" into
    weeks instead of hours. Fight length is flat, so wave RATE is set here.
    w1 = 8s, w500 = 48s, w2000 = 168s, w10000 = 808s per node. */

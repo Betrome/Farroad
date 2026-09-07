@@ -592,16 +592,44 @@ every section that follows it.
 
 ## Aether/Marks income divided by 5
 
-`P.AETHER_RATE` (0.90→0.18) and `P.MARKS_RATE` (0.65→0.13) — both already the
-single shared multiplier feeding every Aether/Marks source in the game
+`P.AETHER_RATE` (0.90→0.18) and `P.MARKS_RATE` (0.65→0.13) — at the time,
+the single shared multiplier feeding every Aether/Marks source in the game
 (idle trickle, per-kill reward, boss hoards, and the duplicate-unit
-conversion all either use these directly via `P.idlePerSec`/`P.killReward`
-or derive from them), so one cut here reaches everything uniformly. Applied
+conversion all either used these directly via `P.idlePerSec`/`P.killReward`
+or derived from them), so one cut reached everything uniformly. Applied
 here rather than to the idle base coefficients specifically because
 expeditions (roadmap item 4) call `P.killReward()` directly for each battle
 they resolve, not `P.idlePerSec()` — cutting only the idle side would have
 left expedition income, a second automated income stream now running
-alongside live play, completely untouched.
+alongside live play, completely untouched. (Idle income no longer shares
+this formula at all — see the redesign below, which superseded it for
+`idlePerSec` specifically; `killReward`, boss hoards, and the duplicate-unit
+conversion still use `AETHER_RATE`/`MARKS_RATE` exactly as described here.)
+
+## Idle income redesigned — floor + tempered, asymmetric growth
+
+Two follow-ups after the /5 cut above. First, the idle-rate display
+(`renderPurse()`) was changed from per-minute rounded to a whole number to
+per-5-minutes with 2 decimals — at depth the per-minute Marks figure
+rounded to a flat "0" and read as "income stopped" even though it was still
+trickling in (e.g. ~0.26/min at wave 558). Second, and larger: `idlePerSec`
+used to share `killReward`'s exact shape — `base x C.waveScale(farthest) x
+RATE` — which meant idle income inherited combat's own scaling curve
+wholesale (26x by wave 10000). Replaced with an explicit floor: Aether and
+Marks idle income are now each EXACTLY `P.IDLE_FLOOR_PER_5MIN` (1) per 5
+minutes at wave 1, guaranteed regardless of any rate constant, growing from
+there via `P.idleGrowth` — `sqrt(waveScale(w))`, the same "want growth but
+not the raw curve" tempering already used for enemy crit scaling — instead
+of the raw curve `killReward` still uses. Aether and Marks grow at
+different rates ABOVE that shared floor (`P.IDLE_AETHER_GROWTH_MUL=0.5`,
+`P.IDLE_MARKS_GROWTH_MUL=2.0` — Marks fund pulls, needed in bulk, so idle
+income leans toward it over a long run; Aether funds per-unit levelling, a
+slower, more deliberate spend), applied to the growth term only (`g-1`), so
+wave 1 stays exactly 1/5min for both no matter how asymmetric the growth
+is — the floor is a hard guarantee, not a side effect of the rate math.
+Verified: wave 1 -> 1.00/1.00 exactly; wave 558 -> 1.80 Aether / 4.21 Marks
+per 5min (confirmed live, matching a standalone calculation); wave 10000 ->
+~3.07 Aether / ~9.27 Marks, vs. the old formula's un-tempered 26x.
 
 ## Party roster editor — built (previously no way to change who's fielded)
 
