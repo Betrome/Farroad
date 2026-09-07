@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 15:15 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 03:02 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -271,7 +271,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-06 15:15 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 03:02 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -287,41 +287,13 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="cur lo"><span class="v" id="cLore">0</span><span class="n">LORE</span></div>
     <div class="cur ma"><span class="v" id="cMarks">0</span><span class="n">MARKS</span></div>
   </div>
+  <div class="tiny" id="idleRate" style="margin:-4px 0 8px;color:var(--dimmer)"></div>
 
-  <div class="panel">
-    <div class="wavehead" style="margin-bottom:8px">
-      <div class="l1"><span id="waveLbl" class="mono">Wave 1</span>
-        <span id="encLbl" class="tiny" style="font-weight:400"></span></div>
-      <!-- v2.9: "beat N" removed. It is the internal CTB tick counter — the player
-           can neither act on it nor convert it to anything meaningful. Elapsed
-           time stays, since fight length is a thing you can feel. -->
-      <div class="tiny mono l2"><span id="secLbl">0.0s</span></div>
-    </div>
-    <div class="tiny" id="ckptLbl" style="margin-bottom:5px"></div>
-    <div id="units"></div>
-    <div class="tiny" style="margin:6px 0 3px">TURN ORDER →</div>
-    <div id="rail"></div>
-  </div>
-
-  <div class="panel">
-    <div class="row" style="margin-bottom:6px">
-      <button id="btnPlay" style="flex:2">▶ Travel</button>
-      <button id="btnStep" style="flex:1">Step</button>
-      <button id="btnReset">Reset run</button>
-    </div>
-    <div class="row">
-      <span class="tiny" style="width:44px">Speed</span>
-      <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
-      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
-      <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
-    </div>
-    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
-      Aether and Marks also accrue idly, at a rate keyed to your <b>farthest wave reached</b> —
-      a ratchet, so a wipe costs progress but never income. Lore comes only from duplicate drops,
-      which means it appears after wave 20 when drops turn random.
-    </div>
-  </div>
-
+  <!-- v2.9: tabs moved up here, ahead of the units/battle panel and travel
+       controls — "a lot of scrolling" on a phone with a full 5-unit party,
+       and ROAD (the play-by-play log, the default/first tab) was the
+       farthest-down thing on the page. Still purely a tab-toggle reorder,
+       nothing about how tabs work changed. -->
   <div id="tabs">
     <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
     <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
@@ -400,6 +372,40 @@ pre{font-size:13px;line-height:1.6;padding:10px}
         <b>−2.3%</b> against the best non-heal build, and in a pair to <b>−10.5%</b>, where
         Cripple becomes the best answer. Turn it off to feel the difference — with it off, a heal
         build runs to the wave cap and nothing else gets close.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="wavehead" style="margin-bottom:8px">
+      <div class="l1"><span id="waveLbl" class="mono">Wave 1</span>
+        <span id="encLbl" class="tiny" style="font-weight:400"></span></div>
+      <!-- v2.9: "beat N" removed. It is the internal CTB tick counter — the player
+           can neither act on it nor convert it to anything meaningful. Elapsed
+           time stays, since fight length is a thing you can feel. -->
+      <div class="tiny mono l2"><span id="secLbl">0.0s</span></div>
+    </div>
+    <div class="tiny" id="ckptLbl" style="margin-bottom:5px"></div>
+    <div id="units"></div>
+    <div class="tiny" style="margin:6px 0 3px">TURN ORDER →</div>
+    <div id="rail"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:6px">
+      <button id="btnPlay" style="flex:2">▶ Travel</button>
+      <button id="btnStep" style="flex:1">Step</button>
+      <button id="btnReset">Reset run</button>
+    </div>
+    <div class="row">
+      <span class="tiny" style="width:44px">Speed</span>
+      <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
+      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
+      <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
+    </div>
+    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
+      Aether and Marks also accrue idly, at a rate keyed to your <b>farthest wave reached</b> —
+      a ratchet, so a wipe costs progress but never income. Lore comes only from duplicate drops,
+      which means it appears after wave 20 when drops turn random.
     </div>
   </div>
 </div>
@@ -491,6 +497,23 @@ function effRes(u){return u.base.res*(has(u,'frail')?.75:1);}
 function effBlock(u){return u.base.block+(has(u,'bracing')?.30:0);}
 function effEvade(u){return u.base.evade+(has(u,'blurred')?.20:0);}
 function effChargeRate(u){return u.base.chargeRate*(has(u,'surging')?2.0:1);}
+/* v2.9: an action's magnitude was hardcoded to ATK (physical) or MAG (magic)
+   via camp — no action could scale off DEF/RES/SPD. statByKey lets an
+   action opt into a different source stat via act.scaleStat, used below in
+   resolveHit/healFor, for the new MC charge actions that scale with each
+   stat. DEF/RES reuse the existing status-aware effDef/effRes (so e.g.
+   Bracing/Sundered still apply); SPD has no such wrapper anywhere in the
+   engine (Hasted/Slowed modify turn CADENCE via tcOf, never the raw stat
+   itself), so this reads u.base.spd directly, consistent with that. camp
+   is untouched by scaleStat — it still independently governs which crit
+   stat/mitigation stat/row multiplier applies, only the ATTACKER's
+   magnitude source changes. */
+function statByKey(u,key){
+ if(key==='mag')return effMag(u);
+ if(key==='def')return effDef(u);
+ if(key==='res')return effRes(u);
+ if(key==='spd')return u.base.spd;
+ return effAtk(u);}
 function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),rank*(has(u,'hasted')?.60:1)*(has(u,'slowed')?1.50:1));}
 function incomingMul(u){return has(u,'warded')?.60:1;}
 /* v2.8: chargeCost is the gauge a charge action must FILL to fire. It was the
@@ -588,6 +611,50 @@ var ACTIONS={
   isCharge:true,note:'CHARGE · Bulk magic damage to all foes.'}),
  greatheal:A({id:'greatheal',name:'Great Heal',camp:'mag',tk:'allAllies',power:2.60,rank:1.65,
   isCharge:true,heal:true,note:'CHARGE · Heals the whole party.'}),
+ /* ===== v2.9: STAT-SCALING MC CHARGE ACTIONS =====
+  * One damage + one support per core stat (ATK/MAG/DEF/RES/SPD), each using
+  * the new act.scaleStat field (see statByKey/resolveHit/healFor above) so
+  * its magnitude comes from that stat instead of the camp-implied ATK/MAG —
+  * the first actions in the game that do. Added to the MC's rare charge
+  * drop pool (P.MC_CHARGE_DROP_POOL, progression.js), same acquisition
+  * path as the existing 8 corner charges, not the 3 generic starters.
+  * BALANCED so a build that's maxed the relevant stat (the point-buy
+  * ceiling — atk 28/mag 30/def 45/res 40/spd 131) lands on roughly the same
+  * pre-mitigation base as the existing MC starters: ~118 for a single-hit
+  * damage action (heavystrike's own 4.20x28=117.6 is the reference), ~78
+  * for a party-wide heal (greatheal's 2.60x30=78 is the reference) — power
+  * is that target divided by the stat's ceiling, so DEF/RES/SPD's much
+  * larger raw numbers don't silently overshoot ATK/MAG's. */
+ atk_reckless:A({id:'atk_reckless',name:'Reckless Blow',camp:'atk',tk:'foe',scaleStat:'atk',
+  power:4.20,rank:1.75,isCharge:true,critBonus:.30,
+  note:'CHARGE · Heavy single-target hit with a big crit bonus — rewards building around raw ATK.'}),
+ mag_lance:A({id:'mag_lance',name:'Arcane Lance',camp:'mag',tk:'foe',scaleStat:'mag',
+  power:3.90,rank:1.75,isCharge:true,defPierce:.20,
+  note:'CHARGE · A piercing magic strike that ignores 20% armour — rewards building around raw MAG.'}),
+ def_slam:A({id:'def_slam',name:'Shield Slam',camp:'atk',tk:'foe',scaleStat:'def',
+  power:2.60,rank:1.90,isCharge:true,applies:'sundered',turns:3,
+  note:'CHARGE · A shield bash scaled by your own DEF, cracking the target\'s armour (Sundered).'}),
+ res_strike:A({id:'res_strike',name:'Warded Strike',camp:'mag',tk:'foe',scaleStat:'res',
+  power:3.00,rank:1.85,isCharge:true,lifesteal:.20,
+  note:'CHARGE · Channels your own resistance into a draining strike — heals you 20% of the damage.'}),
+ spd_flurry:A({id:'spd_flurry',name:'Fleetstrike',camp:'atk',tk:'foe',scaleStat:'spd',
+  power:0.45,hits:2,rank:1.30,isCharge:true,
+  note:'CHARGE · Two quick hits scaled by your own SPD — fires far more often than a normal charge.'}),
+ atk_cry:A({id:'atk_cry',name:'Battle Cry',camp:'atk',tk:'allAllies',scaleStat:'atk',
+  power:2.80,rank:1.70,isCharge:true,heal:true,applies:'hasted',turns:2,
+  note:'CHARGE · A rallying cry that heals the party (scaled by your own ATK) and Hastes everyone.'}),
+ mag_font:A({id:'mag_font',name:'Font of Power',camp:'mag',tk:'allAllies',scaleStat:'mag',
+  power:2.60,rank:1.65,isCharge:true,heal:true,applies:'warded',turns:3,
+  note:'CHARGE · A MAG-scaled party heal that also grants Warded (magic defense up).'}),
+ def_bulwark:A({id:'def_bulwark',name:'Bulwark Stand',camp:'atk',tk:'ally',scaleStat:'def',
+  power:1.75,rank:1.80,isCharge:true,heal:true,applies:'bracing',turns:3,
+  note:'CHARGE · Shields one ally — heal scaled by your own DEF, plus Bracing (DEF up).'}),
+ res_ward:A({id:'res_ward',name:'Calming Ward',camp:'mag',tk:'allAllies',scaleStat:'res',
+  power:1.95,rank:1.75,isCharge:true,heal:true,cleanse:1,
+  note:'CHARGE · A RES-scaled party heal that also cleanses one debuff per ally.'}),
+ spd_fleet:A({id:'spd_fleet',name:'Fleet Step',camp:'mag',tk:'allAllies',scaleStat:'spd',
+  power:0.60,rank:1.50,isCharge:true,heal:true,applies:'hasted',turns:2,
+  note:'CHARGE · A SPD-scaled party heal plus Hasted — a courier\'s trick, not a caster\'s.'}),
  /* ===== CHARGE ACTION DESIGN SPACE (v2.1) =====
   * 25 units need 25 charge actions that are NOT 25 damage numbers. Five axes:
   *   1 SHAPE     one foe / all foes / one ally / all allies / self / the dead
@@ -642,11 +709,14 @@ var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
  'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
  'heavystrike','wildfire','greatheal',
- 'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
+ 'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll',
+ 'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+ 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
 /* 21 of a target 25 authored (13 + the 3 MC generic starters + the 5 roster-
    expansion companions above). The remaining 4 are content, not design — the
    five axes above define where they sit; see VERIFICATION for the coverage
-   grid. */
+   grid. Plus 10 more (v2.9): one damage + one support per core stat, all MC
+   rare-drop content, not tied to the original 25-unit-roster target above. */
 /* ---- Lore bonuses (v0.8) ---- */
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
 /* ===== PER-ACTION LINEAR STACK COST (v2.9) =====
@@ -919,6 +989,36 @@ var CONDITIONS=[
    for(var i=0;i<a.length;i++)if(!has(a[i],act.applies))return {ok:true,target:a[i]};return {ok:false,target:null};}),
  C('self_hp_lte_50','Self: HP ≤ 50%','Self',function(u){return {ok:hpPct(u)<=.50,target:u};}),
  C('self_first_turn','Self: first turn','Self',function(u){return {ok:u.turnsTaken===0,target:u};})];
+/* v2.9: fill out HP conditions to a full 10% ladder (10-90, both directions)
+ * for every group — Ian found the existing handful (self_hp_lte_50,
+ * ally_hp_lte_60/30, foe_hp_gte_70/lte_30) too sparse to express finer
+ * thresholds. Those five keep their exact ids/behaviour unchanged — GATE_FOR/
+ * PRI (farroad-ui.js) and one enemy archetype's own default gambit
+ * (priest, ROSTER above, cond:'ally_hp_lte_60') reference them by name —
+ * this only ADDS the missing deciles, generated rather than hand-typed
+ * ~49 times, using the exact same resolver shape each group's existing
+ * entries already use (Foe: first-match loop; Ally: filter + byLowestHp;
+ * Self: direct check). */
+(function(){
+ var existing={};CONDITIONS.forEach(function(c){existing[c.id]=1;});
+ var gte=function(x,v){return x>=v;}, lte=function(x,v){return x<=v;};
+ function foeTest(cmp,v){return function(u,b){var f=foes(b,u);
+  for(var i=0;i<f.length;i++)if(cmp(hpPct(f[i]),v))return {ok:true,target:f[i]};
+  return {ok:false,target:null};};}
+ function allyTest(cmp,v){return function(u,b){var a=allies(b,u),c=[];
+  for(var i=0;i<a.length;i++)if(cmp(hpPct(a[i]),v))c.push(a[i]);
+  var t=byLowestHp(c);return {ok:!!t,target:t};};}
+ function selfTest(cmp,v){return function(u){return {ok:cmp(hpPct(u),v),target:u};};}
+ var GROUPS=[['Foe','foe',foeTest],['Ally','ally',allyTest],['Self','self',selfTest]];
+ var added=[];
+ [10,20,30,40,50,60,70,80,90].forEach(function(pct){
+  var v=pct/100;
+  GROUPS.forEach(function(g){
+   var group=g[0],prefix=g[1],mk=g[2];
+   var gteId=prefix+'_hp_gte_'+pct, lteId=prefix+'_hp_lte_'+pct;
+   if(!existing[gteId])added.push(C(gteId,group+': HP ≥ '+pct+'%',group,mk(gte,v)));
+   if(!existing[lteId])added.push(C(lteId,group+': HP ≤ '+pct+'%',group,mk(lte,v)));});});
+ CONDITIONS=CONDITIONS.concat(added);})();
 function condById(id){for(var i=0;i<CONDITIONS.length;i++)if(CONDITIONS[i].id===id)return CONDITIONS[i];return CONDITIONS[0];}
 function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='self')return u;
@@ -976,7 +1076,7 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  var cb=(act.critBonus||0)+(act.critFn?act.critFn(src,tgt):0);
  o.critChance=clamp((isPhys?src.base.atkCrit:src.base.magCrit)+cb,0,CAP_CRIT);
  o.critRoll=det?1:rng.next();o.crit=o.critRoll<o.critChance;
- o.K=K_of(src.level);o.off=isPhys?effAtk(src):effMag(src);
+ o.K=K_of(src.level);o.off=act.scaleStat?statByKey(src,act.scaleStat):(isPhys?effAtk(src):effMag(src));
  o.defRaw=isPhys?effDef(tgt):effRes(tgt);o.defEff=o.defRaw*(1-(act.defPierce||0));o.mit=o.K/(o.K+o.defEff);
  o.power=pv;o.base=pv*o.off*o.mit;
  /* v1.1: VARIANCE ROLL REMOVED. Base damage is now deterministic — the (randInt
@@ -994,7 +1094,8 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.wardMul=incomingMul(tgt);d*=o.wardMul;
  o.rowOut=rowOut(src,isPhys);o.rowIn=rowIn(tgt,isPhys);d*=o.rowOut*o.rowIn;
  o.preFloor=d;o.damage=Math.max(1,Math.floor(d));return o;}
-function healFor(src,tgt,act,b,pv){var v=pv*effMag(src);   /* v1.1: variance removed here too */
+function healFor(src,tgt,act,b,pv){
+ var v=pv*(act.scaleStat?statByKey(src,act.scaleStat):effMag(src));   /* v1.1: variance removed here too */
  var amt=Math.max(1,Math.floor(v)),before=tgt.hp;tgt.hp=Math.min(tgt.maxHp,tgt.hp+amt);
  return {heal:true,targetName:tgt.name,amount:tgt.hp-before};}
 function step(b){
@@ -1104,7 +1205,7 @@ var REF={def:12,evade:.05,block:.00};
 function dmgTakenMul(a){var K=25;
  return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade))*((1-a.block*.5)/(1-REF.block*.5));}
 var ROSTER=[
- {id:'kesh',name:'Kesh',role:'attacker',row:'front',hp:430,chargeAction:'oath',stats:{atk:26,mag:18,def:20,res:16,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03}},
+ {id:'kesh',name:'Kesh',role:'traveler',row:'front',hp:430,chargeAction:'oath',stats:{atk:26,mag:18,def:20,res:16,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03}},
  {id:'ansa',name:'Ansa',role:'healer',row:'back',hp:320,chargeAction:'hearthlight',stats:{atk:14,mag:26,def:14,res:22,spd:96,atkCrit:.04,magCrit:.06,chargeRate:1,block:.02,evade:.04}},
  {id:'dorrek',name:'Dorrek',role:'tank',row:'front',hp:560,chargeAction:'vowofstone',stats:{atk:22,mag:10,def:30,res:20,spd:84,atkCrit:.04,magCrit:.03,chargeRate:1,block:.10,evade:.02}},
  {id:'vey',name:'Vey',role:'rogue',row:'front',hp:300,chargeAction:'ninefold',stats:{atk:24,mag:12,def:14,res:12,spd:124,atkCrit:.12,magCrit:.04,chargeRate:1,block:.02,evade:.10}},
@@ -1126,6 +1227,13 @@ F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
 F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
+/* Pre-bonus baseline per action (power/rank/charge/defPierce/critBonus/turns/
+   chargeCost) — exported so the LORE tab can diff the live (post-bonus)
+   ACTIONS entry against this to show a "total bonus effect" summary,
+   without re-deriving the per-bonus math applyBonuses already owns.
+   snapshot() is idempotent and safe to call before the first real
+   applyBonuses() — it no-ops once PRISTINE is populated. */
+F.pristineOf=function(id){snapshot();return PRISTINE[id]||null;};
 F.bonusApplies=bonusApplies;F.bonusPrice=bonusPrice;F.actionBonusTotal=actionBonusTotal;
 F.BONUS_COST_BROAD=BONUS_COST_BROAD;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;
@@ -1518,13 +1626,20 @@ P.statsAt=function(uid,base,baseHp,L){
  ['atkCrit','magCrit','chargeRate','block','evade'].forEach(function(k){o[k]=base[k];});
  return o;};
 /* ===== SLOTS UNLOCK WITH LEVEL =====
- * 2 at L1, 3rd at L10, 4th at L25. Ties directly to the finding that a solo
- * character can express exactly one rule: with 2 slots the heal takes the only
+ * 2 at L1, 3rd at L10. Ties directly to the finding that a solo character
+ * can express exactly one rule: with 2 slots the heal takes the only
  * conditional. Under a SHARED pool a solo player hits L10 around wave 14-15 -
  * after the heal lesson has landed, before the boss - while a wide party reaches
  * it later per unit. The schedule self-adjusts to how thinly you are spread, so
- * "3 slots right solo, wrong in a party" needs no special case. */
-P.SLOT_LEVELS=[1,1,10,25];
+ * "3 slots right solo, wrong in a party" needs no special case.
+ * v2.9: extended from 4 slots (cap at L25) to 6 (cap at L1000) — the first
+ * two entries (both 1) still guarantee 2 slots from level 1, unchanged;
+ * 4th/5th/6th slots now arrive at L100/L500/L1000 instead of the old
+ * schedule stopping at 4 total. Long-run levels (L100+) were previously
+ * spent on nothing but raw stat growth once the slot progression was
+ * exhausted at L25 — this gives depth further into the game a reason to
+ * matter for build expressiveness too, not just power. */
+P.SLOT_LEVELS=[1,1,10,100,500,1000];
 P.slotsAt=function(L){var n=0;
  for(var i=0;i<P.SLOT_LEVELS.length;i++)if(L>=P.SLOT_LEVELS[i])n++;
  return Math.max(2,n);};
@@ -1687,17 +1802,23 @@ P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
  * MC_CHARGE_DROP_CHANCE) and gated to the random-drop phase only (post
  * wave-20) so the curated tutorial sequence is never disturbed by one. */
 P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal'];
+/* v2.9: +10 stat-scaling charge actions (one damage + one support per core
+   stat — see the CHARGE_ACTIONS comment in core.js), same rare-drop pool as
+   the original 8 corner charges, not the 3 generic starters. */
 P.MC_CHARGE_DROP_POOL=['tideturn','lastlight','sunder','gravewind','reckoning',
- 'bulwarkoath','emberglut','hollowtoll'];
+ 'bulwarkoath','emberglut','hollowtoll',
+ 'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+ 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
 /* Checked once per random-phase wave, replacing that wave's normal action/
    condition drop rather than stacking on top of it — a charge action is a
    bigger deal than either, so it doesn't also cost the player their usual
-   drop that wave. At 5% per wave, one charge-drop event lands roughly every
-   20 waves; collecting all 8 (a coupon-collector problem, expectation
-   8 x H(8) ≈ 21.7 events) takes on the order of 400+ waves of random drops —
-   "much more rare" than the guaranteed per-wave action/condition drop it
-   can replace. */
-P.MC_CHARGE_DROP_CHANCE=0.05;
+   drop that wave. v2.9: 5%->10% — Ian reported waves 20-400 without much
+   variety here, so the rate is doubled. At 10% per wave, one charge-drop
+   event lands roughly every 10 waves; collecting all 8 (a coupon-collector
+   problem, expectation 8 x H(8) ≈ 21.7 events) now takes on the order of
+   200+ waves of random drops, down from 400+ — still meaningfully rarer
+   than the guaranteed per-wave action/condition drop it can replace. */
+P.MC_CHARGE_DROP_CHANCE=0.10;
 P.mcLerp=function(range,point){
  return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
 P.mcPointsSpent=function(points){
@@ -1741,8 +1862,8 @@ S.VERSION=1;
    (farroad-ui.js) — no functions, no DOM handles, no circular refs. */
 var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
- 'loadout','hpCarry','touched','clearedWaves','lvl','bank','maxLevelEver','owned',
- 'enrage','idleAcc','dropQueue','dropHistory',
+ 'loadout','hpCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
+ 'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
  /* the player-built starting character (roadmap item 1), or null for the
     hardcoded default — see applyCustomMC() in the UI layer, which is what
     actually turns this back into stats/growth on the 'kesh' roster slot. */
@@ -1787,6 +1908,16 @@ S.deserialize=function(snap,C){
  if(!G.conditions||!G.conditions.length)G.conditions=['none'];
  ['actionCounts','condCounts','bonuses','recovery','loadout','hpCarry','touched',
   'clearedWaves','lvl','bank','owned'].forEach(function(k){G[k]=G[k]||{};});
+ /* v2.9: dropsGranted is a NEW, stricter gate than clearedWaves (see
+    grantDrops() in the UI layer) — a save from before this field existed
+    has no history for it. Defaulting to {} would let every ALREADY-cleared
+    wave grant its drop one more time on next visit (a real regression for
+    an in-progress save). Seed it from clearedWaves instead: every wave
+    already known cleared is correctly treated as already granted too. The
+    one wave the player is CURRENTLY sitting on (visited but not yet
+    cleared) isn't covered by that seed and gets one extra grant if wiped —
+    a minor, one-time edge case, not worth a bigger migration for. */
+ if(!G.dropsGranted)G.dropsGranted=clone(G.clearedWaves)||{};
  if(!G.lvl.kesh)G.lvl.kesh=1;
  if(G.bank.kesh==null)G.bank.kesh=0;
  if(!G.owned.kesh)G.owned.kesh=1;
@@ -1796,6 +1927,7 @@ S.deserialize=function(snap,C){
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
  if(G.expedition===undefined)G.expedition=null;
  G.expeditionLog=G.expeditionLog||[];
+ G.pullsSinceUnit=G.pullsSinceUnit||0;
  return G;};
 
 return S;})();
@@ -1832,9 +1964,17 @@ function newGame(seed,mc){
   /* v2.4: every reward keyed to a WAVE NUMBER rather than to progress is farmable
      by dying and replaying. This records which waves have ever been cleared. */
   clearedWaves:{},
+  /* v2.9 BUGFIX: clearedWaves only gates a reward once a wave is actually WON,
+     so wiping into an uncleared wave and re-entering it (onWipe -> startWave,
+     same wave, no skipDrops) re-ran grantDrops every time — farmable Lore by
+     repeatedly suiciding into a wave you haven't beaten yet. dropsGranted is a
+     separate dict, set the first time grantDrops ever PROCESSES a wave
+     (win or lose), so a retry is gated immediately instead of only after a
+     clear — see grantDrops() for the actual gate. */
+  dropsGranted:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
-  mc:mc||null, expedition:null, expeditionLog:[]};}
+  mc:mc||null, expedition:null, expeditionLog:[], pullsSinceUnit:0};}
 
 /* Applies a player-built character onto the 'kesh' slot. This mutates the
    shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
@@ -2014,6 +2154,25 @@ function describeAction(id){
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
   note:a.note||''};}
+/* v2.9: "what stat does this scale with" and "what has Lore bought it, in
+   total" — both requested for the GAMBITS/LORE screens. scalesWith just
+   names a.camp; bonusTotalSummary diffs the live (post-applyBonuses)
+   ACTIONS entry against C.pristineOf(id) (the pre-bonus baseline core.js
+   already keeps for exactly this) rather than re-deriving each bonus's
+   math a second time here. */
+function scalesWith(a){return a.camp==='mag'?'MAG':'ATK';}
+function bonusTotalSummary(id){
+ var a=C.ACTIONS[id],p=C.pristineOf(id);if(!a||!p)return '';
+ var bits=[];
+ if(a.power&&p.power&&a.power!==p.power)
+  bits.push('+'+Math.round((a.power/p.power-1)*100)+'% '+(a.heal?'healing':'damage'));
+ if(a.defPierce!==p.defPierce)bits.push('+'+Math.round(((a.defPierce||0)-(p.defPierce||0))*100)+'% armour pierce');
+ if(a.critBonus!==p.critBonus)bits.push('+'+Math.round(((a.critBonus||0)-(p.critBonus||0))*100)+'% crit');
+ if(a.turns!==p.turns)bits.push('+'+((a.turns||0)-(p.turns||0))+' turn duration');
+ if(a.rank!==p.rank)bits.push('×'+Math.round((1/a.rank)/(1/p.rank)*100)+'% initiative');
+ if(a.isCharge&&a.chargeCost!==p.chargeCost)
+  bits.push((a.chargeCost>p.chargeCost?'+':'')+Math.round(a.chargeCost-p.chargeCost)+' gauge');
+ return bits.join(' · ');}
 function pairingHint(id){
  var a=C.ACTIONS[id];if(!a)return '';
  if(a.heal)return 'Pairs with <b>Self: HP ≤ 50%</b> or <b>Ally: HP ≤ 60%</b>.';
@@ -2051,15 +2210,18 @@ function renderDropNote(){
  host.innerHTML=h;
  var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];renderDropNote();};}
 function grantDrops(w){
- var drops=P.isCurated(w)?P.dropsAt(w):randomDrop(w);
- /* FIRST CLEAR ONLY. Auto-battling reached wave 18 unattended, so replaying the
-    early waves farmed the curated sequence for Lore indefinitely. Drops are now
-    awarded once per wave, ever — which also makes the tutorial the one-time
-    sequence it was always meant to be rather than a loop. */
- if(G.clearedWaves[w]){
-  if(drops.length)sysLog('<span class="tiny">Wave '+w+' already cleared — no drop. '+
-   'Curated rewards are one-time.</span>');
+ /* FIRST ATTEMPT ONLY, not first CLEAR — v2.9 bugfix (see dropsGranted in
+    newGame()). Gate runs BEFORE computing drops so a gated call doesn't
+    burn an RNG roll on a result it's about to discard (randomDrop(w) rolls
+    for post-curated waves; P.dropsAt(w) is a pure lookup so this only
+    matters there, but checking first either way is simpler than splitting
+    the two cases). */
+ if(G.dropsGranted[w]){
+  sysLog('<span class="tiny">Wave '+w+' already attempted — no drop. '+
+   'Rewards are granted once per wave, win or lose.</span>');
   return;}
+ G.dropsGranted[w]=1;
+ var drops=P.isCurated(w)?P.dropsAt(w):randomDrop(w);
  var curated=P.isCurated(w);
  drops.forEach(function(d){
   if(d.kind==='action'){
@@ -2068,7 +2230,7 @@ function grantDrops(w){
    if(!dup)G.actions.push(d.id); else G.lore+=1;
    var info=describeAction(d.id);
    if(dup){
-    pushDrop({wave:w,kind:'DUPLICATE ACTION → +1 Lore',name:info.name,
+    pushDrop({wave:w,kind:'DUPLICATE ACTION',name:'+1 Lore',
      body:'You already hold this. Duplicates become <b style="color:var(--lore)">Lore</b>, '+
       'which upgrades actions in the LORE tab.'});
    }else{
@@ -2083,7 +2245,7 @@ function grantDrops(w){
    if(!dupC)G.mc.acquiredCharges.push(d.id); else G.lore+=1;
    var infoC=describeAction(d.id);
    if(dupC){
-    pushDrop({wave:w,kind:'DUPLICATE CHARGE ACTION → +1 Lore',name:infoC.name,
+    pushDrop({wave:w,kind:'DUPLICATE CHARGE ACTION',name:'+1 Lore',
      body:'You already hold this. Duplicates become <b style="color:var(--lore)">Lore</b>.'});
    }else{
     pushDrop({wave:w,kind:'NEW CHARGE ACTION',name:infoC.name,
@@ -2097,7 +2259,7 @@ function grantDrops(w){
    if(!dup2)G.conditions.push(d.id); else G.lore+=1;
    var lab=C.condById(d.id).label;
    if(dup2){
-    pushDrop({wave:w,kind:'DUPLICATE GAMBIT → +1 Lore',name:lab,
+    pushDrop({wave:w,kind:'DUPLICATE GAMBIT',name:'+1 Lore',
      body:'Already held. Converts to <b style="color:var(--lore)">Lore</b>.'});
    }else{
     pushDrop({wave:w,kind:'NEW GAMBIT CONDITION',name:lab,
@@ -2166,6 +2328,16 @@ function startWave(w,skipDrops){
  if(P.isBossWave(w))sysLog('<span class="bosstag">BOSS</span> <b>Wave '+w+' — the Roadwarden.</b>'+
   '<div class="tiny">Clearing it banks a checkpoint and hands you a new character.</div>');}
 
+/* Shared "a new companion joins the roster" state mutation — used by the
+   boss-milestone join, the boss unit-drop roll, and doPull()'s unit branch.
+   Callers still build their own pushDrop/sysLog text (the three contexts
+   read differently), this only owns the G.lvl/G.bank/G.owned/G.party side
+   effects, which were previously duplicated verbatim at all three sites. */
+function joinCompanion(uid){
+ G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
+ var fielded=G.party.length<P.PARTY_CAP;
+ if(fielded)G.party.push(uid);
+ return fielded;}
 function afterWaveCleared(){
  /* class fix: FIRST-CLEAR gates every wave-number-keyed reward, not just drops.
     Kill and idle income stay repeatable — they are per-fight, not per-wave-number,
@@ -2208,7 +2380,7 @@ function afterWaveCleared(){
    /* v1.1: recruits join at LEVEL 1. A recruit's value is TURN ECONOMY, not stats —
       measured, each unit acts on its own clock and adding one adds 1.96x the action
       rate, so a LV1 body still nearly doubles what your side does per fight. */
-   G.lvl[next]=1;G.bank[next]=0;G.owned[next]=1;   /* joins at LV 1; costs are relative */
+   joinCompanion(next);   /* joins at LV 1, always fielded here — the outer if already checked room */
    (function(){var d0=null;C.ROSTER.forEach(function(r){if(r.id===next)d0=r;});
     var ca=d0&&d0.chargeAction?C.ACTIONS[d0.chargeAction]:null;
     var lean=d0?(d0.stats.mag>d0.stats.atk?'caster — leans MAG':
@@ -2220,7 +2392,6 @@ function afterWaveCleared(){
      why:'Their stats are poor and it does not matter — they act on their own clock, '+
       'so your side now takes roughly twice as many actions per fight.',
      pair:ca?('⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||'')):''});})();
-   G.party.push(next);
    var nm='';C.ROSTER.forEach(function(x){if(x.id===next)nm=x.name;});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+nm+' joins you</b> at LV 1.'+
     '<div class="tiny">Their stats are poor and it does not matter — they act on their own '+
@@ -2229,7 +2400,27 @@ function afterWaveCleared(){
   sysLog('<span class="ckpt">✔ CHECKPOINT banked at wave '+(G.bossesCleared*P.BOSS_EVERY)+
    '. A wipe now returns you here, not to wave 1.</span>');
   if(G.wave>=P.BOSS_EVERY)sysLog('<span class="tiny">Curated drops end. Drops are random from here — '+
-   'duplicates now appear, which is where <b style="color:var(--lore)">Lore</b> comes from.</span>');}}
+   'duplicates now appear, which is where <b style="color:var(--lore)">Lore</b> comes from.</span>');}
+ /* v2.9: a 10% companion-drop chance on EVERY boss clear, independent of
+    firstClear/milestone eligibility — repeatable by re-grinding a boss,
+    same spirit as killReward staying repeatable. Added because the
+    milestone schedule alone (P.UNIT_WAVES, a handful of fixed waves) left
+    long stretches with zero chance at a new companion — Ian reported
+    reaching wave 400+ without a 3rd unit. Independent roll from the
+    milestone join above, so a milestone boss can grant both. */
+ if(P.isBossWave(G.wave)&&G.rng.next()<0.10){
+  var bossAvail=C.ROSTER.filter(function(r){return !G.owned[r.id];});
+  if(bossAvail.length){
+   var bossPick=bossAvail[G.rng.nextInt(bossAvail.length)];
+   var bossFielded=joinCompanion(bossPick.id);
+   var bca=bossPick.chargeAction?C.ACTIONS[bossPick.chargeAction]:null;
+   pushDrop({wave:G.wave,kind:'BOSS COMPANION DROP',name:bossPick.name+' (LV 1)',
+    body:capRole(bossPick.role)+' · '+bossPick.row+' row'+
+     (bca?'<br>⚡ Charge action: <b>'+bca.name+'</b> — '+(bca.note||''):''),
+    why:(bossFielded?'Fielded immediately.'
+      :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});
+   sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+bossPick.name+' joins you</b> at LV 1 '+
+    '<span class="tiny">(10% boss companion roll)</span>.');}}}
 
 function onWipe(){
  G.wipes++;
@@ -2511,10 +2702,14 @@ function stop(){playing=false;clearTimeout(timer);$('#btnPlay').textContent='▶
  * The player-facing speed number is now 1/rank: "how often this lets me act",
  * where HIGHER IS FASTER. Rank 0.67 -> x1.50, rank 1.00 -> x1.00, rank 1.25 ->
  * x0.80. This is a pure display change - no rank or power value moved. The raw
- * tick cost is kept in the title attribute for debugging. */
+ * tick cost is kept in the title attribute for debugging.
+ * v2.9: shown as a whole number (×150/×100/×80, i.e. the multiplier x100),
+ * not two decimal places (×1.50/×1.00/×0.80) — Ian found the decimals hard
+ * to read at a glance. Still purely a display change; initMul's actual
+ * multiplier is untouched, only initStr's formatting rounds it. */
 function initMul(rank){return (1/rank);}
 function initStr(rank){var m=initMul(rank);
- return '×'+(m>=1?m.toFixed(2):m.toFixed(2));}
+ return '×'+Math.round(m*100);}
 function initClass(rank){var m=initMul(rank);
  return m>=1.15?'ini fast':(m<=0.85?'ini slow':'ini');}
 function initTag(rank,tick){
@@ -2544,12 +2739,18 @@ function defResPair(u){
   (flagD||flagR?'<span class="drhint">'+(flagD?'physical':'magic')+' lands harder</span>':'')+
   '</span>';}
 function pct(a,b){return Math.max(0,Math.min(100,100*a/b));}
+/* C.ROSTER stores role lowercase ('attacker', etc.) — capitalized only at
+   display time so the stored value stays a plain identifier-ish string. */
+function capRole(s){return s?s.charAt(0).toUpperCase()+s.slice(1):s;}
 function pills(u){var h='';for(var i=0;i<C.ST.length;i++){var id=C.ST[i];if(u.st[id]>0){var f=C.STATUS_INFO[id];
  h+='<span class="pill '+(f.k==='d'?'d':'b')+'">'+f.n+' '+u.st[id]+'</span>';}}return h;}
 function renderPurse(){
  $('#cAether').textContent=Math.floor(G.aether);
  $('#cLore').textContent=Math.floor(G.lore);
- $('#cMarks').textContent=Math.floor(G.marks);}
+ $('#cMarks').textContent=Math.floor(G.marks);
+ var r=P.idlePerSec(G.farthest),el=$('#idleRate');
+ if(el)el.textContent='idle: '+Math.round(r.aether*60)+' Aether/min · '+
+  Math.round(r.marks*P.marksMul(G)*60)+' Marks/min';}
 function renderUnits(){
  var host=$('#units');host.innerHTML='';
  if(!G.battle)return;
@@ -2605,8 +2806,8 @@ function renderRail(){
 function renderHead(){
  var boss=P.isBossWave(G.wave);
  $('#waveLbl').innerHTML='Wave '+G.wave+(boss?' <span class="bosstag">BOSS</span>':'');
- $('#encLbl').textContent='· '+(G.enemies?G.enemies.length:0)+' enemy'+((G.enemies&&G.enemies.length>1)?'ies':'')+
-  ' · party '+G.party.length;
+ $('#encLbl').textContent='· '+(G.enemies?G.enemies.length:0)+
+  ((G.enemies&&G.enemies.length===1)?' enemy':' enemies')+' · party '+G.party.length;
  $('#secLbl').textContent=(G.battle?(G.battle.elapsedMs/1000).toFixed(1):'0.0')+'s';
  var nb=P.nextBossWave(G.wave)||'—';
  $('#ckptLbl').innerHTML='farthest <b>'+G.farthest+'</b> · checkpoint <b>'+P.checkpoint(G.bossesCleared)+
@@ -2647,8 +2848,9 @@ function logEntry(e){
 /* ------------------------------------------------------------ economy UI --- */
 function renderAether(){
  var host=$('#aetherView');host.innerHTML='';
+ renderUnitTabs(host,function(){renderAether();});
  var STEP=50;
- G.party.forEach(function(uid){
+ [currentSelectedUnit()].forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var L=levelOf(uid),x=expOf(uid),need=costNext(uid),have=0;
   var st=P.statsAt(uid,def.stats,def.hp,L), g=P.GROWTH[uid];
@@ -2656,7 +2858,7 @@ function renderAether(){
   var box=document.createElement('div');box.style.marginBottom='10px';
   var prog=Math.max(0,Math.min(100,100*(x-have)/Math.max(1,need-have)));
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
-   '<span class="uname p">'+def.name+' <span class="tiny">'+def.role+'</span></span>'+
+   '<span class="uname p">'+def.name+' <span class="tiny">'+capRole(def.role)+'</span></span>'+
    '<span class="nval">LV '+L+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
    '<div class="tiny mono" style="margin-top:3px">'+Math.floor(x)+' / '+need+' to LV '+(L+1)+'</div>'+
@@ -2708,8 +2910,13 @@ function renderAether(){
    feedUnit(u,amt);
    var L1=levelOf(u);
    if(L1>L0){var nm='';C.ROSTER.forEach(function(r){if(r.id===u)nm=r.name;});
+    var s1=P.slotsAt(L1);
+    /* Generalized for the v2.9 6-slot schedule (was hardcoded "a third
+       slot" back when P.SLOT_LEVELS capped at 4 total). */
+    var ORD={3:'3rd',4:'4th',5:'5th',6:'6th'};
     sysLog('<b class="dw">LEVEL UP</b> '+nm+' → LV '+L1+
-     (P.slotsAt(L1)>P.slotsAt(L0)?'<div class="tiny" style="color:var(--charge)">A third gambit slot opens.</div>':''));}
+     (s1>P.slotsAt(L0)?'<div class="tiny" style="color:var(--charge)">A '+
+      (ORD[s1]||s1+'th')+' gambit slot opens.</div>':''));}
    refreshLiveStats();renderAll();buildGambits();};});}
 function refreshLiveStats(){
  if(!G.units)return;
@@ -2720,28 +2927,70 @@ function refreshLiveStats(){
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
   u.slots=ensureLoadout(u.id).map(function(s){return {cond:s.cond,action:s.action};});});}
+/* v2.9: which actions currently matter — anyone owned's loadout slots plus
+   charge action, protecting the MC's WHOLE acquired-charge pool (not just
+   the currently-equipped one, since swapping between them is free and is
+   documented to preserve Lore investment — see the GAMBITS charge-swap
+   note). Used by the bulk-refund button below; deliberately checks
+   G.owned/G.loadout rather than G.party, since a benched unit's equipped
+   actions are still real investments, not "unused". */
+function usedActions(){
+ var used={};
+ Object.keys(G.owned).forEach(function(uid){
+  (G.loadout[uid]||[]).forEach(function(s){used[s.action]=1;});
+  var rd=null;C.ROSTER.forEach(function(r){if(r.id===uid)rd=r;});
+  if(rd&&rd.chargeAction)used[rd.chargeAction]=1;});
+ if(G.mc&&G.mc.acquiredCharges)G.mc.acquiredCharges.forEach(function(id){used[id]=1;});
+ return used;}
 function renderLore(){
  var host=$('#loreView');host.innerHTML='';
  var spent=C.bonusSpend(G.bonuses),free=Math.max(0,G.lore-spent);
  if(!G.lore){host.innerHTML='<div class="tiny">No Lore yet. Lore comes from <b>duplicate</b> drops, '+
   'and the curated sequence never repeats itself — so it stays at zero until drops turn random '+
   'after the wave-20 boss. That is by design, not a stall.</div>';return;}
- host.innerHTML='<div class="tiny" style="margin-bottom:6px">'+free+' of '+Math.floor(G.lore)+
-  ' Lore free · each action\'s next upgrade costs one more Lore than its last</div>';
+ /* Bulk refund: only offered when it would actually do something, and shows
+    exactly how much Lore comes back before the player commits. */
+ var used=usedActions();
+ var unusedIds=Object.keys(G.bonuses).filter(function(aid){return !used[aid]&&G.bonuses[aid]&&
+  Object.keys(G.bonuses[aid]).length;});
+ var refundTotal=0;
+ unusedIds.forEach(function(aid){var b=G.bonuses[aid],total=C.actionBonusTotal(b);
+  refundTotal+=total*(total+1)/2+(b.broad||0)*C.BONUS_COST_BROAD;});
+ /* v2.9: this used to merge EVERY fielded unit's equipped actions into one
+    list — now it's just the selected unit's own (same shared unit-tab
+    selector as GAMBITS/AETHER), so upgrading Lore reads as "for Kesh" not
+    "for whoever happens to share this action". A benched unit's own
+    actions were never reachable here before either way (eq only scanned
+    G.party), so this is a narrowing within what was already fielded-only,
+    not a new restriction. */
+ renderUnitTabs(host,function(){renderLore();});
+ host.insertAdjacentHTML('beforeend','<div class="tiny" style="margin-bottom:6px">'+free+' of '+
+  Math.floor(G.lore)+' Lore free · each action\'s next upgrade costs one more Lore than its last</div>'+
+  (unusedIds.length?'<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
+   'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
+   (unusedIds.length===1?'':'s')+'</button>':''));
+ var selUid=currentSelectedUnit();
+ var eq={};ensureLoadout(selUid).forEach(function(s){eq[s.action]=1;});
+ (function(){var rd=null;C.ROSTER.forEach(function(r){if(r.id===selUid)rd=r;});
+  var mcOwns=(selUid==='kesh'&&G.mc&&G.mc.acquiredCharges&&G.mc.acquiredCharges.length);
+  var ca=mcOwns?G.mc.chargeAction:(rd&&rd.chargeAction);
+  if(ca)eq[ca]=1;})();
  /* v2.8: charge actions now appear here. They never could before — this loop read
     only ensureLoadout(), i.e. the GAMBIT SLOTS, and a unit's charge action lives
     in u.chargeAction and fires as an override, never from a slot. The engine
     always supported upgrading them (snapshot() already covered CHARGE_ACTIONS);
     it was this one line that made them unreachable. */
- var eq={};G.party.forEach(function(uid){ensureLoadout(uid).forEach(function(s){eq[s.action]=1;});
-  var rd=null;C.ROSTER.forEach(function(r){if(r.id===uid)rd=r;});
-  if(rd&&rd.chargeAction)eq[rd.chargeAction]=1;});
  Object.keys(eq).forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;var b=G.bonuses[aid]||{};
   var box=document.createElement('div');box.className='bon';
+  var totalBonus=bonusTotalSummary(aid);
   var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+'</b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
+   '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
+    '</b>'+(a.power?' · power ×'+a.power.toFixed(2):'')+'</div>'+
+   (totalBonus?'<div class="tiny" style="color:var(--lore);margin-bottom:3px">Lore total: '+
+    totalBonus+'</div>':'')+
    (a.isCharge?'<div class="tiny" style="color:var(--dimmer);margin-bottom:3px">'+
     'Every upgrade here adds +'+C.CHARGE_UP_COST+' to the gauge — it hits harder but '+
     'fires less often. <b>Thrifty</b> buys the cadence back.</div>':'');
@@ -2788,7 +3037,13 @@ function renderLore(){
  Array.prototype.forEach.call(host.querySelectorAll('.bm'),function(el){el.onclick=function(){
   var a=el.dataset.a,b=el.dataset.b;if(!G.bonuses[a])return;
   G.bonuses[a][b]=Math.max(0,(G.bonuses[a][b]||0)-1);
-  if(!G.bonuses[a][b])delete G.bonuses[a][b];C.applyBonuses(G.bonuses);renderAll();};});}
+  if(!G.bonuses[a][b])delete G.bonuses[a][b];C.applyBonuses(G.bonuses);renderAll();};});
+ var refundBtn=$('#btnRefundLore');
+ if(refundBtn)refundBtn.onclick=function(){
+  if(!confirm('Refund '+refundTotal+' Lore from '+unusedIds.length+' action'+
+   (unusedIds.length===1?'':'s')+' no one currently has equipped?'))return;
+  unusedIds.forEach(function(aid){delete G.bonuses[aid];});
+  C.applyBonuses(G.bonuses);renderAll();};}
 function renderMarks(){
  var host=$('#marksView'),cost=P.pullCost(G.wave);
  var locked=!P.pullsUnlocked(G);
@@ -2813,7 +3068,9 @@ function renderMarks(){
    ' Marks</button>'+
    '<div class="tiny" style="margin-top:6px;color:var(--dimmer)">Rolls across everything: '+
    Math.round(P.PULL_ODDS.action*100)+'% action · '+Math.round(P.PULL_ODDS.cond*100)+
-   '% gambit condition · '+Math.round(P.PULL_ODDS.unit*100)+'% companion.</div>'+
+   '% gambit condition · '+Math.round(P.PULL_ODDS.unit*100)+'% companion — guaranteed a companion '+
+   'every '+P.PULL_PITY_AT+' pulls regardless of odds ('+(G.pullsSinceUnit||0)+'/'+P.PULL_PITY_AT+
+   ' since your last one).</div>'+
    '<div class="tiny" style="margin-top:6px">Duplicate actions and gambits convert to '+
    '<b style="color:var(--lore)">Lore</b>; duplicate units convert to '+
    '<b style="color:var(--aether)">Aether</b>. You OWN every unit you pull — the party is '+
@@ -2842,13 +3099,24 @@ function renderMarks(){
  * outcome now goes through pushDrop(), the same banner the curated drops use,
  * which is non-blocking, stacks, and persists until acknowledged. */
 P.PULL_ODDS={unit:0.10, action:0.45, cond:0.45};
+/* v2.9 PITY: the 10% unit odds above mean a genuinely unlucky run could go
+   very long stretches without a companion (the same complaint that drove
+   the boss unit-drop above) — guarantee one at least every 30 pulls. Counts
+   pulls since the last unit was actually obtained (by luck OR by pity),
+   resetting in both outcomes of the 'unit' branch below (a fresh pull or a
+   fully-collected-roster Aether conversion) since either way there was
+   nothing more this pity cycle could have granted. */
+P.PULL_PITY_AT=30;
 function doPull(){
  var cost=P.pullCost(G.wave);
  if(!P.pullsUnlocked(G))return;      /* locked during the curated run */
  if(G.marks<cost)return;G.marks-=cost;
+ G.pullsSinceUnit=(G.pullsSinceUnit||0)+1;
+ var pity=G.pullsSinceUnit>=P.PULL_PITY_AT;
  var roll=G.rng.next(), O=P.PULL_ODDS;
- var kind=(roll<O.unit)?'unit':((roll<O.unit+O.action)?'action':'cond');
+ var kind=pity?'unit':((roll<O.unit)?'unit':((roll<O.unit+O.action)?'action':'cond'));
  if(kind==='unit'){
+  G.pullsSinceUnit=0;   /* nothing more this pity cycle could grant, hit or not */
   /* v2.8 BUGFIX kept: filter on OWNED, not party. Collection and party are
      different things — a benched unit is still a real acquisition. */
   var avail=C.ROSTER.filter(function(r){return !G.owned[r.id];});
@@ -2856,21 +3124,17 @@ function doPull(){
    /* Duplicate unit -> Aether. With 5 of a planned 25 units authored this is the
       COMMON case, not an edge case, so it must read as a result. */
    var dup=P.dupUnitAether(G.wave);G.aether+=dup;
-   pushDrop({name:'Duplicate companion',kind:'PULL · unit',wave:G.wave,
+   pushDrop({name:'+'+dup+' Aether',kind:'PULL · duplicate unit',wave:G.wave,
     body:'You already own every authored companion, so this converted to '+
      '<b style="color:var(--aether)">+'+dup+' Aether</b> — about '+
-     P.DUP_UNIT_WAVES+' waves of income.',
-    note:'Only '+C.ROSTER.length+' of a planned '+P.POOL_SIZE+' companions are written, '+
-     'so unit rolls will keep converting until more exist.'});}
+     P.DUP_UNIT_WAVES+' waves of income.'});}
   else{var pick=avail[G.rng.nextInt(avail.length)];
-   G.lvl[pick.id]=1;G.bank[pick.id]=0;G.owned[pick.id]=1;
-   var fielded=G.party.length<P.PARTY_CAP;
-   if(fielded)G.party.push(pick.id);
+   var fielded=joinCompanion(pick.id);
    var ca=pick.chargeAction?C.ACTIONS[pick.chargeAction]:null;
    var st=pick.stats,lean=(st.mag>st.atk?'magic':'physical')+
     ', '+(st.def>=25?'sturdy':st.hp>=430?'durable':st.spd>=110?'very fast':'balanced');
-   pushDrop({name:pick.name,kind:'PULL · NEW COMPANION',wave:G.wave,
-    body:pick.role+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
+   pushDrop({name:pick.name,kind:pity?'PULL · PITY COMPANION':'PULL · NEW COMPANION',wave:G.wave,
+    body:capRole(pick.role)+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
      (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||''):''),
     /* why, not note — the "did this actually join my party" question is the
@@ -2886,10 +3150,9 @@ function doPull(){
    pushDrop({name:d.name,kind:'PULL · NEW ACTION',wave:G.wave,
     body:d.body,note:pairingHint(id)});}
   else{G.lore+=1;
-   pushDrop({name:'Duplicate '+d.name,kind:'PULL · action',wave:G.wave,
+   pushDrop({name:'+1 Lore',kind:'PULL · duplicate action',wave:G.wave,
     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b> '+
-     '— spend it in the LORE tab to upgrade an action you already use.',
-    note:'You now hold '+G.actionCounts[id]+' copies of '+d.name+'.'});}
+     '— spend it in the LORE tab to upgrade an action you already use.'});}
  }else{
   var cp=C.CONDITIONS.filter(function(c){return c.id!=='none';});
   var c=cp[G.rng.nextInt(cp.length)];
@@ -2901,9 +3164,8 @@ function doPull(){
      '. Slot it in the GAMBITS tab to gate an action on it.',
     note:'A condition is only worth a slot if the action it gates is WORSE without it.'});}
   else{G.lore+=1;
-   pushDrop({name:'Duplicate '+c.label,kind:'PULL · gambit',wave:G.wave,
-    body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.',
-    note:'You now hold '+G.condCounts[c.id]+' copies of this condition.'});}}
+   pushDrop({name:'+1 Lore',kind:'PULL · duplicate gambit',wave:G.wave,
+    body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.'});}}
  buildGambits();renderAll();}
 function renderDrops(){
  var host=$('#dropsView'),h='';
@@ -2971,7 +3233,7 @@ function renderExpedition(){
     var picked=mcExpedPick.indexOf(uid)>=0;
     h+='<div class="slot expick'+(picked?' on':'')+'" data-uid="'+uid+'" style="cursor:pointer">'+
      '<div class="uname">'+(d?d.name:uid)+'</div>'+
-     '<div class="tiny">'+(d?d.role:'')+' · LV '+levelOf(uid)+'</div></div>';});
+     '<div class="tiny">'+(d?capRole(d.role):'')+' · LV '+levelOf(uid)+'</div></div>';});
    h+='<button class="mini" id="btnExpedSend" style="margin-top:6px">Send expedition ('+
     mcExpedPick.length+'/'+P.PARTY_CAP+')</button>';}}
  h+='<hr><div class="tiny" style="margin-bottom:6px"><b>EXPEDITION LOG</b> — most recent first ('+
@@ -3016,6 +3278,28 @@ function fieldUnit(uid){
  G.party.push(uid);
  autoEquip();                                    /* same default-rule pass a pull/boss-join gets */
  return true;}
+/* ===== PER-CHARACTER SUB-TABS (v2.9) =====
+ * GAMBITS/AETHER/LORE each used to stack one box per fielded unit, so a
+ * full 5-unit party meant scrolling through 5x the content on every tab —
+ * "playing now requires a lot of scrolling", especially on a phone. One
+ * shared selectedUnitTab (UI-only, not saved, same treatment as speed/
+ * mcExpedPick elsewhere in this file) drives all three: switching units on
+ * one tab keeps that same unit selected if you flip to another. */
+var selectedUnitTab=null;
+function currentSelectedUnit(){
+ if(!selectedUnitTab||G.party.indexOf(selectedUnitTab)<0)selectedUnitTab=G.party[0];
+ return selectedUnitTab;}
+function renderUnitTabs(host,onChange){
+ var box=document.createElement('div');box.className='row';
+ box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
+ var cur=currentSelectedUnit(),h='';
+ G.party.forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  h+='<button class="mini utab'+(uid===cur?' on':'')+'" data-u="'+uid+'">'+
+   (def?def.name:uid)+'</button>';});
+ box.innerHTML=h;host.appendChild(box);
+ Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
+  el.onclick=function(){selectedUnitTab=el.dataset.u;onChange();};});}
 function renderPartyRoster(host){
  var box=document.createElement('div');box.style.marginBottom='14px';
  var h='<div class="tiny" style="margin-bottom:6px"><b>PARTY</b> — '+G.party.length+' of '+P.PARTY_CAP+
@@ -3023,7 +3307,7 @@ function renderPartyRoster(host){
  G.party.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
-   '<span><span class="uname p">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   '<span><span class="uname p">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?capRole(def.role):'')+
    ' · LV '+levelOf(uid)+'</span></span>'+
    '<button class="mini pb-bench" data-u="'+uid+'"'+(G.party.length<=1?' disabled':'')+'>Bench</button></div>';});
  var avail=availableForParty();
@@ -3032,7 +3316,7 @@ function renderPartyRoster(host){
  avail.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
-   '<span><span class="uname">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?def.role:'')+
+   '<span><span class="uname">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?capRole(def.role):'')+
    ' · LV '+levelOf(uid)+'</span></span>'+
    '<button class="mini pb-field" data-u="'+uid+'"'+(G.party.length>=P.PARTY_CAP?' disabled':'')+'>Field</button></div>';});
  box.innerHTML=h;host.appendChild(box);
@@ -3043,17 +3327,39 @@ function renderPartyRoster(host){
 function buildGambits(){
  var host=$('#gambits');host.innerHTML='';
  renderPartyRoster(host);
- G.party.forEach(function(uid){
+ /* v2.9: one unit's gambit box at a time, picked by the shared unit-tab
+    selector, instead of stacking all of G.party's boxes vertically —
+    "playing now requires a lot of scrolling" with a full party. Everything
+    below is unchanged from the per-unit render it always was; only the
+    outer iteration (G.party.forEach -> a single selected uid) changed. */
+ renderUnitTabs(host,function(){buildGambits();});
+ /* v2.9: condition dropdown sorted by TYPE (group), not the order each one
+    was acquired in — with dozens of conditions now (the 10%-HP-ladder
+    addition above especially), acquisition order made a specific one hard
+    to find. GROUP_ORDER puts the always-true 'none' entry first, then
+    Self/Ally/Foe; within a group, original CONDITIONS array order is kept
+    (a stable sort) since that already roughly sub-clusters by theme. */
+ var GROUP_ORDER={'':0,Self:1,Ally:2,Foe:3};
+ function sortedOwnedConditions(){
+  var idx={};C.CONDITIONS.forEach(function(c,i){idx[c.id]=i;});
+  return G.conditions.slice().sort(function(a,b){
+   var ca=C.condById(a),cb=C.condById(b);
+   var ga=GROUP_ORDER[ca.group]!=null?GROUP_ORDER[ca.group]:9;
+   var gb=GROUP_ORDER[cb.group]!=null?GROUP_ORDER[cb.group]:9;
+   if(ga!==gb)return ga-gb;
+   return idx[a]-idx[b];});}
+ [currentSelectedUnit()].forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var sl=ensureLoadout(uid);
   var box=document.createElement('div');box.style.marginBottom='12px';
   box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname p">'+def.name+
-   ' <span class="tiny">'+def.role+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>';
+   ' <span class="tiny">'+capRole(def.role)+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>';
+  var ownedConds=sortedOwnedConditions();
   sl.forEach(function(s,i){
    var w=document.createElement('div');w.className='slot';
    /* reorder controls get their own row so they are not squeezed by the label */
    var co='';
-   G.conditions.forEach(function(cid){var c=C.condById(cid);
+   ownedConds.forEach(function(cid){var c=C.condById(cid);
     co+='<option value="'+cid+'"'+(cid===s.cond?' selected':'')+'>'+c.label+'</option>';});
    var ao='';
    G.actions.forEach(function(aid){
@@ -3065,6 +3371,9 @@ function buildGambits(){
     '<label style="margin-top:8px">THEN</label><select class="as">'+ao+'</select>'+
     '<div class="tiny" style="margin-top:6px">initiative '+initTag(C.ACTIONS[s.action].rank)+
      ' <span style="color:var(--dimmer)">— higher acts more often</span></div>'+
+    '<div class="tiny" style="margin-top:2px;color:var(--dimmer)">scales with <b>'+
+     scalesWith(C.ACTIONS[s.action])+'</b>'+(C.ACTIONS[s.action].power?
+     ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
     '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>';
    var up=w.querySelector('.up'),dn=w.querySelector('.dn');
    if(i===0)up.disabled=true;

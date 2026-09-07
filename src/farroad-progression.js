@@ -372,13 +372,20 @@ P.statsAt=function(uid,base,baseHp,L){
  ['atkCrit','magCrit','chargeRate','block','evade'].forEach(function(k){o[k]=base[k];});
  return o;};
 /* ===== SLOTS UNLOCK WITH LEVEL =====
- * 2 at L1, 3rd at L10, 4th at L25. Ties directly to the finding that a solo
- * character can express exactly one rule: with 2 slots the heal takes the only
+ * 2 at L1, 3rd at L10. Ties directly to the finding that a solo character
+ * can express exactly one rule: with 2 slots the heal takes the only
  * conditional. Under a SHARED pool a solo player hits L10 around wave 14-15 -
  * after the heal lesson has landed, before the boss - while a wide party reaches
  * it later per unit. The schedule self-adjusts to how thinly you are spread, so
- * "3 slots right solo, wrong in a party" needs no special case. */
-P.SLOT_LEVELS=[1,1,10,25];
+ * "3 slots right solo, wrong in a party" needs no special case.
+ * v2.9: extended from 4 slots (cap at L25) to 6 (cap at L1000) — the first
+ * two entries (both 1) still guarantee 2 slots from level 1, unchanged;
+ * 4th/5th/6th slots now arrive at L100/L500/L1000 instead of the old
+ * schedule stopping at 4 total. Long-run levels (L100+) were previously
+ * spent on nothing but raw stat growth once the slot progression was
+ * exhausted at L25 — this gives depth further into the game a reason to
+ * matter for build expressiveness too, not just power. */
+P.SLOT_LEVELS=[1,1,10,100,500,1000];
 P.slotsAt=function(L){var n=0;
  for(var i=0;i<P.SLOT_LEVELS.length;i++)if(L>=P.SLOT_LEVELS[i])n++;
  return Math.max(2,n);};
@@ -541,17 +548,23 @@ P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
  * MC_CHARGE_DROP_CHANCE) and gated to the random-drop phase only (post
  * wave-20) so the curated tutorial sequence is never disturbed by one. */
 P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal'];
+/* v2.9: +10 stat-scaling charge actions (one damage + one support per core
+   stat — see the CHARGE_ACTIONS comment in core.js), same rare-drop pool as
+   the original 8 corner charges, not the 3 generic starters. */
 P.MC_CHARGE_DROP_POOL=['tideturn','lastlight','sunder','gravewind','reckoning',
- 'bulwarkoath','emberglut','hollowtoll'];
+ 'bulwarkoath','emberglut','hollowtoll',
+ 'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+ 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
 /* Checked once per random-phase wave, replacing that wave's normal action/
    condition drop rather than stacking on top of it — a charge action is a
    bigger deal than either, so it doesn't also cost the player their usual
-   drop that wave. At 5% per wave, one charge-drop event lands roughly every
-   20 waves; collecting all 8 (a coupon-collector problem, expectation
-   8 x H(8) ≈ 21.7 events) takes on the order of 400+ waves of random drops —
-   "much more rare" than the guaranteed per-wave action/condition drop it
-   can replace. */
-P.MC_CHARGE_DROP_CHANCE=0.05;
+   drop that wave. v2.9: 5%->10% — Ian reported waves 20-400 without much
+   variety here, so the rate is doubled. At 10% per wave, one charge-drop
+   event lands roughly every 10 waves; collecting all 8 (a coupon-collector
+   problem, expectation 8 x H(8) ≈ 21.7 events) now takes on the order of
+   200+ waves of random drops, down from 400+ — still meaningfully rarer
+   than the guaranteed per-wave action/condition drop it can replace. */
+P.MC_CHARGE_DROP_CHANCE=0.10;
 P.mcLerp=function(range,point){
  return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
 P.mcPointsSpent=function(points){

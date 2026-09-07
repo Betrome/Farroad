@@ -632,3 +632,111 @@ into the PARTY list, gave it an auto-equipped loadout and its own gambit box
 below, and updated the party-size counter; benching correctly reversed all
 of that; and the last remaining party member's own Bench button was
 confirmed disabled.
+
+## Post-build feedback batch — 20 items across 8 groups
+
+Ian played to wave 400+ and sent back a large, mixed batch: copy fixes, two
+bugs, balance tuning, new content, and a UI restructure. Grouped and
+implemented per the approved plan; see the individual comment blocks in
+`farroad-core.js`/`farroad-progression.js`/`farroad-ui.js`/`shell.html` for
+full reasoning at each change — this section is the roll-up.
+
+**Copy/display**: MC role "Attacker"→"Traveler" (displayed capitalized via a
+new `capRole()` helper, stored lowercase); "enemyies"→"enemies" (a naive
+`+'ies'` pluralization bug in `renderHead()`); idle Aether/Marks rate now
+shown near the top (`#idleRate`, populated in `renderPurse()`); duplicate-
+drop/pull messages no longer name the specific item, just the conversion
+result (`name:'+1 Lore'` etc., replacing `name:info.name` and dropping the
+"you now hold N copies of X" notes); initiative shown as a whole number
+(`×124` not `×1.24` — `initStr()` now does `Math.round(m*100)`, single
+source feeding every call site).
+
+**Bugs**: a real one — wiping into an UNCLEARED wave and re-entering it
+re-ran `grantDrops()`, letting curated/random rewards be farmed indefinitely
+by repeat suicide (the existing `clearedWaves` gate only ever blocked
+already-WON waves). Fixed with a new `dropsGranted` dict, set the first time
+`grantDrops(w)` ever processes a wave regardless of outcome — see the Group
+2 note in the approved plan for the full trace. Verified live: seeded a
+5-HP starter, forced three wipes at wave 1, confirmed "Wave 1 already
+attempted — no drop" on repeat and no duplicate Lore/action grants. The
+reported "present" condition bug (`foe_2plus`/`foe_3plus` allegedly counting
+dead enemies) did NOT reproduce — `foes()` already filters to `hp>0` — no
+code change made there, flagged back to Ian instead of guessed at.
+
+**Balance/economy**: `P.MC_CHARGE_DROP_CHANCE` 5%→10%; a new independent
+10% companion-drop roll on EVERY boss clear (not gated by first-clear or
+milestone eligibility, repeatable by re-grinding a boss — same spirit as
+`killReward` staying repeatable), using a new shared `joinCompanion(uid)`
+helper that replaced three duplicated copies of the same `G.lvl/bank/owned/
+party` mutation (boss milestone, this new roll, `doPull()`); pull pity — a
+new `G.pullsSinceUnit` counter forces `kind='unit'` on the 30th pull since
+the last one obtained (`P.PULL_PITY_AT=30`), resets on any unit outcome;
+`P.SLOT_LEVELS` extended from `[1,1,10,25]` (4 slots) to `[1,1,10,100,500,
+1000]` (6 slots) — 2 slots still guaranteed at L1, 3rd-6th now at
+10/100/500/1000. All aimed at the same root complaint: reaching wave 400+
+without a 3rd companion.
+
+**New gambit conditions**: the HP-threshold ladder filled out to every 10%
+decile (10-90, both directions) for Self/Ally/Foe — generated in `core.js`
+rather than hand-typed ~49 times, reusing each group's existing resolver
+shape exactly, and leaving the five pre-existing named entries
+(`self_hp_lte_50` etc.) untouched since `GATE_FOR`/`PRI` and one enemy
+archetype's own default gambit reference them by id. The condition dropdown
+is now sorted by group (Self/Ally/Foe, "always true" first) instead of raw
+acquisition order — 84 conditions in total now, unmanageable unsorted.
+
+**Action/Lore display**: every action now shows which stat it scales with
+(`scalesWith(a)`, reading `a.camp`) and its current effective power/rank
+(already-live post-bonus values, no new math); the LORE tab additionally
+shows a one-line "total bonus" summary per action, diffing the live
+`C.ACTIONS[id]` against a newly-exported `C.pristineOf(id)` (the pre-bonus
+baseline `applyBonuses()` already kept internally) rather than re-deriving
+each bonus's math a second time.
+
+**10 new MC charge actions** (one damage + one support per core stat):
+required a genuine small engine addition, since damage/heal magnitude was
+hardcoded to ATK/MAG via `camp` — a new `act.scaleStat` field, read by
+`resolveHit`/`healFor` via a new `statByKey()` helper (DEF/RES reuse the
+existing status-aware `effDef`/`effRes`; SPD reads `u.base.spd` directly,
+since nothing in the engine has an "effective SPD" concept — Hasted/Slowed
+modify turn cadence via `tcOf`, never the raw stat). Balanced so a build
+maxing the relevant stat lands on roughly the same pre-mitigation base as
+the existing MC starters (~118 for a single-hit damage action, ~78 for a
+party heal — heavystrike/greatheal's own numbers are the reference points).
+Added to `P.MC_CHARGE_DROP_POOL`, same rare-drop path as the original 8
+corner charges. **Caught live, not by code review**: the new `spd_flurry`
+was originally also named "Flurry", colliding with the pre-existing basic
+action `flurry` — found by actually pulling it in the browser and seeing
+two unrelated "Flurry" entries, renamed to "Fleetstrike". Added a permanent
+smoke check (no two `C.ACTIONS` entries may share a display name) so the
+next new action can't repeat this silently.
+
+**Lore bulk refund**: a new button on the LORE tab refunds every unused
+action's Lore in one click, showing the exact total before confirming.
+"Unused" is computed against every OWNED unit's `G.loadout`/chargeAction
+(not just fielded `G.party` — a benched unit's own investment is still
+real), and separately protects the MC's WHOLE `acquiredCharges` pool, not
+just the currently-equipped one, since swapping between them is documented
+to preserve Lore investment. Refund itself needed no new crediting logic —
+confirmed earlier this session that free Lore is always recomputed live
+from the bonus map, so clearing unused entries refunds automatically.
+
+**Layout restructure**: the ROAD tab (and the whole tab system with it) moved
+above the units/battle panel and travel controls, cutting the scroll depth
+to see the combat log — "a lot of scrolling" on a phone with a full 5-unit
+party was the direct complaint. GAMBITS/AETHER/LORE each gained a shared
+`selectedUnitTab` unit-picker (persists as you switch between the three
+tabs) so they show one character's content at a time instead of stacking
+every fielded unit vertically; LORE's version narrows to the selected
+unit's own equipped actions rather than merging the whole party's.
+
+**Verification**: 4 new headless smoke sections (scaleStat mechanism proven
+via a controlled DEF-differential battle, not just definition checks; no
+duplicate action names) bringing the suite to 56/56, clean `build.js`, and
+an extensive live-browser pass seeding realistic saves for every item —
+role/enemies-copy/idle-rate/layout confirmed in one screenshot, per-unit
+tabs and action-scaling/bonus-summary display confirmed on GAMBITS/LORE,
+condition ladder+grouping confirmed via a full-84-id dropdown dump, the
+wipe-farm fix confirmed via three forced wipes at wave 1, pull pity and the
+new charge-action pool confirmed via real pulls, and the refund button's
+exact Lore math confirmed before and after clicking.

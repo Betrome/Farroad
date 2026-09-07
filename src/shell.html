@@ -287,41 +287,13 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="cur lo"><span class="v" id="cLore">0</span><span class="n">LORE</span></div>
     <div class="cur ma"><span class="v" id="cMarks">0</span><span class="n">MARKS</span></div>
   </div>
+  <div class="tiny" id="idleRate" style="margin:-4px 0 8px;color:var(--dimmer)"></div>
 
-  <div class="panel">
-    <div class="wavehead" style="margin-bottom:8px">
-      <div class="l1"><span id="waveLbl" class="mono">Wave 1</span>
-        <span id="encLbl" class="tiny" style="font-weight:400"></span></div>
-      <!-- v2.9: "beat N" removed. It is the internal CTB tick counter — the player
-           can neither act on it nor convert it to anything meaningful. Elapsed
-           time stays, since fight length is a thing you can feel. -->
-      <div class="tiny mono l2"><span id="secLbl">0.0s</span></div>
-    </div>
-    <div class="tiny" id="ckptLbl" style="margin-bottom:5px"></div>
-    <div id="units"></div>
-    <div class="tiny" style="margin:6px 0 3px">TURN ORDER →</div>
-    <div id="rail"></div>
-  </div>
-
-  <div class="panel">
-    <div class="row" style="margin-bottom:6px">
-      <button id="btnPlay" style="flex:2">▶ Travel</button>
-      <button id="btnStep" style="flex:1">Step</button>
-      <button id="btnReset">Reset run</button>
-    </div>
-    <div class="row">
-      <span class="tiny" style="width:44px">Speed</span>
-      <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
-      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
-      <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
-    </div>
-    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
-      Aether and Marks also accrue idly, at a rate keyed to your <b>farthest wave reached</b> —
-      a ratchet, so a wipe costs progress but never income. Lore comes only from duplicate drops,
-      which means it appears after wave 20 when drops turn random.
-    </div>
-  </div>
-
+  <!-- v2.9: tabs moved up here, ahead of the units/battle panel and travel
+       controls — "a lot of scrolling" on a phone with a full 5-unit party,
+       and ROAD (the play-by-play log, the default/first tab) was the
+       farthest-down thing on the page. Still purely a tab-toggle reorder,
+       nothing about how tabs work changed. -->
   <div id="tabs">
     <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
     <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
@@ -400,6 +372,40 @@ pre{font-size:13px;line-height:1.6;padding:10px}
         <b>−2.3%</b> against the best non-heal build, and in a pair to <b>−10.5%</b>, where
         Cripple becomes the best answer. Turn it off to feel the difference — with it off, a heal
         build runs to the wave cap and nothing else gets close.</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="wavehead" style="margin-bottom:8px">
+      <div class="l1"><span id="waveLbl" class="mono">Wave 1</span>
+        <span id="encLbl" class="tiny" style="font-weight:400"></span></div>
+      <!-- v2.9: "beat N" removed. It is the internal CTB tick counter — the player
+           can neither act on it nor convert it to anything meaningful. Elapsed
+           time stays, since fight length is a thing you can feel. -->
+      <div class="tiny mono l2"><span id="secLbl">0.0s</span></div>
+    </div>
+    <div class="tiny" id="ckptLbl" style="margin-bottom:5px"></div>
+    <div id="units"></div>
+    <div class="tiny" style="margin:6px 0 3px">TURN ORDER →</div>
+    <div id="rail"></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="margin-bottom:6px">
+      <button id="btnPlay" style="flex:2">▶ Travel</button>
+      <button id="btnStep" style="flex:1">Step</button>
+      <button id="btnReset">Reset run</button>
+    </div>
+    <div class="row">
+      <span class="tiny" style="width:44px">Speed</span>
+      <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
+      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
+      <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
+    </div>
+    <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
+      Aether and Marks also accrue idly, at a rate keyed to your <b>farthest wave reached</b> —
+      a ratchet, so a wipe costs progress but never income. Lore comes only from duplicate drops,
+      which means it appears after wave 20 when drops turn random.
     </div>
   </div>
 </div>

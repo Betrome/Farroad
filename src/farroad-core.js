@@ -85,6 +85,23 @@ function effRes(u){return u.base.res*(has(u,'frail')?.75:1);}
 function effBlock(u){return u.base.block+(has(u,'bracing')?.30:0);}
 function effEvade(u){return u.base.evade+(has(u,'blurred')?.20:0);}
 function effChargeRate(u){return u.base.chargeRate*(has(u,'surging')?2.0:1);}
+/* v2.9: an action's magnitude was hardcoded to ATK (physical) or MAG (magic)
+   via camp — no action could scale off DEF/RES/SPD. statByKey lets an
+   action opt into a different source stat via act.scaleStat, used below in
+   resolveHit/healFor, for the new MC charge actions that scale with each
+   stat. DEF/RES reuse the existing status-aware effDef/effRes (so e.g.
+   Bracing/Sundered still apply); SPD has no such wrapper anywhere in the
+   engine (Hasted/Slowed modify turn CADENCE via tcOf, never the raw stat
+   itself), so this reads u.base.spd directly, consistent with that. camp
+   is untouched by scaleStat — it still independently governs which crit
+   stat/mitigation stat/row multiplier applies, only the ATTACKER's
+   magnitude source changes. */
+function statByKey(u,key){
+ if(key==='mag')return effMag(u);
+ if(key==='def')return effDef(u);
+ if(key==='res')return effRes(u);
+ if(key==='spd')return u.base.spd;
+ return effAtk(u);}
 function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),rank*(has(u,'hasted')?.60:1)*(has(u,'slowed')?1.50:1));}
 function incomingMul(u){return has(u,'warded')?.60:1;}
 /* v2.8: chargeCost is the gauge a charge action must FILL to fire. It was the
@@ -182,6 +199,50 @@ var ACTIONS={
   isCharge:true,note:'CHARGE · Bulk magic damage to all foes.'}),
  greatheal:A({id:'greatheal',name:'Great Heal',camp:'mag',tk:'allAllies',power:2.60,rank:1.65,
   isCharge:true,heal:true,note:'CHARGE · Heals the whole party.'}),
+ /* ===== v2.9: STAT-SCALING MC CHARGE ACTIONS =====
+  * One damage + one support per core stat (ATK/MAG/DEF/RES/SPD), each using
+  * the new act.scaleStat field (see statByKey/resolveHit/healFor above) so
+  * its magnitude comes from that stat instead of the camp-implied ATK/MAG —
+  * the first actions in the game that do. Added to the MC's rare charge
+  * drop pool (P.MC_CHARGE_DROP_POOL, progression.js), same acquisition
+  * path as the existing 8 corner charges, not the 3 generic starters.
+  * BALANCED so a build that's maxed the relevant stat (the point-buy
+  * ceiling — atk 28/mag 30/def 45/res 40/spd 131) lands on roughly the same
+  * pre-mitigation base as the existing MC starters: ~118 for a single-hit
+  * damage action (heavystrike's own 4.20x28=117.6 is the reference), ~78
+  * for a party-wide heal (greatheal's 2.60x30=78 is the reference) — power
+  * is that target divided by the stat's ceiling, so DEF/RES/SPD's much
+  * larger raw numbers don't silently overshoot ATK/MAG's. */
+ atk_reckless:A({id:'atk_reckless',name:'Reckless Blow',camp:'atk',tk:'foe',scaleStat:'atk',
+  power:4.20,rank:1.75,isCharge:true,critBonus:.30,
+  note:'CHARGE · Heavy single-target hit with a big crit bonus — rewards building around raw ATK.'}),
+ mag_lance:A({id:'mag_lance',name:'Arcane Lance',camp:'mag',tk:'foe',scaleStat:'mag',
+  power:3.90,rank:1.75,isCharge:true,defPierce:.20,
+  note:'CHARGE · A piercing magic strike that ignores 20% armour — rewards building around raw MAG.'}),
+ def_slam:A({id:'def_slam',name:'Shield Slam',camp:'atk',tk:'foe',scaleStat:'def',
+  power:2.60,rank:1.90,isCharge:true,applies:'sundered',turns:3,
+  note:'CHARGE · A shield bash scaled by your own DEF, cracking the target\'s armour (Sundered).'}),
+ res_strike:A({id:'res_strike',name:'Warded Strike',camp:'mag',tk:'foe',scaleStat:'res',
+  power:3.00,rank:1.85,isCharge:true,lifesteal:.20,
+  note:'CHARGE · Channels your own resistance into a draining strike — heals you 20% of the damage.'}),
+ spd_flurry:A({id:'spd_flurry',name:'Fleetstrike',camp:'atk',tk:'foe',scaleStat:'spd',
+  power:0.45,hits:2,rank:1.30,isCharge:true,
+  note:'CHARGE · Two quick hits scaled by your own SPD — fires far more often than a normal charge.'}),
+ atk_cry:A({id:'atk_cry',name:'Battle Cry',camp:'atk',tk:'allAllies',scaleStat:'atk',
+  power:2.80,rank:1.70,isCharge:true,heal:true,applies:'hasted',turns:2,
+  note:'CHARGE · A rallying cry that heals the party (scaled by your own ATK) and Hastes everyone.'}),
+ mag_font:A({id:'mag_font',name:'Font of Power',camp:'mag',tk:'allAllies',scaleStat:'mag',
+  power:2.60,rank:1.65,isCharge:true,heal:true,applies:'warded',turns:3,
+  note:'CHARGE · A MAG-scaled party heal that also grants Warded (magic defense up).'}),
+ def_bulwark:A({id:'def_bulwark',name:'Bulwark Stand',camp:'atk',tk:'ally',scaleStat:'def',
+  power:1.75,rank:1.80,isCharge:true,heal:true,applies:'bracing',turns:3,
+  note:'CHARGE · Shields one ally — heal scaled by your own DEF, plus Bracing (DEF up).'}),
+ res_ward:A({id:'res_ward',name:'Calming Ward',camp:'mag',tk:'allAllies',scaleStat:'res',
+  power:1.95,rank:1.75,isCharge:true,heal:true,cleanse:1,
+  note:'CHARGE · A RES-scaled party heal that also cleanses one debuff per ally.'}),
+ spd_fleet:A({id:'spd_fleet',name:'Fleet Step',camp:'mag',tk:'allAllies',scaleStat:'spd',
+  power:0.60,rank:1.50,isCharge:true,heal:true,applies:'hasted',turns:2,
+  note:'CHARGE · A SPD-scaled party heal plus Hasted — a courier\'s trick, not a caster\'s.'}),
  /* ===== CHARGE ACTION DESIGN SPACE (v2.1) =====
   * 25 units need 25 charge actions that are NOT 25 damage numbers. Five axes:
   *   1 SHAPE     one foe / all foes / one ally / all allies / self / the dead
@@ -236,11 +297,14 @@ var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
  'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
  'heavystrike','wildfire','greatheal',
- 'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
+ 'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll',
+ 'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+ 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
 /* 21 of a target 25 authored (13 + the 3 MC generic starters + the 5 roster-
    expansion companions above). The remaining 4 are content, not design — the
    five axes above define where they sit; see VERIFICATION for the coverage
-   grid. */
+   grid. Plus 10 more (v2.9): one damage + one support per core stat, all MC
+   rare-drop content, not tied to the original 25-unit-roster target above. */
 /* ---- Lore bonuses (v0.8) ---- */
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
 /* ===== PER-ACTION LINEAR STACK COST (v2.9) =====
@@ -513,6 +577,36 @@ var CONDITIONS=[
    for(var i=0;i<a.length;i++)if(!has(a[i],act.applies))return {ok:true,target:a[i]};return {ok:false,target:null};}),
  C('self_hp_lte_50','Self: HP ≤ 50%','Self',function(u){return {ok:hpPct(u)<=.50,target:u};}),
  C('self_first_turn','Self: first turn','Self',function(u){return {ok:u.turnsTaken===0,target:u};})];
+/* v2.9: fill out HP conditions to a full 10% ladder (10-90, both directions)
+ * for every group — Ian found the existing handful (self_hp_lte_50,
+ * ally_hp_lte_60/30, foe_hp_gte_70/lte_30) too sparse to express finer
+ * thresholds. Those five keep their exact ids/behaviour unchanged — GATE_FOR/
+ * PRI (farroad-ui.js) and one enemy archetype's own default gambit
+ * (priest, ROSTER above, cond:'ally_hp_lte_60') reference them by name —
+ * this only ADDS the missing deciles, generated rather than hand-typed
+ * ~49 times, using the exact same resolver shape each group's existing
+ * entries already use (Foe: first-match loop; Ally: filter + byLowestHp;
+ * Self: direct check). */
+(function(){
+ var existing={};CONDITIONS.forEach(function(c){existing[c.id]=1;});
+ var gte=function(x,v){return x>=v;}, lte=function(x,v){return x<=v;};
+ function foeTest(cmp,v){return function(u,b){var f=foes(b,u);
+  for(var i=0;i<f.length;i++)if(cmp(hpPct(f[i]),v))return {ok:true,target:f[i]};
+  return {ok:false,target:null};};}
+ function allyTest(cmp,v){return function(u,b){var a=allies(b,u),c=[];
+  for(var i=0;i<a.length;i++)if(cmp(hpPct(a[i]),v))c.push(a[i]);
+  var t=byLowestHp(c);return {ok:!!t,target:t};};}
+ function selfTest(cmp,v){return function(u){return {ok:cmp(hpPct(u),v),target:u};};}
+ var GROUPS=[['Foe','foe',foeTest],['Ally','ally',allyTest],['Self','self',selfTest]];
+ var added=[];
+ [10,20,30,40,50,60,70,80,90].forEach(function(pct){
+  var v=pct/100;
+  GROUPS.forEach(function(g){
+   var group=g[0],prefix=g[1],mk=g[2];
+   var gteId=prefix+'_hp_gte_'+pct, lteId=prefix+'_hp_lte_'+pct;
+   if(!existing[gteId])added.push(C(gteId,group+': HP ≥ '+pct+'%',group,mk(gte,v)));
+   if(!existing[lteId])added.push(C(lteId,group+': HP ≤ '+pct+'%',group,mk(lte,v)));});});
+ CONDITIONS=CONDITIONS.concat(added);})();
 function condById(id){for(var i=0;i<CONDITIONS.length;i++)if(CONDITIONS[i].id===id)return CONDITIONS[i];return CONDITIONS[0];}
 function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='self')return u;
@@ -570,7 +664,7 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  var cb=(act.critBonus||0)+(act.critFn?act.critFn(src,tgt):0);
  o.critChance=clamp((isPhys?src.base.atkCrit:src.base.magCrit)+cb,0,CAP_CRIT);
  o.critRoll=det?1:rng.next();o.crit=o.critRoll<o.critChance;
- o.K=K_of(src.level);o.off=isPhys?effAtk(src):effMag(src);
+ o.K=K_of(src.level);o.off=act.scaleStat?statByKey(src,act.scaleStat):(isPhys?effAtk(src):effMag(src));
  o.defRaw=isPhys?effDef(tgt):effRes(tgt);o.defEff=o.defRaw*(1-(act.defPierce||0));o.mit=o.K/(o.K+o.defEff);
  o.power=pv;o.base=pv*o.off*o.mit;
  /* v1.1: VARIANCE ROLL REMOVED. Base damage is now deterministic — the (randInt
@@ -588,7 +682,8 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.wardMul=incomingMul(tgt);d*=o.wardMul;
  o.rowOut=rowOut(src,isPhys);o.rowIn=rowIn(tgt,isPhys);d*=o.rowOut*o.rowIn;
  o.preFloor=d;o.damage=Math.max(1,Math.floor(d));return o;}
-function healFor(src,tgt,act,b,pv){var v=pv*effMag(src);   /* v1.1: variance removed here too */
+function healFor(src,tgt,act,b,pv){
+ var v=pv*(act.scaleStat?statByKey(src,act.scaleStat):effMag(src));   /* v1.1: variance removed here too */
  var amt=Math.max(1,Math.floor(v)),before=tgt.hp;tgt.hp=Math.min(tgt.maxHp,tgt.hp+amt);
  return {heal:true,targetName:tgt.name,amount:tgt.hp-before};}
 function step(b){
@@ -698,7 +793,7 @@ var REF={def:12,evade:.05,block:.00};
 function dmgTakenMul(a){var K=25;
  return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade))*((1-a.block*.5)/(1-REF.block*.5));}
 var ROSTER=[
- {id:'kesh',name:'Kesh',role:'attacker',row:'front',hp:430,chargeAction:'oath',stats:{atk:26,mag:18,def:20,res:16,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03}},
+ {id:'kesh',name:'Kesh',role:'traveler',row:'front',hp:430,chargeAction:'oath',stats:{atk:26,mag:18,def:20,res:16,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03}},
  {id:'ansa',name:'Ansa',role:'healer',row:'back',hp:320,chargeAction:'hearthlight',stats:{atk:14,mag:26,def:14,res:22,spd:96,atkCrit:.04,magCrit:.06,chargeRate:1,block:.02,evade:.04}},
  {id:'dorrek',name:'Dorrek',role:'tank',row:'front',hp:560,chargeAction:'vowofstone',stats:{atk:22,mag:10,def:30,res:20,spd:84,atkCrit:.04,magCrit:.03,chargeRate:1,block:.10,evade:.02}},
  {id:'vey',name:'Vey',role:'rogue',row:'front',hp:300,chargeAction:'ninefold',stats:{atk:24,mag:12,def:14,res:12,spd:124,atkCrit:.12,magCrit:.04,chargeRate:1,block:.02,evade:.10}},
@@ -720,6 +815,13 @@ F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
 F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
+/* Pre-bonus baseline per action (power/rank/charge/defPierce/critBonus/turns/
+   chargeCost) — exported so the LORE tab can diff the live (post-bonus)
+   ACTIONS entry against this to show a "total bonus effect" summary,
+   without re-deriving the per-bonus math applyBonuses already owns.
+   snapshot() is idempotent and safe to call before the first real
+   applyBonuses() — it no-ops once PRISTINE is populated. */
+F.pristineOf=function(id){snapshot();return PRISTINE[id]||null;};
 F.bonusApplies=bonusApplies;F.bonusPrice=bonusPrice;F.actionBonusTotal=actionBonusTotal;
 F.BONUS_COST_BROAD=BONUS_COST_BROAD;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;

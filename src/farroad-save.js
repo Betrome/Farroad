@@ -24,8 +24,8 @@ S.VERSION=1;
    (farroad-ui.js) — no functions, no DOM handles, no circular refs. */
 var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
- 'loadout','hpCarry','touched','clearedWaves','lvl','bank','maxLevelEver','owned',
- 'enrage','idleAcc','dropQueue','dropHistory',
+ 'loadout','hpCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
+ 'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
  /* the player-built starting character (roadmap item 1), or null for the
     hardcoded default — see applyCustomMC() in the UI layer, which is what
     actually turns this back into stats/growth on the 'kesh' roster slot. */
@@ -70,6 +70,16 @@ S.deserialize=function(snap,C){
  if(!G.conditions||!G.conditions.length)G.conditions=['none'];
  ['actionCounts','condCounts','bonuses','recovery','loadout','hpCarry','touched',
   'clearedWaves','lvl','bank','owned'].forEach(function(k){G[k]=G[k]||{};});
+ /* v2.9: dropsGranted is a NEW, stricter gate than clearedWaves (see
+    grantDrops() in the UI layer) — a save from before this field existed
+    has no history for it. Defaulting to {} would let every ALREADY-cleared
+    wave grant its drop one more time on next visit (a real regression for
+    an in-progress save). Seed it from clearedWaves instead: every wave
+    already known cleared is correctly treated as already granted too. The
+    one wave the player is CURRENTLY sitting on (visited but not yet
+    cleared) isn't covered by that seed and gets one extra grant if wiped —
+    a minor, one-time edge case, not worth a bigger migration for. */
+ if(!G.dropsGranted)G.dropsGranted=clone(G.clearedWaves)||{};
  if(!G.lvl.kesh)G.lvl.kesh=1;
  if(G.bank.kesh==null)G.bank.kesh=0;
  if(!G.owned.kesh)G.owned.kesh=1;
@@ -79,6 +89,7 @@ S.deserialize=function(snap,C){
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
  if(G.expedition===undefined)G.expedition=null;
  G.expeditionLog=G.expeditionLog||[];
+ G.pullsSinceUnit=G.pullsSinceUnit||0;
  return G;};
 
 return S;})();

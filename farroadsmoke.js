@@ -408,6 +408,68 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   C.enrageStacks(foe)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(foe));
 })();
 
+/* =================== 12. STAT-SCALING MC CHARGE ACTIONS (v2.9) ============
+ * The 10 new charge actions (one damage + one support per core stat) are
+ * the first content in the game to use act.scaleStat, which overrides
+ * resolveHit/healFor's normal camp-implied ATK/MAG source (core.js). This
+ * checks the definitions are sane AND, more importantly, that scaleStat
+ * actually changes what drives the damage — two sources identical in every
+ * stat except DEF, both using a DEF-scaling action against the same
+ * target, must deal DIFFERENT damage (proving DEF, not ATK/MAG, is the
+ * source), which a battle in deterministic mode (no crit/evade/block
+ * variance) can show cleanly. */
+(function(){
+ var newCharges=['atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+  'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
+ var expectStat={atk_reckless:'atk',mag_lance:'mag',def_slam:'def',res_strike:'res',
+  spd_flurry:'spd',atk_cry:'atk',mag_font:'mag',def_bulwark:'def',res_ward:'res',spd_fleet:'spd'};
+ var bad=[];
+ newCharges.forEach(function(id){
+  var a=C.ACTIONS[id];
+  if(!a)bad.push(id+': missing');
+  else if(!a.isCharge)bad.push(id+': not isCharge');
+  else if(a.scaleStat!==expectStat[id])bad.push(id+': scaleStat='+a.scaleStat+' expected '+expectStat[id]);});
+ ok('all 10 new stat-scaling charges exist, are isCharge, and scaleStat matches their name',
+  bad.length===0, bad.join('; '));
+ var uniqueAmongRoster=C.ROSTER.every(function(r){return newCharges.indexOf(r.chargeAction)<0;});
+ ok('none of the 10 new charge ids collide with a ROSTER unit\'s own chargeAction',
+  uniqueAmongRoster);
+
+ function mkSrc(def){return C.makeUnit({id:'s',name:'Src',isParty:true,level:1,slotIndex:0,
+  stats:{atk:15,mag:15,def:def,res:15,spd:100},maxHp:1000,hp:1000,
+  chargeAction:'def_slam',charge:100,slots:[{cond:'none',action:'strike'}]});}
+ function mkTgt(){return C.makeUnit({id:'t',name:'Tgt',isParty:false,level:1,slotIndex:10,
+  stats:{atk:10,mag:10,def:10,res:10,spd:90},maxHp:100000,hp:100000,
+  slots:[{cond:'none',action:'strike'}]});}
+ function firstHitDamage(defVal){
+  var src=mkSrc(defVal),tgt=mkTgt();
+  var b=C.makeBattle([src,tgt],{rng:C.makeRNG(1),deterministic:true});
+  var e=null,guard=0;
+  while(!e&&guard++<10){var ev=C.step(b);if(ev&&ev.actorId==='s'&&ev.hits&&ev.hits.length)e=ev;}
+  return e?e.hits[0].damage:null;}
+ var dmgLowDef=firstHitDamage(10), dmgHighDef=firstHitDamage(60);
+ ok('def_slam (scaleStat:def) deals more damage from a higher-DEF source, ATK/MAG held equal',
+  dmgLowDef!=null&&dmgHighDef!=null&&dmgHighDef>dmgLowDef,
+  'low='+dmgLowDef+' high='+dmgHighDef);
+})();
+
+/* =================== 13. NO DUPLICATE ACTION NAMES =========================
+ * Caught live, not by code review: the new spd_flurry charge action was
+ * originally also named "Flurry", colliding with the pre-existing basic
+ * action `flurry` (id different, display name identical) — found by pulling
+ * it in the browser and seeing two unrelated "Flurry" entries. Same name,
+ * different mechanics, is confusing regardless of whether the ids collide;
+ * this is a permanent regression guard so the next new action can't repeat
+ * it silently. */
+(function(){
+ var names={},dupes=[];
+ Object.keys(C.ACTIONS).forEach(function(id){
+  var nm=C.ACTIONS[id].name;
+  if(names[nm])dupes.push(nm+' ('+names[nm]+' vs '+id+')');
+  else names[nm]=id;});
+ ok('no two actions share a display name', dupes.length===0, dupes.join('; '));
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);
