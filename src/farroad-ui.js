@@ -136,7 +136,7 @@ function buildEnemies(w,quiet){
  var boss=P.isBossWave(w);
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
- var n=boss?1:(variety?P.rollCount(G.rng):P.enemyCount(w));
+ var n=boss?1:(variety?P.rollCount(G.rng,w):P.enemyCount(w));
  var vMul=variety?(P.countStrength(n)*P.bandRoll(G.rng)):1;
  if(variety&&!quiet)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
   (n===1?' foe — <b style="color:var(--boss)">ELITE</b>':' foes')+
@@ -156,20 +156,34 @@ function buildEnemies(w,quiet){
   /* DIFFICULTY scales HP *and* damage. Scaling HP alone measured as almost inert:
      runs still ended at the same waves, because what kills a solo character is
      enemy damage output, not the size of the pool it has to chew through. */
-  hpBase*=P.DIFFICULTY*vMul;
-  var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul;
+  /* v2.9 HARD SCALING: past P.HARD_FROM, enemies scale much harder — up to
+     P.HARD_MAX at P.HARD_REF — layered on TOP of the wave-1..HARD_FROM curve
+     above, which is untouched (hardMul==1 there). ATK/MAG take the full
+     multiplier (the ask was "hit harder"); HP takes its square root — a
+     bigger damage number, not a bigger sponge. Bosses get an additional flat
+     multiplier on ATK/MAG (BOSS_HARD_EXTRA) so they scale past regular
+     enemies, not just alongside them — see P.hardMul/P.BOSS_HARD_EXTRA. */
+  hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w));
+  var hardAtkMul=P.hardMul(w)*(boss?P.BOSS_HARD_EXTRA:1);
+  var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul*hardAtkMul;
   /* ATK growth exponent 1.02 -> 0.80. At 1.02 enemy damage grew 3.10x by wave 20
      while a solo character grows 2.05x, so enemies outpaced the player by ~50%
      and the game was only survivable behind the 65% crutch. At 0.80 they track. */
   var ATK_EXP=0.80;
   out.push(C.makeUnit({id:'e'+j,name:(boss?'ROADWARDEN':a.name)+(n>1?' '+(j+1):''),
    isParty:false,level:1,slotIndex:10+j,arch:key,thorns:a.thorns||0,isBoss:boss,
+   /* v2.9: enemies now carry a row too (first 5 slots front, next 5 back —
+      see P.ENEMY_CAP). Only rowSpdMul reads it for enemies (front acts more
+      often) — rowOut/rowIn (the back-row damage-mitigation discount) stay
+      party-only, since party->enemy targeting has no row awareness to make
+      that discount a real, visible choice rather than invisible variance. */
+   row:j<5?'front':'back',
    stats:{hp:Math.max(8,Math.round(hpBase)),
     /* v2.0: ONE exponent for every stat, so no ratio can drift over 1000+ waves */
     atk:Math.max(1,Math.round(a.atk*S*atkMul)),
-    mag:Math.round((a.mag||8)*S*P.DIFFICULTY),
+    mag:Math.round((a.mag||8)*S*P.DIFFICULTY*hardAtkMul),
     def:Math.round(a.def*S),res:Math.round(a.res*S),
-    spd:a.spd,
+    spd:boss?Math.round(a.spd*P.bossSpdMul(w)):a.spd,
     /* ===== v2.9: ENEMY CRIT NOW SCALES WITH DEPTH =====
      * Was atkCrit:a.atkCrit — frozen at the archetype constant forever, so the
      * only stat enemies never grew. Ian asked for it to live under the same
@@ -916,19 +930,27 @@ function logEntry(e){
  var L=$('#log');L.insertBefore(d,L.firstChild);while(L.childNodes.length>120)L.removeChild(L.lastChild);}
 
 /* ------------------------------------------------------------ economy UI --- */
+/* v2.9: back to the one-at-a-time tab selector, same pattern GAMBITS uses —
+   "let's change the UI for aether and lore to be like gambits with the
+   tabs" (a brief compact-all-units-list pass came before this). Passes
+   includeBenched=true to renderUnitTabs/currentSelectedUnit so benched
+   units stay reachable here (that was the point of the compact pass, and
+   this revert keeps it rather than silently dropping it). */
 function renderAether(){
  var host=$('#aetherView');host.innerHTML='';
- renderUnitTabs(host,function(){renderAether();});
+ renderUnitTabs(host,function(){renderAether();},true);
  var STEP=50;
- [currentSelectedUnit()].forEach(function(uid){
+ [currentSelectedUnit(true)].forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var L=levelOf(uid),x=expOf(uid),need=costNext(uid),have=0;
   var st=P.statsAt(uid,def.stats,def.hp,L), g=P.GROWTH[uid];
   var slots=P.slotsAt(L),nxt=P.nextSlotAt(L);
+  var fielded=G.party.indexOf(uid)>=0;
   var box=document.createElement('div');box.style.marginBottom='10px';
   var prog=Math.max(0,Math.min(100,100*(x-have)/Math.max(1,need-have)));
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
-   '<span class="uname p">'+def.name+' <span class="tiny">'+capRole(def.role)+'</span></span>'+
+   '<span class="uname'+(fielded?' p':'')+'">'+def.name+' <span class="tiny">'+capRole(def.role)+
+    (fielded?'':' · benched')+'</span></span>'+
    '<span class="nval">LV '+L+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
    '<div class="tiny mono" style="margin-top:3px">'+Math.floor(x)+' / '+need+' to LV '+(L+1)+'</div>'+
@@ -1012,6 +1034,25 @@ function usedActions(){
   if(rd&&rd.chargeAction)used[rd.chargeAction]=1;});
  if(G.mc&&G.mc.acquiredCharges)G.mc.acquiredCharges.forEach(function(id){used[id]=1;});
  return used;}
+/* v2.9: who currently equips a given action, for LORE's global "used by"
+   line — same owned-unit scan as usedActions() above, but keeping the
+   holder list instead of collapsing to a boolean. Split active (a loadout
+   slot or the unit's live chargeAction) from banked (sitting unequipped in
+   the MC's acquiredCharges pool — usedActions() also counts these as
+   "used", protecting their Lore investment, but nobody is actively firing
+   them right now, so they read differently here). */
+function actionHolders(aid){
+ var active=[],banked=false;
+ Object.keys(G.owned).forEach(function(uid){
+  var holds=false;
+  (G.loadout[uid]||[]).forEach(function(s){if(s.action===aid)holds=true;});
+  var rd=null;C.ROSTER.forEach(function(r){if(r.id===uid)rd=r;});
+  var mcOwns=(uid==='kesh'&&G.mc&&G.mc.acquiredCharges&&G.mc.acquiredCharges.length);
+  var ca=mcOwns?G.mc.chargeAction:(rd&&rd.chargeAction);
+  if(ca===aid)holds=true;
+  if(holds)active.push(rd?rd.name:uid);
+  else if(mcOwns&&G.mc.acquiredCharges.indexOf(aid)>=0)banked=true;});
+ return {active:active,banked:banked};}
 function renderLore(){
  var host=$('#loreView');host.innerHTML='';
  var spent=C.bonusSpend(G.bonuses),free=Math.max(0,G.lore-spent);
@@ -1026,32 +1067,23 @@ function renderLore(){
  var refundTotal=0;
  unusedIds.forEach(function(aid){var b=G.bonuses[aid],total=C.actionBonusTotal(b);
   refundTotal+=total*(total+1)/2+(b.broad||0)*C.BONUS_COST_BROAD;});
- /* v2.9: this used to merge EVERY fielded unit's equipped actions into one
-    list — now it's just the selected unit's own (same shared unit-tab
-    selector as GAMBITS/AETHER), so upgrading Lore reads as "for Kesh" not
-    "for whoever happens to share this action". A benched unit's own
-    actions were never reachable here before either way (eq only scanned
-    G.party), so this is a narrowing within what was already fielded-only,
-    not a new restriction. */
- renderUnitTabs(host,function(){renderLore();});
+ /* v2.9: per-ACTION tabs, not per-unit — "I want Lore to have per action
+    tabs, with the ones in use having a star next to them." Tab pool is
+    G.actions (every action the player has ever unlocked, loadout basics
+    and charge actions alike — both are just entries in G.actions once
+    acquired), sorted used-first so the starred ones cluster at the front
+    of the row too, not just visually marked mid-list. */
+ var actionIds=G.actions.slice().sort(function(x,y){
+  var ux=used[x]?0:1,uy=used[y]?0:1;return ux-uy;});   /* stable sort: used first, original order within each group */
+ renderActionTabs(host,actionIds,used,function(){renderLore();});
  host.insertAdjacentHTML('beforeend','<div class="tiny" style="margin-bottom:6px">'+free+' of '+
   Math.floor(G.lore)+' Lore free · each action\'s next upgrade costs one more Lore than its last</div>'+
   (unusedIds.length?'<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
    'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
    (unusedIds.length===1?'':'s')+'</button>':''));
- var selUid=currentSelectedUnit();
- var eq={};ensureLoadout(selUid).forEach(function(s){eq[s.action]=1;});
- (function(){var rd=null;C.ROSTER.forEach(function(r){if(r.id===selUid)rd=r;});
-  var mcOwns=(selUid==='kesh'&&G.mc&&G.mc.acquiredCharges&&G.mc.acquiredCharges.length);
-  var ca=mcOwns?G.mc.chargeAction:(rd&&rd.chargeAction);
-  if(ca)eq[ca]=1;})();
- /* v2.8: charge actions now appear here. They never could before — this loop read
-    only ensureLoadout(), i.e. the GAMBIT SLOTS, and a unit's charge action lives
-    in u.chargeAction and fires as an override, never from a slot. The engine
-    always supported upgrading them (snapshot() already covered CHARGE_ACTIONS);
-    it was this one line that made them unreachable. */
- Object.keys(eq).forEach(function(aid){
+ [currentSelectedAction(actionIds)].forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;var b=G.bonuses[aid]||{};
+  var holders=actionHolders(aid);
   var box=document.createElement('div');box.className='bon';
   var totalBonus=bonusTotalSummary(aid);
   var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+'</b><span class="tiny">cost '+
@@ -1059,6 +1091,9 @@ function renderLore(){
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
    '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
     '</b>'+(a.power?' · power ×'+a.power.toFixed(2):'')+'</div>'+
+   '<div class="tiny" style="margin-bottom:2px;color:'+(holders.active.length?'var(--hp)':'var(--dimmer)')+'">'+
+    (holders.active.length?'used by '+holders.active.join(', '):
+     holders.banked?'banked on Kesh — not currently equipped':'unused')+'</div>'+
    (totalBonus?'<div class="tiny" style="color:var(--lore);margin-bottom:3px">Lore total: '+
     totalBonus+'</div>':'')+
    (a.isCharge?'<div class="tiny" style="color:var(--dimmer);margin-bottom:3px">'+
@@ -1269,7 +1304,15 @@ function renderDrops(){
  host.innerHTML=h;}
 function renderExpedition(){
  var host=$('#expeditionView');if(!host)return;
- var exp=G.expedition,h='';
+ /* v2.9: party allocation moved here from the top of GAMBITS — "let's change
+    party allocation to be under expedition." Fielding/benching and sending
+    an expedition are both "who's doing what right now" decisions, and
+    benched units are exactly the pool an expedition draws from, so the two
+    now share a screen instead of a tab hop. See partyRosterHTML/
+    wirePartyRoster below (built as a plain string + a separate wiring pass,
+    not host.appendChild, since this function already assembles its own
+    content as one string and sets host.innerHTML once at the end). */
+ var exp=G.expedition,h=partyRosterHTML();
  if(exp){
   var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
    return d?d.name:uid;}).join(', ');
@@ -1312,6 +1355,7 @@ function renderExpedition(){
  if(!log.length)h+='<div class="tiny">Nothing yet.</div>';
  log.forEach(function(e){h+='<div class="drop"><div class="tiny">'+e.text+'</div></div>';});
  host.innerHTML=h;
+ wirePartyRoster(host);
  Array.prototype.forEach.call(host.querySelectorAll('.expick'),function(el){
   el.onclick=function(){var uid=el.dataset.uid,i=mcExpedPick.indexOf(uid);
    if(i>=0)mcExpedPick.splice(i,1);
@@ -1329,10 +1373,10 @@ function renderAll(){renderHead();renderUnits();renderRail();renderEconomy();ren
 /* ===== PARTY ROSTER EDITOR =====
  * Was no way to change who's fielded at all — G.party only ever changed via
  * the boss-milestone auto-join and a pull auto-fielding when there was room
- * (doPull() in this file). Lives at the top of the GAMBITS tab rather than
- * its own tab: picking who's in the party and setting their gambits are the
- * same "build your team" task, so keeping them on one screen beats a tab
- * hop, and this app already has eight tabs to scroll on a phone. */
+ * (doPull() in this file). v2.9: moved from the top of GAMBITS onto
+ * EXPEDITION (see renderExpedition) — fielding/benching and sending an
+ * expedition are both "who's doing what right now" decisions, and benched
+ * units are exactly the pool an expedition draws from. */
 function availableForParty(){
  var away={};if(G.expedition)G.expedition.partyIds.forEach(function(uid){away[uid]=1;});
  return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!away[uid];});}
@@ -1356,24 +1400,60 @@ function fieldUnit(uid){
  * mcExpedPick elsewhere in this file) drives all three: switching units on
  * one tab keeps that same unit selected if you flip to another. */
 var selectedUnitTab=null;
-function currentSelectedUnit(){
- if(!selectedUnitTab||G.party.indexOf(selectedUnitTab)<0)selectedUnitTab=G.party[0];
+/* v2.9: AETHER/LORE went back to this same tab pattern (were briefly a
+   compact all-units list) — "let's change the UI for aether and lore to be
+   like gambits with the tabs." Both now pass includeBenched=true so the
+   "benched units are reachable, not just fielded ones" capability from
+   that compact pass isn't lost in the revert; GAMBITS' own call sites are
+   unchanged (omit the arg -> fielded-only, exactly as before), since
+   configuring gambit slots only matters for units actually in a fight. */
+function unitTabPool(includeBenched){return includeBenched?Object.keys(G.owned):G.party;}
+function currentSelectedUnit(includeBenched){
+ var pool=unitTabPool(includeBenched);
+ if(!selectedUnitTab||pool.indexOf(selectedUnitTab)<0)selectedUnitTab=pool[0];
  return selectedUnitTab;}
-function renderUnitTabs(host,onChange){
+function renderUnitTabs(host,onChange,includeBenched){
+ var pool=unitTabPool(includeBenched);
  var box=document.createElement('div');box.className='row';
  box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
- var cur=currentSelectedUnit(),h='';
- G.party.forEach(function(uid){
+ var cur=currentSelectedUnit(includeBenched),h='';
+ pool.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   h+='<button class="mini utab'+(uid===cur?' on':'')+'" data-u="'+uid+'">'+
-   (def?def.name:uid)+'</button>';});
+   (def?def.name:uid)+(includeBenched&&G.party.indexOf(uid)<0?' <span class="tiny">(bench)</span>':'')+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedUnitTab=el.dataset.u;onChange();};});}
-function renderPartyRoster(host){
- var box=document.createElement('div');box.style.marginBottom='14px';
- var h='<div class="tiny" style="margin-bottom:6px"><b>PARTY</b> — '+G.party.length+' of '+P.PARTY_CAP+
-  ' fielded. Changes take effect on the next wave, not the one in progress.</div>';
+/* ===== PER-ACTION TABS (LORE) =====
+ * "I want Lore to have per action tabs, with the ones in use having a star
+ * next to them." Same tab-bar pattern as renderUnitTabs above, but keyed on
+ * action id rather than unit id — a separate selectedActionTab rather than
+ * reusing selectedUnitTab, since the two are independent selections (LORE
+ * no longer has a unit dimension at all). */
+var selectedActionTab=null;
+function currentSelectedAction(actionIds){
+ if(!selectedActionTab||actionIds.indexOf(selectedActionTab)<0)selectedActionTab=actionIds[0];
+ return selectedActionTab;}
+function renderActionTabs(host,actionIds,used,onChange){
+ var box=document.createElement('div');box.className='row';
+ box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
+ var cur=currentSelectedAction(actionIds),h='';
+ actionIds.forEach(function(aid){
+  var a=C.ACTIONS[aid];if(!a)return;
+  h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
+   a.name+(used[aid]?' ★':'')+'</button>';});
+ box.innerHTML=h;host.appendChild(box);
+ Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
+  el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
+/* Returns a plain HTML string rather than appending to a host directly —
+   renderExpedition() (its one call site) already assembles its own content
+   as a single string and sets host.innerHTML once, so this needs to slot
+   into that same pattern rather than doing its own DOM manipulation.
+   wirePartyRoster(host) below attaches the click handlers afterward, once
+   the combined innerHTML is actually in the DOM. */
+function partyRosterHTML(){
+ var h='<div style="margin-bottom:14px"><div class="tiny" style="margin-bottom:6px"><b>PARTY</b> — '+
+  G.party.length+' of '+P.PARTY_CAP+' fielded. Changes take effect on the next wave, not the one in progress.</div>';
  G.party.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   h+='<div class="slot" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'+
@@ -1389,14 +1469,14 @@ function renderPartyRoster(host){
    '<span><span class="uname">'+(def?def.name:uid)+'</span> <span class="tiny">'+(def?capRole(def.role):'')+
    ' · LV '+levelOf(uid)+'</span></span>'+
    '<button class="mini pb-field" data-u="'+uid+'"'+(G.party.length>=P.PARTY_CAP?' disabled':'')+'>Field</button></div>';});
- box.innerHTML=h;host.appendChild(box);
- Array.prototype.forEach.call(box.querySelectorAll('.pb-bench'),function(el){
+ return h+'</div>';}
+function wirePartyRoster(host){
+ Array.prototype.forEach.call(host.querySelectorAll('.pb-bench'),function(el){
   el.onclick=function(){if(benchUnit(el.dataset.u)){buildGambits();renderAll();}};});
- Array.prototype.forEach.call(box.querySelectorAll('.pb-field'),function(el){
+ Array.prototype.forEach.call(host.querySelectorAll('.pb-field'),function(el){
   el.onclick=function(){if(fieldUnit(el.dataset.u)){buildGambits();renderAll();}};});}
 function buildGambits(){
  var host=$('#gambits');host.innerHTML='';
- renderPartyRoster(host);
  /* v2.9: one unit's gambit box at a time, picked by the shared unit-tab
     selector, instead of stacking all of G.party's boxes vertically —
     "playing now requires a lot of scrolling" with a full party. Everything

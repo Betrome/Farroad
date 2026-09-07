@@ -290,10 +290,11 @@ pre{font-size:13px;line-height:1.6;padding:10px}
   <div class="tiny" id="idleRate" style="margin:-4px 0 8px;color:var(--dimmer)"></div>
 
   <!-- v2.9: tabs moved up here, ahead of the units/battle panel and travel
-       controls — "a lot of scrolling" on a phone with a full 5-unit party,
-       and ROAD (the play-by-play log, the default/first tab) was the
-       farthest-down thing on the page. Still purely a tab-toggle reorder,
-       nothing about how tabs work changed. -->
+       controls — "a lot of scrolling" on a phone with a full 5-unit party.
+       Still purely a tab-toggle reorder, nothing about how tabs work
+       changed. ROAD's own panel (#tab-log) moved back down below, per a
+       later revert — the tab BUTTON row stays up here regardless of which
+       panel happens to be selected. -->
   <div id="tabs">
     <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
     <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
@@ -301,10 +302,6 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <button data-t="drops">DROPS</button>
     <button data-t="tests">TESTS</button>
   </div>
-
-  <div class="panel" id="tab-log"><div class="spread" style="margin-bottom:4px">
-    <span class="tiny">THE ROAD — every roll, drop and checkpoint</span>
-    <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
 
   <div class="panel hidden" id="tab-gambits">
     <div class="tiny" style="margin-bottom:6px">Strict top-down: the first rule whose condition is
@@ -408,6 +405,18 @@ pre{font-size:13px;line-height:1.6;padding:10px}
       which means it appears after wave 20 when drops turn random.
     </div>
   </div>
+
+  <!-- v2.9: moved to the very end of #app — sitting right above the
+       always-visible units/travel panels (its previous spot) meant its own
+       variable height (a long combat history vs a fresh one) and its
+       hidden<->visible toggling by tab selection both shifted those panels'
+       position underneath it, a visible "bounce" every tab switch. Nothing
+       sits below it now, so nothing can shift. Tab switching is id-based
+       (`#tab-`+dataset.t), not DOM-order-based, so this is a purely visual
+       move; nothing about how tabs work changed. -->
+  <div class="panel" id="tab-log"><div class="spread" style="margin-bottom:4px">
+    <span class="tiny">THE ROAD — every roll, drop and checkpoint</span>
+    <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
 </div>
 
 <!--@@CORE@@-->

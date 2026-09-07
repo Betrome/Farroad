@@ -158,16 +158,29 @@ P.enemyCount=function(w){return P.partySizeAt(w);};
  * some waves are harder than others. Randomness at constant difficulty is noise. */
 P.VARIETY_FROM=40;
 P.COUNT_WEIGHTS=[[1,0.15],[2,0.30],[3,0.35],[4,0.20]];   /* sums to 1.00 */
-P.rollCount=function(rng){
+/* v2.9: past P.HARD_FROM, enemy count can roll all the way up to P.ENEMY_CAP
+   (was 4) — the "5 front / 5 back" ask. A SEPARATE table rather than
+   extending COUNT_WEIGHTS in place, so waves 41-100 are provably unchanged
+   (same table, same distribution) and only the post-100 hard-scaling range
+   gets bigger encounters — tying this to the same threshold as P.hardMul
+   rather than introducing a second, independent knob to tune. */
+P.ENEMY_CAP=10;
+P.COUNT_WEIGHTS_HARD=[[1,0.05],[2,0.08],[3,0.12],[4,0.15],[5,0.15],
+ [6,0.13],[7,0.11],[8,0.09],[9,0.07],[10,0.05]];          /* sums to 1.00 */
+P.rollCount=function(rng,w){
+ var table=(w>P.HARD_FROM)?P.COUNT_WEIGHTS_HARD:P.COUNT_WEIGHTS;
  var r=rng.next(),acc=0;
- for(var i=0;i<P.COUNT_WEIGHTS.length;i++){acc+=P.COUNT_WEIGHTS[i][1];
-  if(r<=acc)return P.COUNT_WEIGHTS[i][0];}
- return 3;};
+ for(var i=0;i<table.length;i++){acc+=table[i][1];
+  if(r<=acc)return table[i][0];}
+ return table[table.length-1][0];};
 /* Per-enemy multiplier. n=1 -> x1.85 elite, n=4 -> x0.72 each. Total encounter
    strength (n x mul) runs 1.85 / 2.60 / 2.88 / 2.88 — rising slightly with count
    but far flatter than linear, so a lone elite is a real fight and a crowd is not
-   four times the threat. */
-P.countStrength=function(n){return {1:1.85,2:1.30,3:0.96,4:0.72}[n]||1;};
+   four times the threat. n=5-10 (v2.9) continue the same plateau: the known
+   n=3/4 values already fit total-strength ~2.9 almost exactly (2.9/3=0.967,
+   2.9/4=0.725), so the fallback for n>4 keeps that same plateau instead of the
+   old flat ||1, which would have let a 10-enemy wave hit 10x total strength. */
+P.countStrength=function(n){return {1:1.85,2:1.30,3:0.96,4:0.72}[n]||(2.9/n);};
 P.bandRoll=function(rng){return 0.85+rng.next()*0.35;};   /* 0.85 .. 1.20 */
 
 /* Curated onboarding. Teaching order MAGIC -> BUFFS -> HEALING -> DEBUFFS -> AOE.
@@ -212,12 +225,20 @@ P.archetypeFor=function(w,i){
  return C.ROT[(w-1+i)%C.ROT.length];};
 P.dropsAt=function(w){var o=[];P.CURATED.forEach(function(d){if(d.w===w)o.push(d);});return o;};
 P.isCurated=function(w){return w<=P.BOSS_EVERY;};
+/* v2.9 BUGFIX: both of these used to loop bossWaveAt(i) for i<40, a hardcoded
+   iteration cap — bossWaveAt itself is unbounded (BOSS_EVERY past the last
+   fixed entry forever), but the loop could never see past bossWaveAt(39)=800,
+   so no boss ever spawned past wave 800 and the UI's "next boss" readout went
+   blank there too. Replaced with direct arithmetic — no bound to outgrow. */
 P.isBossWave=function(w){
- for(var i=0;i<40;i++){var bw=P.bossWaveAt(i);if(bw===w)return true;if(bw>w)return false;}
- return false;};
+ var last=P.BOSS_WAVES[P.BOSS_WAVES.length-1];
+ if(w<last)return P.BOSS_WAVES.indexOf(w)>=0;
+ return (w-last)%P.BOSS_EVERY===0;};
 P.nextBossWave=function(w){
- for(var i=0;i<40;i++){var bw=P.bossWaveAt(i);if(bw>w)return bw;}
- return null;};
+ for(var i=0;i<P.BOSS_WAVES.length;i++)if(P.BOSS_WAVES[i]>w)return P.BOSS_WAVES[i];
+ var last=P.BOSS_WAVES[P.BOSS_WAVES.length-1];
+ if(w<last)return last;
+ return last+P.BOSS_EVERY*(Math.floor((w-last)/P.BOSS_EVERY)+1);};
 P.checkpoint=function(bossesCleared){
  return bossesCleared===0?1:(P.bossWaveAt(bossesCleared-1)+1);};
 
@@ -423,6 +444,37 @@ P.nextSlotAt=function(L){
    stats and the ATK growth exponent, so 1.00 is normal play and the numbers in the
    doc are the real numbers. Kept solely for testing. */
 P.DIFFICULTY=1.00;
+/* ===== v2.9: POST-WAVE-100 HARD SCALING =====
+ * waveScale() alone is one continuous sqrt curve for the whole game — no
+ * threshold, no post-100 knee. Enemy SPD also never scaled with wave at all
+ * (a flat per-archetype constant), while party SPD grows every level, so
+ * enemies fall further behind in turn frequency the deeper a run goes — the
+ * concrete mechanism behind "enemies get fewer actions" late-game. hardMul
+ * layers a SEPARATE multiplier on top of the existing curve, active only
+ * past HARD_FROM, reaching HARD_MAX at HARD_REF and holding there — waves
+ * 1-100 are provably unaffected (hardMul(w)<=100 === 1 exactly).
+ * bossSpdMul gives bosses (only) a SPD ramp of their own, since turn
+ * frequency is SPD-linear and uncapped (tcRaw=TICK_K*rank/spd) — a boss
+ * that keeps pace on SPD gets to actually act like a threat instead of
+ * getting outpaced by an ever-faster party. */
+/* Constants below tuned against a real-combat before/after harness (fixed
+   party levels 40-150, boss fights at every reference wave from 100-1500)
+   — see MODULES.md. The first pass (HARD_REF=1000, BOSS_HARD_EXTRA=1.35,
+   BOSS_SPD_MAX_MUL=3.5) produced a hard cliff rather than a ramp: fine at
+   wave 300, a total 0%-HP wipe by wave 800 even at the highest level
+   tested. Stretching HARD_REF out and trimming the two boss-only
+   multipliers spreads the same "up to 10x" escalation over more of the
+   range the user has actually reached, instead of front-loading it. */
+P.HARD_FROM=100; P.HARD_REF=2000; P.HARD_MAX=10;
+P.hardMul=function(w){
+ if(w<=P.HARD_FROM)return 1;
+ var t=Math.min(1,Math.sqrt((w-P.HARD_FROM)/(P.HARD_REF-P.HARD_FROM)));
+ return 1+(P.HARD_MAX-1)*t;};
+P.BOSS_HARD_EXTRA=1.20;        /* additional boss-only ATK/MAG multiplier */
+P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=2000; P.BOSS_SPD_MAX_MUL=2.2;
+P.bossSpdMul=function(w){
+ var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));
+ return 1+(P.BOSS_SPD_MAX_MUL-1)*t;};
 /* was a flat 700 — the wave-scaled pullCostAt existed but nothing called it, so
    pulls became effectively free at depth. Now routed through the scaled version. */
 P.pullCost=function(w){return P.pullCostAt(w||1);};

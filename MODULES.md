@@ -805,4 +805,150 @@ with kesh/dorrek/vey all on Pierce, confirmed the disabled `<option>`s are
 genuinely unselectable in the DOM (not just visually greyed), confirmed the
 warning text and the option list update immediately when Dorrek's conflict
 was resolved by switching to Cleave, and confirmed starters (Strike, used by
-3 units at once) are correctly exempt throughout.
+kesh/dorrek/vey throughout) stayed exempt.
+
+## Late-game difficulty & UI-scroll batch
+
+**No bosses past wave 800 (real bug)**: `P.isBossWave`/`P.nextBossWave`
+looped `for(i=0;i<40;i++)` over an unbounded formula (`bossWaveAt(i)=
+20*(i+1)`) — the loop, not the formula, capped recognition at wave 800.
+Replaced with direct arithmetic (a modulo check once past the last fixed
+`BOSS_WAVES` entry) — no iteration bound to outgrow again.
+
+**Post-wave-100 hard scaling, up to 10x, bosses hit harder and act faster**:
+`waveScale()` was one continuous sqrt curve for the whole game, and enemy
+SPD never scaled with wave at all (a flat archetype constant) while party
+SPD grows every level — the concrete mechanism behind enemies getting
+fewer relative actions late-game. Added `P.hardMul(w)` (1 at/below wave
+100, ramping to `P.HARD_MAX` by `P.HARD_REF`, layered multiplicatively on
+top of the existing curve so waves ≤100 are provably unchanged) applied to
+enemy ATK/MAG (full multiplier) and HP (its square root — a harder hit, not
+a bigger sponge); bosses get an additional `P.BOSS_HARD_EXTRA` on ATK/MAG
+and their own `P.bossSpdMul(w)` ramp (SPD is uncapped and linear in turn
+frequency — `tcRaw=TICK_K*rank/spd` — so this reliably means "acts more
+often," not just "hits harder"). **Tuned against a real-combat before/after
+harness**, not shipped on the first guess: the initial constants
+(`HARD_REF=1000`, `BOSS_HARD_EXTRA=1.35`, `BOSS_SPD_MAX_MUL=3.5`) produced a
+cliff — fine at wave 300, a total 0%-HP wipe by wave 800 even at the
+highest fixed test level (150). Stretched `HARD_REF`/`BOSS_SPD_REF` to 2000
+and trimmed both boss-only multipliers (1.20/2.2) to spread the same
+escalation over more of the range instead of front-loading it — the same
+harness then showed a smooth gradient: comfortable at wave 100, a real
+multi-turn fight costing meaningful HP by wave 500-800 at moderate levels,
+and a clear "you need to actually invest" wall only at levels far below
+what that depth calls for, not an arbitrary one.
+
+**Enemy count 5→10, five front / five back**: `P.enemyCount` (the baseline,
+deterministic pre-wave-40 path) was left untouched — it's `partySizeAt`
+reused, carefully tuned via prior measurement to track party size exactly
+(100% win rate w20-w3000) and barely ever invoked past wave 40 anyway,
+since the "variety" system (`P.rollCount`/`P.COUNT_WEIGHTS`) governs almost
+the entire post-40 game unconditionally. Extended THAT system instead: a
+new `P.COUNT_WEIGHTS_HARD` table (max count `P.ENEMY_CAP`=10) used only
+past `P.HARD_FROM`, so waves 41-100 keep the exact original 1-4
+distribution. `P.countStrength`'s per-enemy tempering fallback (previously
+a flat `||1` for n>4, which would have let a 10-enemy wave hit 10x total
+encounter strength) now continues the existing plateau trend
+(`2.9/n`, fitted to match the already-tuned n=3/4 values almost exactly).
+Enemies now carry a `row` (`buildEnemies`: first 5 front, next 5 back).
+Only `rowSpdMul` was extended to enemies (front row gets the same +10% SPD
+front-row party gets) — the back-row physical-damage discount
+(`rowOut`/`rowIn`) stayed party-only, a deliberate scope call: it only
+means something paired with a targeting choice, and party→enemy targeting
+has no row awareness to make that choice real, so adding the discount alone
+would just be invisible, confusing damage variance.
+
+**ATK vs MAG potency**: root cause precisely isolated, not a roster-wide
+issue — base atk/mag are tied roster-wide (183 vs 182 total) and magic's
+own starter (`ember`, power 1.05) already outpaces `strike` (1.00). The
+actual mechanism lives in exactly one place: two of the 10 MC stat-scaling
+charge actions (`mag_lance`/`mag_font`) had their power coefficients
+deliberately calibrated *down* to cancel out MAG's higher point-buy ceiling
+against their `atk_reckless`/`atk_cry` siblings, so a maxed-MAG build hit
+for the exact same total as a maxed-ATK build despite its bigger stat —
+precisely "mag reads as bigger but doesn't hit harder." Fix: `mag_lance`/
+`mag_font` now use the same power coefficient as their atk sibling, so
+MAG's ~7% bigger ceiling (30 vs 28) translates into ~7% more output instead
+of being cancelled out. `def_slam`/`res_strike`/`spd_flurry` and their
+support pairs are untouched — not part of the atk/mag complaint. The
+growth-rate skew (MC mag growth ceiling 2.7 vs atk 2.1) is a known,
+separate contributor left out of scope — touching it means rebalancing the
+point-buy survival-parity system, a bigger task.
+
+**UI restructure**: Road log moved back to the bottom (pure DOM-order
+revert — tab switching is id-based, confirmed zero functional risk). Party
+allocation (field/bench) moved from the top of GAMBITS onto EXPEDITION —
+`renderPartyRoster` became `partyRosterHTML()`+`wirePartyRoster()` (a plain
+string plus a separate wiring pass) since `renderExpedition()` assembles
+its own content as one string and sets `host.innerHTML` once, unlike
+GAMBITS' append-based pattern the old function relied on. AETHER dropped
+the one-unit-at-a-time tab selector for one compact row per OWNED unit
+(fielded and benched — benched units were previously unreachable from this
+tab at all, not just hidden) trading the old box's full stat/growth/slot
+readout (still visible elsewhere) for density. LORE dropped its per-unit
+selector too, now listing every unlocked action once, globally, sorted
+used-first (reusing `usedActions()`, already exactly the right helper —
+previously only powered the refund button's eligibility) with a new "used
+by: X, Y" line per action — newly meaningful given the one-action-per-unit
+rule from the previous session change.
+
+**Verification**: 30 new headless smoke checks (bringing the suite to
+86/86) covering the boss-wave-cap fix arbitrarily far past 800, `hardMul`/
+`bossSpdMul` curve shape and exact-1 boundary proof, the variety-table
+extension and its sum-to-1 weights, `countStrength`'s plateau fallback,
+mag_lance/mag_font power parity, and enemy `rowSpdMul`. A dedicated
+scratchpad harness (real `C.step` combat, `buildEnemies` reproduced
+verbatim from the current source) ran the before/after tuning pass above
+and a 5-seed boss-fight snapshot at every reference wave. Live browser pass
+confirmed: `isBossWave`/`nextBossWave` correct at 820/5000, the Road log's
+DOM position (`#tab-log` now after `#tab-tests`), the party editor now
+rendering on EXPEDITION and gone from GAMBITS, AETHER showing all 7 owned
+units in a seeded save including 2 benched ones, and LORE's used-first sort
+with correct "used by" tags (confirmed a genuinely-unused seeded action,
+Pierce, sorted to the very bottom below all 6 used actions).
+
+## AETHER/LORE reverted to the per-unit tab selector
+
+Short-lived: the compact all-units-list redesign for AETHER (and the
+global used-first list for LORE) from the batch above didn't stick — "let's
+change the UI for aether and lore to be like gambits with the tabs." Both
+went back to `renderUnitTabs`/`currentSelectedUnit`, the same tab-per-
+character pattern GAMBITS already used, showing one unit's full box at a
+time again (AETHER: stats/growth/slots/recovery restored; LORE: back to a
+selected unit's own equipped-actions list, `eq`).
+
+The one thing kept from the reverted pass rather than silently dropped:
+benched-unit reach. `renderUnitTabs`/`currentSelectedUnit` gained an
+`includeBenched` parameter (`unitTabPool` picks `G.owned` vs `G.party`) —
+AETHER and LORE now pass `true` (so a benched unit's tab still appears,
+labeled "(bench)"), while GAMBITS' own call site is untouched (omits the
+argument, stays fielded-only, since gambit slots only matter for units
+actually in a fight). LORE also keeps the "used by" line inside each
+action's box from the reverted pass — still useful information in a
+per-unit view, it just no longer drives the sort order.
+
+Verified live with a seeded 7-owned/5-fielded save: AETHER and LORE both
+show Kesh/Ansa/Dorrek/Vey/Mirel/Skarn (bench)/Sorin (bench) as tabs;
+selecting benched Skarn on each tab correctly showed his own box (AETHER:
+level/stat readout and feed buttons; LORE: his own equipped Strike, "used
+by Kesh, Ansa, Dorrek, Vey, Mirel, Skarn"); GAMBITS confirmed unaffected
+(still only the 5 fielded units, no bench entries).
+
+## LORE moved to per-action tabs
+
+One more iteration, LORE only: "I want Lore to have per action tabs, with
+the ones in use having a star next to them." Replaced the per-unit tab
+selector (just adopted above) with a new, parallel `renderActionTabs`/
+`currentSelectedAction`/`selectedActionTab` (separate from the unit
+versions — LORE has no unit dimension in this design at all). Tab pool is
+`G.actions`, sorted used-first same as the earlier global-list pass, but
+now each tab is one action (labeled with a ★ suffix when `usedActions()`
+flags it) rather than a row in a scrollable list, and selecting a tab shows
+only that one action's existing upgrade box. The "used by: X, Y" line
+inside the box (from the used-by-tabs pass) is kept — GAMBITS/AETHER's own
+`renderUnitTabs`/`currentSelectedUnit` are untouched. Verified live with a
+seeded save: tab row reads "Strike ★ / Ember ★ / Brace ★ / Mend ★ / Sear ★
+/ Guard Break ★ / Pierce" (the one seeded-but-unequipped action correctly
+unstarred and sorted last), and clicking Pierce's tab swaps the box to
+Pierce's own (unused, its own Lore total and bonus stacks) — confirming the
+tab switch, the star logic, and the sort all work together correctly.

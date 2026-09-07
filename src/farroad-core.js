@@ -66,7 +66,13 @@ var K_BASE=25;
 var CURRENT_WAVE=1;                      /* set by startWave, read by K_of */
 function K_of(l){return K_BASE*waveScale(CURRENT_WAVE);}
 function beatMs(n){return n<=14?900:(n<=28?700:(n<=44?520:400));}
-function rowSpdMul(u){return (u.isParty&&u.row==='front')?(1+ROW_SPD):1;}
+/* v2.9: enemies now carry a row too (buildEnemies, front-half/back-half of
+   up to 10). rowSpdMul drops the isParty gate so front-row enemies get the
+   same tempo bonus front-row party gets — rowOut/rowIn (the back-row
+   physical-damage discount) stay party-only below, since party->enemy
+   targeting has no row awareness yet to make that discount a real,
+   visible choice rather than invisible variance. */
+function rowSpdMul(u){return (u.row==='front')?(1+ROW_SPD):1;}
 function rowOut(u,p){return (u.isParty&&p&&u.row==='back')?ROW_PHYS:1;}
 function rowIn(u,p){return (u.isParty&&p&&u.row==='back')?ROW_PHYS:1;}
 var ST=['sundered','frail','enfeebled','dulled','slowed','blinded','burning','hasted','warded','taunted','surging','bracing','regen','blurred'];
@@ -212,12 +218,28 @@ var ACTIONS={
   * damage action (heavystrike's own 4.20x28=117.6 is the reference), ~78
   * for a party-wide heal (greatheal's 2.60x30=78 is the reference) — power
   * is that target divided by the stat's ceiling, so DEF/RES/SPD's much
-  * larger raw numbers don't silently overshoot ATK/MAG's. */
+  * larger raw numbers don't silently overshoot ATK/MAG's.
+  * v2.9 REVISED (atk_reckless/mag_lance and atk_cry/mag_font only): the
+  * ceiling-normalization above made mag_lance/mag_font deliberately WEAKER
+  * per point than their atk counterparts, to cancel out mag's higher stat
+  * ceiling (28 vs 30) — so a maxed-MAG build hit for the exact same total
+  * as a maxed-ATK build despite its bigger number. That is precisely "mag
+  * reads as the bigger stat but doesn't hit harder" — confirmed the sole
+  * mechanical cause of that complaint (nowhere else in the game nerfs mag's
+  * power to compensate for its stat: ember already OUTPACES strike, and the
+  * other 8 charge actions are individually authored, not ceiling-matched).
+  * Fix: mag_lance/mag_font now use the SAME power coefficient as their atk
+  * sibling, so mag's bigger ceiling translates into proportionally bigger
+  * output (~7% more at max investment, matching the ~7% bigger stat pool)
+  * instead of being silently cancelled out. def_slam/res_strike/spd_flurry
+  * and their support pairs are untouched — not part of the atk/mag
+  * complaint, and never framed as parallel to each other the way these two
+  * pairs explicitly are. */
  atk_reckless:A({id:'atk_reckless',name:'Reckless Blow',camp:'atk',tk:'foe',scaleStat:'atk',
   power:4.20,rank:1.75,isCharge:true,critBonus:.30,
   note:'CHARGE · Heavy single-target hit with a big crit bonus — rewards building around raw ATK.'}),
  mag_lance:A({id:'mag_lance',name:'Arcane Lance',camp:'mag',tk:'foe',scaleStat:'mag',
-  power:3.90,rank:1.75,isCharge:true,defPierce:.20,
+  power:4.20,rank:1.75,isCharge:true,defPierce:.20,
   note:'CHARGE · A piercing magic strike that ignores 20% armour — rewards building around raw MAG.'}),
  def_slam:A({id:'def_slam',name:'Shield Slam',camp:'atk',tk:'foe',scaleStat:'def',
   power:2.60,rank:1.90,isCharge:true,applies:'sundered',turns:3,
@@ -232,7 +254,7 @@ var ACTIONS={
   power:2.80,rank:1.70,isCharge:true,heal:true,applies:'hasted',turns:2,
   note:'CHARGE · A rallying cry that heals the party (scaled by your own ATK) and Hastes everyone.'}),
  mag_font:A({id:'mag_font',name:'Font of Power',camp:'mag',tk:'allAllies',scaleStat:'mag',
-  power:2.60,rank:1.65,isCharge:true,heal:true,applies:'warded',turns:3,
+  power:2.80,rank:1.65,isCharge:true,heal:true,applies:'warded',turns:3,
   note:'CHARGE · A MAG-scaled party heal that also grants Warded (magic defense up).'}),
  def_bulwark:A({id:'def_bulwark',name:'Bulwark Stand',camp:'atk',tk:'ally',scaleStat:'def',
   power:1.75,rank:1.80,isCharge:true,heal:true,applies:'bracing',turns:3,

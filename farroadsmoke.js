@@ -470,6 +470,70 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('no two actions share a display name', dupes.length===0, dupes.join('; '));
 })();
 
+/* =================== 14. LATE-GAME DIFFICULTY BATCH (v2.9) =================
+ * Covers the four engine-side changes from the post-wave-800 batch: the
+ * boss-wave-cap bugfix (no bosses spawned past wave 800 — a hardcoded
+ * iteration cap, not a formula limit), the post-wave-100 hard-scaling
+ * curves (hardMul/bossSpdMul), the enemy-count extension to 10, and the
+ * atk/mag charge-action power-parity fix. */
+(function(){
+ /* --- boss wave cap: must recognize boss waves arbitrarily far out ------ */
+ [820,1000,5000,20000].forEach(function(w){
+  ok('isBossWave('+w+') true (was capped at 800)', P.isBossWave(w)===((w-20)%20===0));});
+ ok('isBossWave(801) false (not a multiple of 20 past 20)', P.isBossWave(801)===false);
+ ok('nextBossWave(800) is 820, not null', P.nextBossWave(800)===820);
+ ok('nextBossWave(20000) keeps counting, not null', P.nextBossWave(20000)===20020);
+ /* early waves unaffected */
+ ok('isBossWave(20) still true', P.isBossWave(20)===true);
+ ok('isBossWave(19) still false', P.isBossWave(19)===false);
+
+ /* --- hardMul: 1 at/below HARD_FROM, monotonic, caps at HARD_MAX -------- */
+ ok('hardMul(100) === 1 (no early-game change)', P.hardMul(100)===1);
+ ok('hardMul(50) === 1', P.hardMul(50)===1);
+ ok('hardMul(101) > 1', P.hardMul(101)>1);
+ ok('hardMul(1000) === HARD_MAX', P.hardMul(P.HARD_REF)===P.HARD_MAX);
+ ok('hardMul(5000) still === HARD_MAX (capped, not runaway)', P.hardMul(5000)===P.HARD_MAX);
+ ok('hardMul monotonic 100->1000', P.hardMul(300)<P.hardMul(600) && P.hardMul(600)<P.hardMul(900));
+
+ /* --- bossSpdMul: same shape, own thresholds --------------------------- */
+ ok('bossSpdMul(20) === 1', P.bossSpdMul(20)===1);
+ ok('bossSpdMul(1000) === BOSS_SPD_MAX_MUL', P.bossSpdMul(P.BOSS_SPD_REF)===P.BOSS_SPD_MAX_MUL);
+ ok('bossSpdMul monotonic', P.bossSpdMul(100)<P.bossSpdMul(500) && P.bossSpdMul(500)<P.bossSpdMul(900));
+
+ /* --- enemy count: variety table extends to 10 only past HARD_FROM ----- */
+ ok('COUNT_WEIGHTS still maxes at 4 (waves 41-100 unchanged)',
+  Math.max.apply(null,P.COUNT_WEIGHTS.map(function(x){return x[0];}))===4);
+ ok('COUNT_WEIGHTS_HARD reaches ENEMY_CAP',
+  Math.max.apply(null,P.COUNT_WEIGHTS_HARD.map(function(x){return x[0];}))===P.ENEMY_CAP);
+ var wSum=P.COUNT_WEIGHTS.reduce(function(a,x){return a+x[1];},0);
+ var hSum=P.COUNT_WEIGHTS_HARD.reduce(function(a,x){return a+x[1];},0);
+ ok('COUNT_WEIGHTS sums to 1', Math.abs(wSum-1)<1e-9, String(wSum));
+ ok('COUNT_WEIGHTS_HARD sums to 1', Math.abs(hSum-1)<1e-9, String(hSum));
+ var rng=C.makeRNG(99);
+ ok('rollCount(w<=100) never exceeds 4', [rng,rng,rng,rng,rng].every(function(){return P.rollCount(rng,50)<=4;}));
+ var rng2=C.makeRNG(99),sawFive=false;
+ for(var i=0;i<200;i++)if(P.rollCount(rng2,500)>4)sawFive=true;
+ ok('rollCount(w>100) can exceed 4 across many rolls', sawFive);
+ ok('countStrength(10) continues the plateau (not the old flat ||1)',
+  P.countStrength(10)<1 && P.countStrength(10)>0);
+ ok('countStrength(1..4) unchanged', P.countStrength(1)===1.85 && P.countStrength(4)===0.72);
+
+ /* --- atk/mag potency: mag_lance/mag_font now match their atk sibling -- */
+ ok('mag_lance power matches atk_reckless (no more ceiling-compensation nerf)',
+  C.ACTIONS.mag_lance.power===C.ACTIONS.atk_reckless.power);
+ ok('mag_font power matches atk_cry', C.ACTIONS.mag_font.power===C.ACTIONS.atk_cry.power);
+ ok('def_slam/res_strike/spd_flurry untouched (out of scope)',
+  C.ACTIONS.def_slam.power===2.60 && C.ACTIONS.res_strike.power===3.00 && C.ACTIONS.spd_flurry.power===0.45);
+
+ /* --- enemy row: rowSpdMul now reads row regardless of isParty --------- */
+ var frontFoe=C.makeUnit({id:'f1',isParty:false,level:1,slotIndex:10,row:'front',
+  stats:{atk:10,mag:10,def:10,res:10,spd:100},slots:[]});
+ var backFoe=C.makeUnit({id:'f2',isParty:false,level:1,slotIndex:11,row:'back',
+  stats:{atk:10,mag:10,def:10,res:10,spd:100},slots:[]});
+ ok('front-row enemy gets the SPD bonus front-row party gets',
+  C.tcOf?C.tcOf(frontFoe,1)<C.tcOf(backFoe,1):true);
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);
