@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 04:17 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 05:08 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -271,7 +271,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 04:17 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-07 05:08 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -3395,7 +3395,16 @@ function buildGambits(){
     co+='<option value="'+cid+'"'+(cid===s.cond?' selected':'')+'>'+c.label+'</option>';});
    var ao='';
    G.actions.forEach(function(aid){
-    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+'>'+C.ACTIONS[aid].name+'</option>';});
+    var holder=(aid!==s.action)?actionHolderInParty(aid,uid):null;
+    var dis=holder?' disabled title="'+C.ACTIONS[aid].name+' is equipped by '+holder+' — non-starter actions can only be used by one unit at a time"':'';
+    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+C.ACTIONS[aid].name+
+     (holder?' (used by '+holder+')':'')+'</option>';});
+   /* Grandfathered conflict: a loadout saved before the one-unit-per-action
+      rule could already have this same non-starter action on another
+      fielded unit. The <select> above leaves the current pick selectable
+      (never force-changes a slot under the player), so surface it here
+      instead — otherwise the sharing would silently persist unnoticed. */
+   var ownConflict=actionHolderInParty(s.action,uid);
    w.innerHTML='<div class="slotbar"><span class="lbl">SLOT '+(i+1)+' — IF</span>'+
      '<button class="mini mv up" aria-label="move up">▲</button>'+
      '<button class="mini mv dn" aria-label="move down">▼</button></div>'+
@@ -3406,7 +3415,9 @@ function buildGambits(){
     '<div class="tiny" style="margin-top:2px;color:var(--dimmer)">scales with <b>'+
      scalesWith(C.ACTIONS[s.action])+'</b>'+(C.ACTIONS[s.action].power?
      ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
-    '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>';
+    '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>'+
+    (ownConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also equipped by '+
+     ownConflict+' from before this rule — pick a different action here to resolve it</div>':'');
    var up=w.querySelector('.up'),dn=w.querySelector('.dn');
    if(i===0)up.disabled=true;
    if(i===sl.length-1)dn.disabled=true;
@@ -3474,6 +3485,22 @@ function syncLoadout(uid){
  if(!G.units)return;
  G.units.forEach(function(u){if(u.id===uid)
   u.slots=G.loadout[uid].map(function(s){return {cond:s.cond,action:s.action};});});}
+/* Non-starter actions get shared-across-the-party Lore uplift for free if
+   more than one FIELDED unit equips the same id — every unit using it
+   benefits from a single escalating-cost purchase. Starters (strike/ember,
+   P.STARTER_ACTIONS) are exempt since every unit begins with them anyway;
+   restricting those too would leave new/underinvested units with nothing
+   usable. Returns the display name of the other fielded unit already
+   holding aid, or null if aid is free (or is itself a starter). */
+function actionHolderInParty(aid,excludeUid){
+ if(P.STARTER_ACTIONS.indexOf(aid)>=0)return null;
+ var holder=null;
+ G.party.forEach(function(uid){if(uid===excludeUid||holder)return;
+  var sl=G.loadout[uid];if(!sl)return;
+  sl.forEach(function(s){if(s.action===aid){var def=null;
+   C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+   holder=def?def.name:uid;}});});
+ return holder;}
 
 /* --------------------------------------------------------------- tests --- */
 function tCadence(){

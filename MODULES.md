@@ -768,3 +768,41 @@ condition ladder+grouping confirmed via a full-84-id dropdown dump, the
 wipe-farm fix confirmed via three forced wipes at wave 1, pull pity and the
 new charge-action pool confirmed via real pulls, and the refund button's
 exact Lore math confirmed before and after clicking.
+
+## One-unit-per-non-starter-action rule
+
+`bonusPrice`'s escalating cost ladder is scoped to the *action*, not the
+*party* — a Lore purchase that upgrades an action every fielded unit sharing
+that action benefits at once, paying the escalating cost only once no matter
+how many units cash in. An empirical balance test (5-unit party, matched
+functional roles across both builds so no unit lost a capability, real
+`C.step` combat, 150 seeds per data point) confirmed this is a real,
+compounding incentive: a party that concentrates on a handful of shared
+actions beat an equally-invested, role-appropriate varied build by 8-14% in
+wave-survival once the Lore budget was large enough to matter, and the edge
+didn't shrink as more Lore accumulated.
+
+Fix: non-starter actions (`P.STARTER_ACTIONS` — `strike`/`ember` are exempt,
+since every unit begins with them regardless) may only be equipped by one
+FIELDED unit at a time. A follow-up test of this exact rule (same harness)
+shrank the concentrated-build's edge from 8-14% down to roughly 1-4%, mostly
+attributable to strike/ember themselves still being freely shared as the
+baseline every unit starts with.
+
+Implementation is UI-layer only (`buildGambits()` in `farroad-ui.js`), not
+an engine restriction — `G.actions`/`G.loadout` themselves stay unconstrained,
+same as before. A new `actionHolderInParty(actionId,excludeUid)` scans
+`G.party` (fielded units only — a benched unit's loadout can't simultaneously
+benefit from a shared upgrade, so it isn't restricted) for another unit
+already holding a given non-starter id. The action `<select>` disables any
+option already held elsewhere (with a tooltip naming the holder), but never
+disables a slot's own current value — so an existing (pre-patch) save that
+already has two fielded units sharing a non-starter action isn't silently
+force-changed. Instead, a small warning line appears under that slot naming
+the other unit and inviting the player to resolve it themselves; the moment
+either side switches away, the warning clears. Verified live: seeded a save
+with kesh/dorrek/vey all on Pierce, confirmed the disabled `<option>`s are
+genuinely unselectable in the DOM (not just visually greyed), confirmed the
+warning text and the option list update immediately when Dorrek's conflict
+was resolved by switching to Cleave, and confirmed starters (Strike, used by
+3 units at once) are correctly exempt throughout.
