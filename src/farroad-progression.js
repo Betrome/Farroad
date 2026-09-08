@@ -463,15 +463,56 @@ P.DIFFICULTY=1.00;
    BOSS_SPD_MAX_MUL=3.5) produced a hard cliff rather than a ramp: fine at
    wave 300, a total 0%-HP wipe by wave 800 even at the highest level
    tested. Stretching HARD_REF out and trimming the two boss-only
-   multipliers spreads the same "up to 10x" escalation over more of the
-   range the user has actually reached, instead of front-loading it. */
-P.HARD_FROM=100; P.HARD_REF=2000; P.HARD_MAX=10;
+   multipliers spread the same "up to 10x" escalation over more of the
+   range instead of front-loading it.
+   v2.9 RETUNE: direct player report — "I'm beating level 46 enemies with
+   level 20-30 units" (levelCurve(227)~=46) — that the HARD_REF=2000 pass
+   above was still too soft in the wave 150-400 range being actually
+   played. Pulled HARD_REF (and BOSS_SPD_REF, kept in sync) down to 800 —
+   roughly 2.5x steeper through that range (hardMul(227): 3.33 -> 4.99) —
+   a real strengthening without returning to the 1000/2000-vs-first-pass
+   cliff. Re-validated with the same before/after harness at levels 20-30
+   specifically (not retested at that combination before — the original
+   pass used levels 40-150): even at the ORIGINAL HARD_REF=2000, a
+   bare-bones loadout (no gambit conditions, no Lore, always-attack) was
+   already losing most of the time at wave 200+ / level 20-30 (e.g. 3/20
+   wins at w227/L20) — the reported "trivial win" is likely a well-built
+   real loadout (gambits, healing, Lore investment) outperforming that
+   baseline by a wide margin, not hardMul being weak in an absolute sense.
+   Pushing HARD_REF much lower than 800 (500/400/300 were also tested)
+   zeroes the bare-bones win rate out almost everywhere past wave 150,
+   which would likely be unfair to a less-optimized build — so 800 is a
+   deliberately moderate step, not a guess at the full gap; flagged to Ian
+   to re-report after trying this, rather than continuing to retune blind
+   against a synthetic baseline that can't model real gambit/Lore play. */
+/* v2.9 RETUNE #2: a rigorous methodology test (realistic engaged builds —
+   unique per-unit actions/gambits, healing, Lore spread evenly with
+   randomly-picked bonuses, vs. a disengaged always-attack baseline, both
+   scanned for the minimum level clearing an isolated fight at waves
+   150-1000 across party sizes 2-5) confirmed the disengagement penalty is
+   real and growing (e.g. a full 5-unit party needs level 15 engaged vs 30
+   disengaged at wave 150, level 100 vs 170 at wave 1000) but that overall
+   difficulty was still too soft in absolute terms — directly requested:
+   "double enemy growth[s]". HARD_MAX 10->20 does this: since hardMul(w) =
+   1+(HARD_MAX-1)*t for a SHARED ramp fraction t, doubling HARD_MAX roughly
+   doubles the multiplier at every wave past HARD_FROM, not just at the
+   HARD_REF tail (hardMul(227): 4.83 -> 9.09). Waves <=100 remain exactly
+   unaffected by construction (hardMul(w<=100)===1 regardless of HARD_MAX —
+   confirmed before shipping, since this is precisely the kind of claim
+   worth checking, not assuming). Re-ran the same engaged/disengaged
+   harness at HARD_MAX=20: absolute levels needed rise substantially
+   (5-unit party wave 500: 70->100 engaged, 110->155 disengaged), but the
+   disengaged/engaged RATIO barely moves (wave 500 N=5: 1.57x -> 1.55x) —
+   this is a difficulty-floor raise for everyone, not specifically a wider
+   engagement incentive; flagged to Ian before shipping so the tradeoff was
+   explicit, and confirmed as the intended change. */
+P.HARD_FROM=100; P.HARD_REF=800; P.HARD_MAX=20;
 P.hardMul=function(w){
  if(w<=P.HARD_FROM)return 1;
  var t=Math.min(1,Math.sqrt((w-P.HARD_FROM)/(P.HARD_REF-P.HARD_FROM)));
  return 1+(P.HARD_MAX-1)*t;};
 P.BOSS_HARD_EXTRA=1.20;        /* additional boss-only ATK/MAG multiplier */
-P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=2000; P.BOSS_SPD_MAX_MUL=2.2;
+P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));
  return 1+(P.BOSS_SPD_MAX_MUL-1)*t;};
@@ -690,8 +731,11 @@ P.powerLevel=function(g){
  var unitLevels=0,unitCount=0;
  Object.keys(g.owned||{}).forEach(function(uid){
   unitCount++;unitLevels+=(g.lvl&&g.lvl[uid])||1;});
+ /* v2.9: Broad now counts (matches actionLevel() in the UI layer — "leveling
+    up broad does not level up the action; it should count towards its
+    level"), so this stays the literal sum of every action's displayed LvN. */
  var loreLevels=0;
  Object.keys(g.bonuses||{}).forEach(function(aid){
-  loreLevels+=C.actionBonusTotal(g.bonuses[aid]);});
+  var b=g.bonuses[aid];loreLevels+=C.actionBonusTotal(b)+(b.broad||0);});
  return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE);};
 return P;})(window.FarroadCore);

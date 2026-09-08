@@ -1032,3 +1032,158 @@ expected-sum check against a hand-computed example. Verified live with a
 seeded wave-150/2-unit/Lore save: displayed "POWER LEVEL 102", matching
 `round(levelCurve(150)≈37 + unit levels 30 + roster 2×15=30 + Lore 5)`
 exactly.
+
+## LORE polish, welcome-back moved, auto-travel, difficulty retune
+
+**Action descriptions on LORE**: each box now shows `a.note` (the same
+flavor/mechanical text GAMBITS already prints under a slot) right under
+the name — was never surfaced here before.
+
+**Starred-but-"banked" contradiction fixed**: the star/sort previously
+keyed off `usedActions()` — a broader "protected from refund" sense that
+also covers an MC charge action sitting unequipped in `G.mc.acquiredCharges`
+— so a banked-but-unequipped charge could be starred *and* labeled "banked
+on Kesh — not currently equipped" in the same breath, a real contradiction
+Ian caught, not just bad wording. Star/sort now key off a new `active` map
+(`actionHolders(aid).active.length>0` — genuinely equipped somewhere right
+now), computed separately from `usedActions()`; the box's status line
+collapsed to "used by X, Y" or "unused" (the "banked" text is gone). Also
+resolves "I don't know if they can be refunded if the action is unused" —
+every unused action's box now says outright whether it's refundable
+(`usedActions()`'s own sense, unchanged — still correctly protects the
+whole MC charge pool from the bulk-refund button) or "not refundable, kept
+as part of Kesh's charge pool".
+
+**Broad counts toward level**: `actionLevel()` (and `P.powerLevel`'s Lore
+term, to keep them cross-checkable as documented above) now add `b.broad`
+on top of `actionBonusTotal` — "leveling up broad does not level up the
+action; it should count towards its level." Pricing itself is untouched;
+this is a display-only change (broad stays flat-priced, still doesn't
+escalate the per-action cost ladder).
+
+**Lore-available made prominent**: the "N of M Lore free" line was a single
+`.tiny` row, easy to miss — now a bold, `--lore`-colored number matching how
+AETHER/MARKS/LORE currencies read in the purse bar.
+
+**Welcome-back moved into "SOMETHING NEW"**: `simulateOfflineProgress()`'s
+summary (away time, waves cleared, wipes, Aether/Marks earned) was a
+`sysLog()` line — only visible on the ROAD tab, easy to miss on open. Now a
+`pushDrop()` entry in the same banner every other notable event already
+uses, so it can't be missed regardless of which tab is showing on load.
+
+**Auto-travel on load**: a resumed save with a custom `G.mc` now calls
+`play()` immediately after `tryResumeSave()` succeeds, instead of sitting
+paused until a manual ▶ Travel click — "so long as the player has already
+made an MC". Gated on `G.mc` specifically (not just a successful resume):
+a legacy save from before MC creation existed has `G.mc===null` and never
+"made an MC" in the sense meant here, so it's left starting paused; a
+genuinely fresh visit still goes to character creation regardless.
+
+**Difficulty retune — direct player report**: "I'm beating level 46
+enemies with level 20-30 units" (`levelCurve(227)≈46`) — the HARD_REF=2000
+pass from the prior round was still too soft through wave 150-400 in
+practice. Re-ran the same before/after harness at levels 20-30 specifically
+(the prior pass only tested 40-150) and found something notable: even at
+the *original* HARD_REF=2000, a bare-bones loadout (no gambit conditions,
+no Lore, always-attack) was already losing most fights at wave 200+/level
+20-30 (e.g. 3/20 wins at w227/L20) — so the reported "trivial win" is more
+likely a well-built real loadout (working gambits, healing, Lore
+investment) substantially outperforming that synthetic baseline, not
+`hardMul` being weak in any absolute sense the harness can see. Candidates
+down to `HARD_REF`=500/400/300 were also tested and effectively zero out
+the bare-bones win rate almost everywhere past wave 150 — likely unfair to
+a less-optimized build. Landed on a moderate step, `HARD_REF`/`BOSS_SPD_REF`
+2000→800 (`hardMul(227)`: 3.33→4.99), a real ~2.5x steeper ramp through the
+range actually being played without returning to the first-pass cliff —
+flagged to Ian as a deliberately partial move, to re-report after trying it
+rather than continuing to retune against a synthetic baseline that can't
+model real gambit/Lore play.
+
+## Difficulty retune #3 — a rigorous engaged-vs-disengaged methodology
+
+Built a genuinely realistic balance test rather than another bare-bones
+one: each unit gets its own distinct, role-fitting action + gambit (kesh
+Strike+Pierce/foe-armoured, dorrek Strike+Brace/self≤50%, vey
+Strike+Execute/foe≤30%, ansa Ember+Mend/ally≤60%, mirel Ember+Gale/3+foes —
+healing included and properly gated, not neglected), Lore split evenly
+across every distinct equipped action with each purchase picking a
+*randomly*-chosen applicable bonus (not hand-optimized), Lore budget
+`floor((wave-20)/3)` (a stated, transparent stand-in for the real
+duplicate-drop economy). Scanned for the minimum level clearing an
+isolated fight at waves 150-1000, party sizes 2-5, both for this engaged
+build and the earlier disengaged (always-attack, no gambits/Lore) one.
+
+Confirmed the disengagement penalty the game already has is real and
+grows with depth (5-unit party: level 15 engaged vs 30 disengaged at wave
+150; 100 vs 170 at wave 1000) — but also confirmed overall difficulty was
+still too soft in absolute terms even for the engaged build, matching
+Ian's direct read of the numbers: "it definitely shows that something
+needs to change."
+
+**Change: `P.HARD_MAX` 10→20** ("double enemy growth[s]"). Since
+`hardMul(w)=1+(HARD_MAX-1)*t` for a shared ramp fraction `t`, doubling
+`HARD_MAX` roughly doubles the multiplier at every wave past `HARD_FROM`,
+not just at the far tail (`hardMul(227)`: 4.83→9.09) — confirmed `hardMul
+(w<=100)` stays exactly 1 regardless (checked explicitly before shipping,
+per Ian's "will this make the early game harder" question — no, by
+construction, though the ramp immediately past wave 100 does get steeper:
+`hardMul(120)` 2.52→4.21). Re-ran the same engaged/disengaged harness at
+`HARD_MAX`=20 and found the disengaged/engaged *ratio* barely moves (wave
+500, N=5: 1.57x→1.55x) even though absolute levels rise substantially
+(70→100 engaged, 110→155 disengaged) — this is a difficulty-floor raise
+for everyone, not specifically a wider engagement incentive. Surfaced that
+distinction explicitly before shipping; confirmed as the intended change
+("send it").
+
+## Three bugs from live play
+
+**"Occasionally have to click buttons twice"**: `doStep()`'s ordinary
+per-beat path called the full `renderAll()` — with travel now auto-
+starting on load, AETHER/LORE/MARKS/EXPEDITION's entire tab content
+(`host.innerHTML=''` + rebuild, fresh button listeners) was being torn
+down and rebuilt on every single combat beat, on WHICHEVER tab happened to
+be open, even though none of that content changes from an ordinary beat —
+leveling, Lore, pulls, and expeditions all need an explicit button click
+elsewhere to change anything. A click landing while a tick-driven rebuild
+replaced the button under it reads as "sometimes needs a second click."
+New `renderTick()` (used only by `doStep()`'s non-wave-transition path)
+skips straight to `renderPurse()` instead of the full `renderEconomy()` —
+wave-transition beats (`afterWaveCleared()`/`onWipe()`, which CAN change
+owned units/drops/checkpoints) still use the full `renderAll()`.
+
+**"Tab switches to the MC" after leveling a benched unit**: `selectedUnitTab`
+is shared across GAMBITS/AETHER/LORE so switching units on one keeps that
+unit selected on the others — but GAMBITS' own `renderUnitTabs` call was
+still fielded-only (`G.party`), while AETHER/LORE had already gained
+`includeBenched=true` two rounds ago. The AETHER feed-button handler calls
+`buildGambits()` as a side effect (to refresh the gambit-slot-count line
+after a level-up); that call validated the shared `selectedUnitTab` against
+GAMBITS' narrower fielded-only pool, found a benched selection invalid, and
+reset it to the first fielded unit — reading as "the tab switches to the
+MC" even though the actual click was on AETHER.
+
+**"Still can't update gambits for benched units"**: the direct cause of
+the bug above and a standing feature gap together — GAMBITS now also
+passes `includeBenched=true`. `ensureLoadout`/`syncLoadout` already only
+key off `uid`, no `G.party` dependency (`syncLoadout` safely no-ops for a
+unit not currently in `G.units`, i.e. not in an active battle), so nothing
+about editing a benched unit's loadout was ever actually unsafe — it was
+purely unreachable through this tab. Added a "benched" label and a
+"Changes apply once this unit is fielded" note to the box header, matching
+AETHER's own benched-unit treatment; fixing this also eliminates the
+tab-reset bug above, since all three tabs now agree on the same pool.
+
+**Testing note for future rounds**: verifying this surfaced a real gap in
+the established seed-tab workflow — with travel now auto-starting, a
+freshly-opened "seed" tab boots into whatever OLD save is already in
+localStorage and starts its own tick/autosave loop *before* the seed
+script gets a chance to overwrite it, so the old tab's autosave can race
+and clobber the fresh seed within milliseconds. Fix: stop that tab's own
+travel (`document.getElementById('btnPlay').click()` if it reads "⏸ Rest")
+*before* writing new localStorage into it. Also reconfirmed the existing
+beforeunload-autosave rule the hard way — editing localStorage directly
+in a tab and then calling `navigate()` on that SAME tab still fires
+`beforeunload`, which re-saves the tab's stale in-memory state and undoes
+the direct edit; the fix is the one already documented (seed from a tab,
+then observe from a *different*, freshly-opened tab, never navigating or
+relying on the edited tab again).

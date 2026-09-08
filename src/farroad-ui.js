@@ -571,12 +571,17 @@ function simulateOfflineProgress(snap){
  var awayTxt=elapsedSec>=3600?(elapsedSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(elapsedSec/60))+' minutes';
  var progressTxt=waveDelta>0?('cleared '+waveDelta+' wave'+(waveDelta===1?'':'s')+', now at wave '+G.wave)
    :'not enough time passed to clear another wave';
- var wipeTxt=wipeDelta>0?(' <span style="color:var(--bad)">(wiped '+wipeDelta+' time'+(wipeDelta===1?'':'s')+
-   ' — back to checkpoint)</span>'):'';
- sysLog('<b>Welcome back.</b> <span class="tiny">'+awayTxt+' away'+
-  (elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+' — '+progressTxt+'.'+wipeTxt+
-  ' Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
-  '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.</span>');}
+ var wipeTxt=wipeDelta>0?(' Wiped '+wipeDelta+' time'+(wipeDelta===1?'':'s')+' — back to checkpoint.'):'';
+ /* v2.9: moved from a sysLog() line (only visible on the ROAD tab, easy to
+    miss on open) into the "SOMETHING NEW" banner (pushDrop/renderDropNote)
+    — "let's change the welcome back idle rewards message to be under the
+    'something new' section." Same content, just surfaced where it can't be
+    missed regardless of which tab is showing. */
+ pushDrop({name:'Welcome back',kind:'idle rewards',
+  body:awayTxt+' away'+(elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+
+   ' — '+progressTxt+'.'+wipeTxt,
+  why:'Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
+   '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.'});}
 
 /* ===== EXPEDITIONS (roadmap item 4, phase 1) =====
  * A benched party (1-5 units) can be sent exploring in real wall-clock time.
@@ -761,8 +766,22 @@ function doStep(){
  if(G.battle.over==='enemy'){onWipe();renderAll();return;}
  var e=C.step(G.battle);
  if(e){lastActor=e.actorId;logEntry(e);}
- if(G.battle.over==='enemy'){onWipe();}
- renderAll();}
+ if(G.battle.over==='enemy'){onWipe();renderAll();return;}
+ /* v2.9 BUGFIX: this used to call the full renderAll() every single beat —
+    with travel now auto-starting on load, that meant AETHER/LORE/MARKS/
+    EXPEDITION's entire tab content (host.innerHTML='' + rebuild, fresh
+    button listeners every time) was being torn down and rebuilt dozens of
+    times a second at higher speeds, REGARDLESS of which tab the player was
+    actually looking at. None of that content changes from an ordinary
+    combat beat (leveling, Lore, pulls, and expeditions all need an
+    explicit button click elsewhere to change anything) — only the purse
+    numbers, the battle view, and the log genuinely need to update every
+    beat. A click landing while a tick-driven rebuild replaced the button
+    out from under it is "occasionally have to click twice" — renderTick()
+    (below) skips exactly the parts that don't need per-beat freshness;
+    wave-transition beats above still use the full renderAll(), since
+    afterWaveCleared()/onWipe() CAN change owned units/drops/checkpoints. */
+ renderTick();}
 function tick(){
  doStep();
  G.idleAcc+=1;
@@ -1101,11 +1120,27 @@ function renderLore(){
  var actionIds=G.actions.slice();
  Object.keys(used).forEach(function(id){
   if(actionIds.indexOf(id)<0&&C.ACTIONS[id]&&C.ACTIONS[id].isCharge)actionIds.push(id);});
+ /* v2.9: star/sort now key off ACTUALLY-equipped-right-now (actionHolders
+    .active), not usedActions()'s broader "protected from refund" sense —
+    those are different questions, and conflating them is exactly what
+    produced "starred charge actions listed as banked on Kesh — not
+    currently equipped": a banked-but-unequipped MC charge is refund-
+    protected (used[aid]=true, so it was starred) while genuinely not in
+    use anywhere, a real contradiction, not just bad wording. `used` itself
+    is untouched below — the refund button's own eligibility logic is a
+    separate, correct concern and still needs the broader sense. */
+ var active={};
+ actionIds.forEach(function(aid){active[aid]=actionHolders(aid).active.length>0;});
  actionIds.sort(function(x,y){
-  var ux=used[x]?0:1,uy=used[y]?0:1;return ux-uy;});   /* stable sort: used first, original order within each group */
- renderActionTabs(host,actionIds,used,function(){renderLore();});
- host.insertAdjacentHTML('beforeend','<div class="tiny" style="margin-bottom:6px">'+free+' of '+
-  Math.floor(G.lore)+' Lore free · each action\'s next upgrade costs one more Lore than its last</div>'+
+  var ax=active[x]?0:1,ay=active[y]?0:1;return ax-ay;});   /* stable sort: active first, original order within each group */
+ renderActionTabs(host,actionIds,active,function(){renderLore();});
+ /* "let's also make how much lore I have available to level more
+    apparent" — was a single .tiny line easy to miss; now its own
+    prominent, colored line matching how AETHER/MARKS/LORE currencies read
+    in the purse bar up top. */
+ host.insertAdjacentHTML('beforeend','<div style="margin-bottom:6px"><b style="color:var(--lore);font-size:15px">'+
+  free+'</b> <span class="tiny">of '+Math.floor(G.lore)+' Lore free — each action\'s next upgrade costs '+
+  'one more Lore than its last</span></div>'+
   (unusedIds.length?'<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
    'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
    (unusedIds.length===1?'':'s')+'</button>':''));
@@ -1114,15 +1149,24 @@ function renderLore(){
   var holders=actionHolders(aid);
   var box=document.createElement('div');box.className='bon';
   var totalBonus=bonusTotalSummary(aid);
+  /* "let's list the descriptions for an action under their name when
+     selected" — a.note is the same flavor/mechanical text GAMBITS already
+     shows under each slot, just wasn't surfaced here before. */
   var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+' <span class="tiny">Lv'+
    actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
+   (a.note?'<div class="tiny" style="margin-bottom:2px">'+a.note+'</div>':'')+
    '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
     '</b>'+(a.power?' · power ×'+a.power.toFixed(2):'')+'</div>'+
    '<div class="tiny" style="margin-bottom:2px;color:'+(holders.active.length?'var(--hp)':'var(--dimmer)')+'">'+
-    (holders.active.length?'used by '+holders.active.join(', '):
-     holders.banked?'banked on Kesh — not currently equipped':'unused')+'</div>'+
+    (holders.active.length?'used by '+holders.active.join(', '):'unused')+
+    /* "I also don't know if they can be refunded if the action is
+       unused" — usedActions() (`used`, computed above) is exactly the
+       refund button's own eligibility check, so state it plainly here
+       instead of leaving it to guesswork. */
+    (holders.active.length?'':(used[aid]?' — not refundable, kept as part of Kesh\'s charge pool'
+     :' — refundable'))+'</div>'+
    (totalBonus?'<div class="tiny" style="color:var(--lore);margin-bottom:3px">Lore total: '+
     totalBonus+'</div>':'')+
    (a.isCharge?'<div class="tiny" style="color:var(--dimmer);margin-bottom:3px">'+
@@ -1365,6 +1409,12 @@ function renderExpedition(){
  if(recallBtn)recallBtn.onclick=function(){recallExpedition();renderAll();};}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
+/* Lighter sibling of renderAll(), for the ordinary per-beat path in
+   doStep()/tick() only — see the comment there. Skips renderEconomy()'s
+   heavy per-tab rebuilds (AETHER/LORE/MARKS/EXPEDITION) in favor of just
+   renderPurse() (cheap textContent updates, no DOM replacement), since
+   nothing an ordinary combat beat does changes what those tabs show. */
+function renderTick(){renderHead();renderPowerLevel();renderUnits();renderRail();renderPurse();renderDropNote();autoSave();}
 
 /* ------------------------------------------------------------- gambits --- */
 /* ===== PARTY ROSTER EDITOR =====
@@ -1431,20 +1481,23 @@ var selectedActionTab=null;
 function currentSelectedAction(actionIds){
  if(!selectedActionTab||actionIds.indexOf(selectedActionTab)<0)selectedActionTab=actionIds[0];
  return selectedActionTab;}
-/* "level" = how many escalating (non-broad) Lore upgrades an action has —
-   the same count bonusPrice already uses to escalate cost and the "this
-   action's upgrade #N" line already shows, just surfaced next to the name
-   instead of buried in each bonus row. Broad is excluded (flat-priced,
-   doesn't feed the escalating counter — see actionBonusTotal in core.js). */
-function actionLevel(aid){return C.actionBonusTotal(G.bonuses[aid]||{});}
-function renderActionTabs(host,actionIds,used,onChange){
+/* "level" = total Lore upgrades an action has, escalating (Swift/Potent/
+   etc, via actionBonusTotal — the same count bonusPrice uses to escalate
+   cost, and the "this action's upgrade #N" line shows) PLUS Broad, which
+   is flat-priced and doesn't feed the escalating counter but is still a
+   real Lore upgrade spent on this action — "leveling up broad does not
+   level up the action; it should count towards its level." Pricing itself
+   is untouched (bonusPrice/actionBonusTotal still exclude broad on
+   purpose, for the escalation math) — only this display number changes. */
+function actionLevel(aid){var b=G.bonuses[aid]||{};return C.actionBonusTotal(b)+(b.broad||0);}
+function renderActionTabs(host,actionIds,active,onChange){
  var box=document.createElement('div');box.className='row';
  box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
  var cur=currentSelectedAction(actionIds),h='';
  actionIds.forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;
   h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
-   a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(used[aid]?' ★':'')+'</button>';});
+   a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
@@ -1484,8 +1537,19 @@ function buildGambits(){
     selector, instead of stacking all of G.party's boxes vertically —
     "playing now requires a lot of scrolling" with a full party. Everything
     below is unchanged from the per-unit render it always was; only the
-    outer iteration (G.party.forEach -> a single selected uid) changed. */
- renderUnitTabs(host,function(){buildGambits();});
+    outer iteration (G.party.forEach -> a single selected uid) changed.
+    v2.9 BUGFIX: now includes benched units — "I still can't update
+    gambits for benched units." A benched unit's loadout (G.loadout[uid])
+    is real, persistent state regardless of fielded status (ensureLoadout/
+    syncLoadout already only key off uid, no G.party dependency — editing
+    one was always safe, just unreachable through this tab). This also
+    fixes a second, related bug: since selectedUnitTab is shared with
+    AETHER/LORE (which already included benched units), this tab's
+    fielded-only pool would silently reset the shared selection back to a
+    fielded unit (reads as "the tab switches to the MC") the moment
+    buildGambits() ran after leveling a benched unit on AETHER — both
+    tabs now agree on the same pool, so there's nothing to reset. */
+ renderUnitTabs(host,function(){buildGambits();},true);
  /* v2.9: condition dropdown sorted by TYPE (group), not the order each one
     was acquired in — with dozens of conditions now (the 10%-HP-ladder
     addition above especially), acquisition order made a specific one hard
@@ -1501,12 +1565,14 @@ function buildGambits(){
    var gb=GROUP_ORDER[cb.group]!=null?GROUP_ORDER[cb.group]:9;
    if(ga!==gb)return ga-gb;
    return idx[a]-idx[b];});}
- [currentSelectedUnit()].forEach(function(uid){
+ [currentSelectedUnit(true)].forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  var fielded=G.party.indexOf(uid)>=0;
   var sl=ensureLoadout(uid);
   var box=document.createElement('div');box.style.marginBottom='12px';
-  box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname p">'+def.name+
-   ' <span class="tiny">'+capRole(def.role)+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>';
+  box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname'+(fielded?' p':'')+'">'+def.name+
+   ' <span class="tiny">'+capRole(def.role)+(fielded?'':' · benched')+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>'+
+   (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply once this unit is fielded.</div>');
   var ownedConds=sortedOwnedConditions();
   sl.forEach(function(s,i){
    var w=document.createElement('div');w.className='slot';
@@ -1880,5 +1946,14 @@ $('#btnMcConfirm').onclick=function(){
 setInterval(function(){
  if(G&&G.expedition){resolveExpedition();renderAll();}},30000);
 
-if(!tryResumeSave())showMcCreate();
+/* "let's have travelling the road begin as soon as the file is opened, so
+   long as the player has already made an MC" — a resumed save with a
+   custom G.mc starts travelling immediately instead of waiting for a
+   manual ▶ Travel click. Gated on G.mc specifically (not just a
+   successful resume) since a legacy save from before MC creation existed
+   has G.mc===null — that player never "made an MC" in the sense meant
+   here, so it's left starting paused like before. A fresh first-ever
+   visit (tryResumeSave() returns false) always goes to character
+   creation, where there is no travel loop to start yet regardless. */
+if(tryResumeSave()){if(G.mc)play();}else showMcCreate();
 })();
