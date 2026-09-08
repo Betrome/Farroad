@@ -309,6 +309,17 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       first, not just this tab.</div>
 
     <div class="panel">
+      <div class="sect">ALL 14 SHIPPED EFFECTS — REFERENCE</div>
+      <div class="note" style="margin:0 0 10px">Exactly what's coded in <code>src/farroad-core.js</code> today.
+        Debuffs can be stripped by a heal's <code>cleanse</code>; buffs cannot. Check here before naming a new
+        one, so you don't accidentally re-invent Sundered.</div>
+      <div style="font-size:13px;font-weight:700;color:var(--dim);letter-spacing:.04em;margin-bottom:4px">DEBUFFS (7)</div>
+      <div class="chain" id="x_ref_debuffs"></div>
+      <div style="font-size:13px;font-weight:700;color:var(--dim);letter-spacing:.04em;margin:12px 0 4px">BUFFS (7)</div>
+      <div class="chain" id="x_ref_buffs"></div>
+    </div>
+
+    <div class="panel">
       <div class="sect">IDENTITY</div>
       <div class="f"><label>id <span class="hint">lowercase, no spaces — becomes the applies_status value</span></label><input type="text" id="x_id" value="soaked"></div>
       <div class="f"><label>name</label><input type="text" id="x_name" value="Soaked"></div>
@@ -610,7 +621,7 @@ var EXISTING_EFFECTS=[
  {id:'frail',kind:'d',cat:'def',mag:0.75,desc:'RES ×0.75'},
  {id:'bracing',kind:'b',cat:'def',mag:1.40,desc:'DEF ×1.40 (plus a flat +0.30 block — a two-stat effect)'},
  {id:'blurred',kind:'b',cat:'flat',mag:0.20,desc:'evade +0.20 flat'},
- {id:'blinded',kind:'d',cat:'flat',mag:0.30,desc:"+0.30 to the DEFENDER's evade roll for that hit — special-cased inline in resolveHit(), not effEvade(), since the attacker's status imposes it rather than the target's own"},
+ {id:'blinded',kind:'d',cat:'flat',mag:0.30,desc:"on the AFFLICTED unit's own attacks: +0.30 to whatever they're attacking's evade chance — i.e. a blinded unit misses far more often. Special-cased inline in resolveHit(), not effEvade()."},
  {id:'hasted',kind:'b',cat:'speed',mag:0.60,desc:'tick cost ×0.60 (faster)'},
  {id:'slowed',kind:'d',cat:'speed',mag:1.50,desc:'tick cost ×1.50 (slower — "33% fewer turns")'},
  {id:'surging',kind:'b',cat:'charge',mag:2.00,desc:'charge rate ×2.0'},
@@ -719,6 +730,24 @@ function calcEffect(){
 }
 ['x_id','x_name','x_kind','x_turns','x_cat','x_stat','x_mag','x_note'].forEach(function(id){
  var el=$('#'+id);el.addEventListener('input',calcEffect);el.addEventListener('change',calcEffect);});
+
+/* static reference list — same 14 entries the balance-check above already uses,
+   just re-grouped debuff/buff and shown all at once instead of filtered by category */
+function renderEffectReference(){
+ var ORDER=['sundered','frail','enfeebled','dulled','slowed','blinded','burning',
+            'hasted','warded','taunted','surging','bracing','regen','blurred'];
+ var byId={};EXISTING_EFFECTS.forEach(function(e){byId[e.id]=e;});
+ var d='',b='';
+ ORDER.forEach(function(id){
+  var e=byId[id];if(!e)return;
+  var name=id.charAt(0).toUpperCase()+id.slice(1);
+  var row='<div class="r"><span>'+name+'</span><b>'+e.desc+'</b></div>';
+  if(e.kind==='d')d+=row;else b+=row;
+ });
+ $('#x_ref_debuffs').innerHTML=d;
+ $('#x_ref_buffs').innerHTML=b;
+}
+renderEffectReference();
 
 calcAction();calcUnit();calcEnemy();calcGambit();calcEffect();
 })();
