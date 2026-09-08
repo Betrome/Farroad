@@ -86,8 +86,12 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
         <option value="equippable">equippable</option><option value="charge">charge</option>
         <option value="enemy_charge">enemy_charge</option><option value="enemy_basic">enemy_basic</option>
         <option value="inert">inert</option></select></div>
-      <div class="f"><label>camp <span class="hint">damage type</span></label><select id="a_camp">
+      <div class="f"><label>camp <span class="hint">damage type — also fixes crit stat, defender's mitigation stat, evade/block asymmetry, row multiplier</span></label><select id="a_camp">
         <option value="atk">atk (ATK vs DEF)</option><option value="mag">mag (MAG vs RES)</option></select></div>
+      <div class="f"><label>scale_stat <span class="hint">optional (v2.9+) — attacker's magnitude source, if not the camp-implied ATK/MAG. camp above still governs everything else.</span></label><select id="a_scalestat">
+        <option value="">(none — use camp-implied ATK/MAG)</option>
+        <option value="atk">atk</option><option value="mag">mag</option><option value="def">def</option>
+        <option value="res">res</option><option value="spd">spd</option></select></div>
       <div class="f"><label>target</label><select id="a_target">
         <option value="foe">foe</option><option value="allFoes">allFoes</option><option value="ally">ally</option>
         <option value="allAllies">allAllies</option><option value="self">self</option><option value="deadAlly">deadAlly</option></select></div>
@@ -168,7 +172,7 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
         <option value="back">back (×0.75 physical taken)</option></select></div>
     </div>
     <div class="panel">
-      <div class="sect">STATS <span style="font-weight:400;color:var(--dim);letter-spacing:0"> — five authored units run HP 270–560, SPD 84–124</span></div>
+      <div class="sect">STATS <span style="font-weight:400;color:var(--dim);letter-spacing:0"> — ten authored units run HP 270–560, SPD 84–124</span></div>
       <div class="f"><label>hp</label><input type="number" id="u_hp" value="350"></div>
       <div class="f"><label>atk</label><input type="number" id="u_atk" value="20"></div>
       <div class="f"><label>mag</label><input type="number" id="u_mag" value="20"></div>
@@ -199,8 +203,9 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
     <div class="panel">
       <div class="sect">DERIVED</div>
       <div class="res"><span class="k">ATK+MAG+DEF+RES total</span><span class="v" id="u_out_total">—</span></div>
-      <div class="note">Existing five run 62–82 on that total (Vey 62, Mirel 74, Ansa 76, Kesh 80, Dorrek 82)
-        — it's a soft guideline, not a hard cap, since roles trade one stat for another.</div>
+      <div class="note">Existing ten run 61–82 on that total (Skarn 61, Brenn 61, Vey 62, Sael 64, Mirel 74,
+        Sorin 72, Nyra 73, Ansa 76, Kesh 80, Dorrek 82) — it's a soft guideline, not a hard cap, since
+        roles trade one stat for another.</div>
       <div id="u_warnings" class="warnlist" style="margin-top:8px"></div>
     </div>
     <div class="panel">
@@ -412,7 +417,7 @@ Array.prototype.forEach.call(document.querySelectorAll('.tabs button'),function(
 function calcAction(){
  var power=n('a_power'), rank=Math.max(0.01,n('a_rank')), hits=Math.max(1,n('a_hits')),
      pierce=n('a_pierce'), critb=n('a_critb'), baseCrit=n('a_basecrit'),
-     camp=t('a_camp'), tk=t('a_target'), applies=t('a_status'), heal=c('a_heal'),
+     camp=t('a_camp'), scaleStat=t('a_scalestat'), tk=t('a_target'), applies=t('a_status'), heal=c('a_heal'),
      kind=t('a_kind'), isCharge=(kind==='charge'||kind==='enemy_charge'),
      chargeGain=n('a_chargegain'), chargeCost=n('a_chargecost'), conditional=c('a_conditional');
 
@@ -446,6 +451,10 @@ function calcAction(){
    else warnings.push(warnRow('ok','DPT sits at '+f2(rel*100)+'% of Strike, in the normal band for an unconditional action.'));
   }
  }
+ if(scaleStat) warnings.push(warnRow('ok','scale_stat="'+scaleStat+'" set — the attacker\'s magnitude comes from '+
+  'their own '+scaleStat.toUpperCase()+' instead of camp-implied ATK/MAG. camp="'+camp+'" is unchanged by this and '+
+  'still independently governs crit stat, the DEFENDER\'s mitigation stat (DEF vs RES), evade/block asymmetry, '+
+  'and the row multiplier — this DPT estimate is unaffected either way, since it only tracks power/hits/rank.'));
  if(rank<0.65||rank>2.10) warnings.push(warnRow('warn','rank '+rank+' is outside the shipped band 0.65–2.10.'));
  if(pierce<0||pierce>0.85) warnings.push(warnRow('warn','def_pierce '+pierce+' is outside the shipped band 0–0.85.'));
  if(critb<0||critb>0.30) warnings.push(warnRow('warn','crit_bonus '+critb+' is outside the shipped band 0–0.30.'));
@@ -485,7 +494,7 @@ function calcAction(){
 
  $('#a_warnings').innerHTML=warnings.join('');
 
- var row=csvRow([t('a_id'),t('a_name'),kind,camp,f2(power),t('a_powerdyn'),f2(rank),f3(ini),tk,hits,
+ var row=csvRow([t('a_id'),t('a_name'),kind,camp,scaleStat,f2(power),t('a_powerdyn'),f2(rank),f3(ini),tk,hits,
   applies,applies?n('a_turns'):'',pierce,critb,t('a_critdyn'),heal?'TRUE':'',
   n('a_lifesteal')||'',n('a_revive')||'',n('a_cleanse')||'',c('a_selftaunt')?'TRUE':'',
   isCharge?'':chargeGain, isCharge?chargeCost:'',
@@ -493,7 +502,7 @@ function calcAction(){
   t('a_note')]);
  $('#a_csv').value=row;
 }
-['a_id','a_name','a_kind','a_camp','a_target','a_power','a_powerdyn','a_rank','a_hits','a_pierce','a_critb',
+['a_id','a_name','a_kind','a_camp','a_scalestat','a_target','a_power','a_powerdyn','a_rank','a_hits','a_pierce','a_critb',
  'a_critdyn','a_basecrit','a_status','a_turns','a_heal','a_lifesteal','a_revive','a_cleanse','a_selftaunt',
  'a_chargegain','a_chargecost','a_conditional','a_note'].forEach(function(id){
   var el=$('#'+id);el.addEventListener('input',calcAction);el.addEventListener('change',calcAction);});
@@ -511,14 +520,19 @@ function calcUnit(){
  else warnings.push(warnRow('ok','SPD '+spd+' fits the authored band 84–124.'));
  if(acrit<0.03||acrit>0.12) warnings.push(warnRow('warn','atk_crit '+acrit+' is outside the shipped band 0.03–0.12 (and remember it never scales with level).'));
  if(mcrit<0.03||mcrit>0.12) warnings.push(warnRow('warn','mag_crit '+mcrit+' is outside the shipped band 0.03–0.12 (and remember it never scales with level).'));
- if(total<58||total>86) warnings.push(warnRow('warn','ATK+MAG+DEF+RES total '+total+' sits outside the existing 62–82 range — fine if deliberate, but double check it against the role you\'re building.'));
- else warnings.push(warnRow('ok','Stat total '+total+' sits inside the existing five units\' 62–82 range.'));
- var knownCharge=['oath','ninefold','hearthlight','vowofstone','ashfall','tideturn','lastlight','sunder',
-  'gravewind','reckoning','bulwarkoath','emberglut','hollowtoll'];
+ if(total<57||total>86) warnings.push(warnRow('warn','ATK+MAG+DEF+RES total '+total+' sits outside the existing 61–82 range — fine if deliberate, but double check it against the role you\'re building.'));
+ else warnings.push(warnRow('ok','Stat total '+total+' sits inside the existing ten units\' 61–82 range.'));
+ /* kept in sync with CHARGE_ACTIONS in src/farroad-core.js — re-copy that array here if it grows again */
+ var knownCharge=['oath','ninefold','hearthlight','vowofstone','ashfall',
+  'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
+  'heavystrike','wildfire','greatheal',
+  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll',
+  'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
+  'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
  var cid=t('u_chargeid');
  if(!cid) warnings.push(warnRow('bad','charge_action id is blank — every unit needs a unique one.'));
  else if(knownCharge.indexOf(cid)>=0) warnings.push(warnRow('bad','charge_action id "'+cid+'" collides with an already-authored charge action — pick a new id or reuse it deliberately only if this unit is meant to share it.'));
- else warnings.push(warnRow('ok','charge_action id "'+cid+'" is new — no collision with the 13 authored charge actions.'));
+ else warnings.push(warnRow('ok','charge_action id "'+cid+'" is new — no collision with the '+knownCharge.length+' authored charge actions.'));
  $('#u_warnings').innerHTML=warnings.join('');
 
  var row=csvRow([t('u_id'),t('u_name'),t('u_role'),t('u_row'),hp,atk,mag,def,res,spd,acrit,mcrit,

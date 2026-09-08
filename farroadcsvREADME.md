@@ -2,9 +2,9 @@
 
 Four files, pulled from the shipped build (`farroad-prototype-v0.9.html`, content version v2.8), not from the GDD. One row per entity. Add a row, send it back, and I can implement it.
 
-- `farroad-actions.csv` — 46 actions (25 equippable, 13 party charge, 3 enemy charge, 4 enemy basic, 1 inert)
-- `farroad-units.csv` — 5 authored units (the pool is designed for 25; 20 are unwritten)
-- `farroad-gambit-conditions.csv` — 30 conditions
+- `farroad-actions.csv` — 64 actions (25 equippable, 31 party/MC charge, 3 enemy charge, 4 enemy basic, 1 inert)
+- `farroad-units.csv` — 10 authored units (the pool is designed for 25; 15 are unwritten)
+- `farroad-gambit-conditions.csv` — 79 conditions (the original 30 plus a generated 10%-granularity HP-threshold ladder for foe/ally/self)
 - `farroad-enemies.csv` — 6 archetypes plus the boss modifier
 
 **Yes, I can implement your additions.** Fill in a row and I'll wire it into the build. The columns below are exactly what the code reads, so a complete row needs no further questions. Leave a cell blank when it doesn't apply.
@@ -19,6 +19,7 @@ Four files, pulled from the shipped build (`farroad-prototype-v0.9.html`, conten
 |---|---|---|
 | `kind` | which list it lives in | `equippable`, `charge`, `enemy_charge`, `enemy_basic`, `inert` |
 | `camp` | damage type | `atk` (uses ATK vs DEF) or `mag` (uses MAG vs RES) |
+| `scale_stat` | (v2.9+) overrides which of the ATTACKER's own stats drives magnitude | blank (camp-implied ATK/MAG), or `atk`/`mag`/`def`/`res`/`spd`. `camp` is untouched by this — it still independently governs crit stat, the DEFENDER's mitigation stat, evade/block asymmetry, and the row multiplier. See the 10 MC stat-scaling charges (`atk_reckless` etc.) for worked examples, e.g. a physical attack (`camp:atk`) that scales off DEF instead of ATK. |
 | `power` | damage/heal multiplier | 0 for non-damaging. 0.43–4.20 in the current set |
 | `power_dynamic` | prose description if power is computed by a `powerFn` | leave blank for flat power |
 | `rank` | time cost — **higher is slower** | 0.65–2.10 |

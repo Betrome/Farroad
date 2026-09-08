@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-08 00:24 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-08 02:35 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -271,7 +271,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-08 00:24 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-08 02:35 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -3693,7 +3693,7 @@ function buildGambits(){
   var box=document.createElement('div');box.style.marginBottom='12px';
   box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname'+(fielded?' p':'')+'">'+def.name+
    ' <span class="tiny">'+capRole(def.role)+(fielded?'':' · benched')+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>'+
-   (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply once this unit is fielded.</div>');
+   (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply at the start of each combat.</div>');
   var ownedConds=sortedOwnedConditions();
   sl.forEach(function(s,i){
    var w=document.createElement('div');w.className='slot';

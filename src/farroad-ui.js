@@ -1572,7 +1572,7 @@ function buildGambits(){
   var box=document.createElement('div');box.style.marginBottom='12px';
   box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname'+(fielded?' p':'')+'">'+def.name+
    ' <span class="tiny">'+capRole(def.role)+(fielded?'':' · benched')+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>'+
-   (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply once this unit is fielded.</div>');
+   (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply at the start of each combat.</div>');
   var ownedConds=sortedOwnedConditions();
   sl.forEach(function(s,i){
    var w=document.createElement('div');w.className='slot';
