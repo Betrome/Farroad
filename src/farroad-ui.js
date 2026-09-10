@@ -39,7 +39,17 @@ function newGame(seed,mc){
   dropsGranted:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
-  mc:mc||null, expeditions:[], pullsSinceUnit:0};}
+  mc:mc||null, expeditions:[], pullsSinceUnit:0,
+  /* Discoverable content — see MODULES.md. dungeons: [] of fully-baked,
+     frozen-difficulty repeatable fights found by expeditions. quests:
+     {uid:{stage,frozen}} per-companion 5-battle progress, keyed only for
+     owned units (kesh included, like every other owned-unit dict) —
+     frozen[i] is {wave,enemies}, that stage's own baked wave-equivalent
+     (derived from the player's power level at the time — see
+     P.questStageWave) and enemy snapshot, populated lazily on FIRST
+     attempt (win or lose) so a stage's difficulty is pinned to whenever
+     the player actually first tries it, not re-derived on every retry. */
+  dungeons:[], quests:{kesh:{stage:0,frozen:[]}}};}
 
 /* Applies a player-built character onto the 'kesh' slot. This mutates the
    shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
@@ -411,8 +421,12 @@ function startWave(w,skipDrops){
    boss-milestone join, the boss unit-drop roll, and doPull()'s unit branch.
    Callers still build their own pushDrop/sysLog text (the three contexts
    read differently), this only owns the G.lvl/G.bank/G.owned/G.party side
-   effects, which were previously duplicated verbatim at all three sites. */
+   effects, which were previously duplicated verbatim at all three sites.
+   v2.9: also the single choke point all 3 acquisition paths already run
+   through for "unlock this companion's quest line exactly once" — read
+   BEFORE the G.owned write below overwrites the signal. */
 function joinCompanion(uid){
+ if(!G.owned[uid])G.quests[uid]={stage:0,frozen:[]};
  G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
@@ -714,6 +728,7 @@ function resolveExpedition(exp){
    exp.hpFrac=alive.length?
     alive.reduce(function(s,u){return s+u.hp/u.maxHp;},0)/alive.length:0;
    exp.ew++;
+   rollExpeditionDiscovery(exp);   /* bonus fight or dungeon find — see below */
   }else{
    exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
   }
@@ -723,6 +738,68 @@ function resolveExpedition(exp){
  exp.lastResolvedAt=Date.now();
  if(turnedBack)beginReturnTrip(exp,resolveStartedAt+(capped-remaining)*1000,
   'injuries mounted and the party turned back.');}
+/* Serializes a live enemy unit (from buildEnemies) into a plain, JSON-safe
+   cfg-shaped snapshot — the exact fields C.makeUnit needs to reconstruct
+   an equivalent FRESH unit later, none of the per-battle-instance runtime
+   fields (st/nextActAt/charge/enrageN/...) a live unit also carries,
+   which must never be persisted or reused across separate fights. */
+function bakeEnemySnapshot(u){
+ return {name:u.name,arch:u.arch,thorns:u.thorns,isBoss:u.isBoss,row:u.row,
+  chargeAction:u.chargeAction,slots:u.slots.map(function(s){return {cond:s.cond,action:s.action};}),
+  stats:{hp:u.base.hp,atk:u.base.atk,mag:u.base.mag,def:u.base.def,res:u.base.res,spd:u.base.spd,
+   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,block:u.base.block,evade:u.base.evade}};}
+/* Reconstructs FRESH C.makeUnit() instances from a list of frozen
+   snapshots (a dungeon's `enemies`, or one quest stage's `frozen[i]`) —
+   called every time that fight is (re-)entered, never reusing a live
+   object across attempts (a fight mutates hp/status directly on the unit,
+   so replaying the same object a second time would start it
+   partway-damaged from the last attempt). */
+function unitsFromSnapshots(snapshots){
+ return snapshots.map(function(snap,j){
+  return C.makeUnit({id:'e'+j,name:snap.name,isParty:false,level:1,slotIndex:10+j,
+   arch:snap.arch,thorns:snap.thorns||0,isBoss:snap.isBoss,row:snap.row,
+   stats:snap.stats,chargeAction:snap.chargeAction,slots:snap.slots});});}
+/* "Let's add discoverable bonus fights/events... and discoverable
+   dungeons." Rolled once per WON expedition node (see the call site in
+   resolveExpedition above) — a flat per-opportunity chance, same shape as
+   the existing rare-charge-drop roll. On a hit, splits into a one-off
+   bonus fight (common: an extra encounter at the party's current
+   exp.ew, resolved immediately against the same party, logged either
+   way) or a dungeon discovery (rarer: bakes a FROZEN, difficulty-static
+   snapshot of the encounter — scaled up by DUNGEON_LEN, "slightly harder
+   than the Road" — into G.dungeons for the main party to repeat later). */
+function rollExpeditionDiscovery(exp){
+ if(G.rng.next()>=P.EXPED_DISCOVERY_CHANCE)return;
+ var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ if(G.rng.next()<P.EXPED_DUNGEON_SHARE){
+  var dEnemies=buildEnemies(exp.ew,true);
+  var hpMul=Math.sqrt(P.DUNGEON_LEN);
+  dEnemies.forEach(function(u){
+   u.base.hp=Math.max(1,Math.round(u.base.hp*hpMul));u.maxHp=u.base.hp;u.hp=u.base.hp;
+   u.base.atk=Math.max(1,Math.round(u.base.atk*P.DUNGEON_LEN));
+   u.base.mag=Math.round(u.base.mag*P.DUNGEON_LEN);});
+  var dungeon={id:'dgn'+Date.now()+'_'+Math.floor(Math.random()*1e6),
+   name:'Dungeon (found at depth '+exp.ew+')',
+   enemies:dEnemies.map(bakeEnemySnapshot),discoveredAtWave:exp.ew,clears:0};
+  G.dungeons.push(dungeon);
+  pushExpeditionLog(exp,names+' found the entrance to a dungeon.');
+  pushDrop({name:dungeon.name,kind:'DUNGEON DISCOVERED',
+   body:names+' found it while exploring — repeatable any time from the QUESTS tab.',
+   why:'A frozen, one-time-harder encounter — its difficulty won\'t drift as the road gets tougher.'});
+ }else{
+  var bEnemies=buildEnemies(exp.ew,true);
+  var bParty=buildExpeditionParty(exp.partyIds,exp.hpFrac);
+  var bBattle=C.makeBattle(bParty.concat(bEnemies),{rng:G.rng,enrage:G.enrage});
+  var bGuard=0;
+  while(!bBattle.over&&bGuard++<4000)C.step(bBattle);
+  if(bBattle.over==='party'){
+   var br=P.killReward(exp.ew,bEnemies.length);
+   exp.bank.aether+=br.aether;exp.bank.marks+=br.marks*P.marksMul(G);
+   pushExpeditionLog(exp,names+' won a bonus fight along the way — +'+
+    Math.round(br.aether)+' Aether, +'+Math.floor(br.marks*P.marksMul(G))+' Marks.');
+  }else{
+   pushExpeditionLog(exp,names+' were ambushed in a bonus fight and had to disengage — no reward.');}}}
 /* Resolves every active expedition in one pass — slice() first so
    settling one mid-loop (settleExpedition reassigns G.expeditions via
    filter) can't skip its neighbor. */
@@ -1447,7 +1524,113 @@ function updateExpeditionTimers(){
  G.expeditions.forEach(function(exp){
   var el=document.getElementById('exp-timer-'+exp.id);if(!el)return;
   el.textContent=exp.homeAt?fmtDur((exp.homeAt-Date.now())/1000):fmtDur((Date.now()-exp.startedAt)/1000);});}
-function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();}
+/* Resolves an already-discovered dungeon headlessly, against the CURRENT
+   main party at full HP — same C.setWave()-bracket-and-restore pattern
+   every other frozen/side fight in this file uses, so K_of()'s mitigation
+   math uses the dungeon's OWN frozen discovery-wave, not whatever G.wave
+   the player's real road progress happens to be at. Rewards are sized off
+   that same frozen wave, not G.wave — otherwise discovering an easy early
+   dungeon and farming it forever would silently inflate with the road's
+   own difficulty, defeating the point of a frozen fight. No cost to
+   attempt, no penalty on a loss — just try again any time. */
+function enterDungeon(id){
+ var dungeon=null;G.dungeons.forEach(function(d){if(d.id===id)dungeon=d;});
+ if(!dungeon)return;
+ var savedWave=G.wave;
+ C.setWave(dungeon.discoveredAtWave);
+ var party=buildExpeditionParty(G.party,1);
+ var enemies=unitsFromSnapshots(dungeon.enemies);
+ var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+ var guard=0;
+ while(!battle.over&&guard++<4000)C.step(battle);
+ C.setWave(savedWave);
+ if(battle.over==='party'){
+  dungeon.clears++;
+  var r=P.killReward(dungeon.discoveredAtWave,enemies.length);
+  G.aether+=r.aether;G.marks+=r.marks*P.marksMul(G);
+  sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned '+
+   '<b style="color:var(--aether)">+'+Math.round(r.aether)+' Aether</b> and '+
+   '<b style="color:var(--marks)">+'+Math.floor(r.marks*P.marksMul(G))+' Marks</b>.</span>');
+ }else{
+  sysLog('<b>Dungeon attempt failed.</b> <span class="tiny">'+dungeon.name+
+   ' — the party was defeated. No penalty, try again any time.</span>');}}
+/* Resolves one companion's next quest stage headlessly against the
+   current main party at full HP — that companion must already be
+   fielded (validated again here, not just via the disabled button, in
+   case state changed between render and click). The stage's enemies are
+   baked into G.quests[uid].frozen[stage] on FIRST attempt (win OR lose)
+   and reused on every retry after — "static difficulty" applies the same
+   way it does to a discovered dungeon, just pinned to first ATTEMPT
+   rather than acquisition, so a companion attempted long after being
+   acquired still gets an approachable early stage instead of whatever
+   wave the player is actually on. */
+function attemptQuestStage(uid){
+ var q=G.quests[uid];
+ if(!q||q.stage>=5)return;
+ if(G.party.indexOf(uid)<0)return;
+ var line=P.QUEST_LINES[uid];if(!line)return;
+ var stage=q.stage,story=line[stage];
+ q.frozen=q.frozen||[];
+ /* Baked once, at first attempt — wave AND enemy stats both frozen then,
+    so a later retry (after a loss, possibly with the player's power level
+    having moved on) replays the exact same fight, never a re-scaled one. */
+ if(!q.frozen[stage]){
+  var wave=P.questStageWave(G,stage);
+  var fresh=buildEnemies(wave,true);
+  q.frozen[stage]={wave:wave,enemies:fresh.map(bakeEnemySnapshot)};}
+ var savedWave=G.wave;
+ C.setWave(q.frozen[stage].wave);
+ var party=buildExpeditionParty(G.party,1);
+ var enemies=unitsFromSnapshots(q.frozen[stage].enemies);
+ var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+ var guard=0;
+ while(!battle.over&&guard++<4000)C.step(battle);
+ C.setWave(savedWave);
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ var name=def?def.name:uid;
+ if(battle.over==='party'){
+  q.stage++;
+  pushDrop({name:name+' — stage '+(stage+1)+' of 5',kind:'QUEST',body:story,
+   why:q.stage>=5?name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
+  sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+name+' — stage '+(stage+1)+' of 5.</span>');
+ }else{
+  sysLog('<b>Quest attempt failed.</b> <span class="tiny">'+name+
+   ' — the party was defeated. No penalty, try again any time.</span>');}}
+/* "Let's add discoverable dungeons... repeated by the main party" +
+   "quest lines of 5 battles for each new unit." One tab, two sections —
+   both are main-party content, distinct from EXPEDITION's benched-party
+   focus. */
+function renderQuests(){
+ var host=$('#questsView');if(!host)return;
+ var h='<div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>DUNGEONS</b> ('+
+  G.dungeons.length+')</div>';
+ if(!G.dungeons.length){
+  h+='<div class="tiny">None found yet — expeditions have a chance to discover one while exploring.</div>';
+ }else{
+  G.dungeons.forEach(function(d){
+   h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+d.name+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">'+d.enemies.length+' foe'+(d.enemies.length===1?'':'s')+
+     ' · cleared '+d.clears+' time'+(d.clears===1?'':'s')+'</div>'+
+    '<button class="mini questEnter" data-id="'+d.id+'" style="margin-top:6px">Enter</button></div>';});}
+ h+='<hr><div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>COMPANION QUESTS</b></div>';
+ var active=Object.keys(G.owned).filter(function(uid){return G.quests[uid]&&G.quests[uid].stage<5;});
+ if(!active.length){
+  h+='<div class="tiny">Nothing in progress.</div>';
+ }else{
+  active.forEach(function(uid){
+   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+   var name=def?def.name:uid, stage=G.quests[uid].stage, fielded=G.party.indexOf(uid)>=0;
+   h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+name+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5</div>'+
+    '<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+
+     (fielded?'':' disabled title="'+name+' must be in your fielded party to attempt their own quest"')+
+    '>Attempt</button></div>';});}
+ host.innerHTML=h;
+ Array.prototype.forEach.call(host.querySelectorAll('.questEnter'),function(el){
+  el.onclick=function(){enterDungeon(el.dataset.id);renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.questAttempt'),function(el){
+  el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});}
+function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();renderQuests();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 /* Lighter sibling of renderAll(), for the ordinary per-beat path in
    doStep()/tick() only — see the comment there. Skips renderEconomy()'s
@@ -1902,7 +2085,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
  b.onclick=function(){
   Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(x){x.classList.remove('on');});
   b.classList.add('on');
-  ['log','gambits','aether','lore','marks','expedition','tests'].forEach(function(t){
+  ['log','gambits','aether','lore','marks','expedition','quests','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
 function boot(seed,mc){

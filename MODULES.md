@@ -1310,3 +1310,170 @@ state over a fresh `localStorage` seed, on an unconditional ~15s cadence,
 regardless of `beforeunload`/navigation. A round of expedition testing
 must close every other Farroad-origin tab before seeding, not just the
 one about to be edited or observed.
+
+## Discoverable content — bonus fights, dungeons, companion quest lines (items 5-7)
+
+"Discoverable bonus fights/events... discoverable dungeons... companion
+quest lines" — one framework, reusing the expedition system's own
+"resolve headlessly to completion, report via a log entry" precedent
+rather than inventing a new one: nothing here is live-watched through
+`G.battle`/`renderUnits`/`doStep()`, since making a side fight
+live-watchable would need `doStep()` and three render functions to accept
+"which battle" instead of hardcoding the `G.battle` global — a real
+architecture change the ask didn't require. Confirmed with Ian up front:
+quest story text is placeholder-only, he authors the real narrative later
+the same way `farroadunits.csv`/the content designer are already his own
+tools; quest battles use the FULL main party, but the specific companion
+whose quest it is must be currently fielded for the attempt to be allowed.
+
+**Data model**: `G.dungeons` — array, each entry's enemies **fully baked
+at discovery time** via new `bakeEnemySnapshot(u)` (a plain, JSON-safe
+stat block: name/arch/thorns/isBoss/row/chargeAction/slots/stats), not a
+wave-number reference — `{id,name,enemies:[...],discoveredAtWave,clears}`.
+`G.quests` — `{uid:{stage,frozen}}`, keyed only for owned units (`kesh`
+included from `newGame()`, exactly like every other owned-unit dict);
+`stage` is battles won (0-5), `frozen[i]` is that stage's own baked
+snapshot, populated lazily on FIRST ATTEMPT rather than at acquisition —
+a companion acquired at wave 20 but not attempted until wave 800 still
+gets the intended difficulty, not whatever the player's current wave
+happens to be. New `unitsFromSnapshots(snapshots)` reconstructs fresh
+`C.makeUnit()` instances from either source every time a fight is
+(re-)entered — never reusing a live, possibly-damaged unit object across
+separate attempts. `farroad-save.js` FIELDS gains `'dungeons','quests'`;
+`deserialize` default-fills both (brand-new fields, no legacy shape).
+
+**Discovery roll** — `rollExpeditionDiscovery(exp)`, called from
+`resolveExpedition`'s win branch right after `exp.ew++`: a flat
+`P.EXPED_DISCOVERY_CHANCE` (0.08) per won node, splitting into a bonus
+fight (common, `P.EXPED_DUNGEON_SHARE`=0.30 is the dungeon share, the
+rest) — an extra `buildEnemies(exp.ew,true)` encounter resolved
+immediately against the same expedition party, banking a reward into
+`exp.bank` on a win, logged via `pushExpeditionLog` either way, with
+losses deliberately NOT touching `exp.hpFrac` (upside-only, "no reward"
+is the only downside) — or a dungeon discovery: enemies built at `exp.ew`
+scaled by `P.DUNGEON_LEN` (mirrors how `P.BOSS_LEN` already sizes the
+boss, just smaller), baked into a new `G.dungeons` entry, surfaced via
+both `pushExpeditionLog` and `pushDrop({kind:'DUNGEON DISCOVERED',...})`
+so it isn't buried in a log the player might not check.
+
+**New QUESTS tab** (`shell.html`, registered in the same tab-switch array
+every other tab uses): two sections. Dungeons — one row per `G.dungeons`
+entry with an Enter button; `enterDungeon(id)` builds
+`buildExpeditionParty(G.party,1)` (full-HP current party) against
+`unitsFromSnapshots(dungeon.enemies)`, `C.setWave`-bracketed around the
+frozen `discoveredAtWave` (see the mitigation note below), reports via
+`sysLog`, increments `clears` on a win. Companion quests — one row per
+owned unit with `stage<5`, an Attempt button disabled (with a tooltip)
+unless that companion is in `G.party`; `attemptQuestStage(uid)` bakes
+`q.frozen[stage]` on first attempt, then resolves the same
+setWave-bracketed way, incrementing `stage` and revealing that stage's
+`story` via `pushDrop({kind:'QUEST',...})` on a win. Both paths: no
+penalty on a loss beyond the log message — "try again any time."
+
+**Damage-mitigation footgun avoided**: `K_of(l)` (`farroad-core.js`)
+reads the *module-global* `CURRENT_WAVE` at every `resolveHit`/`step()`
+call, not just at unit construction — any frozen-difficulty fight has to
+bracket its own step-loop with `C.setWave(<frozen>)` / restore after,
+exactly like `resolveExpedition` already does. Both `enterDungeon` and
+`attemptQuestStage` do this explicitly; a new smoke check proves the
+property directly (build a unit from a fixed stat block, flip
+`CURRENT_WAVE` somewhere `hardMul` scales very differently, rebuild from
+the same block, assert the base stats are bit-for-bit identical).
+
+**Acquisition hook**: one line added as the first statement in
+`joinCompanion(uid)` — `if(!G.owned[uid])G.quests[uid]={stage:0,frozen:[]}`
+— read before the `G.owned[uid]=1` write below it overwrites the signal.
+`joinCompanion` is already the single choke point all 3 acquisition paths
+(boss milestone, boss unit-drop roll, pull) funnel through, so this is
+the only call-site change needed.
+
+**Difficulty tuning — a real finding, not a guess shipped blind**: a
+headless balance script (`scratchpad/discoverable-content-tuning.js`,
+same VM-sandbox pattern as every prior balance test this session,
+reproducing `buildEnemies` verbatim) measured `P.DUNGEON_LEN=1.15` as
+landing the min level for a 50%-win bare-attack party at roughly 1.1-1.2x
+the plain-Road figure at the same discovery depth (e.g. depth 400: level
+88 Road vs 95 dungeon) — confirmed short of the boss's 1.3-1.5x band, i.e.
+genuinely "slightly harder", not a second boss. `P.QUEST_LINES`' first-pass
+wave-equivalents (10/20/30/45/60) measured as **completely trivial at
+every stage** — min level 1 wins 100% of the time — because the quest is
+fought by the FULL 5-unit party, but `P.enemyCount(w)` (which the quest's
+enemy-building reuses) only grows past 1-2 foes at waves 20/150/500/1500;
+a wave in the 10-60 range can never field enough bodies to threaten five
+units regardless of level. First retune: fixed milestones
+**30/150/400/800/1500** (reusing the game's own `UNIT_WAVES` at 150/1500) —
+measured a real monotonic escalation and shipped a build on it.
+
+**Superseded the same session, before Ian saw it** — Ian's actual ask was
+to scale each stage off the *player's own* `P.powerLevel` instead of any
+fixed wave schedule (0.5x power at stage 1, ramping to a full 1.0x-power
+stage 5), so a quest line is always calibrated to where THIS run is, not
+an absolute milestone a very-early or very-late companion might unlock
+nowhere near. The obvious implementation — invert `C.levelCurve()`
+(the same wave->level curve `powerLevel`'s own wave term already uses) on
+`frac*powerLevel(g)` — measured as **catastrophically broken**: a real
+level-80 5-unit party at wave 300 (power 536) got a stage-1 wave of 7130
+and lost 15/15 at every one of the 5 stages, not an escalation, a wall
+from the very first attempt. Root cause: `powerLevel` SUMS every owned
+unit's level on top of the wave term, so a 5-unit party's `powerLevel`
+runs 5-10x what `levelCurve(their actual wave)` alone would be —
+`levelCurve` is a square-root curve, so inverting a 5-10x-inflated
+"level" back through it overshoots the wave by roughly the *square* of
+that factor. Fixed by using the power number **directly as the wave**,
+no curve inversion (`P.questStageWave = Math.round(frac*powerLevel(g))`)
+— re-measured (real level-80/level-14 parties, headless battle sim, 20
+trials/stage): a trivial stage 1 rising to a genuinely losable stage 5
+(7/20 and 3/20 win rates for early/mid-game parties respectively, always
+at their OWN current power) — a real capstone, not a wall.
+`P.QUEST_LINES` entries dropped their per-stage `wave` field entirely
+(now just 5 story strings per companion); the wave is computed fresh via
+`P.questStageWave(G,stage)` at first attempt and baked alongside the
+enemy snapshot into `q.frozen[stage]={wave,enemies}` (was just the
+enemy-snapshot array) — the frozen wave has to travel with the frozen
+enemies now, since it's no longer a lookup into a static table.
+
+**Verification**: 14 new smoke checks (95→109), then the power-scaling
+correction swapped 3 `waveForLevel`-specific checks for 4 checks against
+the new direct-proportional formula (109→115 net): discovery-chance
+constants are sane probabilities, the roll fires at its configured rate
+across 5000 trials, `P.QUEST_LINES` has one complete 5-story entry per
+`C.ROSTER` id, `P.QUEST_STAGE_POWER_FRAC` is 5 ascending fractions
+0.5->1.0, `questStageWave` stage 5 equals `powerLevel` exactly and rises
+monotonically across stages, the freeze-proof above, and full/old-save
+round-trip coverage for both new FIELDS entries. Live browser pass (fresh
+tab each time, per the hazard below): an owned-but-unquested companion
+(Ansa) showed "Stage 2 of 5" with Attempt correctly disabled and
+tooltipped until fielded, then enabled the moment she was; a
+directly-seeded `G.dungeons` entry rendered and Enter resolved headlessly,
+incrementing `clears`; Kesh's quest stage 1 resolved BOTH ways — a genuine
+loss (solo, level 5, bare Strike/Strike) logged "Quest attempt failed"
+with the stage held at 1, and a win (leveled to 40, Ansa fielded
+alongside) logged "Quest stage cleared", advanced to stage 2, and revealed
+the placeholder story text via the drop banner; a REAL expedition (seeded
+with a large elapsed offline window so `tryResumeSave`'s catch-up had many
+nodes to resolve, `P.EXPED_DISCOVERY_CHANCE` bumped to 1 in one run to
+force the branch) produced both outcomes live — "Dorrek won a bonus fight
+along the way — +4 Aether, +0 Marks" at default odds, and 5 separate
+"DUNGEON DISCOVERED" drop notices in the forced run, each correctly baked,
+listed in the QUESTS tab, and clearable via Enter. After the power-scaling
+correction: a seeded level-80 5-unit party (power 536, matching the
+headless balance figures above) showed `POWER LEVEL 536` in the header and
+ran Kesh's quest line to completion end-to-end through all 5 real,
+power-derived-wave stages — "Kesh's quest line is complete." — confirming
+the corrected formula is wired all the way from `attemptQuestStage()`
+through to the UI.
+
+**Testing-workflow hazard found while verifying this (a new variant)**:
+the known "lingering background tab re-saves stale state" hazard turned
+out to have a second trigger beyond the periodic poller — `farroad-ui.js`
+has `window.addEventListener('beforeunload',function(){doSave();})`, so
+simply calling `navigate()` to reload the SAME tab a `localStorage` seed
+was just written into fires that handler on the OLD page instance,
+re-serializing whatever G it already had in memory (built from
+localStorage at ITS OWN earlier load) right back over the fresh seed
+before the reload's read ever happens. Fix is the same discipline as
+before, stated more precisely: never reload/navigate the tab you just
+wrote `localStorage` into — write from tab A, then open a genuinely fresh
+tab B to observe, and close tab A (or otherwise ensure it never gets a
+chance to autosave or unload) before its own 15s poller or a later
+navigation of it can fire.

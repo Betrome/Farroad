@@ -39,7 +39,13 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     v2.9: was a single nullable 'expedition' object plus one shared
     'expeditionLog' array (multi-expedition support) — see the migration
     in deserialize() below for a save written before this field existed. */
- 'expeditions'];
+ 'expeditions',
+ /* discoverable content — see MODULES.md. 'dungeons' is [] of fully-baked,
+    frozen-difficulty repeatable fights an expedition has found; 'quests'
+    is {uid:{stage}} per-companion 5-battle progress, keyed only for owned
+    units. Both are brand-new fields with no legacy shape — see the plain
+    default-fill below, not a migration. */
+ 'dungeons','quests'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -111,6 +117,9 @@ S.deserialize=function(snap,C){
    G.expeditions=[legacy];
   }else{
    G.expeditions=[];}}
+ if(!G.dungeons)G.dungeons=[];
+ if(!G.quests)G.quests={};
+ if(!G.quests.kesh)G.quests.kesh={stage:0,frozen:[]};   /* kesh is owned from newGame(), never through joinCompanion() */
  G.pullsSinceUnit=G.pullsSinceUnit||0;
  return G;};
 

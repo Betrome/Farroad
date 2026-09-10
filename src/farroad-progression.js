@@ -350,6 +350,90 @@ P.OFFLINE_CAP_SEC=12*3600;
 P.EXPED_RETURN_HP_FRAC=0.25;      /* auto-return once carried HP drops below this */
 P.EXPED_CAP_SEC=P.OFFLINE_CAP_SEC;  /* same 12h ceiling per catch-up pass */
 
+/* ===== DISCOVERABLE CONTENT (bonus fights + dungeons) =====
+ * Rolled once per WON expedition node — same spirit and shape as
+ * MC_CHARGE_DROP_CHANCE (a flat per-opportunity roll, checked once, no
+ * extra time cost since it's a bonus riding a fight already paid for).
+ * A success splits into a one-off bonus fight (common — extra reward,
+ * logged, done) or a dungeon discovery (rarer — becomes a permanent,
+ * repeatable fight for the main party, at a difficulty FROZEN at
+ * discovery time, immune to any later retuning of waveScale/hardMul).
+ * DUNGEON_LEN mirrors how BOSS_LEN already sizes the boss (1.3-1.5x a
+ * normal fight) — a dungeon is "slightly harder than the Road", not
+ * boss-tier, so meaningfully smaller. Measured (headless balance script,
+ * scratchpad/discoverable-content-tuning.js): at 1.15, the min level for a
+ * bare-attack-only party to hold a 50% win rate against a dungeon is
+ * ~1.1-1.2x the min level needed against a plain Road wave at the same
+ * discovery depth (e.g. depth 400: level 88 Road vs 95 dungeon) — clearly
+ * short of the boss's 1.3-1.5x band, i.e. confirmed "slightly harder", not
+ * a second boss. All tuned against that script before shipping. */
+P.EXPED_DISCOVERY_CHANCE=0.08;
+P.EXPED_DUNGEON_SHARE=0.30;       /* of a discovery, this fraction is a dungeon, the rest a bonus fight */
+P.DUNGEON_LEN=1.15;
+
+/* ===== COMPANION QUEST LINES =====
+ * One 5-battle chain per roster unit, unlocked the moment they're first
+ * acquired (see joinCompanion() in the UI layer). Fought by the full main
+ * party — same balance the rest of the game is tuned around — but the
+ * questing companion must be fielded for the attempt (Ian's call: keeps
+ * it personal without needing separate solo-fight tuning).
+ * v2.9 CORRECTION — was a fixed wave-equivalent per stage, shared by every
+ * companion (30/150/400/800/1500). That's a bad fit for a companion whose
+ * quest can be started at wildly different points in wildly different
+ * runs: a fixed schedule is either trivial (attempted late) or a wall
+ * (attempted right after acquiring a LATE companion, e.g. Mirel at wave
+ * 1500, whose own party is nowhere near ready for a wave-1500 encounter
+ * just because that's stage 1's number). Ian's call: scale each stage off
+ * the PLAYER'S OWN P.powerLevel instead — stage 1 at half that player's
+ * current power, ramping to stage 5 at their full current power, so a
+ * quest line is always calibrated to where THIS run actually is, not an
+ * absolute milestone. The wave-equivalent is the power number USED
+ * DIRECTLY as a wave (P.questStageWave below), not inverted back through
+ * C.levelCurve — see the comment on that function for the measured reason
+ * inverting the curve breaks badly (a 5-unit party's powerLevel runs
+ * 5-10x what levelCurve(their actual wave) alone would be, and squaring
+ * that back through the curve overshoots the wave by roughly the square
+ * of that factor — measured as an unwinnable wall from stage 1 on).
+ * Still baked at FIRST ATTEMPT, not at acquisition or at each retry — see
+ * P.questStageWave/attemptQuestStage (UI layer): the frozen wave AND the
+ * frozen enemy stats are both fixed the moment a stage is first attempted,
+ * immune to the player's power level moving on a later retry after a
+ * loss, exactly like every other frozen-difficulty fight in this file.
+ * `story` is placeholder-only per Ian's explicit call — he/the associate
+ * author the real narrative later, the same way farroadunits.csv/the
+ * content designer are already content HE owns, never touched by code
+ * changes here. Every roster id needs an entry (5 strings) or the QUESTS
+ * tab will throw for that unit the moment they're owned — keep this table
+ * in sync with C.ROSTER. */
+P.QUEST_LINES={
+ kesh:['PLACEHOLDER — Kesh, stage 1.','PLACEHOLDER — Kesh, stage 2.',
+  'PLACEHOLDER — Kesh, stage 3.','PLACEHOLDER — Kesh, stage 4.','PLACEHOLDER — Kesh, stage 5.'],
+ ansa:['PLACEHOLDER — Ansa, stage 1.','PLACEHOLDER — Ansa, stage 2.',
+  'PLACEHOLDER — Ansa, stage 3.','PLACEHOLDER — Ansa, stage 4.','PLACEHOLDER — Ansa, stage 5.'],
+ dorrek:['PLACEHOLDER — Dorrek, stage 1.','PLACEHOLDER — Dorrek, stage 2.',
+  'PLACEHOLDER — Dorrek, stage 3.','PLACEHOLDER — Dorrek, stage 4.','PLACEHOLDER — Dorrek, stage 5.'],
+ vey:['PLACEHOLDER — Vey, stage 1.','PLACEHOLDER — Vey, stage 2.',
+  'PLACEHOLDER — Vey, stage 3.','PLACEHOLDER — Vey, stage 4.','PLACEHOLDER — Vey, stage 5.'],
+ mirel:['PLACEHOLDER — Mirel, stage 1.','PLACEHOLDER — Mirel, stage 2.',
+  'PLACEHOLDER — Mirel, stage 3.','PLACEHOLDER — Mirel, stage 4.','PLACEHOLDER — Mirel, stage 5.'],
+ skarn:['PLACEHOLDER — Skarn, stage 1.','PLACEHOLDER — Skarn, stage 2.',
+  'PLACEHOLDER — Skarn, stage 3.','PLACEHOLDER — Skarn, stage 4.','PLACEHOLDER — Skarn, stage 5.'],
+ sorin:['PLACEHOLDER — Sorin, stage 1.','PLACEHOLDER — Sorin, stage 2.',
+  'PLACEHOLDER — Sorin, stage 3.','PLACEHOLDER — Sorin, stage 4.','PLACEHOLDER — Sorin, stage 5.'],
+ nyra:['PLACEHOLDER — Nyra, stage 1.','PLACEHOLDER — Nyra, stage 2.',
+  'PLACEHOLDER — Nyra, stage 3.','PLACEHOLDER — Nyra, stage 4.','PLACEHOLDER — Nyra, stage 5.'],
+ brenn:['PLACEHOLDER — Brenn, stage 1.','PLACEHOLDER — Brenn, stage 2.',
+  'PLACEHOLDER — Brenn, stage 3.','PLACEHOLDER — Brenn, stage 4.','PLACEHOLDER — Brenn, stage 5.'],
+ sael:['PLACEHOLDER — Sael, stage 1.','PLACEHOLDER — Sael, stage 2.',
+  'PLACEHOLDER — Sael, stage 3.','PLACEHOLDER — Sael, stage 4.','PLACEHOLDER — Sael, stage 5.']};
+/* Linear 0.5 -> 1.0 across the 5 stages — "go from wave equivalent of 0.5
+   power up to full power level". Stage 5 lands at exactly the player's own
+   current power, i.e. a fight sized to match how strong they actually are
+   right now, at any point in the run — always a real capstone, never a
+   fixed number that drifts trivial or impossible depending on when it's
+   attempted. */
+P.QUEST_STAGE_POWER_FRAC=[0.5,0.625,0.75,0.875,1.0];
+
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
  * Measured justification: player-directed allocation was worth almost nothing.
  * Six very different allocations of the same 20-node budget produced a depth
@@ -738,4 +822,25 @@ P.powerLevel=function(g){
  Object.keys(g.bonuses||{}).forEach(function(aid){
   var b=g.bonuses[aid];loreLevels+=C.actionBonusTotal(b)+(b.broad||0);});
  return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE);};
+/* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
+   player's own current P.powerLevel — QUEST_STAGE_POWER_FRAC[stageIdx] of
+   it, used as a wave number outright. See the comment above P.QUEST_LINES
+   for why this replaced a fixed milestone schedule.
+   NOT inverted back through C.levelCurve (the wave->level curve powerLevel
+   itself is partly built from) — tried that first and it breaks badly:
+   powerLevel SUMS every owned unit's level on top of the wave term, so a
+   5-unit party's powerLevel routinely runs 5-10x what levelCurve(their
+   actual wave) alone would be, and levelCurve is a SQUARE ROOT curve, so
+   inverting a 5-10x-inflated "level" back through it overshoots the wave
+   by roughly the SQUARE of that factor. Measured directly (headless
+   battle sim, a real level-80 5-unit party at wave 300, power 536): stage
+   1 alone came out at wave 7130 and every one of 5 stages lost 15/15 — not
+   a genuine capstone, an unwinnable wall from stage 1 on. Multiplying
+   powerLevel directly by the stage fraction instead measured correctly: a
+   trivial stage 1 rising to a real, losable-but-fair stage 5 (7/20 and
+   3/20 win rates for early/mid-game parties respectively, at their
+   OWN power — a real capstone, not a wall). */
+P.questStageWave=function(g,stageIdx){
+ var frac=P.QUEST_STAGE_POWER_FRAC[stageIdx];
+ return Math.max(1,Math.round(frac*P.powerLevel(g)));};
 return P;})(window.FarroadCore);

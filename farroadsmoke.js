@@ -587,6 +587,139 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  })());
 })();
 
+/* =================== 16. DISCOVERABLE CONTENT (roadmap 5-7) ================
+ * rollExpeditionDiscovery/enterDungeon/attemptQuestStage themselves live in
+ * the DOM-bound UI layer (same reason resolveExpedition isn't unit-tested
+ * here either) — exercised via the browser check instead. What IS headless
+ * and checked here: the progression constants/table those functions are
+ * built on are sane and complete, the "freeze" property the whole feature
+ * depends on (a baked snapshot's stats are immune to CURRENT_WAVE / any
+ * later hardMul-style retuning) actually holds at the C.makeUnit level, and
+ * the two new save FIELDS round-trip correctly, including the old-save
+ * default-fill path. */
+(function(){
+ /* --- discovery-roll constants are sane probabilities ------------------- */
+ ok('P.EXPED_DISCOVERY_CHANCE is a real, rare-ish probability',
+  P.EXPED_DISCOVERY_CHANCE>0&&P.EXPED_DISCOVERY_CHANCE<0.5, ''+P.EXPED_DISCOVERY_CHANCE);
+ ok('P.EXPED_DUNGEON_SHARE is a real fraction (0-1)',
+  P.EXPED_DUNGEON_SHARE>0&&P.EXPED_DUNGEON_SHARE<1, ''+P.EXPED_DUNGEON_SHARE);
+ ok('P.DUNGEON_LEN is "slightly harder", not boss-tier (below BOSS_LEN)',
+  P.DUNGEON_LEN>1&&P.DUNGEON_LEN<P.BOSS_LEN, P.DUNGEON_LEN+' vs BOSS_LEN '+P.BOSS_LEN);
+
+ /* --- a discovery roll never fires below its own threshold, across many
+    seeds — the exact shape rollExpeditionDiscovery() itself checks
+    (G.rng.next()>=P.EXPED_DISCOVERY_CHANCE -> bail) ------------------------ */
+ var rng=C.makeRNG(31337), overThreshold=0, trials=5000;
+ for(var i=0;i<trials;i++){var r=rng.next();if(r<P.EXPED_DISCOVERY_CHANCE)overThreshold++;}
+ var rate=overThreshold/trials;
+ ok('discovery roll fires at roughly its configured chance across '+trials+' trials',
+  Math.abs(rate-P.EXPED_DISCOVERY_CHANCE)<0.02, 'measured '+rate.toFixed(4)+' vs configured '+P.EXPED_DISCOVERY_CHANCE);
+
+ /* --- P.QUEST_LINES: complete, one entry per ROSTER id, exactly 5
+    non-empty story strings each (wave is no longer stored here — it's
+    derived per-player from power level, see P.questStageWave below) --- */
+ var rosterIds=C.ROSTER.map(function(r){return r.id;});
+ var missingLine=rosterIds.filter(function(id){return !P.QUEST_LINES[id];});
+ ok('every ROSTER id has a P.QUEST_LINES entry', missingLine.length===0, missingLine.join(','));
+ var badShape=[];
+ rosterIds.forEach(function(id){
+  var line=P.QUEST_LINES[id];if(!line)return;
+  if(line.length!==5){badShape.push(id+': '+line.length+' stages, expected 5');return;}
+  for(var s=0;s<5;s++){
+   if(!line[s]||typeof line[s]!=='string')badShape.push(id+' stage'+s+': missing story text');}});
+ ok('every quest line has exactly 5 non-empty story strings',
+  badShape.length===0, badShape.slice(0,6).join('; '));
+ ok('P.QUEST_LINES has no stray entries for a non-ROSTER id',
+  Object.keys(P.QUEST_LINES).every(function(id){return rosterIds.indexOf(id)>=0;}));
+
+ /* --- P.QUEST_STAGE_POWER_FRAC: 5 fractions, linear 0.5 -> 1.0 --------- */
+ ok('P.QUEST_STAGE_POWER_FRAC has exactly 5 entries, starting at 0.5 and ending at 1.0',
+  P.QUEST_STAGE_POWER_FRAC.length===5&&P.QUEST_STAGE_POWER_FRAC[0]===0.5&&
+  P.QUEST_STAGE_POWER_FRAC[4]===1.0);
+ ok('P.QUEST_STAGE_POWER_FRAC is strictly ascending',
+  P.QUEST_STAGE_POWER_FRAC.every(function(f,i){return i===0||f>P.QUEST_STAGE_POWER_FRAC[i-1];}));
+
+ /* --- P.questStageWave: DIRECTLY proportional to P.powerLevel, not
+    inverted through C.levelCurve — see the comment on questStageWave in
+    progression.js for why the curve-inversion approach was tried first
+    and measured as producing an unwinnable wall (a real 5-unit party's
+    powerLevel runs 5-10x levelCurve(their actual wave), and squaring
+    that back through the curve overshoots the wave by roughly the
+    square of that factor). Stage 5 (frac 1.0) must equal powerLevel
+    exactly; stages rise monotonically 1->5 for a fixed player state. --- */
+ var questG={wave:200,owned:{kesh:1,ansa:1},lvl:{kesh:30,ansa:20},bonuses:{strike:{potent:2}}};
+ var myPower=P.powerLevel(questG);
+ var stage5Wave=P.questStageWave(questG,4);
+ ok('questStageWave stage 5 (frac 1.0) equals the player\'s own power level exactly',
+  stage5Wave===myPower, stage5Wave+' vs '+myPower);
+ var stageWaves=[0,1,2,3,4].map(function(s){return P.questStageWave(questG,s);});
+ ok('questStageWave rises monotonically across stages 1-5 for a fixed player state',
+  stageWaves.every(function(w,i){return i===0||w>stageWaves[i-1];}), stageWaves.join(','));
+ ok('questStageWave stage 1 is roughly half of stage 5 (frac 0.5 vs 1.0)',
+  Math.abs(stageWaves[0]-Math.round(0.5*myPower))<=1, stageWaves[0]+' vs power/2='+(myPower/2));
+ var strongerG={wave:2000,owned:{kesh:1,ansa:1,dorrek:1},lvl:{kesh:150,ansa:150,dorrek:150},bonuses:{}};
+ ok('questStageWave scales up for a stronger player at the same stage',
+  P.questStageWave(strongerG,0)>P.questStageWave(questG,0));
+
+ /* --- FREEZE PROOF: a snapshot's baked stats must be immune to whatever
+    CURRENT_WAVE / hardMul happen to be at RECONSTRUCTION time. This is the
+    exact property bakeEnemySnapshot()/unitsFromSnapshots() (farroad-ui.js)
+    rely on — build a unit from a fixed stat block at one CURRENT_WAVE,
+    reconstruct an "equivalent" unit from the SAME plain stat numbers after
+    CURRENT_WAVE has moved to somewhere hardMul scales very differently,
+    and confirm the reconstructed unit's base stats are bit-for-bit
+    identical to the frozen numbers, not re-derived off the new wave. */
+ var frozenStats={hp:500,atk:40,mag:20,def:25,res:18,spd:90,
+  atkCrit:0.10,magCrit:0.05,chargeRate:1,block:0.05,evade:0.05};
+ C.setWave(50);   /* hardMul(50)===1 */
+ var u1=C.makeUnit({id:'e0',name:'Frozen Foe',isParty:false,level:1,slotIndex:10,
+  arch:'wolf',isBoss:false,row:'front',stats:frozenStats,chargeAction:null,slots:[]});
+ C.setWave(1500);   /* hardMul(1500)===HARD_MAX — a wildly different multiplier */
+ var u2=C.makeUnit({id:'e0',name:'Frozen Foe',isParty:false,level:1,slotIndex:10,
+  arch:'wolf',isBoss:false,row:'front',stats:frozenStats,chargeAction:null,slots:[]});
+ C.setWave(1);
+ var mismatch=Object.keys(frozenStats).filter(function(k){return u1.base[k]!==u2.base[k];});
+ ok('a unit rebuilt from the same frozen stat block is identical regardless of CURRENT_WAVE at reconstruction',
+  mismatch.length===0, mismatch.map(function(k){return k+': '+u1.base[k]+' vs '+u2.base[k];}).join('; '));
+ ok('the frozen unit\'s stats match the baked numbers exactly (not re-derived)',
+  u1.base.hp===500&&u1.base.atk===40&&u1.base.spd===90);
+
+ /* --- save round-trip: dungeons + quests --------------------------------- */
+ var fakeG2={seed:99,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:0,marks:0,
+  wipes:0,party:['kesh'],actions:['strike','ember'],conditions:['none'],actionCounts:{},
+  condCounts:{},bonuses:{},recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},
+  dropsGranted:{},lvl:{kesh:1},bank:{kesh:0},maxLevelEver:1,owned:{kesh:1},enrage:true,
+  idleAcc:0,dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,expeditions:[],
+  dungeons:[{id:'dgn1',name:'Dungeon (found at depth 40)',
+   enemies:[{name:'Wolf',arch:'wolf',thorns:0,isBoss:false,row:'front',chargeAction:null,
+    slots:[],stats:frozenStats}],discoveredAtWave:40,clears:2}],
+  quests:{kesh:{stage:2,frozen:[[],[],{name:'x'}]}}};
+ var restored2=null,threw2=null;
+ try{
+  var snap2=V.serialize(fakeG2,1700000000000);
+  restored2=V.deserialize(JSON.parse(JSON.stringify(snap2)),C);
+ }catch(e){threw2=e;}
+ ok('save round-trip with dungeons/quests populated does not throw', !threw2, threw2&&threw2.message);
+ ok('save round-trip preserves a discovered dungeon\'s baked enemy stats and clear count',
+  !!restored2&&restored2.dungeons.length===1&&restored2.dungeons[0].clears===2&&
+  restored2.dungeons[0].enemies[0].stats.hp===500&&restored2.dungeons[0].discoveredAtWave===40);
+ ok('save round-trip preserves companion quest stage progress',
+  !!restored2&&restored2.quests.kesh.stage===2);
+
+ /* --- old-save compat: a save from before this feature has neither field,
+    deserialize must default rather than throw -------------------------- */
+ var oldSnap2=null,oldThrew2=null,oldRestored2=null;
+ try{
+  oldSnap2=V.serialize(fakeG2,1700000000000);
+  delete oldSnap2.dungeons; delete oldSnap2.quests;
+  oldRestored2=V.deserialize(JSON.parse(JSON.stringify(oldSnap2)),C);
+ }catch(e){oldThrew2=e;}
+ ok('old save missing dungeons/quests fields does not throw', !oldThrew2, oldThrew2&&oldThrew2.message);
+ ok('old save missing dungeons/quests defaults to []/{kesh:stage 0}',
+  !!oldRestored2&&Array.isArray(oldRestored2.dungeons)&&oldRestored2.dungeons.length===0&&
+  !!oldRestored2.quests&&!!oldRestored2.quests.kesh&&oldRestored2.quests.kesh.stage===0);
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);
