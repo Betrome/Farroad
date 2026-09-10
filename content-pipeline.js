@@ -46,6 +46,20 @@ function parseCSV(text) {
 const num = (v, dflt) => (v === undefined || v === '' ? dflt : Number(v));
 const bool = v => v === 'TRUE';
 
+/* Elemental affinities (Fire/Water/Earth/Air/Light/Dark/Body/Spirit) — read
+   identically off farroadunits.csv and farroadenemies.csv (both share the
+   same 8 affinity_* columns), and off a companion's/archetype's row as its
+   AUTHORED BASELINE — the player's own Aether-purchased investment on top
+   (G.affinities, farroad-ui.js) is separate runtime state, not part of this
+   compiled content. Missing/blank columns default to 0, same as every other
+   numeric CSV field here. */
+const AFFINITY_AXES = ['fire', 'water', 'earth', 'air', 'light', 'dark', 'body', 'spirit'];
+function compileAffinity(r) {
+  const a = {};
+  AFFINITY_AXES.forEach(ax => { a[ax] = num(r['affinity_' + ax], 0); });
+  return a;
+}
+
 function compileRoster(rows) {
   return rows.map(r => ({
     id: r.id, name: r.name, role: r.role, row: r.row, hp: num(r.hp),
@@ -54,7 +68,8 @@ function compileRoster(rows) {
       atk: num(r.atk), mag: num(r.mag), def: num(r.def), res: num(r.res), spd: num(r.spd),
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit), chargeRate: num(r.charge_rate),
       block: num(r.block), evade: num(r.evade)
-    }
+    },
+    affinity: compileAffinity(r)
   }));
 }
 
@@ -75,6 +90,7 @@ function compileArch(rows) {
       atk: num(r.atk), def: num(r.def), res: num(r.res), spd: num(r.spd),
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit, 0.04),
       evade: num(r.evade), block: num(r.block),
+      affinity: compileAffinity(r),
       slots: [{ cond: r.slot1_condition, action: r.slot1_action },
               { cond: r.slot2_condition, action: r.slot2_action }]
     };
@@ -107,6 +123,7 @@ function compileActions(rows) {
     if (r.def_pierce !== '') e.defPierce = num(r.def_pierce);
     if (r.crit_bonus !== '') e.critBonus = num(r.crit_bonus);
     if (bool(r.heal)) e.heal = true;
+    if (r.element) e.element = r.element;
     if (r.lifesteal !== '') e.lifesteal = num(r.lifesteal);
     if (r.revive !== '') e.revive = num(r.revive);
     if (r.cleanse !== '') e.cleanse = num(r.cleanse);
@@ -183,6 +200,21 @@ function buildContent(rootDir) {
     .concat(Object.keys(ARCH).map(k => ARCH[k].chargeAction).filter(Boolean));
   allChargeIds.forEach(id => { if (!ACTIONS[id]) problems.push(`charge_action "${id}" has no matching row in farroadactions.csv`); });
   ACTION_DYNAMIC_IDS.forEach(id => { if (!ACTIONS[id]) problems.push(`ACTION_DYNAMIC override "${id}" (farroad-core.js) has no matching row in farroadactions.csv`); });
+
+  /* Elemental affinities: every magic action that deals DIRECT DAMAGE must
+     carry exactly one of the 6 elements — a damage action needs an
+     offense/defense axis to scale on (see farroad-core.js's affinityFactor).
+     Healing and buff/debuff-only actions are exempt (they scale on Spirit
+     instead), as is every physical (camp='atk') action, where an element is
+     optional. Same fail-loudly pattern as the charge_action check above. */
+  const ELEMENTS = ['fire', 'water', 'earth', 'air', 'light', 'dark'];
+  Object.keys(ACTIONS).forEach(id => {
+    const a = ACTIONS[id];
+    if (a.camp === 'mag' && (a.power || 0) > 0 && !a.heal && !a.element)
+      problems.push(`farroadactions.csv: "${id}" is a magic damage action but has no element`);
+    if (a.element && ELEMENTS.indexOf(a.element) < 0)
+      problems.push(`farroadactions.csv: "${id}" has unrecognized element "${a.element}" (expected one of ${ELEMENTS.join('/')})`);
+  });
 
   ROSTER.forEach(r => {
     const line = QUEST_LINES[r.id];

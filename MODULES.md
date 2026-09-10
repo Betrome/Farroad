@@ -1903,3 +1903,158 @@ test edit and rebuilt clean. 122/122 smoke checks pass (124→122 — net
 of removing checks tied to now-deleted constants like
 `P.QUEST_STAGE_POWER_FRAC`/`P.DIR_MUL_MIN` and adding CSV-shape checks
 for `P.QUEST_LINES`' new `{story,powerFraction,isBoss}` stage shape).
+
+## Elemental affinities — Fire/Water/Earth/Air/Light/Dark/Body/Spirit
+
+Ian's ask: 8 new per-unit stats — 6 elements plus Body (physical) and
+Spirit (buff/debuff/healing potency) — scaling damage dealt/taken (and
+healing, and status magnitude) by a diminishing-returns curve capped at
+±80%, invited into character creation "with explanations of what they
+do." Three plan-mode corrections during design, each incorporated before
+implementation began (full history: `.claude/plans/lovely-zooming-comet.md`):
+healing scales with **Spirit, not Light** (Light is a normal 6th damage
+element); the explanatory text belongs in the **AETHER tab**, not
+character creation (`#mcCreate` stays completely untouched by this
+feature); and Aether-purchased investment must count toward **Power
+Level**, which is what forced the data model below — a unit's own raw
+affinity value is never stored directly, only the *purchased* delta on
+top of an authored baseline.
+
+**The core formula lives in `farroad-core.js`, not `farroad-progression.js`**
+— a deliberate deviation from the original plan text, caught while
+implementing: `resolveHit`/`healFor`/`apply()` all need the multiplier
+formula directly, and core.js is evaluated (and its own module IIFE
+fully executes) *before* progression.js — `window.FarroadProgression`
+doesn't exist yet at the point core.js's functions are defined, so a
+`P.affinityMul` couldn't be called from inside them. `C.affinityMul`/
+`C.AFFINITY_CAP` are exported for progression's cost curve and the UI's
+AETHER tab to read the identical formula — the same reason `F.CAP_CRIT`
+is already exported from core for progression's `buildEnemies` to clamp
+against.
+
+**Two different symmetric shapes, not one.** The 6 elements + Body use
+`affTerm(atkRaw,defRaw) = (1+mul(atk))*(1-mul(def))` — the attacker's own
+value boosts their output, the DEFENDER's own value on the same axis
+MITIGATES what they take, same shape DEF/RES already have. Spirit uses a
+different helper, `affBoost(a,b) = (1+mul(a))*(1+mul(b))` — both sides
+BOOST. This was **not** a hunch; naively reusing `affTerm` for Spirit
+(as the approved plan's own pseudocode literally wrote) was traced by
+hand before implementing further: a target's *negative* Spirit would have
+made `(1-mul(negative))` come out **greater than 1**, i.e. a
+Spirit-negative unit would have received *more* healing — the exact
+opposite of the plan's own explicit promise, "a Spirit-negative unit is
+genuinely hard to keep buffed/healed." `affBoost` fixes the direction:
+both caster and target Spirit push the same way, so a high-Spirit target
+receives stronger heals/buffs (and, by the same uniform mechanism, is hit
+harder by a debuff too — the unstated flip side of "attuned to magic
+effects," consistent with though not explicitly spelled out in the
+original ask).
+
+**Damage integration** (`resolveHit`): one new multiplicative term,
+`o.affMul = affinityFactor(src,tgt,act)`, alongside the existing `o.mit`
+(DEF/RES mitigation) — Body always applies to a physical (`camp==='atk'`)
+action; the action's own `element` field (mandatory on every magic
+action that deals direct damage, optional on physical, absent on
+heal/buff/debuff-only actions) stacks multiplicatively on top if present.
+**Healing** (`healFor`) and **status magnitude** both route through
+Spirit via `affBoost`.
+
+**Status magnitude — the invasive part, handled with one new parallel
+field.** `u.st[id]` used to be a bare turn counter; every status's actual
+magnitude (Bracing's DEF/block bonus, Burning's DOT%, Slowed's turn-cost
+penalty, ...) was a hardcoded constant read directly inside ~10 different
+`eff*()`/`tcOf`/DOT functions. `STATUS_BASE_MAG` pulls every one of those
+constants into a single table (as the delta from baseline); `apply(u,id,
+t,casterSpirit)` gained a 4th parameter and now computes+stores the
+Spirit-scaled magnitude for THIS application in a new parallel `u.stMag`
+map, populated once at apply-time (not re-derived on every read) so a
+status keeps the magnitude it landed with even if the caster's Spirit
+changes later. Bracing carries two independent magnitudes under one
+status id (a DEF ratio and a flat block bonus), so its `STATUS_BASE_MAG`
+entry is an object of sub-magnitudes rather than a bare number —
+`magOf(u,id,key)` reads either shape uniformly. Every `eff*()`/`tcOf`/
+DOT read site now calls `magOf` instead of a hardcoded literal.
+
+**Data model — purchased points, not a merged value.** `G.affinities` is
+`{uid:{fire,water,...}}`, PURCHASED points only — a companion's authored
+CSV baseline (`C.ROSTER[uid].affinity`/`C.ARCH[key].affinity`, new
+`affinity_*` columns on `farroadunits.csv`/`farroadenemies.csv`) is a
+separate number. The effective combat-time value is baseline+purchased,
+computed once at party-build time (`buildParty`/`buildExpeditionParty`,
+mirroring exactly how `P.statsAt` already combines a base stat with
+level-derived growth) — kept as two numbers specifically so "how many
+points has the player actually bought" is a real, separately-readable
+figure for both the escalating cost curve (`P.affinityCostToNext`, mirrors
+the Lore-bonus linear-escalation shape) and the new **Power Level** term
+(`P.POWER_PER_AFFINITY_POINT`, sums only purchased points across every
+owned unit/axis — a companion's own baseline does NOT count, exactly like
+`unitLevels` counting real level-ups rather than a unit's starting
+stats). Enemies have no investment layer at all — `buildEnemies` reads
+`C.ARCH[key].affinity` unmodified.
+
+**A custom MC starts genuinely neutral, caught by live-browser testing,
+not assumed.** `applyCustomMC()` copies name/hp/chargeAction/stats/growth
+from `G.mc` onto the shared `kesh` ROSTER row, but originally left that
+row's own `affinity` object untouched — so a custom MC silently inherited
+`kesh`'s CSV-authored baseline (Body +3) instead of the all-0 neutral
+start the design promised. Found by actually opening the built HTML,
+creating a character, and reading the AETHER tab's own Body row (it said
++3, not +0) rather than trusting the code read-through. Fixed with one
+line: `keshDef.affinity=C.defaultAffinity();` inside `applyCustomMC()`.
+
+**Two balance findings surfaced by a headless VM-sandbox script (same
+pattern as every prior tuning pass), reported rather than silently
+"fixed" without Ian's input — both were explicitly anticipated risks in
+the original plan, now measured instead of guessed:**
+- **Physical+elemental double-stack is real and large.** A fully-invested
+  attacker (both Body and an element at the ±20 cap) against an
+  oppositely-invested defender measured a ~10.6× damage swing on
+  `spellbrand` (camp `atk`, element `water`) — matching the predicted
+  3.24² independent-compounding figure almost exactly. This only reaches
+  players through the 3 actions deliberately double-tagged in this first
+  pass (`spellbrand`/water, `def_slam`/earth, `bloodfury`/fire) and
+  requires both sides near-maxed, not something reachable by accident —
+  flagged as "a real, exciting swing," per the plan's own framing, not a
+  runaway bug, but worth Ian's eyes before any of those 3 actions get
+  balanced further.
+- **A large base status magnitude stacked with maxed Spirit could exceed
+  its intended range — FIXED, `AFFINITY_BOOST_CAP`.** Warded's base −40%
+  incoming-damage delta, scaled by `affBoost` at both sides maxed (up to
+  3.24×), measured a −129.6% delta — more than 100% mitigation. Worse
+  than the cosmetic overshoot it first looked like: `resolveHit`'s
+  existing `Math.max(1,Math.floor(d))` floor happens to absorb the
+  Warded case, but the SAME unclamped multiplier also feeds `tcOf`'s
+  Hasted term, which has no such incidental protection — enough Spirit
+  stacked with Hasted could have pushed a unit's tick cost toward
+  `tcRaw`'s own floor of 1, a genuine near-infinite-turns exploit, not
+  just a wasted overshoot. Unlike the double-stack finding above, this
+  wasn't confined to a few exotic actions (Spirit governs every support/
+  heal action), so it was fixed rather than left to watch: `affBoost`
+  is now capped at `AFFINITY_BOOST_CAP=2.0` — chosen so the largest base
+  magnitude in `STATUS_BASE_MAG` (Warded/Hasted, −0.40) caps out at
+  EXACTLY −0.80, the same ±80% ceiling `AFFINITY_CAP` already guarantees
+  everywhere else in this feature, not a second arbitrary number. Applies
+  uniformly to `healFor` too (same shared helper) — re-measured
+  both-Spirit-maxed healing dropped from 116 to 72 (the exact capped
+  figure), Warded's delta from −1.296 to exactly −0.80. One new smoke
+  check (`farroadsmoke.js`, 142→143) regression-guards the cap by driving
+  a real Bulwark cast through `C.step` and asserting the resulting
+  `stMag.warded` lands at exactly −0.80 with both sides at `AFFINITY_CAP`.
+
+**Verified**: `node farroadsmoke.js` — 21 new checks (122→143): `C.affinityMul`
+monotonic/odd-symmetric/exact ±0.80 endpoints/plateau past the cap,
+`P.affinityCostToNext` escalates and stays positive, every magic damage
+action in the compiled content carries an element (content-pipeline.js's
+own build-time validation enforces this too — same fail-loudly pattern as
+the `charge_action` check), `C.makeUnit` defaults/overrides affinity
+correctly, real deterministic battles (`C.makeBattle`/`C.step`, same
+pattern `digestRun` uses) confirming Fire/Body/Spirit each measurably
+change damage/healing in the correct direction, and `G.affinities`
+round-trips through save/load including the old-save default-fill path.
+Balance validated via a headless VM-sandbox script (scratchpad) — see the
+two findings above. Live browser pass: character creation confirmed
+unchanged (no affinity content anywhere on `#mcCreate`); AETHER tab shows
+all 8 axes with descriptions, current raw→%, and a working +1 purchase
+button that spent the correct escalating Aether cost, updated the raw
+value/percentage/next-cost display, and moved Power Level; caught and
+fixed the custom-MC-baseline bug above in this same pass.

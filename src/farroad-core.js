@@ -15,6 +15,73 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
    raising the cap cannot let a deep enemy crit more than its archetype says. */
 var TICK_K=10000,CRIT_MUL=1.75,BLOCK_MUL=.5,CAP_EVADE=.40,CAP_BLOCK=.50,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
+/* ===== ELEMENTAL AFFINITIES (v2.10) =====
+ * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — one value per unit per axis,
+ * used symmetrically: a unit's OWN value in an axis both boosts its output on
+ * that axis (attacking/healing/buffing) and reduces/increases what it takes
+ * on that axis (defending/being healed/being buffed). Logarithmic, hits
+ * EXACTLY +-80% at +-AFFINITY_CAP (Math.min clamps the input, so the curve
+ * plateaus there rather than only approaching it asymptotically).
+ * Lives in CORE, not progression, despite reading like a growth/economy
+ * curve — it is consumed directly inside resolveHit/healFor/apply below, and
+ * core.js is loaded (and evaluated) before progression.js, so a P.* formula
+ * would not exist yet at the point these functions need it. Exported as
+ * F.affinityMul/F.AFFINITY_CAP for progression's cost curve and the UI's
+ * AETHER tab to read the identical formula — same precedent as F.CAP_CRIT
+ * below, exported for exactly this cross-module reason. */
+var AFFINITY_CAP=20;
+function affinityMul(raw){
+ var s=raw<0?-1:1, a=Math.min(Math.abs(raw),AFFINITY_CAP);
+ return s*0.80*Math.log(1+a)/Math.log(1+AFFINITY_CAP);}
+/* Used by the 6 damage elements + Body (resolveHit, via affinityFactor
+ * below): the actor's own raw value boosts their output, the OTHER side's
+ * own raw value on the SAME axis MITIGATES what they take — a positive
+ * Body/element affinity reduces damage taken on that axis, same shape
+ * DEF/RES already have. */
+function affTerm(atkRaw,defRaw){return (1+affinityMul(atkRaw))*(1-affinityMul(defRaw));}
+/* Spirit (healFor, apply/magOf below) is NOT shaped like the other axes: the
+ * TARGET's own Spirit must BOOST what they receive, not mitigate it — "a
+ * Spirit-negative unit is genuinely hard to keep buffed/healed" means a
+ * negative target Spirit has to make incoming heals/buffs WEAKER, and
+ * affTerm's defense-shaped (1-mul(def)) term does the opposite for a
+ * negative input (it INFLATES the result). Both sides boost here instead:
+ * the caster's Spirit scales their own output same as everywhere else, and
+ * the target's Spirit scales what lands on them in the SAME direction —
+ * high Spirit receives stronger heals/buffs (and, symmetrically, is also
+ * more strongly affected by a debuff landed on them — the flip side of that
+ * same "attuned to magic effects" identity), low/negative Spirit receives
+ * everything weaker.
+ *
+ * CAPPED at AFFINITY_BOOST_CAP, unlike affTerm — affTerm's defense side
+ * (1-mul(def)) structurally cannot cross zero (mul itself is bounded at
+ * ±0.80), but affBoost multiplies TWO (1+mul) terms together with no such
+ * built-in ceiling (up to 1.8*1.8=3.24 unclamped). Measured consequence
+ * before this cap existed: Warded's -40% base incoming-damage delta scaled
+ * to -129.6% at both sides maxed — comfortably past the ±80% ceiling this
+ * entire affinity system is supposed to guarantee, silently absorbed only
+ * by resolveHit's incidental Math.max(1,damage) floor. Worse, the SAME
+ * unclamped path feeds tcOf's Hasted multiplier, which has no such
+ * incidental floor protecting it: enough Spirit stacked with Hasted could
+ * push a unit's tick cost toward tcRaw's own Math.max(1,...) floor — a real
+ * near-infinite-turns exploit, not just a wasted overshoot. 2.0 is chosen
+ * so the largest base magnitude in STATUS_BASE_MAG (Warded/Hasted, -0.40)
+ * caps out at EXACTLY -0.80 at the extreme — the same ±80% ceiling
+ * AFFINITY_CAP already guarantees everywhere else in this feature, not an
+ * arbitrary second number. Applies uniformly to healing too (healFor uses
+ * this same helper) — a single shared bound, not a special case. */
+var AFFINITY_BOOST_CAP=2.0;
+function affBoost(a,b){return Math.min(AFFINITY_BOOST_CAP,(1+affinityMul(a))*(1+affinityMul(b)));}
+/* Body always applies to a physical (camp==='atk') damage action — attacker's
+   and defender's Body affinity. The action's own element (mandatory on every
+   magic damage action, optional on physical, absent on heal/buff/debuff-only
+   actions — those use Spirit, see healFor/apply) stacks multiplicatively on
+   top if present, so a physical action carrying an elemental tag applies
+   BOTH terms — a real, deliberately flagged-for-balance-testing swing. */
+function affinityFactor(src,tgt,act){
+ var m=1;
+ if(act.camp==='atk')m*=affTerm(src.affinity.body,tgt.affinity.body);
+ if(act.element)m*=affTerm(src.affinity[act.element],tgt.affinity[act.element]);
+ return m;}
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
 var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
 /* ===== NEGATION PARITY + ASYMMETRY (v1.1) =====
@@ -83,14 +150,56 @@ var STATUS_INFO={sundered:{n:'Sundered',k:'d'},frail:{n:'Frail',k:'d'},enfeebled
  bracing:{n:'Bracing',k:'b'},regen:{n:'Regen',k:'b'},blurred:{n:'Blurred',k:'b'}};
 function newSt(){var s={};for(var i=0;i<ST.length;i++)s[ST[i]]=0;return s;}
 function has(u,id){return u.st[id]>0;}
-function apply(u,id,t){u.st[id]=t;}
-function effAtk(u){return u.base.atk*(has(u,'enfeebled')?.75:1);}
-function effMag(u){return u.base.mag*(has(u,'dulled')?.75:1);}
-function effDef(u){return u.base.def*(has(u,'bracing')?1.40:1)*(has(u,'sundered')?.75:1);}
-function effRes(u){return u.base.res*(has(u,'frail')?.75:1);}
-function effBlock(u){return u.base.block+(has(u,'bracing')?.30:0);}
-function effEvade(u){return u.base.evade+(has(u,'blurred')?.20:0);}
-function effChargeRate(u){return u.base.chargeRate*(has(u,'surging')?2.0:1);}
+/* ===== SPIRIT / STATUS MAGNITUDE (v2.10) =====
+ * Every status effect's magnitude used to be a constant hardcoded at each of
+ * the ~10 read sites below. STATUS_BASE_MAG pulls every one of those
+ * constants into a single table (expressed as the DELTA from baseline, e.g.
+ * Bracing's old x1.40 DEF is now +0.40) so apply() can scale it by the
+ * caster's and target's Spirit affinity at the moment a status lands, and
+ * store the RESULT (not the raw base) in u.stMag — a per-application
+ * magnitude that sits alongside the existing turn counter in u.st.
+ * Bracing carries TWO independent magnitudes (a DEF ratio AND a flat block
+ * bonus) under one status id, so its entry is an object of sub-magnitudes
+ * rather than a bare number; every other status has exactly one number.
+ * DOT/regen (burning/regen) have no "baseline" to delta from — the whole
+ * magnitude IS the delta (0 unburned -> BURN_PCT burned) — affTerm still
+ * applies the same way, it just scales the entire figure rather than a
+ * modifier on top of something else. */
+var STATUS_BASE_MAG={enfeebled:-0.25,dulled:-0.25,bracing:{def:0.40,block:0.30},
+ sundered:-0.25,frail:-0.25,blurred:0.20,warded:-0.40,slowed:0.50,hasted:-0.40,
+ surging:1.00,burning:BURN_PCT,regen:REGEN_PCT};
+/* @param key only for a multi-part status (bracing) — selects the sub-magnitude.
+   Falls back to STATUS_BASE_MAG if u.stMag has nothing recorded for id (should
+   not happen once apply() always populates it for a known id, but keeps a
+   never-applied/edge-case read from silently reading undefined). */
+function magOf(u,id,key){
+ var m=(u.stMag&&u.stMag[id]!=null)?u.stMag[id]:STATUS_BASE_MAG[id];
+ if(m==null)return 0;
+ if(typeof m==='object')return key?(m[key]||0):0;
+ return key?0:m;}
+/* v2.10: gained a 4th param, casterSpirit — the unit APPLYING the status
+   (self for a self-buff/self-taunt). Computes and stores this application's
+   Spirit-scaled magnitude in u.stMag alongside the turn count in u.st;
+   affTerm reads naturally here too — the caster's Spirit boosts the delta,
+   the TARGET's own Spirit (u itself, the status-holder) mitigates how much
+   it affects them, same symmetric shape as every other axis. */
+function apply(u,id,t,casterSpirit){
+ u.st[id]=t;
+ var base=STATUS_BASE_MAG[id];
+ if(base==null)return;
+ var mul=affBoost(casterSpirit==null?0:casterSpirit,u.affinity.spirit);
+ u.stMag=u.stMag||{};
+ if(typeof base==='object'){
+  var scaled={};for(var k in base)if(Object.prototype.hasOwnProperty.call(base,k))scaled[k]=base[k]*mul;
+  u.stMag[id]=scaled;
+ }else u.stMag[id]=base*mul;}
+function effAtk(u){return u.base.atk*(1+(has(u,'enfeebled')?magOf(u,'enfeebled'):0));}
+function effMag(u){return u.base.mag*(1+(has(u,'dulled')?magOf(u,'dulled'):0));}
+function effDef(u){return u.base.def*(1+(has(u,'bracing')?magOf(u,'bracing','def'):0))*(1+(has(u,'sundered')?magOf(u,'sundered'):0));}
+function effRes(u){return u.base.res*(1+(has(u,'frail')?magOf(u,'frail'):0));}
+function effBlock(u){return u.base.block+(has(u,'bracing')?magOf(u,'bracing','block'):0);}
+function effEvade(u){return u.base.evade+(has(u,'blurred')?magOf(u,'blurred'):0);}
+function effChargeRate(u){return u.base.chargeRate*(1+(has(u,'surging')?magOf(u,'surging'):0));}
 /* v2.9: an action's magnitude was hardcoded to ATK (physical) or MAG (magic)
    via camp — no action could scale off DEF/RES/SPD. statByKey lets an
    action opt into a different source stat via act.scaleStat, used below in
@@ -108,8 +217,9 @@ function statByKey(u,key){
  if(key==='res')return effRes(u);
  if(key==='spd')return u.base.spd;
  return effAtk(u);}
-function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),rank*(has(u,'hasted')?.60:1)*(has(u,'slowed')?1.50:1));}
-function incomingMul(u){return has(u,'warded')?.60:1;}
+function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),
+ rank*(1+(has(u,'hasted')?magOf(u,'hasted'):0))*(1+(has(u,'slowed')?magOf(u,'slowed'):0)));}
+function incomingMul(u){return 1+(has(u,'warded')?magOf(u,'warded'):0);}
 /* v2.8: chargeCost is the gauge a charge action must FILL to fire. It was the
    global CHARGE_FULL for every charge action; it is now per-action so that
    upgrading a charge action can make it fire less often. */
@@ -457,17 +567,20 @@ function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='ally'||k==='allAllies'){if(ct&&ct.isParty===u.isParty&&ct.hp>0)return ct;return byLowestHp(allies(b,u));}
  if(k==='deadAlly'){if(ct&&ct.isParty===u.isParty&&ct.hp<=0)return ct;return deadAllies(b,u)[0]||null;}
  return null;}
+function defaultAffinity(){return {fire:0,water:0,earth:0,air:0,light:0,dark:0,body:0,spirit:0};}
 function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03};
  for(var k in (cfg.stats||{}))if(Object.prototype.hasOwnProperty.call(cfg.stats,k))d[k]=cfg.stats[k];
+ var aff=defaultAffinity();
+ for(var ak in (cfg.affinity||{}))if(Object.prototype.hasOwnProperty.call(cfg.affinity,ak))aff[ak]=cfg.affinity[ak];
  return {id:cfg.id,name:cfg.name,isParty:!!cfg.isParty,level:cfg.level||1,slotIndex:cfg.slotIndex||0,base:d,
   maxHp:cfg.maxHp!=null?cfg.maxHp:d.hp,hp:cfg.hp!=null?cfg.hp:d.hp,charge:cfg.charge||0,
   chargeAction:cfg.chargeAction||null,slots:cfg.slots||[{cond:'none',action:'strike'},{cond:'none',action:'strike'}],
-  st:newSt(),nextActAt:0,alternateFlag:0,turnsTaken:0,enrageN:0,
+  st:newSt(),stMag:{},affinity:aff,nextActAt:0,alternateFlag:0,turnsTaken:0,enrageN:0,
   row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
 function makeBattle(units,opts){opts=opts||{};
  var b={units:units,t:0,beat:0,elapsedMs:0,log:[],over:null,rng:opts.rng||makeRNG(1),det:!!opts.deterministic,
   gambitMode:'topdown',smartHeal:true,enrage:!!opts.enrage};
- for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageN=0;u.alternateFlag=0;}
+ for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.stMag={};u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageN=0;u.alternateFlag=0;}
  return b;}
 function pickNext(b){var best=null;
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
@@ -509,7 +622,8 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.critRoll=det?1:rng.next();o.crit=o.critRoll<o.critChance;
  o.K=K_of(src.level);o.off=act.scaleStat?statByKey(src,act.scaleStat):(isPhys?effAtk(src):effMag(src));
  o.defRaw=isPhys?effDef(tgt):effRes(tgt);o.defEff=o.defRaw*(1-(act.defPierce||0));o.mit=o.K/(o.K+o.defEff);
- o.power=pv;o.base=pv*o.off*o.mit;
+ o.affMul=affinityFactor(src,tgt,act);
+ o.power=pv;o.base=pv*o.off*o.mit*o.affMul;
  /* v1.1: VARIANCE ROLL REMOVED. Base damage is now deterministic — the (randInt
     (0,30)+240)/256 term is gone. Measured consequence: the fight does NOT become
     metronomic, because crit and block already supplied nearly all the spread —
@@ -526,7 +640,7 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.rowOut=rowOut(src,isPhys);o.rowIn=rowIn(tgt,isPhys);d*=o.rowOut*o.rowIn;
  o.preFloor=d;o.damage=Math.max(1,Math.floor(d));return o;}
 function healFor(src,tgt,act,b,pv){
- var v=pv*(act.scaleStat?statByKey(src,act.scaleStat):effMag(src));   /* v1.1: variance removed here too */
+ var v=pv*(act.scaleStat?statByKey(src,act.scaleStat):effMag(src))*affBoost(src.affinity.spirit,tgt.affinity.spirit);
  var amt=Math.max(1,Math.floor(v)),before=tgt.hp;tgt.hp=Math.min(tgt.maxHp,tgt.hp+amt);
  return {heal:true,targetName:tgt.name,amount:tgt.hp-before};}
 function step(b){
@@ -534,8 +648,8 @@ function step(b){
  b.t=u.nextActAt;b.beat+=1;var ms=beatMs(b.beat);b.elapsedMs+=ms;
  var e={beat:b.beat,t:b.t,ms:ms,actorId:u.id,actorName:u.name,isParty:u.isParty,
   chargeBefore:u.charge,hits:[],heals:[],totalDamage:0,notes:[],dot:0,regen:0,thorns:0};
- if(has(u,'burning')){var dot=Math.max(1,Math.ceil(BURN_PCT*u.maxHp));u.hp=Math.max(0,u.hp-dot);e.dot=dot;}
- if(has(u,'regen')&&u.hp>0){var rg=Math.max(1,Math.ceil(REGEN_PCT*u.maxHp)),bf=u.hp;u.hp=Math.min(u.maxHp,u.hp+rg);e.regen=u.hp-bf;}
+ if(has(u,'burning')){var dot=Math.max(1,Math.ceil(magOf(u,'burning')*u.maxHp));u.hp=Math.max(0,u.hp-dot);e.dot=dot;}
+ if(has(u,'regen')&&u.hp>0){var rg=Math.max(1,Math.ceil(magOf(u,'regen')*u.maxHp)),bf=u.hp;u.hp=Math.min(u.maxHp,u.hp+rg);e.regen=u.hp-bf;}
  for(var si=0;si<ST.length;si++)if(u.st[ST[si]]>0)u.st[ST[si]]--;
  if(u.hp<=0){e.actionId='none';e.actionName='(burned out)';e.via='—';e.rank=1;e.chargeAfter=u.charge;
   b.log.push(e);checkEnd(b);return e;}
@@ -550,7 +664,7 @@ function step(b){
   var targets=[];
   if(act.tk==='allFoes')targets=foes(b,u);else if(act.tk==='allAllies')targets=allies(b,u);
   else if(act.tk==='self')targets=[u];else targets=[primary];
-  if(act.revive){if(primary&&primary.hp<=0){primary.hp=Math.max(1,Math.floor(primary.maxHp*act.revive));primary.st=newSt();
+  if(act.revive){if(primary&&primary.hp<=0){primary.hp=Math.max(1,Math.floor(primary.maxHp*act.revive));primary.st=newSt();primary.stMag={};
     e.notes.push('revived '+primary.name);}}
   else if(act.heal){for(var i=0;i<targets.length;i++)e.heals.push(healFor(u,targets[i],act,b,pv));
    if(act.cleanse){for(var j=0;j<targets.length;j++){for(var k=0;k<DEBUFFS.length;k++){
@@ -564,9 +678,9 @@ function step(b){
      for(var z=0;z<targets.length;z++)if(targets[z].thorns)refl+=Math.max(1,Math.round(targets[z].thorns*targets[z].maxHp));
      if(refl>0){u.hp=Math.max(0,u.hp-refl);e.thorns=refl;e.notes.push('thorns −'+refl);}}}
   if(act.applies){for(var m=0;m<targets.length;m++){if(targets[m].hp>0){var already=has(targets[m],act.applies);
-    apply(targets[m],act.applies,act.turns);
+    apply(targets[m],act.applies,act.turns,u.affinity.spirit);
     e.notes.push((already?'refreshed ':'applied ')+act.applies+' on '+targets[m].name);}}}
-  if(act.selfTaunt){apply(u,'taunted',act.selfTaunt);e.notes.push('taunting');}}
+  if(act.selfTaunt){apply(u,'taunted',act.selfTaunt,u.affinity.spirit);e.notes.push('taunting');}}
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
  /* ENRAGE (v1.0, on by default; v2.9 gate reworked). Was gated on the
@@ -645,6 +759,12 @@ F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE
 F.CAP_CRIT=CAP_CRIT;F.CRIT_MUL=CRIT_MUL;
 F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
+/* v2.10: exported for progression's affinity-cost curve and the UI's AETHER
+   tab, which both need the exact same curve the combat formula itself uses
+   (see the AFFINITY_CAP/affinityMul comment above for why this lives here
+   rather than in progression.js). */
+F.affinityMul=affinityMul;F.AFFINITY_CAP=AFFINITY_CAP;F.defaultAffinity=defaultAffinity;
+F.AFFINITY_BOOST_CAP=AFFINITY_BOOST_CAP;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
 F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
 /* Pre-bonus baseline per action (power/rank/charge/defPierce/critBonus/turns/

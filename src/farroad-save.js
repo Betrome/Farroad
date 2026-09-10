@@ -54,7 +54,15 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     default-fill below (the 8 ids are hardcoded here rather than read off
     P.DIRECTIONS since this module never loads progression.js — same
     precedent as 'kesh' being a literal below, not derived from C.ROSTER). */
- 'directions'];
+ 'directions',
+ /* v2.10: elemental affinities. 'affinities' is {uid:{fire,water,earth,air,
+    light,dark,body,spirit}} — PURCHASED AETHER-INVESTMENT POINTS ONLY, per
+    owned unit, not the unit's own authored baseline (C.ROSTER/C.ARCH,
+    CSV-authored — see content-pipeline.js). A unit's effective combat-time
+    affinity is baseline + this, computed at party-build time (farroad-ui.js,
+    buildParty/buildExpeditionParty). Brand-new field, plain default-fill
+    below, no legacy shape. */
+ 'affinities'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -138,6 +146,8 @@ S.deserialize=function(snap,C){
  DIRS.forEach(function(dir){if(!G.directions[dir])G.directions[dir]={maxDepth:0,dungeonsUnlocked:0};});
  (G.expeditions||[]).forEach(function(exp){if(!exp.direction)exp.direction='west';});
  G.pullsSinceUnit=G.pullsSinceUnit||0;
+ if(!G.affinities)G.affinities={};
+ if(!G.affinities.kesh)G.affinities.kesh={};   /* kesh is owned from newGame(), never through joinCompanion() */
  return G;};
 
 return S;})();

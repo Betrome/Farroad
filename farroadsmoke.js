@@ -772,6 +772,159 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   !!oldRestored2&&oldRestored2.expeditions[0].direction==='west');
 })();
 
+/* =================== 17. ELEMENTAL AFFINITIES (v2.10) ======================
+ * C.affinityMul (combat formula, lives in core.js — see the layering
+ * comment there for why it's not in progression) must be well-behaved at
+ * the extremes: monotonic, odd-symmetric, exactly 0 at raw 0, exactly
+ * +-0.80 at +-AFFINITY_CAP (not merely close — Math.min clamps the input,
+ * so this is a real plateau). P.affinityCostToNext must escalate and stay
+ * positive. Every magic DAMAGE action in the compiled content must carry
+ * an element (content-pipeline.js's own build-time validation already
+ * enforces this — buildContent() would have failed loudly above if it
+ * didn't — this re-checks the SAME property against the live ACTIONS table
+ * so a future core.js/content-pipeline.js drift is still caught here, not
+ * just at build time). G.affinities must round-trip through save/load,
+ * including the old-save default-fill path. */
+(function(){
+ /* --- C.affinityMul: monotonic, odd-symmetric, exact endpoints ---------- */
+ ok('C.affinityMul(0) is exactly 0', C.affinityMul(0)===0);
+ ok('C.affinityMul is exactly +0.80 at +AFFINITY_CAP', Math.abs(C.affinityMul(C.AFFINITY_CAP)-0.80)<1e-9);
+ ok('C.affinityMul is exactly -0.80 at -AFFINITY_CAP', Math.abs(C.affinityMul(-C.AFFINITY_CAP)-(-0.80))<1e-9);
+ ok('C.affinityMul plateaus past the cap (no further movement beyond AFFINITY_CAP)',
+  C.affinityMul(C.AFFINITY_CAP*5)===C.affinityMul(C.AFFINITY_CAP));
+ ok('C.affinityMul is odd-symmetric', (function(){
+  for(var r=-30;r<=30;r+=1.7) if(Math.abs(C.affinityMul(r)+C.affinityMul(-r))>1e-9) return false;
+  return true;
+ })());
+ ok('C.affinityMul is monotonically increasing across the full range', (function(){
+  var prev=-Infinity;
+  for(var r=-30;r<=30;r+=0.5){var v=C.affinityMul(r);if(v<prev-1e-12)return false;prev=v;}
+  return true;
+ })());
+
+ /* --- P.affinityCostToNext: escalates, always positive ------------------ */
+ ok('P.affinityCostToNext(0) equals AFFINITY_COST_BASE (first point on a fresh axis)',
+  P.affinityCostToNext(0)===P.AFFINITY_COST_BASE);
+ ok('P.affinityCostToNext escalates with points already invested', (function(){
+  var prev=0;
+  for(var n=0;n<10;n++){var c=P.affinityCostToNext(n);if(c<=prev)return false;prev=c;}
+  return true;
+ })());
+ ok('P.affinityCostToNext is always positive', P.affinityCostToNext(0)>0&&P.affinityCostToNext(50)>0);
+
+ /* --- every magic damage action in the compiled content carries an element,
+    the same property content-pipeline.js's own build-time validation
+    already enforces (buildContent() above would have exited the whole
+    process if it didn't) — re-checked here against the live ACTIONS table
+    so a future drift between core.js and content-pipeline.js is still
+    caught by this test, not only by a build. --- */
+ ok('every magic damage action has an element', Object.keys(C.ACTIONS).every(function(id){
+  var a=C.ACTIONS[id];
+  return !(a.camp==='mag'&&(a.power||0)>0&&!a.heal&&!a.element);
+ }));
+ ok('at least one physical action also carries an element (double-stack case is real content, not just theory)',
+  Object.keys(C.ACTIONS).some(function(id){var a=C.ACTIONS[id];return a.camp==='atk'&&!!a.element;}));
+
+ /* --- C.makeUnit defaults affinity to all-0 and accepts an override ----- */
+ var plain=C.makeUnit({id:'x',name:'X',stats:{},slots:[]});
+ ok('makeUnit defaults every affinity axis to 0',
+  ['fire','water','earth','air','light','dark','body','spirit'].every(function(ax){return plain.affinity[ax]===0;}));
+ var custom=C.makeUnit({id:'y',name:'Y',stats:{},slots:[],affinity:{fire:5,spirit:-3}});
+ ok('makeUnit honors a partial cfg.affinity override, defaulting the rest',
+  custom.affinity.fire===5&&custom.affinity.spirit===-3&&custom.affinity.water===0);
+
+ /* --- affinity changes damage, driven through a real deterministic battle
+    (same makeUnit/makeBattle/step path digestRun above uses) — a Fire-
+    affine attacker using a Fire-tagged action (ember) should deal MORE
+    total damage than a neutral one against the same target, and Body
+    should independently do the same for a pure physical action (strike,
+    no element) ------------------------------------------------------- */
+ ok('ember carries element fire (content assignment)', C.ACTIONS.ember&&C.ACTIONS.ember.element==='fire');
+ function dmgWithAffinity(actionId,affinity){
+  C.setWave(1);
+  var atk=C.makeUnit({id:'a',name:'A',isParty:true,level:1,slotIndex:0,
+   stats:{atk:30,mag:30,def:10,res:10,spd:100},affinity:affinity||{},
+   slots:[{cond:'none',action:actionId},{cond:'none',action:actionId}]});
+  var tgt=C.makeUnit({id:'t',name:'T',isParty:false,level:1,slotIndex:10,
+   stats:{hp:100000,atk:10,mag:10,def:10,res:10,spd:100},
+   slots:[{cond:'none',action:'strike'},{cond:'none',action:'strike'}]});
+  var b=C.makeBattle([atk,tgt],{rng:C.makeRNG(1),deterministic:true});
+  var total=0;
+  for(var i=0;i<6&&!b.over;i++){var e=C.step(b);if(e&&e.actorId==='a')total+=e.totalDamage;}
+  return total;}
+ var fireDmg=dmgWithAffinity('ember',{fire:10}), neutralDmg=dmgWithAffinity('ember',{});
+ ok('positive Fire affinity increases a Fire-tagged action\'s damage',
+  fireDmg>neutralDmg, fireDmg+' vs '+neutralDmg);
+ var bodyDmg=dmgWithAffinity('strike',{body:10}), neutralPhysDmg=dmgWithAffinity('strike',{});
+ ok('positive Body affinity increases a physical action\'s damage',
+  bodyDmg>neutralPhysDmg, bodyDmg+' vs '+neutralPhysDmg);
+ var negFireDmg=dmgWithAffinity('ember',{fire:-10});
+ ok('negative Fire affinity decreases a Fire-tagged action\'s damage vs neutral',
+  negFireDmg<neutralDmg, negFireDmg+' vs '+neutralDmg);
+
+ /* --- Spirit changes healing, same real-battle pattern ------------------ */
+ function healWithSpirit(casterSpirit,targetSpirit){
+  C.setWave(1);
+  var healer=C.makeUnit({id:'h',name:'H',isParty:true,level:1,slotIndex:0,
+   stats:{atk:10,mag:30,def:10,res:10,spd:100},affinity:{spirit:casterSpirit},
+   slots:[{cond:'none',action:'mend'},{cond:'none',action:'mend'}]});
+  var hurt=C.makeUnit({id:'p2',name:'P2',isParty:true,level:1,slotIndex:1,
+   stats:{hp:100000,atk:10,mag:10,def:10,res:10,spd:90},affinity:{spirit:targetSpirit},
+   hp:1,maxHp:100000,slots:[{cond:'none',action:'strike'},{cond:'none',action:'strike'}]});
+  var b=C.makeBattle([healer,hurt],{rng:C.makeRNG(1),deterministic:true});
+  var healed=0;
+  for(var i=0;i<4&&!b.over;i++){var e=C.step(b);
+   if(e&&e.actorId==='h'&&e.heals)e.heals.forEach(function(h){if(h.targetName==='P2')healed+=h.amount;});}
+  return healed;}
+ var healHigh=healWithSpirit(10,10), healNeutral=healWithSpirit(0,0);
+ ok('positive Spirit (caster and target) increases healing received',
+  healHigh>healNeutral, healHigh+' vs '+healNeutral);
+
+ /* --- AFFINITY_BOOST_CAP: Spirit stacking (both sides maxed) cannot push a
+    status's scaled magnitude past what AFFINITY_CAP itself promises
+    elsewhere (±80%) — regression guard for the exploit path this cap
+    closed: Warded's -40% base delta at both-Spirit-maxed measured -129.6%
+    (more than 100% mitigation) before AFFINITY_BOOST_CAP existed, and the
+    SAME unclamped multiplier fed tcOf's Hasted term with no protective
+    floor at all. Driven through a real battle (bulwark applies warded to
+    an ally) rather than asserted on affBoost directly, since affBoost
+    itself isn't exported. --------------------------------------------- */
+ (function(){
+  C.setWave(1);
+  var caster=C.makeUnit({id:'c',name:'C',isParty:true,level:1,slotIndex:0,
+   stats:{atk:10,mag:30,def:10,res:10,spd:100},affinity:{spirit:C.AFFINITY_CAP},
+   slots:[{cond:'none',action:'bulwark'},{cond:'none',action:'bulwark'}]});
+  var ally=C.makeUnit({id:'p2',name:'P2',isParty:true,level:1,slotIndex:1,
+   stats:{hp:100000,atk:10,mag:10,def:10,res:10,spd:90},affinity:{spirit:C.AFFINITY_CAP},
+   hp:1,maxHp:100000,slots:[{cond:'none',action:'strike'},{cond:'none',action:'strike'}]});
+  var b=C.makeBattle([caster,ally],{rng:C.makeRNG(1),deterministic:true});
+  C.step(b);   /* caster casts bulwark on the lowest-HP ally (p2) */
+  var delta=ally.stMag&&ally.stMag.warded;
+  ok('AFFINITY_BOOST_CAP holds Warded\'s scaled delta at exactly -0.80 with both sides at AFFINITY_CAP',
+   typeof delta==='number'&&Math.abs(delta-(-0.80))<1e-9, String(delta));
+ })();
+
+ /* --- G.affinities round-trips through save/load, old-save default-fill - */
+ (function(){
+  var fakeG3={seed:1,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:0,marks:0,wipes:0,
+   party:['kesh'],actions:['strike'],conditions:['none'],actionCounts:{},condCounts:{},bonuses:{},
+   recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},dropsGranted:{},
+   lvl:{kesh:1},bank:{kesh:0},maxLevelEver:1,owned:{kesh:1},enrage:true,idleAcc:0,
+   dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,expeditions:[],dungeons:[],
+   quests:{kesh:{stage:0,frozen:[]}},directions:{},affinities:{kesh:{fire:3,spirit:-2}}};
+  var snap3=V.serialize(fakeG3,1700000000000);
+  var restored3=V.deserialize(JSON.parse(JSON.stringify(snap3)),C);
+  ok('G.affinities round-trips through save/load',
+   !!restored3&&!!restored3.affinities&&restored3.affinities.kesh.fire===3&&restored3.affinities.kesh.spirit===-2);
+  var oldSnap3=V.serialize(fakeG3,1700000000000);
+  delete oldSnap3.affinities;
+  var oldRestored3=V.deserialize(JSON.parse(JSON.stringify(oldSnap3)),C);
+  ok('old save missing affinities field does not throw and defaults to {kesh:{}}',
+   !!oldRestored3&&!!oldRestored3.affinities&&!!oldRestored3.affinities.kesh&&
+   Object.keys(oldRestored3.affinities.kesh).length===0);
+ })();
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);

@@ -850,6 +850,16 @@ P.mcBuildStats=function(points){
  * kept easy to retune if it doesn't feel right in practice. */
 P.POWER_PER_UNIT=15;
 P.POWER_PER_LORE=1;
+/* v2.10: purchased affinity points (NOT a unit's authored baseline — see the
+   AFFINITY INVESTMENT comment below) count toward Power Level, same
+   treatment loreLevels already gets. Weighted below unitLevels/loreLevels'
+   effective 1-per-point rate: affinityCostToNext is a flat linear-escalation
+   curve (8/16/24 Aether...) against costToNext's ~L^2.8 curve, so a single
+   point is a far smaller investment than a level at any real depth — 0.5 is
+   a reasoned starting weight, not a simulated one (this is a display metric,
+   same caveat POWER_PER_UNIT/POWER_PER_LORE already carry), kept easy to
+   retune if it doesn't feel right in practice. */
+P.POWER_PER_AFFINITY_POINT=0.5;
 P.powerLevel=function(g){
  var waveLevel=C.levelCurve(g.wave||1);
  var unitLevels=0,unitCount=0;
@@ -861,7 +871,44 @@ P.powerLevel=function(g){
  var loreLevels=0;
  Object.keys(g.bonuses||{}).forEach(function(aid){
   var b=g.bonuses[aid];loreLevels+=C.actionBonusTotal(b)+(b.broad||0);});
- return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE);};
+ /* v2.10: g.affinities[uid][axis] is PURCHASED POINTS ONLY (see the AETHER-
+    investment comment below) — a companion's own authored baseline does NOT
+    count here, exactly like unitLevels counting real level-ups rather than
+    a unit's starting stats. */
+ var affinityPoints=0;
+ Object.keys(g.affinities||{}).forEach(function(uid){
+  var a=g.affinities[uid];if(!a)return;
+  Object.keys(a).forEach(function(axis){affinityPoints+=a[axis]||0;});});
+ return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE+
+  affinityPoints*P.POWER_PER_AFFINITY_POINT);};
+/* ===== AFFINITY INVESTMENT (v2.10) =====
+ * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — see farroad-core.js's own
+ * comment (AFFINITY_CAP/affinityMul/affTerm) for the combat-facing half of
+ * this feature; this half is the ECONOMY layer, spent from the same shared
+ * Aether pool leveling already draws from. A unit's EFFECTIVE raw affinity
+ * combat reads is baseline (C.ROSTER[uid].affinity / C.ARCH[key].affinity,
+ * CSV-authored) PLUS purchased points (G.affinities[uid][axis], UI layer) —
+ * computed once, at the point a live C.makeUnit is built (buildParty/
+ * buildExpeditionParty/buildEnemies, farroad-ui.js), mirroring exactly how
+ * P.statsAt already combines a base stat with level-derived growth. Kept as
+ * two separate numbers rather than one mutated "current value" specifically
+ * so "how many points has the player actually bought" stays a real,
+ * separately-readable figure — both for the cost curve below (escalates off
+ * points ALREADY invested in that axis on that unit) and for Power Level
+ * above (only counts what the player actually spent). Enemies have no
+ * investment layer at all — buildEnemies reads C.ARCH[key].affinity
+ * unmodified, no G.affinities lookup for them.
+ * Cost mirrors bonusPrice's per-action linear-escalation shape (farroad-
+ * core.js) more directly than costToNext's per-unit-level ratchet-discount
+ * shape does, since this is a per-STAT track, not a whole-unit level: the
+ * Nth point bought on one axis on one unit costs N*AFFINITY_COST_BASE. The
+ * UI stops offering a purchase once the EFFECTIVE raw (baseline+purchased)
+ * reaches AFFINITY_CAP exactly — C.affinityMul plateaus there by
+ * construction (Math.min clamps the input), so a further point could not
+ * move the number even if bought. */
+P.AFFINITY_COST_BASE=8;
+P.affinityCostToNext=function(investedPoints){
+ return P.AFFINITY_COST_BASE*(investedPoints+1);};
 /* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
    player's own current P.powerLevel — that stage's OWN powerFraction
    (farroadquests.csv, per companion per stage — see the comment above

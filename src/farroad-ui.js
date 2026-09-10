@@ -38,6 +38,11 @@ function newGame(seed,mc){
      clear — see grantDrops() for the actual gate. */
   dropsGranted:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
+  /* v2.10: elemental affinities — PURCHASED points only (see the AETHER-
+     investment comment above renderAether below); a custom MC's own
+     baseline is separately all-0 by construction (defaultAffinity() in
+     core.js), so kesh here starting at {} is genuinely neutral either way. */
+  affinities:{kesh:{}},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
   /* Live side-battle-in-progress state (quests/dungeons) — see MODULES.md.
      sideBattle is null outside a side fight; roadBattle parks the real
@@ -90,6 +95,13 @@ function applyCustomMC(){
  keshDef.name=G.mc.name;
  keshDef.hp=G.mc.hp;
  keshDef.chargeAction=G.mc.chargeAction;
+ /* v2.10: a custom MC starts NEUTRAL (0) in every affinity — character
+    creation offers no affinity content at all (see the AETHER tab instead),
+    so there is no authored baseline to carry over. Without this the kesh
+    ROSTER row's own CSV-authored baseline (farroadunits.csv, used when
+    Kesh is the untouched default) would leak into a custom MC's stats,
+    exactly the "not neutral" bug this line exists to prevent. */
+ keshDef.affinity=C.defaultAffinity();
  /* chargeRate is the one field NOT offered at creation (see P.MC_STAT_RANGE's
     comment — the five shipped units never vary it, so there is no already-
     played range to bound a choice against); it stays fixed at 1 same as
@@ -131,6 +143,39 @@ function feedUnit(uid,amount){
   if(G.lvl[uid]>(G.maxLevelEver||1))G.maxLevelEver=G.lvl[uid];   /* the ratchet */
  }
  return gained;}
+/* ===== ELEMENTAL AFFINITIES (v2.10) ===== see farroad-core.js (AFFINITY_CAP/
+   affinityMul/affTerm — the combat formula) and farroad-progression.js
+   (P.affinityCostToNext/P.POWER_PER_AFFINITY_POINT — the economy) for the
+   rest of this feature. This is the UI layer's slice: combining a unit's
+   authored baseline with its purchased investment into the effective value
+   combat reads, and the AETHER tab controls that spend Aether on it. */
+var AFFINITY_AXES=['fire','water','earth','air','light','dark','body','spirit'];
+var AFFINITY_INFO={
+ fire:{n:'Fire',d:'Damage dealt and taken by Fire-tagged attacks.'},
+ water:{n:'Water',d:'Damage dealt and taken by Water-tagged attacks.'},
+ earth:{n:'Earth',d:'Damage dealt and taken by Earth-tagged attacks.'},
+ air:{n:'Air',d:'Damage dealt and taken by Air-tagged attacks.'},
+ light:{n:'Light',d:'Damage dealt and taken by Light-tagged attacks.'},
+ dark:{n:'Dark',d:'Damage dealt and taken by Dark-tagged attacks.'},
+ body:{n:'Body',d:'Physical damage dealt and taken, on top of any element a physical attack also carries.'},
+ spirit:{n:'Spirit',d:'Healing given and received, and how strongly buffs/debuffs land — as caster and as target.'}};
+function affinityBaseline(uid){
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ return (def&&def.affinity)||{};}
+function affinityPurchased(uid){return (G.affinities&&G.affinities[uid])||{};}
+/* Effective combat-time value = authored baseline + purchased points — see
+   the "Data model" comment in the plan / P.powerLevel's affinity term for
+   why these stay two separate numbers rather than one mutated figure. */
+function effectiveAffinity(uid){
+ var base=affinityBaseline(uid),purchased=affinityPurchased(uid),out={};
+ AFFINITY_AXES.forEach(function(ax){out[ax]=(base[ax]||0)+(purchased[ax]||0);});
+ return out;}
+function affinityRaw(uid,axis){return (affinityBaseline(uid)[axis]||0)+(affinityPurchased(uid)[axis]||0);}
+/* Stops offering a purchase once the EFFECTIVE raw hits the cap exactly —
+   C.affinityMul plateaus there by construction (Math.min clamps the input),
+   so a further point could not move the number even if bought. */
+function affinityMaxed(uid,axis){return affinityRaw(uid,axis)>=C.AFFINITY_CAP;}
+function affinityNextCost(uid,axis){return P.affinityCostToNext(affinityPurchased(uid)[axis]||0);}
 function slotsFor(uid){return P.slotsAt(levelOf(uid));}
 function ensureLoadout(uid){
  var want=slotsFor(uid);
@@ -154,6 +199,7 @@ function buildParty(){
   var hp=(carry==null)?mh:Math.max(1,Math.round(mh*carry));
   out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
    maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
+   affinity:effectiveAffinity(uid),
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
  return out;}
 
@@ -238,6 +284,9 @@ function buildEnemies(w,quiet){
       chargeAction, farroadenemies.csv) instead of a hardcoded key==='ox'/
       'hound' check — any archetype can carry one now, not just those two. */
    chargeAction:(boss?'wardensmaul':(a.chargeAction||null)),
+   /* No Aether-investment layer for enemies — straight off the archetype's
+      own CSV-authored baseline (farroadenemies.csv), unmodified. */
+   affinity:a.affinity,
    slots:a.slots.map(function(s){return {cond:s.cond,action:s.action};})}));}
  return out;}
 
@@ -452,6 +501,7 @@ function startWave(w,skipDrops){
 function joinCompanion(uid){
  if(!G.owned[uid])G.quests[uid]={stage:0,frozen:[]};
  G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
+ G.affinities=G.affinities||{};if(!G.affinities[uid])G.affinities[uid]={};
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
  return fielded;}
@@ -663,6 +713,7 @@ function buildExpeditionParty(partyIds,hpFrac){
   var hp=Math.max(1,Math.round(mh*frac));
   out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
    maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
+   affinity:effectiveAffinity(uid),
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
  return out;}
 /* Grants whatever the expedition has banked into the real economy and
@@ -1356,7 +1407,23 @@ function renderAether(){
     '<button class="mini feed" data-u="'+uid+'" data-a="'+(STEP*5)+'"'+(G.aether>=STEP*5?'':' disabled')+'>+'+(STEP*5)+'</button>'+
     '<button class="mini feed" data-u="'+uid+'" data-a="next"'+(G.aether>=(need-x)?'':' disabled')+'>→ LV '+(L+1)+' ('+Math.max(0,Math.ceil(need-x))+')</button>'+
    '</div>';
-  host.appendChild(box);});
+  host.appendChild(box);
+  var aBox=document.createElement('div');aBox.style.marginTop='10px';
+  var aRows='';
+  AFFINITY_AXES.forEach(function(axis){
+   var info=AFFINITY_INFO[axis],raw=affinityRaw(uid,axis),pct=Math.round(C.affinityMul(raw)*100);
+   var maxed=affinityMaxed(uid,axis),cost=affinityNextCost(uid,axis);
+   aRows+='<div class="node" style="margin-top:4px"><span class="nname">'+info.n+
+    ' <span class="tiny">'+info.d+'</span></span>'+
+    '<span><span class="tiny mono" style="margin-right:6px">'+(raw>=0?'+':'')+raw+' → '+(pct>=0?'+':'')+pct+'%</span>'+
+    '<button class="mini affbuy" data-u="'+uid+'" data-ax="'+axis+'"'+
+     ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+1 <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
+  aBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>AFFINITIES</b> — Fire, Water, Earth, '+
+   'Air, Light and Dark scale damage dealt and taken by attacks of that element; Body does the same for '+
+   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Block '+
+   'and Evade, none of these grow with level — Aether buys them up directly here instead, with '+
+   'diminishing returns the higher any one climbs, capped at ±80%.</div>'+aRows;
+  host.appendChild(aBox);});
  host.insertAdjacentHTML('beforeend','<hr><div class="tiny">Aether is a <b>shared pool</b>: you '+
   'choose who to level. A benched companion costs you real progress on the others, and a solo '+
   'character reaches the LV 10 third-slot threshold early <i>because</i> everything goes to them — '+
@@ -1392,7 +1459,15 @@ function renderAether(){
     sysLog('<b class="dw">LEVEL UP</b> '+nm+' → LV '+L1+
      (s1>P.slotsAt(L0)?'<div class="tiny" style="color:var(--charge)">A '+
       (ORD[s1]||s1+'th')+' gambit slot opens.</div>':''));}
-   refreshLiveStats();renderAll();buildGambits();};});}
+   refreshLiveStats();renderAll();buildGambits();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.affbuy'),function(el){
+  el.onclick=function(){var u=el.dataset.u,ax=el.dataset.ax,c=affinityNextCost(u,ax);
+   if(G.aether<c||affinityMaxed(u,ax))return;
+   G.aether-=c;G.affinities=G.affinities||{};G.affinities[u]=G.affinities[u]||{};
+   G.affinities[u][ax]=(G.affinities[u][ax]||0)+1;
+   sysLog('<b class="dw">AFFINITY</b> '+AFFINITY_INFO[ax].n+' → '+
+    (affinityRaw(u,ax)>=0?'+':'')+affinityRaw(u,ax)+' ('+Math.round(C.affinityMul(affinityRaw(u,ax))*100)+'%)');
+   refreshLiveStats();renderAll();};});}
 function refreshLiveStats(){
  if(!G.units)return;
  G.units.forEach(function(u){
@@ -1401,6 +1476,7 @@ function refreshLiveStats(){
   var st=P.statsAt(u.id,def.stats,def.hp,levelOf(u.id));
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
+  u.affinity=effectiveAffinity(u.id);
   u.slots=ensureLoadout(u.id).map(function(s){return {cond:s.cond,action:s.action};});});}
 /* v2.9: which actions currently matter — anyone owned's loadout slots plus
    charge action, protecting the MC's WHOLE acquired-charge pool (not just
