@@ -30,11 +30,16 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     hardcoded default — see applyCustomMC() in the UI layer, which is what
     actually turns this back into stats/growth on the 'kesh' roster slot. */
  'mc',
- /* roadmap item 4, phase 1 — see resolveExpedition()/sendExpedition() in the
-    UI layer. 'expedition' is null when no party is out, else the live
-    {partyIds,startedAt,lastResolvedAt,ew,hpFrac,bank} record; 'expeditionLog'
-    is a capped history array, same cap-and-unshift shape as dropHistory. */
- 'expedition','expeditionLog'];
+ /* roadmap item 4 — see resolveExpedition()/sendExpedition() in the UI
+    layer. 'expeditions' is [] when no party is out, else one entry per
+    active expedition: {id,partyIds,startedAt,lastResolvedAt,ew,hpFrac,
+    bank,homeAt,log} — log is that expedition's own capped history
+    (cap-and-unshift, same shape dropHistory uses), discarded along with
+    the rest of the object once settleExpedition() removes it on return.
+    v2.9: was a single nullable 'expedition' object plus one shared
+    'expeditionLog' array (multi-expedition support) — see the migration
+    in deserialize() below for a save written before this field existed. */
+ 'expeditions'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -87,8 +92,25 @@ S.deserialize=function(snap,C){
  G.wave=G.wave||0;G.farthest=G.farthest||1;G.bossesCleared=G.bossesCleared||0;
  G.aether=G.aether||0;G.lore=G.lore||0;G.marks=G.marks||0;G.wipes=G.wipes||0;
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
- if(G.expedition===undefined)G.expedition=null;
- G.expeditionLog=G.expeditionLog||[];
+ /* v2.9 MIGRATION: a save written before multi-expedition support has a
+    singular 'expedition' object (possibly a real in-flight one) and a
+    shared 'expeditionLog' array, neither of which is in FIELDS above
+    anymore, so G.expeditions came out of the generic clone loop as
+    undefined for such a save. Wrap the legacy single expedition into the
+    new array (assigning it a fresh id) rather than silently dropping a
+    party that's actually out exploring; fold the old shared log into it
+    best-effort — those entries weren't scoped to one expedition before,
+    but there was only ever one active at a time, so nothing is lost. A
+    genuinely new/empty save (no legacy 'expedition' field either) just
+    gets []. */
+ if(!G.expeditions){
+  if(snap.expedition){
+   var legacy=clone(snap.expedition);
+   legacy.id='exp'+(snap.savedAt||Date.now())+'_migrated';
+   legacy.log=clone(snap.expeditionLog)||[];
+   G.expeditions=[legacy];
+  }else{
+   G.expeditions=[];}}
  G.pullsSinceUnit=G.pullsSinceUnit||0;
  return G;};
 

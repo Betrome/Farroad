@@ -39,7 +39,7 @@ function newGame(seed,mc){
   dropsGranted:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
-  mc:mc||null, expedition:null, expeditionLog:[], pullsSinceUnit:0};}
+  mc:mc||null, expeditions:[], pullsSinceUnit:0};}
 
 /* Applies a player-built character onto the 'kesh' slot. This mutates the
    shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
@@ -595,22 +595,26 @@ function simulateOfflineProgress(snap){
  * enemy build here bumps it to the expedition's synthetic wave, so it is
  * always restored to G.wave before returning control, never left pointing
  * at expedition state for the main battle to read by accident. */
-var expedTimer=null;
-/* Precisely wakes up resolveExpedition() when a party is actually due home,
-   instead of leaving a short wait to whenever the 30s background interval
-   next happens to fire — without this, a party turning back only a few
-   seconds from arriving would still sit "heading home" for up to 30s. */
-function scheduleExpeditionCheck(delayMs){
- clearTimeout(expedTimer);
- expedTimer=setTimeout(function(){
-  if(G.expedition)resolveExpedition();
-  renderAll();},Math.max(0,delayMs));}
+/* v2.9: multiple concurrent expeditions — "I want multiple parties to be
+   able to go on expeditions in different directions." Was a single
+   G.expedition (object|null); now G.expeditions (array, [] when none
+   active). The old single expedTimer/scheduleExpeditionCheck below this
+   comment assumed exactly one pending arrival and doesn't generalize to N
+   without a timer-per-expedition map — dropped entirely in favor of two
+   plain interval loops near the bottom of this file: a ~15s resolution
+   poll covering every active expedition (resolveAllExpeditions), and a
+   separate ~1s live-counter tick that only patches timer text (see
+   renderExpedition/updateExpeditionTimers below) without rebuilding any
+   DOM, so it can't tear a button out from under an in-progress click the
+   way a full rebuild would. */
 function benchedUnits(){
- return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0;});}
-function pushExpeditionLog(text){
- G.expeditionLog=G.expeditionLog||[];
- G.expeditionLog.unshift({at:Date.now(),text:text});
- while(G.expeditionLog.length>40)G.expeditionLog.pop();}
+ return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!isOnExpedition(uid);});}
+function isOnExpedition(uid){
+ return G.expeditions.some(function(e){return e.partyIds.indexOf(uid)>=0;});}
+function pushExpeditionLog(exp,text){
+ exp.log=exp.log||[];
+ exp.log.unshift({at:Date.now(),text:text});
+ while(exp.log.length>40)exp.log.pop();}
 function buildExpeditionParty(partyIds,hpFrac){
  var out=[];
  partyIds.forEach(function(uid,i){
@@ -624,74 +628,71 @@ function buildExpeditionParty(partyIds,hpFrac){
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
  return out;}
 /* Grants whatever the expedition has banked into the real economy and
-   clears the live record — reached once a party that has turned back
-   (G.expedition.homeAt set, whether by the HP threshold or a recall)
-   actually arrives home; see beginReturnTrip() below. */
-function settleExpedition(reason){
- var exp=G.expedition;if(!exp)return;
+   removes it from G.expeditions — reached once a party that has turned
+   back (exp.homeAt set, whether by the HP threshold or a recall) actually
+   arrives home; see beginReturnTrip() below. Its own log goes with it —
+   "unique expedition logs for each group that clear after they've been
+   collected upon their return" — nothing copies exp.log anywhere else
+   first, so it simply ceases to exist alongside exp. */
+function settleExpedition(exp,reason){
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
  G.aether+=exp.bank.aether;G.marks+=exp.bank.marks;
- pushExpeditionLog(names+' — '+reason+' Reached wave '+exp.ew+'. Brought back '+
-  Math.round(exp.bank.aether)+' Aether, '+Math.floor(exp.bank.marks)+' Marks.');
  sysLog('<b>Expedition returned.</b> <span class="tiny">'+names+' — '+reason+
   ' Earned <b style="color:var(--aether)">+'+Math.round(exp.bank.aether)+' Aether</b> and '+
   '<b style="color:var(--marks)">+'+Math.floor(exp.bank.marks)+' Marks</b> over '+exp.ew+' wave'+
   (exp.ew===1?'':'s')+'.</span>');
- G.expedition=null;}
+ G.expeditions=G.expeditions.filter(function(e){return e.id!==exp.id;});}
 /* Turning back — whether the HP threshold tripped it or the player recalled
    the party — is not instant: the trip home takes HALF the real time the
-   party has been out (measured from G.expedition.startedAt to this decision
+   party has been out (measured from exp.startedAt to this decision
    moment), same road, half the ground already covered. Rewards stay in
-   G.expedition.bank, not the real economy, until settleExpedition() actually
+   exp.bank, not the real economy, until settleExpedition() actually
    fires — recalling doesn't bank anything early, it just decides "turn back
    now" instead of later. A recall placed right after departure still reads
    as instant: awaySec is ~0 there, so the computed trip is ~0 too.
    decisionMoment is a real timestamp rather than "now": a big catch-up pass
    (resolveExpedition below) can cross the turn-back threshold partway
    through a long absence, so the return-trip clock has to start from THAT
-   point, not from whenever the player happens to check back in. If enough
-   real time has already passed by the time this runs, the party has already
-   made it home and this settles immediately; otherwise a precisely-timed
-   check is scheduled so a short remaining wait doesn't sit stale until the
-   next 30s background poll. */
-function beginReturnTrip(decisionMoment,reason){
- var exp=G.expedition;if(!exp||exp.homeAt)return;
+   point, not from whenever the player happens to check back in. */
+function beginReturnTrip(exp,decisionMoment,reason){
+ if(exp.homeAt)return;
  var awaySec=Math.max(0,(decisionMoment-exp.startedAt)/1000);
  exp.homeAt=decisionMoment+(awaySec/2)*1000;
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
- pushExpeditionLog(names+' — '+reason+' Heading home now.');
- if(Date.now()>=exp.homeAt)settleExpedition('arrived home.');
- else scheduleExpeditionCheck(exp.homeAt-Date.now());}
-/* Validates and starts a new expedition — one at a time in phase 1. Every
-   unit must be owned and currently benched (not in G.party); duplicates and
-   an oversized party are rejected rather than silently truncated. */
+ pushExpeditionLog(exp,names+' — '+reason+' Heading home now.');
+ if(Date.now()>=exp.homeAt)settleExpedition(exp,'arrived home.');}
+/* Validates and starts a new expedition. Every unit must be owned,
+   currently benched (not in G.party), and not already out on a DIFFERENT
+   expedition — several parties can be out at once now, but a given unit
+   can only be on one of them at a time. */
 function sendExpedition(partyIds){
- if(G.expedition)return false;
  if(!partyIds||!partyIds.length||partyIds.length>P.PARTY_CAP)return false;
  var seen={};
  for(var i=0;i<partyIds.length;i++){
   var uid=partyIds[i];
   if(seen[uid])return false;seen[uid]=1;
-  if(!G.owned[uid]||G.party.indexOf(uid)>=0)return false;}
- G.expedition={partyIds:partyIds.slice(),startedAt:Date.now(),lastResolvedAt:Date.now(),
-  ew:1,hpFrac:1,bank:{aether:0,marks:0},homeAt:null};
+  if(!G.owned[uid]||G.party.indexOf(uid)>=0||isOnExpedition(uid))return false;}
+ var exp={id:'exp'+Date.now()+'_'+Math.floor(Math.random()*1e6),
+  partyIds:partyIds.slice(),startedAt:Date.now(),lastResolvedAt:Date.now(),
+  ew:1,hpFrac:1,bank:{aether:0,marks:0},homeAt:null,log:[]};
+ G.expeditions.push(exp);
  var names=partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
- pushExpeditionLog(names+' set out to explore.');
+ pushExpeditionLog(exp,names+' set out to explore.');
  sysLog('<b>Expedition departs.</b> <span class="tiny">'+names+' head out into the road beyond.</span>');
  return true;}
-/* The real-time resolution loop — see simulateOfflineProgress() above for
-   the identical shape this mirrors. Called from tryResumeSave() (catch-up
-   on load) and from a periodic check while the tab stays open, so it must
+/* The real-time resolution loop for ONE expedition — see
+   simulateOfflineProgress() above for the identical shape this mirrors.
+   Called (via resolveAllExpeditions below) from tryResumeSave() (catch-up
+   on load) and from a periodic poll while the tab stays open, so it must
    be safe to call often and cheap to no-op when nothing has happened yet.
    Once a party has turned back (homeAt set) there is no more combat to
    resolve — just a real-time wait — so that branch skips the battle loop
-   entirely and only checks whether they've arrived yet. */
-function resolveExpedition(){
- var exp=G.expedition;if(!exp)return;
- if(exp.homeAt){if(Date.now()>=exp.homeAt)settleExpedition('arrived home.');return;}
+   entirely and only checks whether it's arrived yet. */
+function resolveExpedition(exp){
+ if(exp.homeAt){if(Date.now()>=exp.homeAt)settleExpedition(exp,'arrived home.');return;}
  var elapsedSec=Math.max(0,(Date.now()-exp.lastResolvedAt)/1000);
  if(elapsedSec<5)return;
  var resolveStartedAt=exp.lastResolvedAt;
@@ -720,19 +721,25 @@ function resolveExpedition(){
   if(exp.hpFrac<P.EXPED_RETURN_HP_FRAC){turnedBack=true;break;}}
  C.setWave(savedWave);            /* restore CURRENT_WAVE for K_of() before returning */
  exp.lastResolvedAt=Date.now();
- if(turnedBack)beginReturnTrip(resolveStartedAt+(capped-remaining)*1000,
+ if(turnedBack)beginReturnTrip(exp,resolveStartedAt+(capped-remaining)*1000,
   'injuries mounted and the party turned back.');}
-/* Player-initiated early return: catch up on whatever real time has passed
-   (which may itself trigger and even fully resolve an auto turn-back), then
-   decide to turn back right now if the party isn't already doing so — same
-   half-time trip an auto turn-back gets (see beginReturnTrip), so rewards
-   don't bank until they actually arrive. A no-op if they're already heading
-   home (that trip is already running on its own schedule) or already
-   settled during the catch-up above. */
-function recallExpedition(){
- if(!G.expedition)return;
- resolveExpedition();
- if(G.expedition&&!G.expedition.homeAt)beginReturnTrip(Date.now(),'recalled.');}
+/* Resolves every active expedition in one pass — slice() first so
+   settling one mid-loop (settleExpedition reassigns G.expeditions via
+   filter) can't skip its neighbor. */
+function resolveAllExpeditions(){
+ G.expeditions.slice().forEach(function(exp){resolveExpedition(exp);});}
+/* Player-initiated early return for ONE expedition, by id: catch up on
+   whatever real time has passed for it (which may itself trigger and even
+   fully resolve an auto turn-back), then decide to turn back right now if
+   it isn't already doing so — same half-time trip an auto turn-back gets
+   (see beginReturnTrip), so rewards don't bank until it actually arrives.
+   A no-op if the id no longer matches anything active, if it's already
+   heading home, or if it already settled during the catch-up above. */
+function recallExpedition(id){
+ var exp=null;G.expeditions.forEach(function(e){if(e.id===id)exp=e;});
+ if(!exp)return;
+ resolveExpedition(exp);
+ if(G.expeditions.indexOf(exp)>=0&&!exp.homeAt)beginReturnTrip(exp,Date.now(),'recalled.');}
 
 /* Only called once, at boot — there is no manual Load button (autosave means
    there is nothing to manually load FROM except what boot already resumes).
@@ -753,7 +760,7 @@ function tryResumeSave(){
     forward exactly like live play would, including past this same wave. */
  startWave(G.wave||1,true);
  simulateOfflineProgress(snap);   /* logs its own "Welcome back" line when time has actually passed */
- if(G.expedition)resolveExpedition();   /* catch up any expedition the same way */
+ resolveAllExpeditions();   /* catch up every active expedition the same way */
  buildGambits();renderAll();
  return true;}
 
@@ -927,10 +934,12 @@ function renderHead(){
  $('#ckptLbl').innerHTML='farthest <b>'+G.farthest+'</b> · checkpoint <b>'+P.checkpoint(G.bossesCleared)+
   '</b> · next boss <b>'+nb+'</b>'+(G.wipes?' · wipes '+G.wipes:'')+
   (P.isCurated(G.wave)?' · <span class="ckpt">curated drops</span>':' · <span class="tiny">random drops</span>');}
-/* v2.9: "a value that accurately shows a player's total power level" at
-   the top of the ROAD tab — see P.powerLevel in progression.js for the
-   formula (roster depth + unit levels + Lore levels + wave, each put on a
-   comparable level-equivalent scale before summing). */
+/* v2.9: "a value that accurately shows a player's total power level" —
+   moved from inside the ROAD tab up to the always-visible header, next to
+   the idle-rate line, so it's visible regardless of which tab is open.
+   See P.powerLevel in progression.js for the formula (roster depth + unit
+   levels + Lore levels + wave, each put on a comparable level-equivalent
+   scale before summing). */
 function renderPowerLevel(){
  var el=$('#powerLevel');if(!el)return;
  el.innerHTML='<b>POWER LEVEL <span class="mono" style="color:var(--charge)">'+
@@ -988,7 +997,7 @@ function renderAether(){
   var prog=Math.max(0,Math.min(100,100*(x-have)/Math.max(1,need-have)));
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
    '<span class="uname'+(fielded?' p':'')+'">'+def.name+' <span class="tiny">'+capRole(def.role)+
-    (fielded?'':' · benched')+'</span></span>'+
+    (fielded?'':(isOnExpedition(uid)?' · on expedition':' · benched'))+'</span></span>'+
    '<span class="nval">LV '+L+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
    '<div class="tiny mono" style="margin-top:3px">'+Math.floor(x)+' / '+need+' to LV '+(L+1)+'</div>'+
@@ -1343,6 +1352,26 @@ function doPull(){
    pushDrop({name:'+1 Lore',kind:'PULL · duplicate gambit',wave:G.wave,
     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.'});}}
  buildGambits();renderAll();}
+/* Absolute clock time for a log entry timestamp — "let's list timestamps
+   on messages". Deliberately hour:minute only (no seconds, no date) —
+   this is a same-session log, not a long-term history. */
+function fmtClock(ts){
+ var d=new Date(ts),h=d.getHours(),m=d.getMinutes();
+ var ap=h>=12?'PM':'AM';h=h%12;if(h===0)h=12;
+ return h+':'+(m<10?'0':'')+m+' '+ap;}
+/* Shared by the away/ETA live counters below and by updateExpeditionTimers
+   (the ~1s tick near the bottom of this file) — kept as one function so
+   the two can never drift out of format agreement with each other. */
+function fmtDur(sec){
+ sec=Math.max(0,sec);
+ return sec>=3600?(sec/3600).toFixed(1)+' hours':Math.max(1,Math.round(sec/60))+' minutes';}
+/* v2.9: multiple concurrent expeditions — was a single at-a-glance panel
+   (if(exp){...}else{picker}), now zero or more active-expedition boxes
+   (one per G.expeditions entry, each with its own live timer span
+   #exp-timer-<id> and its own inline log) followed by the send picker,
+   shown whenever any benched unit remains — "I want multiple parties to
+   be able to go on expeditions in different directions", so the picker no
+   longer disappears just because one expedition is already out. */
 function renderExpedition(){
  var host=$('#expeditionView');if(!host)return;
  /* v2.9: party allocation moved here from the top of GAMBITS — "let's change
@@ -1353,48 +1382,45 @@ function renderExpedition(){
     wirePartyRoster below (built as a plain string + a separate wiring pass,
     not host.appendChild, since this function already assembles its own
     content as one string and sets host.innerHTML once at the end). */
- var exp=G.expedition,h=partyRosterHTML();
- if(exp){
+ var h=partyRosterHTML();
+ G.expeditions.forEach(function(exp){
   var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
    return d?d.name:uid;}).join(', ');
+  h+='<div class="slot" style="margin-bottom:8px"><div class="uname">'+names+'</div>';
   if(exp.homeAt){
-   var etaSec=Math.max(0,(exp.homeAt-Date.now())/1000);
-   var etaTxt=etaSec>=3600?(etaSec/3600).toFixed(1)+' hours':Math.max(1,Math.round(etaSec/60))+' minutes';
-   h+='<div class="slot"><div class="uname">'+names+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Heading home — back in about '+etaTxt+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
-    ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div></div>';
+   var etaSec=(exp.homeAt-Date.now())/1000;
+   h+='<div class="tiny mono" style="margin-top:2px">Heading home — back in about '+
+    '<span id="exp-timer-'+exp.id+'">'+fmtDur(etaSec)+'</span></div>';
   }else{
-   var awaySec=Math.max(0,(Date.now()-exp.startedAt)/1000);
-   var awayTxt=awaySec>=3600?(awaySec/3600).toFixed(1)+' hours':Math.max(1,Math.round(awaySec/60))+' minutes';
-   h+='<div class="slot"><div class="uname">'+names+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Away '+awayTxt+' · reached wave '+exp.ew+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
-    ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div>'+
-    '<button class="mini" id="btnExpedRecall" style="margin-top:6px">Recall party</button></div>';}
- }else{
-  var bench=benchedUnits();
-  mcExpedPick=mcExpedPick.filter(function(uid){return bench.indexOf(uid)>=0;});
-  if(!bench.length){
-   h+='<div class="tiny">No benched units — everyone owned is already fielded.</div>';
-  }else{
-   h+='<div class="tiny" style="margin-bottom:6px">Send up to '+P.PARTY_CAP+' benched units '+
-    'exploring in real time — click to pick them. The longer they\'re out, the harder what they '+
-    'meet gets, and they turn back on their own if hurt too badly. The trip home takes half as '+
-    'long as they were out.</div>';
-   bench.forEach(function(uid){
-    var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
-    var picked=mcExpedPick.indexOf(uid)>=0;
-    h+='<div class="slot expick'+(picked?' on':'')+'" data-uid="'+uid+'" style="cursor:pointer">'+
-     '<div class="uname">'+(d?d.name:uid)+'</div>'+
-     '<div class="tiny">'+(d?capRole(d.role):'')+' · LV '+levelOf(uid)+'</div></div>';});
-   h+='<button class="mini" id="btnExpedSend" style="margin-top:6px">Send expedition ('+
-    mcExpedPick.length+'/'+P.PARTY_CAP+')</button>';}}
- h+='<hr><div class="tiny" style="margin-bottom:6px"><b>EXPEDITION LOG</b> — most recent first ('+
-  (G.expeditionLog||[]).length+')</div>';
- var log=G.expeditionLog||[];
- if(!log.length)h+='<div class="tiny">Nothing yet.</div>';
- log.forEach(function(e){h+='<div class="drop"><div class="tiny">'+e.text+'</div></div>';});
+   var awaySec=(Date.now()-exp.startedAt)/1000;
+   h+='<div class="tiny mono" style="margin-top:2px">Away '+
+    '<span id="exp-timer-'+exp.id+'">'+fmtDur(awaySec)+'</span> · reached wave '+exp.ew+'</div>';}
+  h+='<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
+   ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div>'+
+   (exp.homeAt?'':'<button class="mini expedRecall" data-id="'+exp.id+'" style="margin-top:6px">Recall party</button>');
+  var log=exp.log||[];
+  if(log.length){
+   h+='<div class="tiny" style="margin-top:8px;color:var(--dimmer)">LOG</div>';
+   log.forEach(function(e){h+='<div class="tiny" style="margin-top:2px">'+
+    '<span class="mono" style="color:var(--dimmer)">'+fmtClock(e.at)+'</span> '+e.text+'</div>';});}
+  h+='</div>';});
+ var bench=benchedUnits();
+ mcExpedPick=mcExpedPick.filter(function(uid){return bench.indexOf(uid)>=0;});
+ if(bench.length){
+  h+='<div class="tiny" style="margin-bottom:6px">Send up to '+P.PARTY_CAP+' benched units '+
+   'exploring in real time — click to pick them. The longer they\'re out, the harder what they '+
+   'meet gets, and they turn back on their own if hurt too badly. The trip home takes half as '+
+   'long as they were out. Several parties can be out at once, each in their own direction.</div>';
+  bench.forEach(function(uid){
+   var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+   var picked=mcExpedPick.indexOf(uid)>=0;
+   h+='<div class="slot expick'+(picked?' on':'')+'" data-uid="'+uid+'" style="cursor:pointer">'+
+    '<div class="uname">'+(d?d.name:uid)+'</div>'+
+    '<div class="tiny">'+(d?capRole(d.role):'')+' · LV '+levelOf(uid)+'</div></div>';});
+  h+='<button class="mini" id="btnExpedSend" style="margin-top:6px">Send expedition ('+
+   mcExpedPick.length+'/'+P.PARTY_CAP+')</button>';
+ }else if(!G.expeditions.length){
+  h+='<div class="tiny">No benched units — everyone owned is already fielded.</div>';}
  host.innerHTML=h;
  wirePartyRoster(host);
  Array.prototype.forEach.call(host.querySelectorAll('.expick'),function(el){
@@ -1405,8 +1431,22 @@ function renderExpedition(){
  var sendBtn=$('#btnExpedSend');
  if(sendBtn)sendBtn.onclick=function(){
   if(sendExpedition(mcExpedPick)){mcExpedPick=[];renderAll();}};
- var recallBtn=$('#btnExpedRecall');
- if(recallBtn)recallBtn.onclick=function(){recallExpedition();renderAll();};}
+ Array.prototype.forEach.call(host.querySelectorAll('.expedRecall'),function(el){
+  el.onclick=function(){recallExpedition(el.dataset.id);renderAll();};});}
+/* v2.9: the ~1s live-counter tick — "a live count of how long they've been
+   out as well as how long until they return". Deliberately patches ONLY
+   the timer spans' textContent, never calls renderExpedition() itself —
+   a full rebuild every second would tear the picker/recall buttons out
+   from under an in-progress click the same way the pre-fix tick() loop
+   used to during travel (see doStep()/renderTick() above). No-ops
+   instantly when the EXPEDITION tab isn't the visible one, or when
+   nothing is out. */
+function updateExpeditionTimers(){
+ if(!G.expeditions.length)return;
+ var panel=$('#tab-expedition');if(!panel||panel.classList.contains('hidden'))return;
+ G.expeditions.forEach(function(exp){
+  var el=document.getElementById('exp-timer-'+exp.id);if(!el)return;
+  el.textContent=exp.homeAt?fmtDur((exp.homeAt-Date.now())/1000):fmtDur((Date.now()-exp.startedAt)/1000);});}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 /* Lighter sibling of renderAll(), for the ordinary per-beat path in
@@ -1425,8 +1465,7 @@ function renderTick(){renderHead();renderPowerLevel();renderUnits();renderRail()
  * expedition are both "who's doing what right now" decisions, and benched
  * units are exactly the pool an expedition draws from. */
 function availableForParty(){
- var away={};if(G.expedition)G.expedition.partyIds.forEach(function(uid){away[uid]=1;});
- return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!away[uid];});}
+ return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!isOnExpedition(uid);});}
 function benchUnit(uid){
  if(G.party.length<=1)return false;             /* never allow an empty party */
  var i=G.party.indexOf(uid);if(i<0)return false;
@@ -1434,7 +1473,7 @@ function benchUnit(uid){
  return true;}
 function fieldUnit(uid){
  if(!G.owned[uid]||G.party.indexOf(uid)>=0)return false;
- if(G.expedition&&G.expedition.partyIds.indexOf(uid)>=0)return false;   /* away units aren't available */
+ if(isOnExpedition(uid))return false;   /* away units aren't available */
  if(G.party.length>=P.PARTY_CAP)return false;
  G.party.push(uid);
  autoEquip();                                    /* same default-rule pass a pull/boss-join gets */
@@ -1466,8 +1505,10 @@ function renderUnitTabs(host,onChange,includeBenched){
  var cur=currentSelectedUnit(includeBenched),h='';
  pool.forEach(function(uid){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  var benchTag=(includeBenched&&G.party.indexOf(uid)<0)?
+   (isOnExpedition(uid)?' <span class="tiny">(expedition)</span>':' <span class="tiny">(bench)</span>'):'';
   h+='<button class="mini utab'+(uid===cur?' on':'')+'" data-u="'+uid+'">'+
-   (def?def.name:uid)+(includeBenched&&G.party.indexOf(uid)<0?' <span class="tiny">(bench)</span>':'')+'</button>';});
+   (def?def.name:uid)+benchTag+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedUnitTab=el.dataset.u;onChange();};});}
@@ -1571,7 +1612,8 @@ function buildGambits(){
   var sl=ensureLoadout(uid);
   var box=document.createElement('div');box.style.marginBottom='12px';
   box.innerHTML='<div class="spread" style="margin-bottom:4px"><span class="uname'+(fielded?' p':'')+'">'+def.name+
-   ' <span class="tiny">'+capRole(def.role)+(fielded?'':' · benched')+'</span></span><span class="tiny">'+G.actions.length+' actions</span></div>'+
+   ' <span class="tiny">'+capRole(def.role)+(fielded?'':(isOnExpedition(uid)?' · on expedition':' · benched'))+
+   '</span></span><span class="tiny">'+G.actions.length+' actions</span></div>'+
    (fielded?'':'<div class="tiny" style="color:var(--dimmer);margin-bottom:6px">Changes apply at the start of each combat.</div>');
   var ownedConds=sortedOwnedConditions();
   sl.forEach(function(s,i){
@@ -1583,15 +1625,22 @@ function buildGambits(){
    var ao='';
    G.actions.forEach(function(aid){
     var holder=(aid!==s.action)?actionHolderInParty(aid,uid):null;
+    /* v2.9: "benched units aren't counted towards action allocation, so
+       multiple benched units can have the same actions" — a benched-vs-
+       benched match isn't an active exploit (only fielded units fight),
+       so it's surfaced as a tag/warning here, never disabled — only a
+       FIELDED holder blocks the option. */
+    var benchHolder=(!holder&&aid!==s.action)?benchedActionHolder(aid,uid):null;
     var dis=holder?' disabled title="'+C.ACTIONS[aid].name+' is equipped by '+holder+' — non-starter actions can only be used by one unit at a time"':'';
-    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+C.ACTIONS[aid].name+
-     (holder?' (used by '+holder+')':'')+'</option>';});
+    var tag=holder?' (used by '+holder+')':(benchHolder?' (also held by '+benchHolder+', benched)':'');
+    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+C.ACTIONS[aid].name+tag+'</option>';});
    /* Grandfathered conflict: a loadout saved before the one-unit-per-action
       rule could already have this same non-starter action on another
       fielded unit. The <select> above leaves the current pick selectable
       (never force-changes a slot under the player), so surface it here
       instead — otherwise the sharing would silently persist unnoticed. */
    var ownConflict=actionHolderInParty(s.action,uid);
+   var ownBenchConflict=ownConflict?null:benchedActionHolder(s.action,uid);
    w.innerHTML='<div class="slotbar"><span class="lbl">SLOT '+(i+1)+' — IF</span>'+
      '<button class="mini mv up" aria-label="move up">▲</button>'+
      '<button class="mini mv dn" aria-label="move down">▼</button></div>'+
@@ -1604,7 +1653,10 @@ function buildGambits(){
      ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
     '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>'+
     (ownConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also equipped by '+
-     ownConflict+' from before this rule — pick a different action here to resolve it</div>':'');
+     ownConflict+' from before this rule — pick a different action here to resolve it</div>':
+     ownBenchConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also held by '+
+     ownBenchConflict+' (benched) — fielding both at once will conflict; pick a different action '+
+     'here to avoid it</div>':'');
    var up=w.querySelector('.up'),dn=w.querySelector('.dn');
    if(i===0)up.disabled=true;
    if(i===sl.length-1)dn.disabled=true;
@@ -1683,6 +1735,23 @@ function actionHolderInParty(aid,excludeUid){
  if(P.STARTER_ACTIONS.indexOf(aid)>=0)return null;
  var holder=null;
  G.party.forEach(function(uid){if(uid===excludeUid||holder)return;
+  var sl=G.loadout[uid];if(!sl)return;
+  sl.forEach(function(s){if(s.action===aid){var def=null;
+   C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+   holder=def?def.name:uid;}});});
+ return holder;}
+/* Companion to actionHolderInParty above, scanning BENCHED owned units
+   only — "benched units aren't counted towards action allocation, so
+   multiple benched units can have the same actions." Two benched units
+   sharing a non-starter action isn't an active Lore-sharing exploit (only
+   fielded units fight), so this is surfaced as a warning/tag only,
+   everywhere it's checked — never disables an option or blocks a save,
+   unlike actionHolderInParty's fielded-vs-fielded case. */
+function benchedActionHolder(aid,excludeUid){
+ if(P.STARTER_ACTIONS.indexOf(aid)>=0)return null;
+ var holder=null;
+ Object.keys(G.owned).forEach(function(uid){
+  if(uid===excludeUid||holder||G.party.indexOf(uid)>=0)return;
   var sl=G.loadout[uid];if(!sl)return;
   sl.forEach(function(s){if(s.action===aid){var def=null;
    C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
@@ -1940,11 +2009,19 @@ $('#btnMcConfirm').onclick=function(){
 /* Expeditions run on real wall-clock time and must be picked up even if the
    player never reloads the page — there is no other "time has passed"
    poller in this file (tick() only runs during active combat playback), so
-   this is new plumbing rather than a reuse of an existing loop. 30s is
-   frequent enough that a returning party shows up promptly without adding
-   any meaningful cost (resolveExpedition() no-ops in under 5s anyway). */
+   this is new plumbing rather than a reuse of an existing loop. 15s (was
+   30s — halved since one pass now covers every concurrent expedition, not
+   just one) is frequent enough that a returning party shows up promptly
+   without adding any meaningful cost (resolveExpedition() no-ops in under
+   5s anyway). Separate from updateExpeditionTimers below: this one does
+   real combat resolution and a full renderAll(), so it stays infrequent
+   enough not to reintroduce the double-click bug a sub-second full rebuild
+   caused during travel (see doStep()/renderTick() above) — the live
+   counter's own 1s cadence is cheap precisely because it never rebuilds
+   anything. */
 setInterval(function(){
- if(G&&G.expedition){resolveExpedition();renderAll();}},30000);
+ if(G&&G.expeditions&&G.expeditions.length){resolveAllExpeditions();renderAll();}},15000);
+setInterval(function(){if(G)updateExpeditionTimers();},1000);
 
 /* "let's have travelling the road begin as soon as the file is opened, so
    long as the player has already made an MC" — a resumed save with a

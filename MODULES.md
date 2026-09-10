@@ -1187,3 +1187,126 @@ in a tab and then calling `navigate()` on that SAME tab still fires
 the direct edit; the fix is the one already documented (seed from a tab,
 then observe from a *different*, freshly-opened tab, never navigating or
 relying on the edited tab again).
+
+## Power Level relocated; benched-vs-benched action warning
+
+**Power Level moved** from inside the ROAD tab to the always-visible
+header, right below the idle-rate line (`#powerLevel` now a sibling of
+`#idleRate` in `#app`, not nested in `#tab-log`) — visible regardless of
+which tab is open now, confirmed live while on GAMBITS.
+
+**Benched-vs-benched action sharing now warns, doesn't block**: the one-
+action-per-unit rule was always scoped to `G.party` (fielded only) by
+original design — only simultaneously-fielded units create the Lore-
+sharing exploit it exists to close. That scoping meant two *benched* units
+could silently share a non-starter action with zero indication, only
+surfacing as a real conflict once both happened to get fielded together.
+Given the choice between extending the hard-block to every owned unit
+(stricter, and restrictive fast with ~25 basics to go around a full
+roster) or a warning that surfaces the moment both would be fielded
+together, went with the latter, per direct instruction. New
+`benchedActionHolder(aid,excludeUid)` (companion to the existing
+`actionHolderInParty`, scanning only benched owned units) — used in two
+places, both warning-only, never disabling an option or blocking a save:
+the action dropdown tags a benched-held option "(also held by X, benched)"
+instead of leaving it silently unlabeled, and the existing "grandfathered
+conflict" warning line now also fires for a benched-vs-benched match, not
+just the original fielded-vs-fielded case. Verified live: seeded Mirel and
+Skarn (both benched) sharing Pierce, confirmed the option is selectable
+(`disabled===false`) with the new warning showing on both units' own
+boxes, correctly naming the other as the conflicting holder.
+
+## Multi-expedition overhaul (items 1-4)
+
+"I want multiple parties to be able to go on expeditions in different
+directions" — the whole system was built around exactly one `G.expedition`
+(nullable object) plus one shared `G.expeditionLog` array. `G.expedition`
+→ **`G.expeditions`** (array), each entry gaining an `id`
+(`'exp'+Date.now()+'_'+random`) and its own `log` (was the shared
+`G.expeditionLog`). Every core function (`sendExpedition`,
+`resolveExpedition`, `settleExpedition`, `beginReturnTrip`,
+`pushExpeditionLog`) now takes the specific expedition object as a
+parameter instead of reading the module singular; new
+`resolveAllExpeditions()` loops a `.slice()` of the array (so settling one
+mid-loop via `settleExpedition`'s `filter` can't skip its neighbor) —
+called from `tryResumeSave()`'s catch-up and the periodic poll.
+`recallExpedition` now takes an id. `sendExpedition` drops the old
+single-slot gate; the one new per-unit check is "not already on a
+DIFFERENT expedition" (`isOnExpedition`, new — `G.expeditions.some(e=>
+e.partyIds.indexOf(uid)>=0)`), used for that AND for `benchedUnits()`/
+`availableForParty()`/`fieldUnit()`'s existing away-exclusions, which
+previously each open-coded their own `G.expedition&&...` check.
+
+**"Unique expedition logs for each group that clear after they've been
+collected"**: satisfied structurally, not with an explicit clear step —
+each expedition's `log` lives ON the expedition object, so the moment
+`settleExpedition` removes that object from `G.expeditions` (nothing
+copies `log` anywhere else first), the log simply ceases to exist with it.
+
+**Timers**: the old single `expedTimer`/`scheduleExpeditionCheck(delayMs)`
+precise-wakeup mechanism assumed exactly one pending arrival and doesn't
+generalize to N without a timer-per-expedition map — dropped entirely.
+Replaced with two independent interval loops: a ~15s resolution poll
+(`resolveAllExpeditions()`+`renderAll()`, was 30s, halved since one pass
+now covers every concurrent expedition) for the real combat/reward
+simulation, and a new, separate ~1s live-counter tick
+(`updateExpeditionTimers()`) satisfying "a live count of how long they've
+been out as well as how long until they return" — deliberately patches
+ONLY each `#exp-timer-<id>` span's `textContent` directly, never calls
+`renderExpedition()`/rebuilds any DOM, and no-ops instantly when the
+EXPEDITION tab isn't the visible one. This split matters: a full rebuild
+every second would have reintroduced the double-click bug fixed two
+rounds ago (tearing the picker/recall buttons out from under an
+in-progress click) — verified live that the timer's DOM node identity is
+provably stable across tick cycles (tagged a node, waited 3s, confirmed
+`===` same reference, not a replacement).
+
+**`renderExpedition()` restructure**: was one `if(exp){active panel}else
+{picker}` block; now zero-or-more active-expedition boxes (one per
+`G.expeditions` entry, each with its own live timer span, Recall button
+scoped to that id, and its own inline log with each entry's timestamp via
+new `fmtClock(ts)` — "let's list timestamps on messages") followed by the
+send picker, now shown whenever any benched-and-not-already-away unit
+remains, REGARDLESS of how many other expeditions are already active — a
+second or third party can be dispatched at any time now.
+
+**On-expedition indicator** ("there currently is none"): the three label
+sites (`renderUnitTabs` — shared GAMBITS/AETHER/LORE tab bar, `renderAether`,
+`buildGambits`) each tested only `G.party.indexOf(uid)<0` with zero
+expedition awareness, so an away unit read identically to a plain benched
+one everywhere. All three now check `isOnExpedition(uid)` and show
+"(expedition)"/"· on expedition" instead of "(bench)"/"· benched" when
+true.
+
+**Save/migration**: `farroad-save.js` FIELDS `'expedition','expeditionLog'`
+→ `'expeditions'`. `deserialize` needed a real migration, not just a
+default-fill, since Ian has a live save that could have an in-flight
+singular expedition: if `snap.expeditions` is absent but the legacy
+`snap.expedition` is present, it's wrapped into a one-element array
+(fresh id assigned) with the old shared `snap.expeditionLog` folded into
+that entry's `log` — lossless for any save that matters, since there was
+only ever one active expedition at a time under the old model. 8 new
+smoke checks (bringing the suite to 95/95): round-trip on the new array
+shape, old-save-missing-field defaults to `[]`, and the legacy-singular
+migration (does not throw, wraps correctly, folds the old log correctly).
+
+**Verified live** (this required discovering and working around a new
+testing-workflow hazard — see below): sent two real expeditions in one
+session (Dorrek+Vey, Mirel+Skarn), confirmed both rendered as independent
+boxes with independent timer ids/logs, confirmed GAMBITS/AETHER labeled
+all four "(expedition)" — never "(bench)" — while away, recalled ONE
+without disturbing the other (its box, log, and Recall button untouched),
+then seeded one expedition with `homeAt` in the past alongside the other
+still active and confirmed on load: the settled one's box and log
+vanished completely, its units reverted to plain "BENCHED" with Field
+buttons, while the still-active one correctly ran its own catch-up
+simulation forward (reached wave 12, banked more rewards) untouched.
+
+**Testing-workflow hazard found while verifying this**: the new periodic
+pollers (`resolveAllExpeditions`+`renderAll()`, which calls `autoSave()`)
+mean ANY lingering background tab from an earlier test round — not just
+the specific tab just edited — keeps re-saving its own stale in-memory
+state over a fresh `localStorage` seed, on an unconditional ~15s cadence,
+regardless of `beforeunload`/navigation. A round of expedition testing
+must close every other Farroad-origin tab before seeding, not just the
+one about to be edited or observed.

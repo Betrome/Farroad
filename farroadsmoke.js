@@ -159,9 +159,9 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   hpCarry:{kesh:0.8},touched:{},clearedWaves:{1:1,2:1},
   lvl:{kesh:5,ansa:1},bank:{kesh:12,ansa:0},maxLevelEver:5,owned:{kesh:1,ansa:1},
   enrage:true,idleAcc:3,dropQueue:[],dropHistory:[],
-  expedition:{partyIds:['dorrek','vey'],startedAt:1700000000000-3600000,
-   lastResolvedAt:1700000000000-3600000,ew:3,hpFrac:0.7,bank:{aether:40,marks:5}},
-  expeditionLog:[{at:1700000000000,text:'Dorrek, Vey set out to explore.'}]};
+  expeditions:[{id:'exp1',partyIds:['dorrek','vey'],startedAt:1700000000000-3600000,
+   lastResolvedAt:1700000000000-3600000,ew:3,hpFrac:0.7,bank:{aether:40,marks:5},homeAt:null,
+   log:[{at:1700000000000,text:'Dorrek, Vey set out to explore.'}]}]};
  var restored=null,threw=null;
  try{
   var snap=V.serialize(fakeG,1700000000000);
@@ -178,29 +178,51 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    restored.actions.indexOf('sear')>=0&&restored.conditions.indexOf('foe_armoured')>=0&&
    restored.loadout.kesh&&restored.loadout.kesh[0].action==='strike');
   ok('save round-trip preserves an in-progress expedition',
-   restored.expedition&&restored.expedition.partyIds.length===2&&
-   restored.expedition.partyIds[0]==='dorrek'&&restored.expedition.ew===3&&
-   restored.expedition.bank.aether===40);
-  ok('save round-trip preserves the expedition log',
-   restored.expeditionLog&&restored.expeditionLog.length===1&&
-   restored.expeditionLog[0].text.indexOf('Dorrek')>=0);
+   restored.expeditions&&restored.expeditions.length===1&&
+   restored.expeditions[0].partyIds.length===2&&restored.expeditions[0].partyIds[0]==='dorrek'&&
+   restored.expeditions[0].ew===3&&restored.expeditions[0].bank.aether===40);
+  ok('save round-trip preserves that expedition\'s own log',
+   restored.expeditions[0].log&&restored.expeditions[0].log.length===1&&
+   restored.expeditions[0].log[0].text.indexOf('Dorrek')>=0);
   var expectedNext=rng.next(), actualNext=restored.rng.next();
   ok('save round-trip rebuilds the RNG to the exact saved position',
    expectedNext===actualNext, expectedNext+' vs '+actualNext);
  }
- /* OLD-SAVE COMPAT: a snapshot from before phase 1 has neither field at all —
-    deserialize must default them (null/[]) rather than throw or leave them
-    undefined, the same contract every other FIELDS entry already gets. */
+ /* OLD-SAVE COMPAT: a snapshot from before multi-expedition support has
+    neither field at all — deserialize must default to [] rather than
+    throw or leave it undefined, the same contract every other FIELDS
+    entry already gets. */
  var oldSnap=null,oldThrew=null,oldRestored=null;
  try{
   oldSnap=V.serialize(fakeG,1700000000000);
-  delete oldSnap.expedition; delete oldSnap.expeditionLog;
+  delete oldSnap.expeditions;
   oldRestored=V.deserialize(JSON.parse(JSON.stringify(oldSnap)),C);
  }catch(e){oldThrew=e;}
- ok('old save missing expedition fields does not throw', !oldThrew, oldThrew&&oldThrew.message);
- ok('old save missing expedition fields defaults to null/[]',
-  !!oldRestored&&oldRestored.expedition===null&&Array.isArray(oldRestored.expeditionLog)&&
-  oldRestored.expeditionLog.length===0);
+ ok('old save missing expeditions field does not throw', !oldThrew, oldThrew&&oldThrew.message);
+ ok('old save missing expeditions field defaults to []',
+  !!oldRestored&&Array.isArray(oldRestored.expeditions)&&oldRestored.expeditions.length===0);
+ /* MIGRATION: a save from BEFORE multi-expedition support (singular
+    'expedition' object + shared 'expeditionLog' array, neither in FIELDS
+    anymore) must have its real in-flight expedition preserved, not
+    silently dropped, wrapped into the new array with the old shared log
+    folded into it. */
+ var legacySnap=null,legacyThrew=null,legacyRestored=null;
+ try{
+  legacySnap=V.serialize(fakeG,1700000000000);
+  delete legacySnap.expeditions;
+  legacySnap.expedition={partyIds:['mirel'],startedAt:1700000000000-1800000,
+   lastResolvedAt:1700000000000-1800000,ew:2,hpFrac:0.9,bank:{aether:15,marks:2},homeAt:null};
+  legacySnap.expeditionLog=[{at:1700000000000,text:'Mirel set out to explore.'}];
+  legacyRestored=V.deserialize(JSON.parse(JSON.stringify(legacySnap)),C);
+ }catch(e){legacyThrew=e;}
+ ok('legacy singular-expedition save does not throw', !legacyThrew, legacyThrew&&legacyThrew.message);
+ ok('legacy singular-expedition save migrates into expeditions[0]',
+  !!legacyRestored&&legacyRestored.expeditions&&legacyRestored.expeditions.length===1&&
+  legacyRestored.expeditions[0].partyIds[0]==='mirel'&&!!legacyRestored.expeditions[0].id);
+ ok('legacy migration folds the old shared log into the migrated entry',
+  !!legacyRestored&&legacyRestored.expeditions[0].log&&
+  legacyRestored.expeditions[0].log.length===1&&
+  legacyRestored.expeditions[0].log[0].text.indexOf('Mirel')>=0);
 })();
 
 /* =================== 7. CUSTOMISABLE FIRST UNIT (roadmap 1) ===============

@@ -287,7 +287,8 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="cur lo"><span class="v" id="cLore">0</span><span class="n">LORE</span></div>
     <div class="cur ma"><span class="v" id="cMarks">0</span><span class="n">MARKS</span></div>
   </div>
-  <div class="tiny" id="idleRate" style="margin:-4px 0 8px;color:var(--dimmer)"></div>
+  <div class="tiny" id="idleRate" style="margin:-4px 0 4px;color:var(--dimmer)"></div>
+  <div class="tiny" id="powerLevel" style="margin-bottom:8px"></div>
 
   <!-- v2.9: tabs moved up here, ahead of the units/battle panel and travel
        controls — "a lot of scrolling" on a phone with a full 5-unit party.
@@ -409,7 +410,6 @@ pre{font-size:13px;line-height:1.6;padding:10px}
        (`#tab-`+dataset.t), not DOM-order-based, so this is a purely visual
        move; nothing about how tabs work changed. -->
   <div class="panel" id="tab-log">
-    <div class="tiny" id="powerLevel" style="margin-bottom:6px"></div>
     <div class="spread" style="margin-bottom:4px">
     <span class="tiny">THE ROAD — every roll, drop and checkpoint</span>
     <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
