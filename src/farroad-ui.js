@@ -54,7 +54,20 @@ function newGame(seed,mc){
      P.questStageWave) and enemy snapshot, populated lazily on FIRST
      attempt (win or lose) so a stage's difficulty is pinned to whenever
      the player actually first tries it, not re-derived on every retry. */
-  dungeons:[], quests:{kesh:{stage:0,frozen:[]}}};}
+  dungeons:[], quests:{kesh:{stage:0,frozen:[]}},
+  /* Per-direction persistent exploration progress — see MODULES.md.
+     maxDepth is the DEEPEST exp.ew any expedition has ever reached in
+     this direction, cumulative across every trip ever sent there (never
+     reset when one expedition returns and another is sent) — what that
+     direction's own P.DIRECTION_CONFIG[dir].unlockEvery-depth dungeon
+     unlocks are checked against.
+     dungeonsUnlocked is how many of this direction's dungeons have
+     already been produced, so a save/reload can't re-trigger an unlock
+     that already happened. */
+  directions:newDirections()};}
+function newDirections(){
+ var d={};P.DIRECTIONS.forEach(function(dir){d[dir]={maxDepth:0,dungeonsUnlocked:0};});
+ return d;}
 
 /* Applies a player-built character onto the 'kesh' slot. This mutates the
    shared C.ROSTER/P.GROWTH.kesh entries in place rather than threading an
@@ -212,13 +225,19 @@ function buildEnemies(w,quiet){
      * -> 0.31) while never saturating inside a realistic run, so defence keeps
      * a growth story and crit stays probabilistic. Still capped at CAP_CRIT. */
     atkCrit:Math.min(C.CAP_CRIT,a.atkCrit*Math.sqrt(S)),
-    magCrit:Math.min(C.CAP_CRIT,0.04*Math.sqrt(S)),
+    /* v2.9: magCrit is now a genuine per-archetype ARCH field (farroadenemies.csv)
+       instead of one hardcoded 0.04 for every archetype — falls back to 0.04
+       only if an archetype somehow has none, matching the old global exactly. */
+    magCrit:Math.min(C.CAP_CRIT,(a.magCrit||0.04)*Math.sqrt(S)),
     chargeRate:(boss?1.15:1),block:a.block,evade:a.evade},
    /* v1.0: enemies now carry EVERY stat the party has except Recovery, which is
       party-only by construction (recoveryOf() is only called in buildParty), so
       enemies never regain HP between waves — Ian's exclusion holds.
-      chargeRate was always present but had no sink; these give it one. */
-   chargeAction:(boss?'wardensmaul':(key==='ox'?'sunderingroar':(key==='hound'?'quickenedhowl':null))),
+      chargeRate was always present but had no sink; these give it one.
+      v2.9: chargeAction is now read straight off the archetype (ARCH[key].
+      chargeAction, farroadenemies.csv) instead of a hardcoded key==='ox'/
+      'hound' check — any archetype can carry one now, not just those two. */
+   chargeAction:(boss?'wardensmaul':(a.chargeAction||null)),
    slots:a.slots.map(function(s){return {cond:s.cond,action:s.action};})}));}
  return out;}
 
@@ -653,12 +672,20 @@ function buildExpeditionParty(partyIds,hpFrac){
    "unique expedition logs for each group that clear after they've been
    collected upon their return" — nothing copies exp.log anywhere else
    first, so it simply ceases to exist alongside exp. */
-function settleExpedition(exp,reason){
+/* v2.9: expeditions must be MANUALLY collected — "what they've found isn't
+   added until then." Only reachable once exp.arrivedAt is set (checkArrival
+   below); grants exp.bank into the real economy and removes the expedition.
+   Was settleExpedition(exp,reason), auto-called the moment homeAt passed —
+   see checkArrival for the new arrival-only notify step that replaced that
+   auto-call. */
+function collectExpedition(id){
+ var exp=null;G.expeditions.forEach(function(e){if(e.id===id)exp=e;});
+ if(!exp||!exp.arrivedAt)return;
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
  G.aether+=exp.bank.aether;G.marks+=exp.bank.marks;
- sysLog('<b>Expedition returned.</b> <span class="tiny">'+names+' — '+reason+
-  ' Earned <b style="color:var(--aether)">+'+Math.round(exp.bank.aether)+' Aether</b> and '+
+ sysLog('<b>Expedition collected.</b> <span class="tiny">'+names+' — earned '+
+  '<b style="color:var(--aether)">+'+Math.round(exp.bank.aether)+' Aether</b> and '+
   '<b style="color:var(--marks)">+'+Math.floor(exp.bank.marks)+' Marks</b> over '+exp.ew+' wave'+
   (exp.ew===1?'':'s')+'.</span>');
  G.expeditions=G.expeditions.filter(function(e){return e.id!==exp.id;});}
@@ -666,7 +693,7 @@ function settleExpedition(exp,reason){
    the party — is not instant: the trip home takes HALF the real time the
    party has been out (measured from exp.startedAt to this decision
    moment), same road, half the ground already covered. Rewards stay in
-   exp.bank, not the real economy, until settleExpedition() actually
+   exp.bank, not the real economy, until collectExpedition() actually
    fires — recalling doesn't bank anything early, it just decides "turn back
    now" instead of later. A recall placed right after departure still reads
    as instant: awaySec is ~0 there, so the computed trip is ~0 too.
@@ -681,26 +708,32 @@ function beginReturnTrip(exp,decisionMoment,reason){
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
  pushExpeditionLog(exp,names+' — '+reason+' Heading home now.');
- if(Date.now()>=exp.homeAt)settleExpedition(exp,'arrived home.');}
+ checkArrival(exp);}
 /* Validates and starts a new expedition. Every unit must be owned,
    currently benched (not in G.party), and not already out on a DIFFERENT
    expedition — several parties can be out at once now, but a given unit
-   can only be on one of them at a time. */
-function sendExpedition(partyIds){
+   can only be on one of them at a time. v2.9: a direction is now required
+   (one of P.DIRECTIONS) and must not already be occupied by another
+   active expedition — 8 named lanes IS the concurrent-expedition cap, not
+   a separate counter. */
+function sendExpedition(partyIds,direction){
  if(!partyIds||!partyIds.length||partyIds.length>P.PARTY_CAP)return false;
+ if(P.DIRECTIONS.indexOf(direction)<0)return false;
+ if(G.expeditions.some(function(e){return e.direction===direction;}))return false;
  var seen={};
  for(var i=0;i<partyIds.length;i++){
   var uid=partyIds[i];
   if(seen[uid])return false;seen[uid]=1;
   if(!G.owned[uid]||G.party.indexOf(uid)>=0||isOnExpedition(uid))return false;}
  var exp={id:'exp'+Date.now()+'_'+Math.floor(Math.random()*1e6),
-  partyIds:partyIds.slice(),startedAt:Date.now(),lastResolvedAt:Date.now(),
-  ew:1,hpFrac:1,bank:{aether:0,marks:0},homeAt:null,log:[]};
+  partyIds:partyIds.slice(),direction:direction,startedAt:Date.now(),lastResolvedAt:Date.now(),
+  ew:1,hpFrac:1,bank:{aether:0,marks:0},homeAt:null,arrivedAt:null,log:[]};
  G.expeditions.push(exp);
  var names=partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
- pushExpeditionLog(exp,names+' set out to explore.');
- sysLog('<b>Expedition departs.</b> <span class="tiny">'+names+' head out into the road beyond.</span>');
+ pushExpeditionLog(exp,names+' set out to explore '+P.DIRECTION_LABELS[direction]+'.');
+ sysLog('<b>Expedition departs.</b> <span class="tiny">'+names+' head '+
+  P.DIRECTION_LABELS[direction]+' into the road beyond.</span>');
  return true;}
 /* The real-time resolution loop for ONE expedition — see
    simulateOfflineProgress() above for the identical shape this mirrors.
@@ -710,30 +743,71 @@ function sendExpedition(partyIds){
    Once a party has turned back (homeAt set) there is no more combat to
    resolve — just a real-time wait — so that branch skips the battle loop
    entirely and only checks whether it's arrived yet. */
+/* Scales a fresh buildEnemies() list in place — hp via sqrt(mul), atk/mag
+   via mul directly (same asymmetric shape the old dungeon-discovery roll
+   used) — shared by regular expedition nodes, bonus fights, and scheduled
+   dungeon waves so a direction's difficulty multiplier (and DUNGEON_LEN
+   on top, for a dungeon boss) always scales enemies the same way. */
+function applyStatMul(enemies,mul){
+ var hpMul=Math.sqrt(mul);
+ enemies.forEach(function(u){
+  u.base.hp=Math.max(1,Math.round(u.base.hp*hpMul));u.maxHp=u.base.hp;u.hp=u.base.hp;
+  u.base.atk=Math.max(1,Math.round(u.base.atk*mul));
+  u.base.mag=Math.round(u.base.mag*mul);});
+ return enemies;}
+/* The FIRST time an expedition is observed past its homeAt, mark arrival
+   and notify — does NOT grant exp.bank into the real economy or remove
+   the expedition (see collectExpedition below). Replaces the old
+   auto-settle-on-arrival behavior — "expeditions must be manually
+   collected... what they've found isn't added until then." Guarded by
+   exp.arrivedAt so this fires exactly once per expedition. */
+function checkArrival(exp){
+ if(exp.arrivedAt||!exp.homeAt||Date.now()<exp.homeAt)return;
+ exp.arrivedAt=Date.now();
+ var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ pushExpeditionLog(exp,names+' arrived home — awaiting collection.');
+ pushDrop({name:names+"'s expedition has returned",kind:'EXPEDITION RETURNED',
+  body:'Waiting: +'+Math.round(exp.bank.aether)+' Aether, +'+Math.floor(exp.bank.marks)+' Marks.',
+  why:'Collect it from the EXPEDITION tab to add it to your totals.'});}
 function resolveExpedition(exp){
- if(exp.homeAt){if(Date.now()>=exp.homeAt)settleExpedition(exp,'arrived home.');return;}
+ if(exp.homeAt){checkArrival(exp);return;}
  var elapsedSec=Math.max(0,(Date.now()-exp.lastResolvedAt)/1000);
  if(elapsedSec<5)return;
  var resolveStartedAt=exp.lastResolvedAt;
  var capped=Math.min(elapsedSec,P.EXPED_CAP_SEC);
+ var mul=P.directionMul(exp.direction);
  var remaining=capped,guard=0,savedWave=G.wave,turnedBack=false;
  while(remaining>0&&guard++<200000){
   var cost=20+P.travelSec(exp.ew);
   if(cost>remaining)break;
   var party=buildExpeditionParty(exp.partyIds,exp.hpFrac);
-  var enemies=buildEnemies(exp.ew,true);
+  var enemies=applyStatMul(buildEnemies(exp.ew,true),mul);
   var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
   var beatGuard=0;
   while(!battle.over&&beatGuard++<4000)C.step(battle);
   if(battle.over==='party'){
    var r=P.killReward(exp.ew,enemies.length);
-   exp.bank.aether+=r.aether;exp.bank.marks+=r.marks*P.marksMul(G);
-   if(P.isBossWave(exp.ew))exp.bank.aether+=P.bossAether(exp.ew);
+   exp.bank.aether+=r.aether*mul;exp.bank.marks+=r.marks*P.marksMul(G)*mul;
+   if(P.isBossWave(exp.ew))exp.bank.aether+=P.bossAether(exp.ew)*mul;
    var alive=party.filter(function(u){return u.hp>0;});
    exp.hpFrac=alive.length?
     alive.reduce(function(s,u){return s+u.hp/u.maxHp;},0)/alive.length:0;
    exp.ew++;
-   rollExpeditionDiscovery(exp);   /* bonus fight or dungeon find — see below */
+   rollExpeditionDiscovery(exp,mul);   /* bonus fight only now — see below */
+   /* Deterministic per-direction dungeon schedule — replaces the old
+      random dungeon-discovery roll. maxDepth is cumulative across every
+      expedition ever sent this direction, never reset per trip, so a
+      short-lived trip still contributes real, permanent progress toward
+      the next unlock. The while (not if) loop matters for a big catch-up
+      pass that crosses more than one 100-multiple in one go — none
+      skipped. */
+   var dp=G.directions[exp.direction];
+   dp.maxDepth=Math.max(dp.maxDepth,exp.ew);
+   var targetTier=Math.floor(dp.maxDepth/P.DIRECTION_CONFIG[exp.direction].unlockEvery);
+   while(targetTier>dp.dungeonsUnlocked){
+    dp.dungeonsUnlocked++;
+    unlockDirectionDungeon(exp.direction,dp.dungeonsUnlocked);}
   }else{
    exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
   }
@@ -773,38 +847,74 @@ function unitsFromSnapshots(snapshots){
    way) or a dungeon discovery (rarer: bakes a FROZEN, difficulty-static
    snapshot of the encounter — scaled up by DUNGEON_LEN, "slightly harder
    than the Road" — into G.dungeons for the main party to repeat later). */
-function rollExpeditionDiscovery(exp){
+/* v2.9 CORRECTION: dungeons are no longer part of this roll (see
+   unlockDirectionDungeon below — a fixed per-direction schedule now) —
+   this is bonus-fight-only. `mul` is the calling expedition's own
+   direction multiplier, passed through rather than recomputed so this
+   and resolveExpedition never disagree on it. */
+function rollExpeditionDiscovery(exp,mul){
  if(G.rng.next()>=P.EXPED_DISCOVERY_CHANCE)return;
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
- if(G.rng.next()<P.EXPED_DUNGEON_SHARE){
-  var dEnemies=buildEnemies(exp.ew,true);
-  var hpMul=Math.sqrt(P.DUNGEON_LEN);
-  dEnemies.forEach(function(u){
-   u.base.hp=Math.max(1,Math.round(u.base.hp*hpMul));u.maxHp=u.base.hp;u.hp=u.base.hp;
-   u.base.atk=Math.max(1,Math.round(u.base.atk*P.DUNGEON_LEN));
-   u.base.mag=Math.round(u.base.mag*P.DUNGEON_LEN);});
-  var dungeon={id:'dgn'+Date.now()+'_'+Math.floor(Math.random()*1e6),
-   name:'Dungeon (found at depth '+exp.ew+')',
-   enemies:dEnemies.map(bakeEnemySnapshot),discoveredAtWave:exp.ew,clears:0};
-  G.dungeons.push(dungeon);
-  pushExpeditionLog(exp,names+' found the entrance to a dungeon.');
-  pushDrop({name:dungeon.name,kind:'DUNGEON DISCOVERED',
-   body:names+' found it while exploring — repeatable any time from the QUESTS tab.',
-   why:'A frozen, one-time-harder encounter — its difficulty won\'t drift as the road gets tougher.'});
+ var bEnemies=applyStatMul(buildEnemies(exp.ew,true),mul);
+ var bParty=buildExpeditionParty(exp.partyIds,exp.hpFrac);
+ var bBattle=C.makeBattle(bParty.concat(bEnemies),{rng:G.rng,enrage:G.enrage});
+ var bGuard=0;
+ while(!bBattle.over&&bGuard++<4000)C.step(bBattle);
+ if(bBattle.over==='party'){
+  var br=P.killReward(exp.ew,bEnemies.length);
+  var bAether=br.aether*mul,bMarks=br.marks*P.marksMul(G)*mul;
+  exp.bank.aether+=bAether;exp.bank.marks+=bMarks;
+  pushExpeditionLog(exp,names+' won a bonus fight along the way — +'+
+   Math.round(bAether)+' Aether, +'+Math.floor(bMarks)+' Marks.');
  }else{
-  var bEnemies=buildEnemies(exp.ew,true);
-  var bParty=buildExpeditionParty(exp.partyIds,exp.hpFrac);
-  var bBattle=C.makeBattle(bParty.concat(bEnemies),{rng:G.rng,enrage:G.enrage});
-  var bGuard=0;
-  while(!bBattle.over&&bGuard++<4000)C.step(bBattle);
-  if(bBattle.over==='party'){
-   var br=P.killReward(exp.ew,bEnemies.length);
-   exp.bank.aether+=br.aether;exp.bank.marks+=br.marks*P.marksMul(G);
-   pushExpeditionLog(exp,names+' won a bonus fight along the way — +'+
-    Math.round(br.aether)+' Aether, +'+Math.floor(br.marks*P.marksMul(G))+' Marks.');
-  }else{
-   pushExpeditionLog(exp,names+' were ambushed in a bonus fight and had to disengage — no reward.');}}}
+  pushExpeditionLog(exp,names+' were ambushed in a bonus fight and had to disengage — no reward.');}}
+/* Builds one new multi-wave dungeon for `dir` at unlock number `tier`
+   (1st, 2nd, ... dungeon this direction has produced) — cfg.waveCount-1
+   regular waves, all at the SAME frozen depth (tier*cfg.unlockEvery,
+   scaled by the direction's own difficulty — "a normal fight at this
+   depth, in this direction"), then a forced boss wave (same depth rounded
+   up to the nearest boss wave via P.nextBossWave, scaled by the direction
+   multiplier AND DUNGEON_LEN on top — a dungeon's own boss hits harder
+   than a same-depth Road boss would, mirroring how the old single-fight
+   dungeons already used DUNGEON_LEN for "slightly harder"). Each wave
+   keeps its OWN frozen `wave` value (not just enemies) since the regular
+   waves and the boss wave are frozen at DIFFERENT depths — see
+   finishSideBattle()'s dungeon-advance branch, which re-sets C.setWave
+   per wave rather than once for the whole run. cfg (P.DIRECTION_CONFIG[dir],
+   farroaddungeons.csv) is independently editable per direction — a
+   different wave count, unlock pace, difficulty, or boss name per lane,
+   not one shared shape for all 8. */
+function unlockDirectionDungeon(dir,tier){
+ var cfg=P.DIRECTION_CONFIG[dir],mul=cfg.mul;
+ var baseWave=tier*cfg.unlockEvery;
+ /* unlockEvery (100 by default) can land on a multiple of BOSS_EVERY
+    (20), which would otherwise make baseWave itself a boss wave —
+    buildEnemies would silently give every "regular" wave a single
+    boss-tier enemy instead of a normal multi-enemy fight. Regular waves
+    build one wave short of the unlock depth in that case; the FINAL wave
+    is still deliberately forced onto a real boss wave via P.nextBossWave,
+    which for a baseWave that's already a boss wave correctly resolves to
+    baseWave itself. */
+ var regularWave=P.isBossWave(baseWave)?baseWave-1:baseWave;
+ var waves=[];
+ for(var i=0;i<cfg.waveCount-1;i++){
+  var enemies=applyStatMul(buildEnemies(regularWave,true),mul);
+  waves.push({wave:regularWave,enemies:enemies.map(bakeEnemySnapshot)});}
+ var bossWave=P.nextBossWave(baseWave-1);
+ var bossEnemies=applyStatMul(buildEnemies(bossWave,true),mul*P.DUNGEON_LEN);
+ if(cfg.bossName)bossEnemies.forEach(function(u){u.name=cfg.bossName;});
+ waves.push({wave:bossWave,enemies:bossEnemies.map(bakeEnemySnapshot)});
+ var label=cfg.label;
+ var dungeon={id:'dgn'+Date.now()+'_'+Math.floor(Math.random()*1e6),
+  name:label+' Dungeon (depth '+baseWave+')',direction:dir,tier:tier,waves:waves,clears:0};
+ G.dungeons.push(dungeon);
+ sysLog('<b>A new dungeon has opened up to the '+label+'.</b> '+
+  '<span class="tiny">'+baseWave+' depth reached.</span>');
+ pushDrop({name:dungeon.name,kind:'DUNGEON UNLOCKED',
+  body:'A new dungeon has opened up to the '+label+' — '+baseWave+' depth reached.',
+  why:'Repeatable any time from the QUESTS tab — '+(cfg.waveCount-1)+
+   ' wave'+(cfg.waveCount-1===1?'':'s')+' then a boss.'});}
 /* Resolves every active expedition in one pass — slice() first so
    settling one mid-loop (settleExpedition reassigns G.expeditions via
    filter) can't skip its neighbor. */
@@ -849,6 +959,7 @@ function tryResumeSave(){
 /* ---------------------------------------------------------------- loop --- */
 var playing=false,timer=null,speed=1,lastActor=null;
 var mcExpedPick=[];   /* UI-only: units checked in the expedition party picker */
+var mcDirPick=null;   /* UI-only: direction chosen in the expedition send picker */
 function doStep(){
  if(!G.battle)return;
  /* Live quest/dungeon side battle in progress — mirrors the Row shape
@@ -892,8 +1003,22 @@ function tick(){
   G.idleAcc=0;renderPurse();autoSave();}
  if(!playing)return;
  timer=setTimeout(tick,C.beatMs(Math.max(1,G.battle.beat+1))/speed);}
-function play(){playing=true;$('#btnPlay').textContent=G.sideBattle?'⏸ Fighting':'⏸ Rest';$('#btnPlay').classList.add('on');tick();}
-function stop(){playing=false;clearTimeout(timer);$('#btnPlay').textContent=G.sideBattle?'▶ Resume':'▶ Travel';$('#btnPlay').classList.remove('on');}
+/* Pure label/class sync, no tick() — split out so finishSideBattle() (see
+   below) can reflect "still traveling" after a side battle ends WITHOUT
+   re-entering tick(). play() calling tick() is what starts a NEW
+   self-rescheduling setTimeout chain; calling it from code that is
+   itself already running inside a live tick()->doStep() call stack (as
+   finishSideBattle() is) spawns a SECOND parallel chain on top of the one
+   still unwinding back up the stack — neither chain is ever cancelled, so
+   the Road silently runs twice as fast, compounding by one extra chain
+   per side battle finished while already traveling. This was a real,
+   shipped bug — "the Road speeds up after a dungeon/quest, worse each
+   time" — see MODULES.md. */
+function syncPlayBtn(){
+ $('#btnPlay').textContent=playing?(G.sideBattle?'⏸ Fighting':'⏸ Rest'):(G.sideBattle?'▶ Resume':'▶ Travel');
+ $('#btnPlay').classList.toggle('on',playing);}
+function play(){playing=true;syncPlayBtn();tick();}
+function stop(){playing=false;clearTimeout(timer);syncPlayBtn();}
 
 /* ===== LIVE SIDE BATTLES (quests/dungeons) =====
    Was: attemptQuestStage()/enterDungeon() resolved headlessly, synchronously,
@@ -926,6 +1051,25 @@ function startSideBattle(enemies,wave,meta){
    fight now finishes asynchronously (many doStep() calls later). */
 function finishSideBattle(result){
  var sb=G.sideBattle,meta=sb.meta;
+ /* Multi-wave dungeon, won this wave, more waves left — advance IN PLACE
+    rather than fully resolving. Deliberately does NOT touch G.roadBattle/
+    G.sideBattle/playing (only G.battle + CURRENT_WAVE change) — mirrors
+    how the Road's own startWave() swaps in a fresh battle object without
+    touching the play/pause state. Party units carry over (not rebuilt),
+    so whatever HP/charge survived the last wave carries into the next —
+    real attrition across the run, per Ian's ask (full HP/0 charge only
+    at the very start of an attempt, not every wave). */
+ if(meta.kind==='dungeon'&&result==='party'&&meta.waveIndex<meta.totalWaves-1){
+  var curDungeon=null;G.dungeons.forEach(function(d){if(d.id===meta.dungeonId)curDungeon=d;});
+  var survivors=G.battle.units.filter(function(u){return u.isParty;});
+  meta.waveIndex++;
+  var nextWave=curDungeon.waves[meta.waveIndex];
+  C.setWave(nextWave.wave);
+  sb.wave=nextWave.wave;   /* keep renderUnits()'s enemy level-tag pinned to THIS wave, not the last */
+  var nextEnemies=unitsFromSnapshots(nextWave.enemies);
+  G.battle=C.makeBattle(survivors.concat(nextEnemies),{rng:G.rng,enrage:G.enrage});
+  lastActor=null;
+  return;}
  C.setWave(sb.savedWave);
  G.battle=G.roadBattle;G.roadBattle=null;G.sideBattle=null;lastActor=null;
  if(meta.kind==='quest'){
@@ -936,27 +1080,49 @@ function finishSideBattle(result){
     why:q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
    sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5.</span>');
   }else{
+   pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST FAILED',
+    body:'The party was defeated.',why:'No penalty — try again any time.'});
    sysLog('<b>Quest attempt failed.</b> <span class="tiny">'+meta.name+
     ' — the party was defeated. No penalty, try again any time.</span>');}
  }else{
   var dungeon=null;G.dungeons.forEach(function(d){if(d.id===meta.dungeonId)dungeon=d;});
   if(result==='party'&&dungeon){
    dungeon.clears++;
-   var r=P.killReward(meta.rewardWave,meta.enemyCount);
-   G.aether+=r.aether;G.marks+=r.marks*P.marksMul(G);
-   sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+meta.name+' — earned '+
-    '<b style="color:var(--aether)">+'+Math.round(r.aether)+' Aether</b> and '+
-    '<b style="color:var(--marks)">+'+Math.floor(r.marks*P.marksMul(G))+' Marks</b>.</span>');
+   /* Reward is sized off the dungeon's own tier depth and direction —
+      NOT any single internal wave's own numbers, since regular waves are
+      all frozen at the same depth and the boss wave alone would
+      undersell a full clear. */
+   var rewardWave=meta.tier*P.DIRECTION_CONFIG[meta.direction].unlockEvery;
+   var mul=P.directionMul(meta.direction);
+   var r=P.killReward(rewardWave,meta.totalWaves);
+   var dAether=r.aether*mul,dMarks=r.marks*P.marksMul(G)*mul;
+   G.aether+=dAether;G.marks+=dMarks;
+   pushDrop({name:dungeon.name,kind:'DUNGEON CLEARED',
+    body:'Earned +'+Math.round(dAether)+' Aether and +'+Math.floor(dMarks)+' Marks.',
+    why:'Cleared all '+meta.totalWaves+' waves, including the boss.'});
+   sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned '+
+    '<b style="color:var(--aether)">+'+Math.round(dAether)+' Aether</b> and '+
+    '<b style="color:var(--marks)">+'+Math.floor(dMarks)+' Marks</b>.</span>');
   }else{
+   pushDrop({name:dungeon?dungeon.name:'Dungeon',kind:'DUNGEON FAILED',
+    body:'The party was defeated'+(meta.waveIndex>0?' on wave '+(meta.waveIndex+1)+
+     ' of '+meta.totalWaves:'')+'.',why:'No penalty — try again any time.'});
    sysLog('<b>Dungeon attempt failed.</b> <span class="tiny">'+(dungeon?dungeon.name:'')+
     ' — the party was defeated. No penalty, try again any time.</span>');}}
  /* startSideBattle() unconditionally called play() to auto-run the fight,
     so `playing` is still true here regardless of whether the Road itself
-    was traveling before — without an explicit stop() in the wasPlaying:
-    false case, the still-alive tick() timer chain would silently start
-    auto-traveling the just-restored Road battle the player never asked
-    to resume. */
- if(sb.wasPlaying)play();else stop();}
+    was traveling before. If it WAS: this function is running from inside
+    doStep(), itself called from the side battle's own still-executing
+    tick() — that same call stack will naturally continue on to tick()'s
+    own `timer=setTimeout(tick,...)` line right after this function
+    returns, now correctly scheduling the ROAD's next beat (G.battle is
+    already reassigned above). Just syncing the button label is enough;
+    calling play() here would call tick() a SECOND time and spawn a
+    parallel, never-cancelled setTimeout chain (see syncPlayBtn()'s
+    comment). If it WASN'T playing before: stop() is safe to call here
+    (it never calls tick()) and correctly prevents that same still-live
+    call stack from rescheduling itself further. */
+ if(sb.wasPlaying)syncPlayBtn();else stop();}
 
 /* -------------------------------------------------------------- render --- */
 /* ===== INITIATIVE MULTIPLIER (v1.0 presentation) =====
@@ -1086,7 +1252,9 @@ function renderHead(){
     startSideBattle()/finishSideBattle() and MODULES.md. */
  if(G.sideBattle){
   var m=G.sideBattle.meta;
-  var label=m.kind==='quest'?(m.name+' — stage '+(m.stage+1)+' of 5'):m.name;
+  var label=m.kind==='quest'?(m.name+' — stage '+(m.stage+1)+' of 5'):
+   (m.name+' — wave '+(m.waveIndex+1)+' of '+m.totalWaves+
+    (m.waveIndex===m.totalWaves-1?' (BOSS)':''));
   $('#waveLbl').innerHTML='<span class="bosstag">'+(m.kind==='quest'?'QUEST':'DUNGEON')+'</span> '+label;
   var foeCount=G.battle.units.filter(function(u){return !u.isParty;}).length;
   $('#encLbl').textContent='· '+foeCount+(foeCount===1?' enemy':' enemies');
@@ -1530,9 +1698,16 @@ function fmtClock(ts){
 /* Shared by the away/ETA live counters below and by updateExpeditionTimers
    (the ~1s tick near the bottom of this file) — kept as one function so
    the two can never drift out of format agreement with each other. */
+/* v2.9: "a live count... not 'about X minutes'" — was rounding to whole
+   minutes/hours, so the on-screen text only visibly changed once a
+   minute even though updateExpeditionTimers() was already recomputing it
+   every second. Reformatted to a real ticking clock (M:SS / H:MM:SS); no
+   other change needed — the existing 1s interval already repaints this
+   live for both the away and returning states. */
 function fmtDur(sec){
- sec=Math.max(0,sec);
- return sec>=3600?(sec/3600).toFixed(1)+' hours':Math.max(1,Math.round(sec/60))+' minutes';}
+ sec=Math.max(0,Math.round(sec));
+ var h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+ return (h>0?h+':'+(m<10?'0':'')+m:''+m)+':'+(s<10?'0':'')+s;}
 /* v2.9: multiple concurrent expeditions — was a single at-a-glance panel
    (if(exp){...}else{picker}), now zero or more active-expedition boxes
    (one per G.expeditions entry, each with its own live timer span
@@ -1551,41 +1726,67 @@ function renderExpedition(){
     not host.appendChild, since this function already assembles its own
     content as one string and sets host.innerHTML once at the end). */
  var h=partyRosterHTML();
+ var returnedCount=0;
  G.expeditions.forEach(function(exp){
   var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
    return d?d.name:uid;}).join(', ');
-  h+='<div class="slot" style="margin-bottom:8px"><div class="uname">'+names+'</div>';
-  if(exp.homeAt){
+  var dirLabel=P.DIRECTION_LABELS[exp.direction]||exp.direction;
+  h+='<div class="slot" style="margin-bottom:8px"><div class="uname">'+names+
+   ' <span class="tiny" style="color:var(--dimmer)">· '+dirLabel+'</span></div>';
+  /* v2.9: three states now, not two — "expeditions must be manually
+     collected... what they've found isn't added until then." arrivedAt
+     set = sitting at home, waiting on the player; homeAt set (not yet
+     arrived) = still travelling back; neither = still out exploring. */
+  if(exp.arrivedAt){
+   returnedCount++;
+   h+='<div class="tiny mono" style="margin-top:2px;color:var(--aether)">Returned — ready to collect</div>';
+  }else if(exp.homeAt){
    var etaSec=(exp.homeAt-Date.now())/1000;
-   h+='<div class="tiny mono" style="margin-top:2px">Heading home — back in about '+
+   h+='<div class="tiny mono" style="margin-top:2px">Heading home — back in '+
     '<span id="exp-timer-'+exp.id+'">'+fmtDur(etaSec)+'</span></div>';
   }else{
    var awaySec=(Date.now()-exp.startedAt)/1000;
    h+='<div class="tiny mono" style="margin-top:2px">Away '+
     '<span id="exp-timer-'+exp.id+'">'+fmtDur(awaySec)+'</span> · reached wave '+exp.ew+'</div>';}
   h+='<div class="tiny mono" style="margin-top:2px">Banked '+Math.round(exp.bank.aether)+
-   ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div>'+
-   (exp.homeAt?'':'<button class="mini expedRecall" data-id="'+exp.id+'" style="margin-top:6px">Recall party</button>');
+   ' Aether, '+Math.floor(exp.bank.marks)+' Marks so far</div>';
+  if(exp.arrivedAt)h+='<button class="mini expedCollect" data-id="'+exp.id+'" style="margin-top:6px">Collect</button>';
+  else if(!exp.homeAt)h+='<button class="mini expedRecall" data-id="'+exp.id+'" style="margin-top:6px">Recall party</button>';
   var log=exp.log||[];
   if(log.length){
    h+='<div class="tiny" style="margin-top:8px;color:var(--dimmer)">LOG</div>';
    log.forEach(function(e){h+='<div class="tiny" style="margin-top:2px">'+
     '<span class="mono" style="color:var(--dimmer)">'+fmtClock(e.at)+'</span> '+e.text+'</div>';});}
   h+='</div>';});
+ if(returnedCount>=2)h='<button class="mini" id="btnExpedCollectAll" style="margin-bottom:8px">Collect All ('+
+  returnedCount+')</button>'+h;
  var bench=benchedUnits();
  mcExpedPick=mcExpedPick.filter(function(uid){return bench.indexOf(uid)>=0;});
+ var occupied={};G.expeditions.forEach(function(e){occupied[e.direction]=1;});
+ if(mcDirPick&&occupied[mcDirPick])mcDirPick=null;
  if(bench.length){
   h+='<div class="tiny" style="margin-bottom:6px">Send up to '+P.PARTY_CAP+' benched units '+
-   'exploring in real time — click to pick them. The longer they\'re out, the harder what they '+
-   'meet gets, and they turn back on their own if hurt too badly. The trip home takes half as '+
-   'long as they were out. Several parties can be out at once, each in their own direction.</div>';
+   'exploring in real time — click to pick them, then choose a direction. The longer they\'re '+
+   'out, the harder what they meet gets, and they turn back on their own if hurt too badly. The '+
+   'trip home takes half as long as they were out. Up to 8 parties can be out at once, one per '+
+   'direction — easier directions pay less, harder ones pay more.</div>';
   bench.forEach(function(uid){
    var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
    var picked=mcExpedPick.indexOf(uid)>=0;
    h+='<div class="slot expick'+(picked?' on':'')+'" data-uid="'+uid+'" style="cursor:pointer">'+
     '<div class="uname">'+(d?d.name:uid)+'</div>'+
     '<div class="tiny">'+(d?capRole(d.role):'')+' · LV '+levelOf(uid)+'</div></div>';});
-  h+='<button class="mini" id="btnExpedSend" style="margin-top:6px">Send expedition ('+
+  h+='<div class="tiny" style="margin-top:8px;margin-bottom:4px;color:var(--dimmer)">DIRECTION</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:4px">';
+  P.DIRECTIONS.forEach(function(dir,i){
+   var busy=!!occupied[dir],picked=mcDirPick===dir;
+   var tag=i===0?'easiest':(i===P.DIRECTIONS.length-1?'hardest':'');
+   h+='<button class="mini expedDir'+(picked?' on':'')+'" data-dir="'+dir+'"'+
+    (busy?' disabled title="Already exploring"':'')+'>'+P.DIRECTION_LABELS[dir]+
+    (tag?' · '+tag:'')+'</button>';});
+  h+='</div>';
+  h+='<button class="mini" id="btnExpedSend" style="margin-top:8px"'+
+   (mcDirPick?'':' disabled title="Choose a direction first"')+'>Send expedition ('+
    mcExpedPick.length+'/'+P.PARTY_CAP+')</button>';
  }else if(!G.expeditions.length){
   h+='<div class="tiny">No benched units — everyone owned is already fielded.</div>';}
@@ -1596,11 +1797,19 @@ function renderExpedition(){
    if(i>=0)mcExpedPick.splice(i,1);
    else if(mcExpedPick.length<P.PARTY_CAP)mcExpedPick.push(uid);
    renderExpedition();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.expedDir'),function(el){
+  el.onclick=function(){mcDirPick=el.dataset.dir;renderExpedition();};});
  var sendBtn=$('#btnExpedSend');
  if(sendBtn)sendBtn.onclick=function(){
-  if(sendExpedition(mcExpedPick)){mcExpedPick=[];renderAll();}};
+  if(sendExpedition(mcExpedPick,mcDirPick)){mcExpedPick=[];mcDirPick=null;renderAll();}};
  Array.prototype.forEach.call(host.querySelectorAll('.expedRecall'),function(el){
-  el.onclick=function(){recallExpedition(el.dataset.id);renderAll();};});}
+  el.onclick=function(){recallExpedition(el.dataset.id);renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.expedCollect'),function(el){
+  el.onclick=function(){collectExpedition(el.dataset.id);renderAll();};});
+ var collectAllBtn=$('#btnExpedCollectAll');
+ if(collectAllBtn)collectAllBtn.onclick=function(){
+  G.expeditions.filter(function(e){return e.arrivedAt;}).forEach(function(e){collectExpedition(e.id);});
+  renderAll();};}
 /* v2.9: the ~1s live-counter tick — "a live count of how long they've been
    out as well as how long until they return". Deliberately patches ONLY
    the timer spans' textContent, never calls renderExpedition() itself —
@@ -1628,9 +1837,10 @@ function enterDungeon(id){
  if(G.sideBattle)return;
  var dungeon=null;G.dungeons.forEach(function(d){if(d.id===id)dungeon=d;});
  if(!dungeon)return;
- startSideBattle(unitsFromSnapshots(dungeon.enemies),dungeon.discoveredAtWave,
-  {kind:'dungeon',dungeonId:id,name:dungeon.name,
-   rewardWave:dungeon.discoveredAtWave,enemyCount:dungeon.enemies.length});}
+ var wave0=dungeon.waves[0];
+ startSideBattle(unitsFromSnapshots(wave0.enemies),wave0.wave,
+  {kind:'dungeon',dungeonId:id,name:dungeon.name,direction:dungeon.direction,tier:dungeon.tier,
+   waveIndex:0,totalWaves:dungeon.waves.length});}
 /* Resolves one companion's next quest stage headlessly against the
    current main party at full HP — that companion must already be
    fielded (validated again here, not just via the disabled button, in
@@ -1647,13 +1857,20 @@ function attemptQuestStage(uid){
  if(!q||q.stage>=5)return;
  if(G.party.indexOf(uid)<0)return;
  var line=P.QUEST_LINES[uid];if(!line)return;
- var stage=q.stage,story=line[stage];
+ var stage=q.stage,step=line[stage],story=step.story;
  q.frozen=q.frozen||[];
  /* Baked once, at first attempt — wave AND enemy stats both frozen then,
     so a later retry (after a loss, possibly with the player's power level
     having moved on) replays the exact same fight, never a re-scaled one. */
  if(!q.frozen[stage]){
-  var wave=P.questStageWave(G,stage);
+  var rawWave=P.questStageWave(G,uid,stage);
+  /* A boss stage (step.isBoss — farroadquests.csv, defaults TRUE only on
+     stage 5 but isn't locked there) rounds UP to the nearest boss wave so
+     buildEnemies() takes its single-powerful-enemy path, the same trick
+     unlockDirectionDungeon() uses for a dungeon's own final wave. Only a
+     small nudge off rawWave (boss waves land every 20 past wave 20), not
+     a difficulty change beyond swapping the composition. */
+  var wave=step.isBoss?P.nextBossWave(rawWave-1):rawWave;
   var fresh=buildEnemies(wave,true);
   q.frozen[stage]={wave:wave,enemies:fresh.map(bakeEnemySnapshot)};}
  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
@@ -1670,12 +1887,13 @@ function renderQuests(){
  var h='<div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>DUNGEONS</b> ('+
   G.dungeons.length+')</div>';
  if(!G.dungeons.length){
-  h+='<div class="tiny">None found yet — expeditions have a chance to discover one while exploring.</div>';
+  h+='<div class="tiny">None yet — each direction unlocks its own dungeons as '+
+   'expeditions push deeper into it.</div>';
  }else{
   G.dungeons.forEach(function(d){
    h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+d.name+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">'+d.enemies.length+' foe'+(d.enemies.length===1?'':'s')+
-     ' · cleared '+d.clears+' time'+(d.clears===1?'':'s')+'</div>'+
+    '<div class="tiny mono" style="margin-top:2px">'+d.waves.length+' wave'+(d.waves.length===1?'':'s')+
+     ' (ends in a boss) · cleared '+d.clears+' time'+(d.clears===1?'':'s')+'</div>'+
     '<button class="mini questEnter" data-id="'+d.id+'" style="margin-top:6px"'+
      (busy?' disabled title="A battle is already in progress"':'')+'>Enter</button></div>';});}
  h+='<hr><div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>COMPANION QUESTS</b></div>';

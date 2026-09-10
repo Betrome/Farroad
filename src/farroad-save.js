@@ -45,7 +45,16 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     is {uid:{stage}} per-companion 5-battle progress, keyed only for owned
     units. Both are brand-new fields with no legacy shape — see the plain
     default-fill below, not a migration. */
- 'dungeons','quests'];
+ 'dungeons','quests',
+ /* v2.9: directional expeditions. 'directions' is {dir:{maxDepth,
+    dungeonsUnlocked}} for each of the 8 P.DIRECTIONS values — persistent,
+    cumulative exploration progress per direction (never reset when one
+    expedition returns and another is sent), what the "a new dungeon every
+    100 depth" schedule is checked against. Brand-new field, plain
+    default-fill below (the 8 ids are hardcoded here rather than read off
+    P.DIRECTIONS since this module never loads progression.js — same
+    precedent as 'kesh' being a literal below, not derived from C.ROSTER). */
+ 'directions'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -120,6 +129,14 @@ S.deserialize=function(snap,C){
  if(!G.dungeons)G.dungeons=[];
  if(!G.quests)G.quests={};
  if(!G.quests.kesh)G.quests.kesh={stage:0,frozen:[]};   /* kesh is owned from newGame(), never through joinCompanion() */
+ /* v2.9: directional expeditions. A save from before this existed has
+    neither 'directions' nor a 'direction' on any in-flight expedition —
+    default-fill both rather than throw. The 8 ids are hardcoded (see the
+    FIELDS comment above) since this module doesn't load progression.js. */
+ var DIRS=['west','northwest','southwest','north','south','northeast','southeast','east'];
+ if(!G.directions)G.directions={};
+ DIRS.forEach(function(dir){if(!G.directions[dir])G.directions[dir]={maxDepth:0,dungeonsUnlocked:0};});
+ (G.expeditions||[]).forEach(function(exp){if(!exp.direction)exp.direction='west';});
  G.pullsSinceUnit=G.pullsSinceUnit||0;
  return G;};
 

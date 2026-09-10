@@ -42,7 +42,18 @@ const prog  = read('farroad-progression.js');
 const save  = read('farroad-save.js');
 const ui    = read('farroad-ui.js');
 
+/* CSV CONTENT PIPELINE — farroadunits/actions/enemies/quests/dungeons.csv
+   are the REAL source of truth for their content: edit the CSV, rebuild,
+   the change is live. Parsing/compiling/validation lives in
+   content-pipeline.js, shared with farroadsmoke.js so both ever see the
+   SAME compiled content, never duplicated or able to drift apart. */
+const { buildContent } = require('./content-pipeline.js');
+const { content: farroadContent, problems } = buildContent(__dirname);
+const contentJson = JSON.stringify(farroadContent);
+const content = `window.FarroadContent=${contentJson};`;
+
 const fused = shell
+  .replace('<!--@@CONTENT@@-->',      `<script id="farroad-content">${content}</script>`)
   .replace('<!--@@CORE@@-->',        `<script id="farroad-core">${core}</script>`)
   .replace('<!--@@PROGRESSION@@-->', `<script id="farroad-progression">${prog}</script>`)
   .replace('<!--@@SAVE@@-->',        `<script id="farroad-save">${save}</script>`)
@@ -50,11 +61,8 @@ const fused = shell
   .replace(/<!--@@VERSION@@-->/g,     VERSION)
   .replace(/<!--@@BUILD_STAMP@@-->/g, BUILD_STAMP);
 
-/* --- fidelity checks that run on every build ------------------------------ */
-const problems = [];
-
 /* 1. every placeholder consumed */
-['@@CORE@@', '@@PROGRESSION@@', '@@SAVE@@', '@@UI@@', '@@VERSION@@', '@@BUILD_STAMP@@'].forEach(p => {
+['@@CONTENT@@', '@@CORE@@', '@@PROGRESSION@@', '@@SAVE@@', '@@UI@@', '@@VERSION@@', '@@BUILD_STAMP@@'].forEach(p => {
   if (fused.includes(p)) problems.push(`placeholder ${p} was not replaced`);
 });
 
@@ -88,12 +96,16 @@ const DOM = /\b(document|localStorage|sessionStorage|alert|requestAnimationFrame
   });
 });
 
-/* 3. the only permitted window references are a module's own export/import */
+/* 3. the only permitted window references are a module's own export/import,
+      plus core.js's own recognized IMPORT of window.FarroadContent (the
+      CSV-compiled ROSTER/ARCH/ACTIONS block above, injected as its own
+      script tag before core.js's — see farroad-core.js's own header
+      comment) — same exemption, one more recognized name. */
 const strayWindow = (name, body) => {
   const raw = body.split('\n');
   codeLines(body).forEach((code, i) => {
     if (!/\bwindow\b/.test(code)) return;
-    if (/window\.Farroad(Core|Progression|Save)\b/.test(code)) return;   // export or import
+    if (/window\.Farroad(Core|Progression|Save|Content)\b/.test(code)) return;   // export or import
     problems.push(`${name}.js:${i + 1} unexpected window use: ${raw[i].trim()}`);
   });
 };

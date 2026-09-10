@@ -116,203 +116,24 @@ function incomingMul(u){return has(u,'warded')?.60:1;}
 function A(o){o.rank=o.rank||1;o.charge=o.charge||0;o.hits=o.hits||1;o.defPierce=o.defPierce||0;o.critBonus=o.critBonus||0;o.critFn=o.critFn||null;o.power=o.power||0;
  if(o.isCharge)o.chargeCost=o.chargeCost||CHARGE_FULL;return o;}
 function costOfCharge(a){return (a&&a.chargeCost)||CHARGE_FULL;}
-var ACTIONS={
- strike:A({id:'strike',name:'Strike',camp:'atk',tk:'foe',power:1.00,rank:1.00,charge:20,note:'Starter. DPT 1.00.'}),
- ember:A({id:'ember',name:'Ember',camp:'mag',tk:'foe',power:1.05,rank:1.05,charge:21,note:'Starter. Hits RES; full power from the back rank.'}),
- mend:A({id:'mend',name:'Mend',camp:'mag',tk:'ally',power:1.20,rank:1.05,charge:22,heal:true,note:'Heal 1.20 × MAG. The +277% lesson.'}),
- /* v0.9 FIX: niche actions must LOSE outside their niche or the conditional is pointless.
-    Pierce was pow 1.30 / pierce .40 / rank 1.30 -> a flat upgrade to Strike, so "always
-    Pierce" beat "Pierce when armoured". Repriced to win ONLY against heavy armour. */
- pierce:A({id:'pierce',name:'Pierce',camp:'atk',tk:'foe',power:1.00,rank:1.50,charge:26,defPierce:.75,
-   note:'Ignores 75% DEF but slow — wins vs armour, LOSES to Strike vs anything soft.'}),
- cleave:A({id:'cleave',name:'Cleave',camp:'atk',tk:'allFoes',power:.66,rank:1.30,charge:27,note:'All foes, physical.'}),
- flurry:A({id:'flurry',name:'Flurry',camp:'atk',tk:'foe',power:.43,hits:3,rank:1.25,charge:26,note:'3 hits, each rolls crit.'}),
- /* v2.7 EXECUTE — payoff moved from POWER into CRIT.
-  * Power is now FLAT 0.80 and reads nothing about the target. The whole HP
-  * condition lives in critFn: crit is CAPPED at 0.70 and multiplies by 1.75, so
-  * the in-window uplift is bounded at ~1.47x no matter how much is invested.
-  * Power scaling was unbounded AND multiplied against every swift purchase,
-  * which is what made Execute the convergence target.
-  * §6.0 PENALTY: power 0.80 < Strike's 1.00, and out of window Execute cannot
-  * crit at all. Out-of-window DPT 0.80 vs Strike 1.04 — 23% worse, and the gap
-  * is a POWER gap so it survives swift investment (a rank-based penalty would
-  * erode, since all actions converge on the same initiative ceiling).
-  * Rank drops 1.45 -> 1.00: at 1.45 the bounded crit payoff could not overcome
-  * the speed loss and Execute was worse than Strike even inside its window.
-  * v2.8: power 0.80 -> 0.65 (Ian's call) to widen the in/out spread and pull the
-  * gambit uplift back toward the original +17.1%. The penalty is deeper, not
-  * different in kind — power is still FLAT and still reads nothing about HP.
-  * v2.8: CAP_CRIT is now 1.00, so a keen-stacked build can take the in-window
-  * crit from 70% to a guaranteed 100%. The payoff is still bounded — 1.75x is
-  * the most a crit can ever be worth — so the convergence fix is unaffected. */
- execute:A({id:'execute',name:'Execute',camp:'atk',tk:'foe',power:0.65,rank:1.00,charge:29,
-   note:'Flat 0.65 power. Crits ALWAYS at ≤30% HP; CANNOT crit above it.',
-   critFn:function(s,t){return (t&&t.hp/t.maxHp<=.30)?0.65:-1;}}),
- guardbreak:A({id:'guardbreak',name:'Guard Break',camp:'atk',tk:'foe',power:.85,rank:1.10,charge:24,applies:'sundered',turns:3,note:'Sundered.'}),
- daunt:A({id:'daunt',name:'Daunt',camp:'atk',tk:'foe',power:.60,rank:1.00,charge:22,applies:'enfeebled',turns:3,note:'Enfeebled — ATK ×0.75.'}),
- cripple:A({id:'cripple',name:'Cripple',camp:'atk',tk:'foe',power:.70,rank:1.15,charge:25,applies:'slowed',turns:3,note:'Slowed — 33% fewer enemy turns. The best non-heal rule.'}),
- brace:A({id:'brace',name:'Brace',camp:'atk',tk:'self',rank:.65,charge:30,applies:'bracing',turns:2,note:'Fast, high charge.'}),
- vengeance:A({id:'vengeance',name:'Vengeance',camp:'atk',tk:'foe',power:1.00,rank:1.30,charge:26,note:'0.55 at full HP → 2.10 near death.',
-   powerFn:function(s){return 0.55+1.55*(1-s.hp/s.maxHp);}}),
- onslaught:A({id:'onslaught',name:'Onslaught',camp:'atk',tk:'foe',power:1.00,rank:1.45,charge:29,note:'×2.20 first turn, ×0.65 after.',
-   powerFn:function(s){return s.turnsTaken===0?2.20:0.65;}}),
- rally:A({id:'rally',name:'Rally',camp:'atk',tk:'self',rank:.75,charge:45,applies:'surging',turns:3,note:'Doubles charge rate.'}),
- gale:A({id:'gale',name:'Gale',camp:'mag',tk:'allFoes',power:.62,rank:1.30,charge:27,note:'All foes, magic — safe vs thorns.'}),
- sear:A({id:'sear',name:'Sear',camp:'mag',tk:'foe',power:.62,rank:1.10,charge:24,applies:'burning',turns:3,note:'Burning.'}),
- hex:A({id:'hex',name:'Hex',camp:'mag',tk:'foe',power:.68,rank:1.05,charge:23,applies:'frail',turns:3,note:'Frail — cuts RES.'}),
- smother:A({id:'smother',name:'Smother',camp:'mag',tk:'foe',power:.60,rank:1.05,charge:23,applies:'dulled',turns:3,note:'Dulled — cuts enemy MAG and healing.'}),
- dazzle:A({id:'dazzle',name:'Dazzle',camp:'mag',tk:'foe',power:.58,rank:1.00,charge:22,applies:'blinded',turns:3,note:'Blinded.'}),
- siphon:A({id:'siphon',name:'Siphon',camp:'mag',tk:'foe',power:1.00,rank:1.30,charge:26,lifesteal:.50,note:'Heals you 50% of damage.'}),
- renew:A({id:'renew',name:'Renew',camp:'mag',tk:'ally',rank:1.15,charge:24,applies:'regen',turns:4,note:'Regen 4 turns.'}),
- recall:A({id:'recall',name:'Recall',camp:'mag',tk:'deadAlly',rank:1.60,charge:33,revive:.35,note:'Revive at 35% HP.'}),
- bulwark:A({id:'bulwark',name:'Bulwark',camp:'mag',tk:'ally',rank:.90,charge:28,applies:'warded',turns:2,note:'Warded — ×0.60 incoming.'}),
- blur:A({id:'blur',name:'Blur',camp:'mag',tk:'ally',rank:.90,charge:28,applies:'blurred',turns:3,note:'+0.20 evade.'}),
- quicken:A({id:'quicken',name:'Quicken',camp:'mag',tk:'ally',rank:1.40,charge:28,applies:'hasted',turns:3,note:'Hasted.'}),
- oath:A({id:'oath',name:"Wayfarer's Oath",camp:'atk',tk:'foe',power:4.20,rank:1.80,isCharge:true,critBonus:.30,note:'CHARGE · Kesh.'}),
- ninefold:A({id:'ninefold',name:'Ninefold Rain',camp:'atk',tk:'foe',power:.48,hits:9,rank:1.90,isCharge:true,randomPerHit:true,note:'CHARGE · Vey.'}),
- hearthlight:A({id:'hearthlight',name:'Hearthlight',camp:'mag',tk:'allAllies',power:2.40,rank:1.65,isCharge:true,heal:true,cleanse:1,note:'CHARGE · Ansa.'}),
- vowofstone:A({id:'vowofstone',name:'Vow of Stone',camp:'atk',tk:'allAllies',rank:1.55,isCharge:true,applies:'warded',turns:3,selfTaunt:3,note:'CHARGE · Dorrek.'}),
- ashfall:A({id:'ashfall',name:'Ashfall',camp:'mag',tk:'allFoes',power:1.90,rank:2.00,isCharge:true,applies:'burning',turns:3,note:'CHARGE · Mirel.'}),
- /* ===== ROSTER EXPANSION 5->10 (prereq for roadmap item 4) =====
-  * Idle quests need units to actually BE benched, which needs a roster bigger
-  * than PARTY_CAP — these five exist to make "owned but not fielded" a real,
-  * sustained state instead of a transient one. Stats/growth are bounded by
-  * the ORIGINAL five's own min/max (see P.MC_STAT_RANGE/MC_GROWTH_RANGE in
-  * progression.js) — new combinations within the existing envelope, not new
-  * extremes, so nothing here silently changes what the customisable MC can
-  * reach. Acquired via Marks pulls only (doPull() already draws from all of
-  * ROSTER generically) — no boss-milestone wave is assigned to any of them. */
- bloodfury:A({id:'bloodfury',name:'Bloodfury',camp:'atk',tk:'foe',power:3.60,rank:1.70,isCharge:true,critBonus:.40,lifesteal:.25,note:'CHARGE · Skarn. Big single-target hit, heavy crit bonus, partial lifesteal — a reckless crit-fisher that sustains itself.'}),
- spellbrand:A({id:'spellbrand',name:'Spellbrand',camp:'atk',tk:'foe',power:3.20,rank:1.60,isCharge:true,defPierce:.20,applies:'frail',turns:3,note:'CHARGE · Sorin. Armor-piercing blade strike that sears the target Frail — melee delivery, magic payload.'}),
- wardcurse:A({id:'wardcurse',name:'Warding Curse',camp:'mag',tk:'allFoes',power:.65,rank:1.75,isCharge:true,applies:'enfeebled',turns:4,note:'CHARGE · Nyra. Light AoE damage plus Enfeebled on every foe — shuts down enemy offense from the back line.'}),
- aegisstep:A({id:'aegisstep',name:'Aegis Step',camp:'mag',tk:'self',rank:1.45,isCharge:true,applies:'blurred',turns:3,selfTaunt:3,note:'CHARGE · Brenn. Self Blurred (+0.20 evade) plus self-taunt — draws every attack, then dodges most of them. The dodge-tank answer to Vow of Stone.'}),
- quicksilver:A({id:'quicksilver',name:'Quicksilver Blessing',camp:'mag',tk:'allAllies',power:1.40,rank:1.55,isCharge:true,heal:true,applies:'hasted',turns:2,note:'CHARGE · Sael. Light party heal plus Hasted — trades raw healing for tempo.'}),
- /* ===== MC GENERIC STARTERS (roadmap item 2) =====
-  * The customisable MC needs an opening charge action that ISN'T one of the
-  * "corner" actions below — those were deliberately written to occupy space
-  * the plain kind axis (damage-physical / damage-magic / heal) does NOT, so
-  * offering them as a first pick would start every custom character on a
-  * build-around rather than a baseline. These three ARE that plain baseline:
-  * no attached status, no lifesteal, no conditional scaling — just the kind
-  * axis's three basic values, at the same rank/power a signature move gets
-  * (see oath/ashfall/hearthlight above) minus the one flourish each of those
-  * has (critBonus / burning / cleanse), with power nudged up slightly to
-  * compensate for going without it. Not tied to a companion identity, since
-  * the MC's name is the player's own. */
- heavystrike:A({id:'heavystrike',name:'Heavy Strike',camp:'atk',tk:'foe',power:4.20,rank:1.80,
-  isCharge:true,note:'CHARGE · Bulk physical damage to one foe.'}),
- wildfire:A({id:'wildfire',name:'Wildfire',camp:'mag',tk:'allFoes',power:2.10,rank:2.00,
-  isCharge:true,note:'CHARGE · Bulk magic damage to all foes.'}),
- greatheal:A({id:'greatheal',name:'Great Heal',camp:'mag',tk:'allAllies',power:2.60,rank:1.65,
-  isCharge:true,heal:true,note:'CHARGE · Heals the whole party.'}),
- /* ===== v2.9: STAT-SCALING MC CHARGE ACTIONS =====
-  * One damage + one support per core stat (ATK/MAG/DEF/RES/SPD), each using
-  * the new act.scaleStat field (see statByKey/resolveHit/healFor above) so
-  * its magnitude comes from that stat instead of the camp-implied ATK/MAG —
-  * the first actions in the game that do. Added to the MC's rare charge
-  * drop pool (P.MC_CHARGE_DROP_POOL, progression.js), same acquisition
-  * path as the existing 8 corner charges, not the 3 generic starters.
-  * BALANCED so a build that's maxed the relevant stat (the point-buy
-  * ceiling — atk 28/mag 30/def 45/res 40/spd 131) lands on roughly the same
-  * pre-mitigation base as the existing MC starters: ~118 for a single-hit
-  * damage action (heavystrike's own 4.20x28=117.6 is the reference), ~78
-  * for a party-wide heal (greatheal's 2.60x30=78 is the reference) — power
-  * is that target divided by the stat's ceiling, so DEF/RES/SPD's much
-  * larger raw numbers don't silently overshoot ATK/MAG's.
-  * v2.9 REVISED (atk_reckless/mag_lance and atk_cry/mag_font only): the
-  * ceiling-normalization above made mag_lance/mag_font deliberately WEAKER
-  * per point than their atk counterparts, to cancel out mag's higher stat
-  * ceiling (28 vs 30) — so a maxed-MAG build hit for the exact same total
-  * as a maxed-ATK build despite its bigger number. That is precisely "mag
-  * reads as the bigger stat but doesn't hit harder" — confirmed the sole
-  * mechanical cause of that complaint (nowhere else in the game nerfs mag's
-  * power to compensate for its stat: ember already OUTPACES strike, and the
-  * other 8 charge actions are individually authored, not ceiling-matched).
-  * Fix: mag_lance/mag_font now use the SAME power coefficient as their atk
-  * sibling, so mag's bigger ceiling translates into proportionally bigger
-  * output (~7% more at max investment, matching the ~7% bigger stat pool)
-  * instead of being silently cancelled out. def_slam/res_strike/spd_flurry
-  * and their support pairs are untouched — not part of the atk/mag
-  * complaint, and never framed as parallel to each other the way these two
-  * pairs explicitly are. */
- atk_reckless:A({id:'atk_reckless',name:'Reckless Blow',camp:'atk',tk:'foe',scaleStat:'atk',
-  power:4.20,rank:1.75,isCharge:true,critBonus:.30,
-  note:'CHARGE · Heavy single-target hit with a big crit bonus — rewards building around raw ATK.'}),
- mag_lance:A({id:'mag_lance',name:'Arcane Lance',camp:'mag',tk:'foe',scaleStat:'mag',
-  power:4.20,rank:1.75,isCharge:true,defPierce:.20,
-  note:'CHARGE · A piercing magic strike that ignores 20% armour — rewards building around raw MAG.'}),
- def_slam:A({id:'def_slam',name:'Shield Slam',camp:'atk',tk:'foe',scaleStat:'def',
-  power:2.60,rank:1.90,isCharge:true,applies:'sundered',turns:3,
-  note:'CHARGE · A shield bash scaled by your own DEF, cracking the target\'s armour (Sundered).'}),
- res_strike:A({id:'res_strike',name:'Warded Strike',camp:'mag',tk:'foe',scaleStat:'res',
-  power:3.00,rank:1.85,isCharge:true,lifesteal:.20,
-  note:'CHARGE · Channels your own resistance into a draining strike — heals you 20% of the damage.'}),
- spd_flurry:A({id:'spd_flurry',name:'Fleetstrike',camp:'atk',tk:'foe',scaleStat:'spd',
-  power:0.45,hits:2,rank:1.30,isCharge:true,
-  note:'CHARGE · Two quick hits scaled by your own SPD — fires far more often than a normal charge.'}),
- atk_cry:A({id:'atk_cry',name:'Battle Cry',camp:'atk',tk:'allAllies',scaleStat:'atk',
-  power:2.80,rank:1.70,isCharge:true,heal:true,applies:'hasted',turns:2,
-  note:'CHARGE · A rallying cry that heals the party (scaled by your own ATK) and Hastes everyone.'}),
- mag_font:A({id:'mag_font',name:'Font of Power',camp:'mag',tk:'allAllies',scaleStat:'mag',
-  power:2.80,rank:1.65,isCharge:true,heal:true,applies:'warded',turns:3,
-  note:'CHARGE · A MAG-scaled party heal that also grants Warded (magic defense up).'}),
- def_bulwark:A({id:'def_bulwark',name:'Bulwark Stand',camp:'atk',tk:'ally',scaleStat:'def',
-  power:1.75,rank:1.80,isCharge:true,heal:true,applies:'bracing',turns:3,
-  note:'CHARGE · Shields one ally — heal scaled by your own DEF, plus Bracing (DEF up).'}),
- res_ward:A({id:'res_ward',name:'Calming Ward',camp:'mag',tk:'allAllies',scaleStat:'res',
-  power:1.95,rank:1.75,isCharge:true,heal:true,cleanse:1,
-  note:'CHARGE · A RES-scaled party heal that also cleanses one debuff per ally.'}),
- spd_fleet:A({id:'spd_fleet',name:'Fleet Step',camp:'mag',tk:'allAllies',scaleStat:'spd',
-  power:0.60,rank:1.50,isCharge:true,heal:true,applies:'hasted',turns:2,
-  note:'CHARGE · A SPD-scaled party heal plus Hasted — a courier\'s trick, not a caster\'s.'}),
- /* ===== CHARGE ACTION DESIGN SPACE (v2.1) =====
-  * 25 units need 25 charge actions that are NOT 25 damage numbers. Five axes:
-  *   1 SHAPE     one foe / all foes / one ally / all allies / self / the dead
-  *   2 KIND      damage / heal / buff / debuff / revive / RESOURCE (charge, tempo)
-  *   3 TIMING    instant burst / persistent for N turns / conditional payload
-  *   4 COST      rank — cheap-and-frequent vs expensive-and-rare
-  *   5 CONDITION unconditional vs scaling off battle state (HP, foe count, statuses)
-  * The five originals cover: single burst (Oath), multi-hit random (Ninefold),
-  * party heal+cleanse (Hearthlight), party buff+taunt (Vow), AoE damage+DoT (Ashfall).
-  * The eight below deliberately occupy CORNERS the originals do not, to prove the
-  * space is real. Remaining 12 are content work, not design work. */
- tideturn:A({id:'tideturn',name:'Tideturn',camp:'mag',tk:'allAllies',rank:1.50,isCharge:true,
-   applies:'hasted',turns:3,note:'CHARGE · RESOURCE/TEMPO. Hastes the whole party — buys turns, deals nothing.'}),
- lastlight:A({id:'lastlight',name:'Last Light',camp:'mag',tk:'deadAlly',rank:1.70,isCharge:true,
-   revive:.80,note:'CHARGE · REVIVE. Brings an ally back at 80% — the only full recovery in the game.'}),
- sunder:A({id:'sunder',name:'Sundering Vow',camp:'atk',tk:'allFoes',rank:1.60,isCharge:true,
-   applies:'sundered',turns:4,power:0.55,note:'CHARGE · DEBUFF-first. Light damage, but strips DEF from everything.'}),
- gravewind:A({id:'gravewind',name:'Gravewind',camp:'mag',tk:'allFoes',rank:1.75,isCharge:true,
-   applies:'slowed',turns:4,power:0.70,note:'CHARGE · TEMPO DENIAL. Slows every foe — fewer enemy turns, slower enrage.'}),
- reckoning:A({id:'reckoning',name:'Reckoning',camp:'atk',tk:'foe',rank:1.90,isCharge:true,power:1.00,
-   powerFn:function(s,t){return t?(2.0+4.5*(1-t.hp/t.maxHp)):2.0;},
-   note:'CHARGE · CONDITIONAL. ×2.0 at full HP rising to ×6.5 on a nearly-dead target.'}),
- bulwarkoath:A({id:'bulwarkoath',name:'Bulwark Oath',camp:'mag',tk:'allAllies',rank:1.45,isCharge:true,
-   applies:'warded',turns:4,note:'CHARGE · CHEAP/FREQUENT. Low rank, fires often, party-wide ×0.60 incoming.'}),
- emberglut:A({id:'emberglut',name:'Ember Glut',camp:'mag',tk:'self',rank:0.90,isCharge:true,
-   applies:'surging',turns:4,note:'CHARGE · RESOURCE. Very cheap; doubles its own charge rate to chain into the next.'}),
- hollowtoll:A({id:'hollowtoll',name:'Hollow Toll',camp:'mag',tk:'allFoes',rank:2.10,isCharge:true,power:1.35,
-   lifesteal:.60,note:'CHARGE · SUSTAIN-AoE. Hits everything and heals the caster 60% of the total.'}),
- /* ===== ENEMY CHARGE ACTIONS (v1.0) =====
-    Enemies now have every stat the party has except Recovery, and chargeRate was
-    already among them - it simply had nothing to spend charge on. These give it a
-    sink. The gauge is visible on the enemy card and the `foe_charging` condition
-    lets the player write rules against it, so a telegraphed special is something
-    to play around rather than a surprise. */
- wardensmaul:A({id:'wardensmaul',name:"Warden's Maul",camp:'atk',tk:'foe',power:3.10,rank:1.75,
-   isCharge:true,critBonus:.10,note:'CHARGE · boss. Heavy single target.'}),
- sunderingroar:A({id:'sunderingroar',name:'Sundering Roar',camp:'atk',tk:'allAllies',rank:1.50,
-   isCharge:true,applies:'enfeebled',turns:3,note:'CHARGE · Stone Ox. Enfeebles the party.'}),
- quickenedhowl:A({id:'quickenedhowl',name:'Quickened Howl',camp:'atk',tk:'self',rank:1.20,
-   isCharge:true,applies:'hasted',turns:3,note:'CHARGE · Mire Hound. Hastes itself.'}),
- /* Enemy basic actions need a `charge` value or the gauge never moves: A() defaults
-    charge to 0, so before v1.0 an enemy with a chargeAction could never have fired
-    it. Values mirror the party's charge-per-rank so gauges fill at a similar pace. */
- bite:A({id:'bite',name:'Bite',camp:'atk',tk:'foe',power:1.00,rank:1.00,charge:19}),
- rake:A({id:'rake',name:'Rake',camp:'atk',tk:'foe',power:.85,rank:.85,charge:16}),
- maul:A({id:'maul',name:'Maul',camp:'atk',tk:'foe',power:1.45,rank:1.45,charge:26}),
- knitbone:A({id:'knitbone',name:'Knit Bone',camp:'mag',tk:'ally',power:1.15,rank:1.20,heal:true,charge:21}),
- wait:A({id:'wait',name:'Wait',camp:'atk',tk:'self',rank:1.00,inert:true})};
+/* ACTIONS is generated from farroadactions.csv at build time (see
+   build.js) -- window.FarroadContent.ACTIONS is the raw per-id field data;
+   A() (above) applies the same defaulting every literal entry used to get
+   inline. A handful of ids carry genuine executable logic a spreadsheet
+   cell can't hold (a dynamic power/crit formula, or 'each hit re-rolls its
+   own random target') -- ACTION_DYNAMIC merges those by id, hand-written,
+   onto the CSV-generated base. See MODULES.md for which ids and why. */
+var ACTIONS={};
+Object.keys(window.FarroadContent.ACTIONS).forEach(function(id){
+ ACTIONS[id]=A(window.FarroadContent.ACTIONS[id]);});
+var ACTION_DYNAMIC={
+ execute:{critFn:function(s,t){return (t&&t.hp/t.maxHp<=.30)?0.65:-1;}},
+ vengeance:{powerFn:function(s){return 0.55+1.55*(1-s.hp/s.maxHp);}},
+ onslaught:{powerFn:function(s){return s.turnsTaken===0?2.20:0.65;}},
+ reckoning:{powerFn:function(s,t){return t?(2.0+4.5*(1-t.hp/t.maxHp)):2.0;}},
+ ninefold:{randomPerHit:true}};
+Object.keys(ACTION_DYNAMIC).forEach(function(id){
+ if(ACTIONS[id])for(var k in ACTION_DYNAMIC[id])ACTIONS[id][k]=ACTION_DYNAMIC[id][k];});
 var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt','cripple','brace','vengeance','onslaught','rally'];
 var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken'];
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
@@ -797,36 +618,25 @@ function preview(b,count){count=count||6;var sim=[];
    scaling enemy HP measured almost inert - what kills a solo character is damage
    taken, not pool size - so the growth exponent on ATK is the primary lever
    (1.02 -> 0.80 in buildEnemies). */
-var ARCH={
- wolf:{key:'wolf',name:'Roadwolf',hpMul:1.00,atk:21,def:12,res:8,spd:92,atkCrit:.04,evade:.05,block:.00,
-  slots:[{cond:'none',action:'bite'},{cond:'none',action:'bite'}]},
- knight:{key:'knight',name:'Barrow Knight',hpMul:.85,atk:19,def:34,res:20,spd:84,atkCrit:.03,evade:.02,block:.10,
-  slots:[{cond:'none',action:'bite'},{cond:'none',action:'bite'}]},
- hound:{key:'hound',name:'Mire Hound',hpMul:.60,atk:15,def:8,res:6,spd:124,atkCrit:.08,evade:.10,block:.00,
-  slots:[{cond:'none',action:'rake'},{cond:'none',action:'rake'}]},
- ox:{key:'ox',name:'Stone Ox',hpMul:1.60,atk:27,def:20,res:14,spd:70,atkCrit:.05,evade:.01,block:.05,
-  slots:[{cond:'none',action:'maul'},{cond:'none',action:'maul'}]},
- priest:{key:'priest',name:'Fen Priest',hpMul:.55,atk:12,mag:23,def:14,res:22,spd:96,atkCrit:.03,evade:.03,block:.02,
-  slots:[{cond:'ally_hp_lte_60',action:'knitbone'},{cond:'none',action:'bite'}]},
- shrike:{key:'shrike',name:'Thorn Shrike',hpMul:.80,atk:17,def:14,res:26,spd:100,atkCrit:.05,evade:.06,block:.00,thorns:.06,
-  slots:[{cond:'none',action:'bite'},{cond:'none',action:'bite'}]}};
+/* ARCH is generated from farroadenemies.csv at build time (see build.js) --
+   window.FarroadContent.ARCH is already in this exact shape (key/name/
+   hpMul/atk/mag/def/res/spd/atkCrit/magCrit/evade/block/thorns/
+   chargeAction/slots). No ARCH.boss entry -- boss enemies are synthesized
+   at combat-build time from ox's shape + wolf's HP (see buildEnemies in
+   farroad-ui.js), a design this doesn't change. magCrit and chargeAction
+   are now genuine per-archetype CSV fields (were: a single hardcoded 0.04
+   global, and a hardcoded key==='ox'/'hound' check -- both generalized,
+   seeded to match prior behavior exactly). */
+var ARCH=window.FarroadContent.ARCH;
 var ROT=['wolf','knight','hound','ox','priest','shrike'];
 var REF={def:12,evade:.05,block:.00};
 function dmgTakenMul(a){var K=25;
  return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade))*((1-a.block*.5)/(1-REF.block*.5));}
-var ROSTER=[
- {id:'kesh',name:'Kesh',role:'traveler',row:'front',hp:430,chargeAction:'oath',stats:{atk:26,mag:18,def:20,res:16,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03}},
- {id:'ansa',name:'Ansa',role:'healer',row:'back',hp:320,chargeAction:'hearthlight',stats:{atk:14,mag:26,def:14,res:22,spd:96,atkCrit:.04,magCrit:.06,chargeRate:1,block:.02,evade:.04}},
- {id:'dorrek',name:'Dorrek',role:'tank',row:'front',hp:560,chargeAction:'vowofstone',stats:{atk:22,mag:10,def:30,res:20,spd:84,atkCrit:.04,magCrit:.03,chargeRate:1,block:.10,evade:.02}},
- {id:'vey',name:'Vey',role:'rogue',row:'front',hp:300,chargeAction:'ninefold',stats:{atk:24,mag:12,def:14,res:12,spd:124,atkCrit:.12,magCrit:.04,chargeRate:1,block:.02,evade:.10}},
- {id:'mirel',name:'Mirel',role:'mage',row:'back',hp:270,chargeAction:'ashfall',stats:{atk:12,mag:30,def:12,res:20,spd:92,atkCrit:.03,magCrit:.10,chargeRate:1,block:.02,evade:.04}},
- /* Roster expansion 5->10, pull-only (no boss-milestone wave assigned) — see
-    the CHARGE ACTIONS comment above for why these bounds and this shape. */
- {id:'skarn',name:'Skarn',role:'berserker',row:'front',hp:340,chargeAction:'bloodfury',stats:{atk:25,mag:10,def:13,res:13,spd:110,atkCrit:.11,magCrit:.03,chargeRate:1,block:.02,evade:.05}},
- {id:'sorin',name:'Sorin',role:'battlemage',row:'front',hp:380,chargeAction:'spellbrand',stats:{atk:20,mag:20,def:17,res:15,spd:98,atkCrit:.06,magCrit:.06,chargeRate:1,block:.04,evade:.04}},
- {id:'nyra',name:'Nyra',role:'warden',row:'back',hp:310,chargeAction:'wardcurse',stats:{atk:15,mag:21,def:17,res:20,spd:90,atkCrit:.04,magCrit:.07,chargeRate:1,block:.04,evade:.04}},
- {id:'brenn',name:'Brenn',role:'sentinel',row:'front',hp:480,chargeAction:'aegisstep',stats:{atk:13,mag:11,def:18,res:19,spd:102,atkCrit:.04,magCrit:.04,chargeRate:1,block:.03,evade:.09}},
- {id:'sael',name:'Sael',role:'courier',row:'back',hp:290,chargeAction:'quicksilver',stats:{atk:12,mag:24,def:12,res:16,spd:114,atkCrit:.03,magCrit:.07,chargeRate:1,block:.02,evade:.06}}];
+/* ROSTER is generated from farroadunits.csv at build time (see build.js) --
+   window.FarroadContent.ROSTER is already in this exact shape (id/name/
+   role/row/hp/chargeAction/stats), no per-entry logic to merge back in --
+   unlike ACTIONS, every roster field is plain data today. */
+var ROSTER=window.FarroadContent.ROSTER;
 F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE_FULL;
 /* v2.9: exported because buildEnemies (progression scope) now clamps scaled
    enemy crit against CAP_CRIT. The progression IIFE is a SEPARATE scope under

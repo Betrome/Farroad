@@ -1,0 +1,9 @@
+direction,label,difficulty_multiplier,wave_count,unlock_every,boss_name,design_note
+west,West,0.75,4,100,,Easiest and least lucrative lane.
+northwest,Northwest,0.89,4,100,,
+southwest,Southwest,1.04,4,100,,
+north,North,1.18,4,100,,
+south,South,1.32,4,100,,
+northeast,Northeast,1.46,4,100,,
+southeast,Southeast,1.61,4,100,,
+east,East,1.75,4,100,,Hardest and most lucrative lane.

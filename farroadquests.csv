@@ -1,0 +1,51 @@
+companion_id,stage,power_fraction,is_boss,story,design_note
+kesh,1,0.5,FALSE,"PLACEHOLDER — Kesh, stage 1.",
+kesh,2,0.625,FALSE,"PLACEHOLDER — Kesh, stage 2.",
+kesh,3,0.75,FALSE,"PLACEHOLDER — Kesh, stage 3.",
+kesh,4,0.875,FALSE,"PLACEHOLDER — Kesh, stage 4.",
+kesh,5,1.0,TRUE,"PLACEHOLDER — Kesh, stage 5.",Final stage is a boss fight.
+ansa,1,0.5,FALSE,"PLACEHOLDER — Ansa, stage 1.",
+ansa,2,0.625,FALSE,"PLACEHOLDER — Ansa, stage 2.",
+ansa,3,0.75,FALSE,"PLACEHOLDER — Ansa, stage 3.",
+ansa,4,0.875,FALSE,"PLACEHOLDER — Ansa, stage 4.",
+ansa,5,1.0,TRUE,"PLACEHOLDER — Ansa, stage 5.",Final stage is a boss fight.
+dorrek,1,0.5,FALSE,"PLACEHOLDER — Dorrek, stage 1.",
+dorrek,2,0.625,FALSE,"PLACEHOLDER — Dorrek, stage 2.",
+dorrek,3,0.75,FALSE,"PLACEHOLDER — Dorrek, stage 3.",
+dorrek,4,0.875,FALSE,"PLACEHOLDER — Dorrek, stage 4.",
+dorrek,5,1.0,TRUE,"PLACEHOLDER — Dorrek, stage 5.",Final stage is a boss fight.
+vey,1,0.5,FALSE,"PLACEHOLDER — Vey, stage 1.",
+vey,2,0.625,FALSE,"PLACEHOLDER — Vey, stage 2.",
+vey,3,0.75,FALSE,"PLACEHOLDER — Vey, stage 3.",
+vey,4,0.875,FALSE,"PLACEHOLDER — Vey, stage 4.",
+vey,5,1.0,TRUE,"PLACEHOLDER — Vey, stage 5.",Final stage is a boss fight.
+mirel,1,0.5,FALSE,"PLACEHOLDER — Mirel, stage 1.",
+mirel,2,0.625,FALSE,"PLACEHOLDER — Mirel, stage 2.",
+mirel,3,0.75,FALSE,"PLACEHOLDER — Mirel, stage 3.",
+mirel,4,0.875,FALSE,"PLACEHOLDER — Mirel, stage 4.",
+mirel,5,1.0,TRUE,"PLACEHOLDER — Mirel, stage 5.",Final stage is a boss fight.
+skarn,1,0.5,FALSE,"PLACEHOLDER — Skarn, stage 1.",
+skarn,2,0.625,FALSE,"PLACEHOLDER — Skarn, stage 2.",
+skarn,3,0.75,FALSE,"PLACEHOLDER — Skarn, stage 3.",
+skarn,4,0.875,FALSE,"PLACEHOLDER — Skarn, stage 4.",
+skarn,5,1.0,TRUE,"PLACEHOLDER — Skarn, stage 5.",Final stage is a boss fight.
+sorin,1,0.5,FALSE,"PLACEHOLDER — Sorin, stage 1.",
+sorin,2,0.625,FALSE,"PLACEHOLDER — Sorin, stage 2.",
+sorin,3,0.75,FALSE,"PLACEHOLDER — Sorin, stage 3.",
+sorin,4,0.875,FALSE,"PLACEHOLDER — Sorin, stage 4.",
+sorin,5,1.0,TRUE,"PLACEHOLDER — Sorin, stage 5.",Final stage is a boss fight.
+nyra,1,0.5,FALSE,"PLACEHOLDER — Nyra, stage 1.",
+nyra,2,0.625,FALSE,"PLACEHOLDER — Nyra, stage 2.",
+nyra,3,0.75,FALSE,"PLACEHOLDER — Nyra, stage 3.",
+nyra,4,0.875,FALSE,"PLACEHOLDER — Nyra, stage 4.",
+nyra,5,1.0,TRUE,"PLACEHOLDER — Nyra, stage 5.",Final stage is a boss fight.
+brenn,1,0.5,FALSE,"PLACEHOLDER — Brenn, stage 1.",
+brenn,2,0.625,FALSE,"PLACEHOLDER — Brenn, stage 2.",
+brenn,3,0.75,FALSE,"PLACEHOLDER — Brenn, stage 3.",
+brenn,4,0.875,FALSE,"PLACEHOLDER — Brenn, stage 4.",
+brenn,5,1.0,TRUE,"PLACEHOLDER — Brenn, stage 5.",Final stage is a boss fight.
+sael,1,0.5,FALSE,"PLACEHOLDER — Sael, stage 1.",
+sael,2,0.625,FALSE,"PLACEHOLDER — Sael, stage 2.",
+sael,3,0.75,FALSE,"PLACEHOLDER — Sael, stage 3.",
+sael,4,0.875,FALSE,"PLACEHOLDER — Sael, stage 4.",
+sael,5,1.0,TRUE,"PLACEHOLDER — Sael, stage 5.",Final stage is a boss fight.

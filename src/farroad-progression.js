@@ -350,26 +350,77 @@ P.OFFLINE_CAP_SEC=12*3600;
 P.EXPED_RETURN_HP_FRAC=0.25;      /* auto-return once carried HP drops below this */
 P.EXPED_CAP_SEC=P.OFFLINE_CAP_SEC;  /* same 12h ceiling per catch-up pass */
 
-/* ===== DISCOVERABLE CONTENT (bonus fights + dungeons) =====
+/* ===== DIRECTIONS =====
+ * "Choose a direction... West (easiest/least lucrative) through East
+ * (hardest/most lucrative)". One expedition per direction at a time — 8
+ * named lanes IS the concurrent-expedition cap, not a separate counter
+ * (see sendExpedition in the UI layer). directionMul is computed from
+ * index rather than a hardcoded per-direction table, so the 8 values are
+ * provably monotonic by construction. Measured (headless balance script,
+ * scratchpad/directions-dungeons-tuning.js): min level for a bare-attack
+ * party to hold a 50% win rate at a fixed depth (300) rises smoothly
+ * west->east, 66 (west) to 104 (east) — a real, ~1.6x spread across the 8
+ * lanes, no cliff or degenerate step between any two adjacent directions.
+ * Applied to BOTH enemy stats (harder) and rewards (more lucrative) for
+ * that direction — see applyStatMul()/resolveExpedition in the UI layer.
+ * v2.9: generated from farroaddungeons.csv at build time (see build.js) —
+ * window.FarroadContent.DIRECTION_CONFIG is {dir:{label,mul,waveCount,
+ * unlockEvery,bossName}}, one row per direction, each field independently
+ * CSV-editable (was: directionMul computed from a fixed formula,
+ * DUNGEON_WAVE_COUNT/DUNGEON_UNLOCK_EVERY shared across every direction —
+ * Ian can now give one direction a longer dungeon or a different unlock
+ * pace than another with no code touched). build.js validates all 8
+ * P.DIRECTIONS values have exactly one row. */
+P.DIRECTION_CONFIG=window.FarroadContent.DIRECTION_CONFIG;
+P.DIRECTIONS=Object.keys(P.DIRECTION_CONFIG);
+P.DIRECTION_LABELS={};
+P.DIRECTIONS.forEach(function(d){P.DIRECTION_LABELS[d]=P.DIRECTION_CONFIG[d].label;});
+P.directionMul=function(dir){return (P.DIRECTION_CONFIG[dir]&&P.DIRECTION_CONFIG[dir].mul)||1;};
+
+/* ===== DISCOVERABLE CONTENT (bonus fights) =====
  * Rolled once per WON expedition node — same spirit and shape as
  * MC_CHARGE_DROP_CHANCE (a flat per-opportunity roll, checked once, no
  * extra time cost since it's a bonus riding a fight already paid for).
- * A success splits into a one-off bonus fight (common — extra reward,
- * logged, done) or a dungeon discovery (rarer — becomes a permanent,
- * repeatable fight for the main party, at a difficulty FROZEN at
- * discovery time, immune to any later retuning of waveScale/hardMul).
- * DUNGEON_LEN mirrors how BOSS_LEN already sizes the boss (1.3-1.5x a
- * normal fight) — a dungeon is "slightly harder than the Road", not
- * boss-tier, so meaningfully smaller. Measured (headless balance script,
- * scratchpad/discoverable-content-tuning.js): at 1.15, the min level for a
- * bare-attack-only party to hold a 50% win rate against a dungeon is
- * ~1.1-1.2x the min level needed against a plain Road wave at the same
- * discovery depth (e.g. depth 400: level 88 Road vs 95 dungeon) — clearly
- * short of the boss's 1.3-1.5x band, i.e. confirmed "slightly harder", not
- * a second boss. All tuned against that script before shipping. */
+ * v2.9 CORRECTION: dungeons are no longer part of this roll — "rather
+ * than have dungeons discovered randomly, have a dungeon unlocked every
+ * 100 waves in each direction" (see P.DIRECTION_CONFIG below and
+ * unlockDirectionDungeon() in the UI layer). This section
+ * now covers ONLY the bonus-fight half of what was previously a combined
+ * roll; EXPED_DUNGEON_SHARE is retired along with it. DUNGEON_LEN (used
+ * by the scheduled-dungeon system now, not this roll) still mirrors how
+ * BOSS_LEN sizes the boss (1.3-1.5x a normal fight) — a dungeon is
+ * "slightly harder than the Road", not boss-tier. Measured (headless
+ * balance script, scratchpad/discoverable-content-tuning.js): at 1.15,
+ * the min level for a bare-attack-only party to hold a 50% win rate
+ * against a dungeon is ~1.1-1.2x the min level needed against a plain
+ * Road wave at the same depth (e.g. depth 400: level 88 Road vs 95
+ * dungeon) — clearly short of the boss's 1.3-1.5x band, i.e. confirmed
+ * "slightly harder", not a second boss. */
 P.EXPED_DISCOVERY_CHANCE=0.08;
-P.EXPED_DUNGEON_SHARE=0.30;       /* of a discovery, this fraction is a dungeon, the rest a bonus fight */
 P.DUNGEON_LEN=1.15;
+/* A multi-wave dungeon's own shape (waveCount-1 regular waves then a
+   forced boss wave — a real "crawl" without becoming a slog at this
+   game's brisk per-fight pace) and unlock pace (a new dungeon every
+   unlockEvery depth reached in a direction, cumulative across every
+   expedition ever sent there, not reset per trip) are now per-direction
+   CSV fields too — see P.DIRECTION_CONFIG/unlockDirectionDungeon (UI
+   layer) — rather than two flat constants shared by every direction.
+   Shipped identical for all 8 (waveCount 4, unlockEvery 100) — same
+   values the flat constants used to hold, just independently tunable now.
+   Measured (same balance script as directionMul above) a genuinely
+   narrow band between "wall" and "trivial" for the full 3-regular+1-boss
+   run, HP/charge carried across waves with no healing between them (no
+   penalty on a loss — try again any time — so a hard run is a real
+   choice, not a punishing one): at ~1.3x the level that clears ONE
+   regular wave in isolation, the run mostly fails partway through the
+   regular waves (a genuine crawl); at ~2x that level, the whole run
+   including the boss clears comfortably. This band is narrower than
+   ideal — a party landing in between the two would find the run
+   swingy — but the wave count/DUNGEON_LEN combination isn't a wild guess
+   either; flagged here explicitly as the first candidate to retune
+   against Ian's real playtesting (now a CSV edit, not a code change)
+   rather than further synthetic passes, the same way DUNGEON_LEN/
+   QUEST_STAGE_POWER_FRAC were both revised once real numbers came back. */
 
 /* ===== COMPANION QUEST LINES =====
  * One 5-battle chain per roster unit, unlocked the moment they're first
@@ -402,37 +453,26 @@ P.DUNGEON_LEN=1.15;
  * `story` is placeholder-only per Ian's explicit call — he/the associate
  * author the real narrative later, the same way farroadunits.csv/the
  * content designer are already content HE owns, never touched by code
- * changes here. Every roster id needs an entry (5 strings) or the QUESTS
- * tab will throw for that unit the moment they're owned — keep this table
- * in sync with C.ROSTER. */
-P.QUEST_LINES={
- kesh:['PLACEHOLDER — Kesh, stage 1.','PLACEHOLDER — Kesh, stage 2.',
-  'PLACEHOLDER — Kesh, stage 3.','PLACEHOLDER — Kesh, stage 4.','PLACEHOLDER — Kesh, stage 5.'],
- ansa:['PLACEHOLDER — Ansa, stage 1.','PLACEHOLDER — Ansa, stage 2.',
-  'PLACEHOLDER — Ansa, stage 3.','PLACEHOLDER — Ansa, stage 4.','PLACEHOLDER — Ansa, stage 5.'],
- dorrek:['PLACEHOLDER — Dorrek, stage 1.','PLACEHOLDER — Dorrek, stage 2.',
-  'PLACEHOLDER — Dorrek, stage 3.','PLACEHOLDER — Dorrek, stage 4.','PLACEHOLDER — Dorrek, stage 5.'],
- vey:['PLACEHOLDER — Vey, stage 1.','PLACEHOLDER — Vey, stage 2.',
-  'PLACEHOLDER — Vey, stage 3.','PLACEHOLDER — Vey, stage 4.','PLACEHOLDER — Vey, stage 5.'],
- mirel:['PLACEHOLDER — Mirel, stage 1.','PLACEHOLDER — Mirel, stage 2.',
-  'PLACEHOLDER — Mirel, stage 3.','PLACEHOLDER — Mirel, stage 4.','PLACEHOLDER — Mirel, stage 5.'],
- skarn:['PLACEHOLDER — Skarn, stage 1.','PLACEHOLDER — Skarn, stage 2.',
-  'PLACEHOLDER — Skarn, stage 3.','PLACEHOLDER — Skarn, stage 4.','PLACEHOLDER — Skarn, stage 5.'],
- sorin:['PLACEHOLDER — Sorin, stage 1.','PLACEHOLDER — Sorin, stage 2.',
-  'PLACEHOLDER — Sorin, stage 3.','PLACEHOLDER — Sorin, stage 4.','PLACEHOLDER — Sorin, stage 5.'],
- nyra:['PLACEHOLDER — Nyra, stage 1.','PLACEHOLDER — Nyra, stage 2.',
-  'PLACEHOLDER — Nyra, stage 3.','PLACEHOLDER — Nyra, stage 4.','PLACEHOLDER — Nyra, stage 5.'],
- brenn:['PLACEHOLDER — Brenn, stage 1.','PLACEHOLDER — Brenn, stage 2.',
-  'PLACEHOLDER — Brenn, stage 3.','PLACEHOLDER — Brenn, stage 4.','PLACEHOLDER — Brenn, stage 5.'],
- sael:['PLACEHOLDER — Sael, stage 1.','PLACEHOLDER — Sael, stage 2.',
-  'PLACEHOLDER — Sael, stage 3.','PLACEHOLDER — Sael, stage 4.','PLACEHOLDER — Sael, stage 5.']};
-/* Linear 0.5 -> 1.0 across the 5 stages — "go from wave equivalent of 0.5
-   power up to full power level". Stage 5 lands at exactly the player's own
-   current power, i.e. a fight sized to match how strong they actually are
-   right now, at any point in the run — always a real capstone, never a
-   fixed number that drifts trivial or impossible depending on when it's
-   attempted. */
-P.QUEST_STAGE_POWER_FRAC=[0.5,0.625,0.75,0.875,1.0];
+ * changes here.
+ * v2.9: generated from farroadquests.csv at build time (see build.js) —
+ * window.FarroadContent.QUEST_LINES is already in this exact shape,
+ * {uid:[{story,powerFraction,isBoss},...5 entries]}. powerFraction is now
+ * explicit PER STAGE PER COMPANION (was one shared P.QUEST_STAGE_POWER_FRAC
+ * array applied to every companion identically) — real "nuanced control",
+ * e.g. a gentler curve for one companion than another, straight from the
+ * CSV, no code touched. isBoss defaults TRUE only on stage 5 in the
+ * shipped CSV but isn't locked there — attemptQuestStage (UI layer) reads
+ * it directly instead of hardcoding "stage===4". build.js validates every
+ * C.ROSTER id has exactly 5 rows with strictly ascending powerFraction —
+ * a missing/misordered row fails the BUILD, not a later runtime throw. */
+P.QUEST_LINES=window.FarroadContent.QUEST_LINES;
+/* A companion quest stage's wave-equivalent: the stage's own powerFraction
+   (farroadquests.csv) of the PLAYER'S OWN current P.powerLevel, used
+   DIRECTLY as a wave — see the comment on P.questStageWave below for why
+   inverting through C.levelCurve was tried first and measured as breaking
+   badly. Stage 5 defaults to powerFraction 1.0, landing exactly at the
+   player's own current power — a fight sized to match how strong they
+   actually are right now, at any point in the run. */
 
 /* ===== v1.0: AETHER IS EXPERIENCE. The stat-node grid is RETIRED. =====
  * Measured justification: player-directed allocation was worth almost nothing.
@@ -823,9 +863,9 @@ P.powerLevel=function(g){
   var b=g.bonuses[aid];loreLevels+=C.actionBonusTotal(b)+(b.broad||0);});
  return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE);};
 /* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
-   player's own current P.powerLevel — QUEST_STAGE_POWER_FRAC[stageIdx] of
-   it, used as a wave number outright. See the comment above P.QUEST_LINES
-   for why this replaced a fixed milestone schedule.
+   player's own current P.powerLevel — that stage's OWN powerFraction
+   (farroadquests.csv, per companion per stage — see the comment above
+   P.QUEST_LINES) of it, used as a wave number outright.
    NOT inverted back through C.levelCurve (the wave->level curve powerLevel
    itself is partly built from) — tried that first and it breaks badly:
    powerLevel SUMS every owned unit's level on top of the wave term, so a
@@ -840,7 +880,7 @@ P.powerLevel=function(g){
    trivial stage 1 rising to a real, losable-but-fair stage 5 (7/20 and
    3/20 win rates for early/mid-game parties respectively, at their
    OWN power — a real capstone, not a wall). */
-P.questStageWave=function(g,stageIdx){
- var frac=P.QUEST_STAGE_POWER_FRAC[stageIdx];
+P.questStageWave=function(g,uid,stageIdx){
+ var frac=P.QUEST_LINES[uid][stageIdx].powerFraction;
  return Math.max(1,Math.round(frac*P.powerLevel(g)));};
 return P;})(window.FarroadCore);

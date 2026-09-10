@@ -29,6 +29,22 @@ const sandbox = { window: {}, Math: Math, JSON: JSON, console: console };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
+/* core.js now reads window.FarroadContent (ROSTER/ARCH/ACTIONS, CSV-
+   compiled — see content-pipeline.js) at its OWN load time, same as the
+   real fused build does via build.js's injected <script> tag before
+   core.js's. Compile it here too, from the SAME shared pipeline, so this
+   harness tests the exact content a real build would ship, not a second,
+   possibly-drifted copy. A validation failure here fails the whole test
+   run immediately — the CSVs are wrong in a way that would have broken
+   the real build too. */
+const { buildContent } = require('./content-pipeline.js');
+const { content: farroadContent, problems: contentProblems } = buildContent(__dirname);
+if (contentProblems.length) {
+  console.error('CONTENT VALIDATION FAILED\n  ' + contentProblems.join('\n  '));
+  process.exit(1);
+}
+sandbox.window.FarroadContent = farroadContent;
+
 function run(name) {
   try { vm.runInContext(load(name), sandbox, { filename: name }); }
   catch (e) { fail(`${name} threw on load: ${e.message}`); throw e; }
@@ -601,10 +617,24 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  /* --- discovery-roll constants are sane probabilities ------------------- */
  ok('P.EXPED_DISCOVERY_CHANCE is a real, rare-ish probability',
   P.EXPED_DISCOVERY_CHANCE>0&&P.EXPED_DISCOVERY_CHANCE<0.5, ''+P.EXPED_DISCOVERY_CHANCE);
- ok('P.EXPED_DUNGEON_SHARE is a real fraction (0-1)',
-  P.EXPED_DUNGEON_SHARE>0&&P.EXPED_DUNGEON_SHARE<1, ''+P.EXPED_DUNGEON_SHARE);
  ok('P.DUNGEON_LEN is "slightly harder", not boss-tier (below BOSS_LEN)',
   P.DUNGEON_LEN>1&&P.DUNGEON_LEN<P.BOSS_LEN, P.DUNGEON_LEN+' vs BOSS_LEN '+P.BOSS_LEN);
+ ok('every direction\'s waveCount/unlockEvery (farroaddungeons.csv) are sane positive numbers',
+  P.DIRECTIONS.every(function(d){return P.DIRECTION_CONFIG[d].waveCount>=2&&P.DIRECTION_CONFIG[d].unlockEvery>0;}));
+
+ /* --- P.DIRECTIONS / P.directionMul: 8 named lanes, easiest to hardest --
+    generated from farroaddungeons.csv (content-pipeline.js) now, not a
+    formula — this is a regression guard on the SHIPPED content, not a
+    property true by construction any more. --- */
+ ok('P.DIRECTIONS has exactly 8 entries, west first and east last',
+  P.DIRECTIONS.length===8&&P.DIRECTIONS[0]==='west'&&P.DIRECTIONS[7]==='east');
+ ok('every P.DIRECTIONS id has a P.DIRECTION_LABELS entry',
+  P.DIRECTIONS.every(function(d){return !!P.DIRECTION_LABELS[d];}));
+ ok('P.directionMul is strictly ascending across the 8 directions (easiest to hardest)',
+  P.DIRECTIONS.every(function(d,i){return i===0||P.directionMul(d)>P.directionMul(P.DIRECTIONS[i-1]);}),
+  P.DIRECTIONS.map(function(d){return d+':'+P.directionMul(d).toFixed(2);}).join(', '));
+ ok('P.directionMul falls back to 1 for an unrecognized direction',
+  P.directionMul('nowhere')===1);
 
  /* --- a discovery roll never fires below its own threshold, across many
     seeds — the exact shape rollExpeditionDiscovery() itself checks
@@ -616,8 +646,10 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   Math.abs(rate-P.EXPED_DISCOVERY_CHANCE)<0.02, 'measured '+rate.toFixed(4)+' vs configured '+P.EXPED_DISCOVERY_CHANCE);
 
  /* --- P.QUEST_LINES: complete, one entry per ROSTER id, exactly 5
-    non-empty story strings each (wave is no longer stored here — it's
-    derived per-player from power level, see P.questStageWave below) --- */
+    {story,powerFraction,isBoss} stages each — generated from
+    farroadquests.csv (content-pipeline.js already validates ascending
+    powerFraction and full ROSTER coverage at BUILD time; these are a
+    regression guard on the shipped content, checked again here). --- */
  var rosterIds=C.ROSTER.map(function(r){return r.id;});
  var missingLine=rosterIds.filter(function(id){return !P.QUEST_LINES[id];});
  ok('every ROSTER id has a P.QUEST_LINES entry', missingLine.length===0, missingLine.join(','));
@@ -626,18 +658,16 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   var line=P.QUEST_LINES[id];if(!line)return;
   if(line.length!==5){badShape.push(id+': '+line.length+' stages, expected 5');return;}
   for(var s=0;s<5;s++){
-   if(!line[s]||typeof line[s]!=='string')badShape.push(id+' stage'+s+': missing story text');}});
- ok('every quest line has exactly 5 non-empty story strings',
+   var stage=line[s];
+   if(!stage||!stage.story||typeof stage.story!=='string')badShape.push(id+' stage'+s+': missing story text');
+   if(!(stage.powerFraction>0))badShape.push(id+' stage'+s+': bad powerFraction '+(stage&&stage.powerFraction));
+   if(s>0&&!(stage.powerFraction>line[s-1].powerFraction))badShape.push(id+' stage'+s+': powerFraction not ascending');}});
+ ok('every quest line has exactly 5 stages with story text and ascending powerFraction',
   badShape.length===0, badShape.slice(0,6).join('; '));
+ ok('every quest line\'s stage 5 (index 4) is flagged isBoss',
+  rosterIds.every(function(id){return P.QUEST_LINES[id]&&P.QUEST_LINES[id][4].isBoss===true;}));
  ok('P.QUEST_LINES has no stray entries for a non-ROSTER id',
   Object.keys(P.QUEST_LINES).every(function(id){return rosterIds.indexOf(id)>=0;}));
-
- /* --- P.QUEST_STAGE_POWER_FRAC: 5 fractions, linear 0.5 -> 1.0 --------- */
- ok('P.QUEST_STAGE_POWER_FRAC has exactly 5 entries, starting at 0.5 and ending at 1.0',
-  P.QUEST_STAGE_POWER_FRAC.length===5&&P.QUEST_STAGE_POWER_FRAC[0]===0.5&&
-  P.QUEST_STAGE_POWER_FRAC[4]===1.0);
- ok('P.QUEST_STAGE_POWER_FRAC is strictly ascending',
-  P.QUEST_STAGE_POWER_FRAC.every(function(f,i){return i===0||f>P.QUEST_STAGE_POWER_FRAC[i-1];}));
 
  /* --- P.questStageWave: DIRECTLY proportional to P.powerLevel, not
     inverted through C.levelCurve — see the comment on questStageWave in
@@ -649,17 +679,18 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
     exactly; stages rise monotonically 1->5 for a fixed player state. --- */
  var questG={wave:200,owned:{kesh:1,ansa:1},lvl:{kesh:30,ansa:20},bonuses:{strike:{potent:2}}};
  var myPower=P.powerLevel(questG);
- var stage5Wave=P.questStageWave(questG,4);
+ var stage5Wave=P.questStageWave(questG,'kesh',4);
  ok('questStageWave stage 5 (frac 1.0) equals the player\'s own power level exactly',
   stage5Wave===myPower, stage5Wave+' vs '+myPower);
- var stageWaves=[0,1,2,3,4].map(function(s){return P.questStageWave(questG,s);});
+ var stageWaves=[0,1,2,3,4].map(function(s){return P.questStageWave(questG,'kesh',s);});
  ok('questStageWave rises monotonically across stages 1-5 for a fixed player state',
   stageWaves.every(function(w,i){return i===0||w>stageWaves[i-1];}), stageWaves.join(','));
- ok('questStageWave stage 1 is roughly half of stage 5 (frac 0.5 vs 1.0)',
-  Math.abs(stageWaves[0]-Math.round(0.5*myPower))<=1, stageWaves[0]+' vs power/2='+(myPower/2));
+ ok('questStageWave stage 1 matches kesh\'s own stage-1 powerFraction of the player\'s power',
+  Math.abs(stageWaves[0]-Math.round(P.QUEST_LINES.kesh[0].powerFraction*myPower))<=1,
+  stageWaves[0]+' vs expected='+Math.round(P.QUEST_LINES.kesh[0].powerFraction*myPower));
  var strongerG={wave:2000,owned:{kesh:1,ansa:1,dorrek:1},lvl:{kesh:150,ansa:150,dorrek:150},bonuses:{}};
  ok('questStageWave scales up for a stronger player at the same stage',
-  P.questStageWave(strongerG,0)>P.questStageWave(questG,0));
+  P.questStageWave(strongerG,'kesh',0)>P.questStageWave(questG,'kesh',0));
 
  /* --- FREEZE PROOF: a snapshot's baked stats must be immune to whatever
     CURRENT_WAVE / hardMul happen to be at RECONSTRUCTION time. This is the
@@ -684,40 +715,61 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('the frozen unit\'s stats match the baked numbers exactly (not re-derived)',
   u1.base.hp===500&&u1.base.atk===40&&u1.base.spd===90);
 
- /* --- save round-trip: dungeons + quests --------------------------------- */
+ /* --- save round-trip: dungeons + quests + directions --------------------- */
  var fakeG2={seed:99,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:0,marks:0,
   wipes:0,party:['kesh'],actions:['strike','ember'],conditions:['none'],actionCounts:{},
   condCounts:{},bonuses:{},recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},
   dropsGranted:{},lvl:{kesh:1},bank:{kesh:0},maxLevelEver:1,owned:{kesh:1},enrage:true,
-  idleAcc:0,dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,expeditions:[],
-  dungeons:[{id:'dgn1',name:'Dungeon (found at depth 40)',
-   enemies:[{name:'Wolf',arch:'wolf',thorns:0,isBoss:false,row:'front',chargeAction:null,
-    slots:[],stats:frozenStats}],discoveredAtWave:40,clears:2}],
-  quests:{kesh:{stage:2,frozen:[[],[],{name:'x'}]}}};
+  idleAcc:0,dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,
+  expeditions:[{id:'exp1',partyIds:['ansa'],direction:'east',startedAt:1700000000000-600000,
+   lastResolvedAt:1700000000000-600000,ew:5,hpFrac:0.8,bank:{aether:10,marks:2},
+   homeAt:null,arrivedAt:null,log:[]}],
+  dungeons:[{id:'dgn1',name:'East Dungeon (depth 100)',direction:'east',tier:1,
+   waves:[{wave:100,enemies:[{name:'Wolf',arch:'wolf',thorns:0,isBoss:false,row:'front',
+    chargeAction:null,slots:[],stats:frozenStats}]}],clears:2}],
+  quests:{kesh:{stage:2,frozen:[[],[],{name:'x'}]}},
+  directions:{west:{maxDepth:40,dungeonsUnlocked:0},northwest:{maxDepth:0,dungeonsUnlocked:0},
+   southwest:{maxDepth:0,dungeonsUnlocked:0},north:{maxDepth:0,dungeonsUnlocked:0},
+   south:{maxDepth:0,dungeonsUnlocked:0},northeast:{maxDepth:0,dungeonsUnlocked:0},
+   southeast:{maxDepth:0,dungeonsUnlocked:0},east:{maxDepth:100,dungeonsUnlocked:1}}};
  var restored2=null,threw2=null;
  try{
   var snap2=V.serialize(fakeG2,1700000000000);
   restored2=V.deserialize(JSON.parse(JSON.stringify(snap2)),C);
  }catch(e){threw2=e;}
- ok('save round-trip with dungeons/quests populated does not throw', !threw2, threw2&&threw2.message);
- ok('save round-trip preserves a discovered dungeon\'s baked enemy stats and clear count',
+ ok('save round-trip with dungeons/quests/directions populated does not throw', !threw2, threw2&&threw2.message);
+ ok('save round-trip preserves a dungeon\'s multi-wave shape, direction, and clear count',
   !!restored2&&restored2.dungeons.length===1&&restored2.dungeons[0].clears===2&&
-  restored2.dungeons[0].enemies[0].stats.hp===500&&restored2.dungeons[0].discoveredAtWave===40);
+  restored2.dungeons[0].direction==='east'&&restored2.dungeons[0].waves.length===1&&
+  restored2.dungeons[0].waves[0].enemies[0].stats.hp===500);
  ok('save round-trip preserves companion quest stage progress',
   !!restored2&&restored2.quests.kesh.stage===2);
+ ok('save round-trip preserves per-direction persistent depth/unlock progress',
+  !!restored2&&restored2.directions.east.maxDepth===100&&restored2.directions.east.dungeonsUnlocked===1&&
+  restored2.directions.west.maxDepth===40);
+ ok('save round-trip preserves an expedition\'s direction',
+  !!restored2&&restored2.expeditions.length===1&&restored2.expeditions[0].direction==='east');
 
  /* --- old-save compat: a save from before this feature has neither field,
     deserialize must default rather than throw -------------------------- */
  var oldSnap2=null,oldThrew2=null,oldRestored2=null;
  try{
   oldSnap2=V.serialize(fakeG2,1700000000000);
-  delete oldSnap2.dungeons; delete oldSnap2.quests;
+  delete oldSnap2.dungeons; delete oldSnap2.quests; delete oldSnap2.directions;
+  delete oldSnap2.expeditions[0].direction;
   oldRestored2=V.deserialize(JSON.parse(JSON.stringify(oldSnap2)),C);
  }catch(e){oldThrew2=e;}
- ok('old save missing dungeons/quests fields does not throw', !oldThrew2, oldThrew2&&oldThrew2.message);
+ ok('old save missing dungeons/quests/directions fields does not throw', !oldThrew2, oldThrew2&&oldThrew2.message);
  ok('old save missing dungeons/quests defaults to []/{kesh:stage 0}',
   !!oldRestored2&&Array.isArray(oldRestored2.dungeons)&&oldRestored2.dungeons.length===0&&
   !!oldRestored2.quests&&!!oldRestored2.quests.kesh&&oldRestored2.quests.kesh.stage===0);
+ ok('old save missing directions defaults to all-zero for every P.DIRECTIONS id',
+  !!oldRestored2&&oldRestored2.directions&&
+  ['west','northwest','southwest','north','south','northeast','southeast','east'].every(function(d){
+   return oldRestored2.directions[d]&&oldRestored2.directions[d].maxDepth===0&&
+    oldRestored2.directions[d].dungeonsUnlocked===0;}));
+ ok('old save\'s in-flight expedition missing a direction defaults to west',
+  !!oldRestored2&&oldRestored2.expeditions[0].direction==='west');
 })();
 
 /* ------------------------------- report ---------------------------------- */

@@ -1597,3 +1597,309 @@ left OPEN afterward with its own `G.sideBattle`/travel state diverging
 from what's on disk — not a new mechanism, just a reminder that the same
 15s-poller and `beforeunload` triggers documented above apply to this
 feature's state too, not only expeditions.
+
+## BUGFIX: the Road sped up after every side battle, compounding
+
+Ian's report: "after battling in a dungeon or quest, the Road combat is
+sped up afterwards — it gets faster the more dungeons and quests you
+complete." Root cause was exactly the reentrancy risk flagged (but not
+fully closed) in the live-battle work above: `finishSideBattle()` called
+`play()` to resume Road travel when `wasPlaying` was true — but
+`finishSideBattle()` runs from INSIDE `doStep()`, itself invoked from
+INSIDE the side battle's own still-executing `tick()` call. `play()`
+calls `tick()` synchronously, which schedules a brand-new
+self-rescheduling `setTimeout` chain (chain B) for the Road's next beat.
+Control then unwinds back up through `finishSideBattle()`/`doStep()` to
+the ORIGINAL, still-running `tick()` call (chain A), which — completely
+unaware anything happened underneath it — reaches its own
+`timer=setTimeout(tick,...)` line and schedules a SECOND chain. Neither
+chain is ever cancelled (the shared `timer` variable only remembers the
+LAST one scheduled), so both keep re-arming themselves forever in
+parallel: one extra permanent tick chain per side battle finished while
+the Road was already traveling, exactly matching "gets faster the more
+you complete."
+
+Fixed by splitting `play()`'s two responsibilities — syncing the button
+label and kicking off a NEW tick chain — into `syncPlayBtn()` (label only)
+and `play()` (`syncPlayBtn()`+`tick()`). `finishSideBattle()` now calls
+`syncPlayBtn()` instead of `play()` when resuming: `playing` is already
+`true` (set by `startSideBattle()`), so nothing needs to happen except the
+label — the ALREADY-RUNNING chain A naturally continues ticking the
+now-restored Road battle on its own next scheduled beat, no second chain
+ever spawned. The `wasPlaying:false` branch is unaffected (`stop()` never
+called `tick()`, so was never at risk).
+
+**Verified live**, since this bug only manifests through the real
+`setTimeout` chain (the earlier live-battle verification pass happened to
+fast-forward completions via repeated `#btnStep` clicks, which bypasses
+`tick()`'s scheduling entirely and never exercised this path — a gap in
+that verification, not a second bug): monkey-patched `window.setTimeout`
+to count short-delay (<2s) schedules, measured a baseline rate over an
+8s window while the Road traveled normally (15 schedules), then let a
+dungeon fight resolve via the REAL timer (no `#btnStep`) while the Road
+was traveling, and re-measured the same 8s window afterward — still
+exactly 15. Repeated for a second side battle in a row — still 15,
+confirming the fix holds and doesn't need to "catch up" or compound.
+
+## Directional expeditions, manual collection, multi-wave dungeons
+
+Ian's next batch: expedition timers should read as a genuine live clock;
+expeditions must be manually collected, not auto-granted on arrival, with
+a SOMETHING NEW notice when they return; sending one should require
+picking a direction (8 named lanes, West easiest/least lucrative through
+East hardest/most lucrative, up to 8 out at once); dungeons should be
+multi-wave with a boss finale, unlocked on a fixed per-direction schedule
+instead of randomly discovered; a companion quest's final stage should
+also be a boss. Full plan at `.claude/plans/lovely-zooming-comet.md`
+("Part 1").
+
+**Live countdown turned out to already be live** — `updateExpeditionTimers()`
+was already recomputing both the away/returning displays every second
+from `Date.now()`; `fmtDur()` just rounded to whole minutes/hours, so the
+text only visibly changed once a minute. Reformatted to a real M:SS/H:MM:SS
+ticking clock — no data/architecture change needed, confirmed by research
+before touching anything (would have been wasted work otherwise).
+
+**Manual collection**: both auto-settle call sites (`resolveExpedition`'s
+homebound branch, `beginReturnTrip`'s immediate-settle check) replaced
+with a shared `checkArrival(exp)` — the first time it observes
+`Date.now()>=exp.homeAt` (guarded by a new `exp.arrivedAt`, so it fires
+exactly once), it logs and `pushDrop`s a preview of the banked reward
+WITHOUT touching `G.aether`/`G.marks` or removing the expedition. New
+`collectExpedition(id)` (renamed from the old auto-called
+`settleExpedition`) does the actual grant+removal, gated on `arrivedAt`
+being set — only reachable from the new "Returned — Collect" button.
+`renderExpedition()` gained a third visual state (Away / Heading home /
+Returned) plus a `Collect All` convenience button when 2+ are waiting.
+
+**Directions**: `P.DIRECTIONS` (8 ids) + `P.directionMul(dir)` — computed
+from index (0.75 west to 1.75 east) rather than a hardcoded table, so the
+8 values are provably monotonic by construction. `sendExpedition` now
+requires a direction and rejects one already occupied by another active
+expedition — that occupancy check IS the 8-concurrent cap, no separate
+counter. Applied via a new shared `applyStatMul(enemies,mul)` helper
+(lifted verbatim from the old dungeon-discovery roll's scaling shape: HP
+via `sqrt(mul)`, ATK/MAG via `mul` directly) to regular expedition-node
+enemies AND their rewards, the bonus-fight roll's enemies AND rewards,
+and the new scheduled-dungeon system's enemies. Measured (headless
+balance script, `scratchpad/directions-dungeons-tuning.js`): min level
+for a 50%-win bare-attack party at a fixed depth (300) rises smoothly
+66 (west) to 104 (east) — a real ~1.6x spread, no cliff between adjacent
+directions.
+
+**A "Returned but not yet collected" expedition still occupies its
+direction** — deliberate, not an oversight: it's still technically "out"
+from the game's perspective, and freeing the direction immediately on
+arrival would let a player leave rewards sitting indefinitely with zero
+cost, undermining the whole point of making collection a deliberate
+action. Verified live (an expedition seeded already-arrived correctly
+showed East disabled in the direction picker; collecting it freed East
+immediately after).
+
+**Scheduled per-direction dungeons, multi-wave, ending in a boss**: new
+per-direction persistent state `G.directions[dir]={maxDepth,
+dungeonsUnlocked}` — `maxDepth` is cumulative across EVERY expedition
+ever sent that direction, never reset per trip (confirmed with Ian this
+was the intended read of "every 100 waves in each direction" — a single
+trip rarely survives anywhere near 100 nodes before the HP-return
+threshold trips it, so the schedule has to accumulate across many
+separate sends to mean anything). New `farroad-save.js` FIELDS entry
+`'directions'`, default-filled to all-zero for an old save, same pattern
+`'dungeons'`/`'quests'` already established; an old save's in-flight
+expedition missing `.direction` defaults to `'west'`.
+
+`rollExpeditionDiscovery()`'s dungeon branch is gone entirely — replaced
+by a deterministic check in `resolveExpedition`'s win branch
+(`Math.floor(maxDepth/DUNGEON_UNLOCK_EVERY)` crossing `dungeonsUnlocked`,
+in a `while` loop so a big offline catch-up that jumps several
+100-multiples at once unlocks every one of them, not just the first).
+`P.EXPED_DUNGEON_SHARE` retired along with it — the bonus-fight roll
+(`rollExpeditionDiscovery`, now bonus-fight-only) is otherwise untouched
+except for taking the direction multiplier as a parameter.
+
+A dungeon entry's shape changed from one frozen fight to
+`{...,direction,tier,waves:[{wave,enemies},...],clears}` — `waves` is
+`DUNGEON_WAVE_COUNT-1` (3) regular waves then a forced boss wave, each
+carrying its OWN frozen `wave` value (not just enemies), since the
+regular waves and the boss are frozen at DIFFERENT depths.
+
+**Real bug caught while building this, before it ever shipped**:
+`DUNGEON_UNLOCK_EVERY` (100) is itself always a multiple of `BOSS_EVERY`
+(20), so building a dungeon's "regular" waves directly at `baseWave`
+would have silently made every one of them a boss wave too (single
+enemy, not a normal multi-enemy fight) — caught by the balance script
+showing `bossWave===baseWave` unexpectedly for every tier tested, not by
+inspection. Fixed by building regular waves one wave short of the unlock
+depth whenever `baseWave` itself is a boss wave (`P.isBossWave` check),
+while the FINAL wave still deliberately forces onto the real boss wave
+via `P.nextBossWave`.
+
+**`finishSideBattle()`'s dungeon branch now has two shapes**: winning a
+non-final wave advances `meta.waveIndex` and swaps in the next wave's
+enemies IN PLACE — deliberately does NOT touch `G.roadBattle`/
+`G.sideBattle`/`playing`, only `G.battle`+`CURRENT_WAVE`+`G.sideBattle.wave`
+(the last so `renderUnits()`'s enemy level-tag doesn't go stale on wave
+2+) — mirroring how the Road's own `startWave()` swaps in a fresh battle
+without touching play/pause state. Party units carry over unrebuilt
+between waves (real attrition, no mid-run healing) — full HP/0 charge is
+granted only once, at the very start of wave 1 (confirmed with Ian:
+charge stays at 0, not full, contrary to my first reading of his note).
+Only the FINAL result (whole-run win or any-wave loss) produces a
+`pushDrop` pop-up — intermediate wave-clears stay `sysLog`-only, matching
+how the Road's own wave-clears don't banner either.
+
+**Quest final stage is a boss**: `attemptQuestStage`'s stage-4 (5th,
+final) wave computation rounds UP to the nearest boss wave via
+`P.nextBossWave(rawWave-1)` before baking — the exact same trick the
+dungeon's own final wave uses — so `buildEnemies` automatically takes its
+existing single-powerful-enemy path, no new construction code.
+
+**Measured, not guessed, but flagged as the first retune candidate**: the
+multi-wave dungeon's win-rate band (3 regular waves + boss, HP carried,
+no healing) came out narrower than ideal — around 1.3x a single wave's
+own min-level the run mostly fails partway through the regular waves;
+around 2x, the whole run including the boss clears comfortably. Shipped
+as the reasoned starting point (same treatment `DUNGEON_LEN`/
+`QUEST_STAGE_POWER_FRAC` got), explicitly flagged in the
+`P.DUNGEON_WAVE_COUNT`/`P.DUNGEON_UNLOCK_EVERY` comment as the first
+thing to retune against Ian's real playtesting.
+
+**Verified live** (fresh-tab-per-write discipline): a seeded already-
+arrived expedition showed "Returned — ready to collect" with East
+disabled in the direction picker; clicking Collect granted the exact
+banked amount and freed East immediately; a naturally-arriving expedition
+(seeded past `homeAt` but without `arrivedAt`) correctly fired the
+SOMETHING NEW notice on load without touching `G.aether`. A seeded
+4-wave dungeon: entering showed "wave 1 of 4" with full HP/0 charge,
+resolved all 4 waves with exactly ONE "DUNGEON CLEARED" pop-up (not one
+per wave), and `clears` incremented; a heavily overmatched party showed
+exactly ONE "DUNGEON FAILED" pop-up on a wave-1 loss, correctly omitting
+the wave-index suffix for a first-wave death. Kesh's stage-5 quest
+attempt showed a single "ROADWARDEN" boss-tier enemy, not the usual
+multi-enemy composition. A REAL expedition (not directly seeded — a
+2-hour offline catch-up on a level-200 Dorrek sent East) organically
+produced BOTH a bonus-fight win (direction-scaled reward) and an actual
+"A new dungeon has opened up to the East — 100 depth reached." unlock,
+confirming the whole pipeline (depth tracking → threshold crossing →
+dungeon construction → notification) works end-to-end, not just via
+direct seeding. 124/124 smoke checks pass (115→124, 9 new: direction
+ordering/monotonicity, dungeon/unlock-interval sanity, save round-trip +
+old-save defaults for `directions` and an expedition's `direction`).
+
+## CSV content pipeline — units/actions/enemies/quests/dungeons are now the real source of truth
+
+Ian's ask, mid-conversation: make quest/dungeon content CSV-editable "for
+more nuanced control," then — once that pipeline existed — extend the
+same treatment to the existing units/actions/enemies CSVs, which today
+are just reference mirrors Ian keeps in sync with the hand-written JS some
+other way (`build.js` never reads them). Full design at
+`.claude/plans/lovely-zooming-comet.md` ("Part 2").
+
+**Not everything converts — said so up front, not discovered by a bug
+report later.** Two parallel Explore passes over every relevant table in
+`farroad-core.js` found this splits cleanly:
+- **Converts cleanly** (pure flat data, no embedded logic): `C.ROSTER`,
+  `C.ARCH` (minus the `boss` row — there's no `ARCH.boss`; a boss enemy is
+  synthesized at combat-build time from `ox`'s shape + `wolf`'s HP, a
+  deliberate design this pipeline doesn't touch), and the large majority
+  of `C.ACTIONS` (~59 of 64 entries).
+- **Stays hand-written JS**: gambit conditions — confirmed directly that
+  a condition's `resolve` field (`{id,label,group,resolve}`) IS the
+  executable logic, not data next to it (`chooseFrom()` calls
+  `.resolve(u,b,act)` directly, no dispatcher in between) — of
+  `farroadgambitconditions.csv`'s 10 columns only `id/label/scope` map to
+  anything the engine reads, and CSV data alone can't add a genuinely NEW
+  condition anyway. Left as a documentation-only mirror, unchanged —
+  converting it would have been a false "real source of truth" promise.
+  Five `ACTIONS` ids (`execute`, `vengeance`, `onslaught`, `reckoning`,
+  `ninefold`) carry an actual JS closure (a dynamic power/crit formula, or
+  "each hit re-rolls its own random target") — code, not a spreadsheet
+  cell — merged onto the CSV-generated table by id via a small
+  hand-written `ACTION_DYNAMIC` object in `farroad-core.js`.
+
+**Architecture**: a new shared `content-pipeline.js` (dependency-free —
+a small RFC4180-ish CSV parser, quoted fields with embedded commas/
+escaped quotes) reads and compiles all 5 CSVs, validates them (duplicate
+ids, every `charge_action` reference resolves, every `C.ROSTER` id has
+exactly 5 ascending-`power_fraction` quest rows, all 8 `P.DIRECTIONS`
+values have exactly one dungeon-config row), and returns the plain
+`window.FarroadContent` object. `build.js` embeds it as a new
+`<script id="farroad-content">` tag, injected via a new
+`<!--@@CONTENT@@-->` shell.html placeholder placed BEFORE
+`<!--@@CORE@@-->` — script tags execute in document order, so
+`farroad-core.js` can read it synchronously at its own load time.
+`build.js`'s `strayWindow` purity check gained `window.FarroadContent` as
+a fourth recognized import (same exemption `FarroadCore/Progression/Save`
+already had). `farroadsmoke.js` (the headless test harness) requires the
+SAME `content-pipeline.js` and populates its own sandbox's
+`window.FarroadContent` before loading `core.js` — one pipeline, two
+consumers, never two copies that could quietly drift apart. Validation
+failures abort immediately with a specific message (`node build.js`/
+`node farroadsmoke.js` both fail loudly, never ship or test a silent
+`undefined`) — the exact same shape of check the smoke suite already did
+for `P.QUEST_LINES` completeness, just moved to build time where Ian
+gets immediate, actionable feedback instead of a later runtime throw.
+
+`farroad-core.js` changes: `ROSTER`/`ARCH`/`ACTIONS` go from inline
+literals (`ROSTER`/`ARCH` together were ~215 lines) to
+`window.FarroadContent.ROSTER`/`.ARCH` directly, and
+`window.FarroadContent.ACTIONS` run through the existing `A()` defaulting
+wrapper then merged with `ACTION_DYNAMIC`. `farroad-ui.js`'s
+`buildEnemies()` gained two real, low-risk generalizations while in
+there: `magCrit` was a single hardcoded `0.04` applied to every
+archetype — now a genuine per-archetype `ARCH` field (seeded to `0.04`
+for every archetype in the shipped CSV, so day-one behavior is
+unchanged, but Ian has a real lever now); `chargeAction` was a hardcoded
+`key==='ox'/'hound'` check — now read straight off `ARCH[key]
+.chargeAction`, so any archetype can carry one, not just those two.
+
+**Two new CSVs, replacing the hand-written `P.QUEST_LINES`/direction
+constants entirely** (not layered alongside them): `farroadquests.csv`
+(50 rows — 10 companions × 5 stages: `companion_id,stage,power_fraction,
+is_boss,story,design_note`) replaces the fixed `P.QUEST_STAGE_POWER_FRAC`
+array shared by every companion with an explicit value per stage PER
+COMPANION — genuine "nuanced control," e.g. a gentler curve for one
+companion than another, no code touched.  `farroaddungeons.csv` (8 rows,
+one per direction: `direction,label,difficulty_multiplier,wave_count,
+unlock_every,boss_name,design_note`) replaces the formula-computed
+`P.directionMul()` and the flat `DUNGEON_WAVE_COUNT`/`DUNGEON_UNLOCK_EVERY`
+constants from Part 1 with independently-editable per-direction values —
+Ian can now give one direction a longer dungeon, a different unlock
+pace, or a named boss than another, all from a spreadsheet. Both CSVs
+seeded with the exact values Part 1 shipped (same placeholder story text,
+same 0.5→1.0 power-fraction ramp, same 0.75→1.75 direction range, same
+wave count/unlock interval for all 8) — day-one behavior unchanged, the
+CSV is just where those numbers live now.
+
+**A real, silent-corruption bug caught by the validation tests
+THEMSELVES, not by a human**: the "every quest line has 5 ascending-
+power-fraction stages" check used `Array.prototype.some()`/`.filter()`
+over the per-companion stage array — and `some()`/`filter()` SILENTLY
+SKIP holes in a sparse array. A missing CSV row (e.g. a companion's
+stage-3 line deleted) leaves that array index truly unassigned, not
+merely falsy — `[a,,c].some(x=>!x)` returns `false`, not `true`, because
+`some()` never visits the hole at all. That meant a missing quest-stage
+row would silently pass the "has 5 valid stages" gate and crash several
+lines later on `undefined.powerFraction`, with a stack trace pointing at
+the WRONG check. Caught immediately by deliberately testing this exact
+scenario (per the plan's own verification step — "deliberately break a
+CSV, confirm build.js fails with a clear message") rather than assuming
+the check worked because it looked right. Fixed with an explicit indexed
+loop that visits every slot 0-4, hole or not.
+
+**Verified**: `node build.js` on the real CSVs produces byte-identical
+`ROSTER`/`ARCH`/`ACTIONS` values to the pre-migration hardcoded tables
+(confirmed via live browser: Kesh ATK 26/MAG 18/HP 430, Roadwolf ATK
+21/HP 200 — exact matches); a full wave plays and clears normally with
+CSV-sourced content. Build-time validation deliberately exercised against
+a scratch copy of the CSVs (never the real files) for: a duplicate unit
+id, an unresolved `charge_action` reference, and a missing quest-stage
+row — all three fail the build with a specific, correct message, the
+missing-row case only after the sparse-array fix above. The pipeline
+proven REAL, not just structurally present: gave `wolf` a `charge_action`
+in `farroadenemies.csv` (`quickenedhowl`), rebuilt, and confirmed a fresh
+Roadwolf in a live fight now shows "⚡ Quickened Howl" — then reverted the
+test edit and rebuilt clean. 122/122 smoke checks pass (124→122 — net
+of removing checks tied to now-deleted constants like
+`P.QUEST_STAGE_POWER_FRAC`/`P.DIR_MUL_MIN` and adding CSV-shape checks
+for `P.QUEST_LINES`' new `{story,powerFraction,isBoss}` stage shape).
