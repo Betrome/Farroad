@@ -52,6 +52,7 @@ textarea{width:100%;background:#0e0c0a;color:var(--out);font:inherit;font-size:1
 .copybtn:active{opacity:.8}
 .chk{display:flex;align-items:center;gap:8px;padding:6px 0}
 .chk label{font-size:14px;flex:1}
+.chk .hint{display:block;font-size:12px;color:var(--dimmer);font-weight:400}
 hr{border:0;border-top:1px solid var(--line);margin:10px 0}
 .bonusgrid{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
 .bonuschip{border-radius:14px;padding:5px 10px;font-size:12px;border:1px solid var(--line)}
@@ -82,36 +83,39 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="sect">IDENTITY</div>
       <div class="f"><label>id <span class="hint">lowercase, no spaces</span></label><input type="text" id="a_id" value="newaction"></div>
       <div class="f"><label>name</label><input type="text" id="a_name" value="New Action"></div>
-      <div class="f"><label>kind</label><select id="a_kind">
-        <option value="equippable">equippable</option><option value="charge">charge</option>
-        <option value="enemy_charge">enemy_charge</option><option value="enemy_basic">enemy_basic</option>
-        <option value="inert">inert</option></select></div>
+      <div class="f"><label>kind <span class="hint">which list it lives in — see the option text</span></label><select id="a_kind">
+        <option value="equippable">equippable — player-slotted move, no charge gauge needed</option>
+        <option value="charge">charge — unit's signature move; fires on its own once its gauge fills</option>
+        <option value="enemy_charge">enemy_charge — a foe archetype's telegraphed special</option>
+        <option value="enemy_basic">enemy_basic — a foe's default filler attack</option>
+        <option value="inert">inert — placeholder that does nothing (Wait)</option></select></div>
       <div class="f"><label>camp <span class="hint">damage type — also fixes crit stat, defender's mitigation stat, evade/block asymmetry, row multiplier</span></label><select id="a_camp">
         <option value="atk">atk (ATK vs DEF)</option><option value="mag">mag (MAG vs RES)</option></select></div>
       <div class="f"><label>scale_stat <span class="hint">optional (v2.9+) — attacker's magnitude source, if not the camp-implied ATK/MAG. camp above still governs everything else.</span></label><select id="a_scalestat">
         <option value="">(none — use camp-implied ATK/MAG)</option>
         <option value="atk">atk</option><option value="mag">mag</option><option value="def">def</option>
         <option value="res">res</option><option value="spd">spd</option></select></div>
-      <div class="f"><label>target</label><select id="a_target">
-        <option value="foe">foe</option><option value="allFoes">allFoes</option><option value="ally">ally</option>
-        <option value="allAllies">allAllies</option><option value="self">self</option><option value="deadAlly">deadAlly</option></select></div>
+      <div class="f"><label>target <span class="hint">who it can hit</span></label><select id="a_target">
+        <option value="foe">foe — one enemy</option><option value="allFoes">allFoes — every enemy</option>
+        <option value="ally">ally — one party member</option><option value="allAllies">allAllies — whole party</option>
+        <option value="self">self — the caster only</option><option value="deadAlly">deadAlly — a fallen party member (revives)</option></select></div>
     </div>
 
     <div class="panel">
       <div class="sect">NUMBERS</div>
-      <div class="f"><label>power <span class="hint">0 for non-damaging</span></label><input type="number" id="a_power" step="0.01" value="1.00"></div>
+      <div class="f"><label>power <span class="hint">multiplier on ATK/MAG (or scale_stat below) — 1.00 = Strike's baseline. 0 for non-damaging.</span></label><input type="number" id="a_power" step="0.01" value="1.00"></div>
       <div class="f"><label>power_dynamic <span class="hint">prose, if power varies (leave blank if flat)</span></label><input type="text" id="a_powerdyn" value=""></div>
-      <div class="f"><label>rank <span class="hint">higher = slower, 0.65–2.10</span></label><input type="number" id="a_rank" step="0.05" value="1.00"></div>
-      <div class="f"><label>hits <span class="hint">1, 3 (Flurry), 9 (Ninefold)</span></label><input type="number" id="a_hits" step="1" value="1"></div>
-      <div class="f"><label>def_pierce <span class="hint">0–0.85</span></label><input type="number" id="a_pierce" step="0.05" value="0"></div>
-      <div class="f"><label>crit_bonus <span class="hint">flat, 0–0.30</span></label><input type="number" id="a_critb" step="0.01" value="0"></div>
+      <div class="f"><label>rank <span class="hint">time cost — higher = slower, the main tradeoff against power. 0.65–2.10</span></label><input type="number" id="a_rank" step="0.05" value="1.00"></div>
+      <div class="f"><label>hits <span class="hint">separate damage rolls per use, each rolling crit on its own — 1, 3 (Flurry), 9 (Ninefold)</span></label><input type="number" id="a_hits" step="1" value="1"></div>
+      <div class="f"><label>def_pierce <span class="hint">fraction of the target's DEF/RES ignored before mitigation, 0–0.85</span></label><input type="number" id="a_pierce" step="0.05" value="0"></div>
+      <div class="f"><label>crit_bonus <span class="hint">flat crit chance added, 0–0.30</span></label><input type="number" id="a_critb" step="0.01" value="0"></div>
       <div class="f"><label>crit_dynamic <span class="hint">prose, if crit varies</span></label><input type="text" id="a_critdyn" value=""></div>
       <div class="f"><label>assumed base crit <span class="hint">for the DPT check below — 0.03–0.12 is the live unit range</span></label><input type="number" id="a_basecrit" step="0.01" value="0.05"></div>
     </div>
 
     <div class="panel">
       <div class="sect">STATUS / SUPPORT</div>
-      <div class="f"><label>applies_status</label><select id="a_status">
+      <div class="f"><label>applies_status <span class="hint">buff/debuff inflicted on the target — see the EFFECT tab for what each one does</span></label><select id="a_status">
         <option value="">(none)</option>
         <optgroup label="debuffs">
         <option value="sundered">sundered</option><option value="frail">frail</option>
@@ -121,12 +125,12 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
         <option value="hasted">hasted</option><option value="warded">warded</option><option value="taunted">taunted</option>
         <option value="surging">surging</option><option value="bracing">bracing</option><option value="regen">regen</option>
         <option value="blurred">blurred</option></optgroup></select></div>
-      <div class="f"><label>status_turns <span class="hint">2–4</span></label><input type="number" id="a_turns" step="1" value="3"></div>
+      <div class="f"><label>status_turns <span class="hint">duration in turns, 2–4</span></label><input type="number" id="a_turns" step="1" value="3"></div>
       <div class="chk"><input type="checkbox" id="a_heal"><label>heal (Mend-style: power × MAG, no mitigation/crit/block)</label></div>
       <div class="f"><label>lifesteal <span class="hint">fraction of damage dealt, healed to self</span></label><input type="number" id="a_lifesteal" step="0.05" value="0"></div>
       <div class="f"><label>revive <span class="hint">fraction of max HP, deadAlly only</span></label><input type="number" id="a_revive" step="0.05" value="0"></div>
       <div class="f"><label>cleanse <span class="hint">debuffs stripped, heals only</span></label><input type="number" id="a_cleanse" step="1" value="0"></div>
-      <div class="chk"><input type="checkbox" id="a_selftaunt"><label>self_taunt</label></div>
+      <div class="chk"><input type="checkbox" id="a_selftaunt"><label>self_taunt <span class="hint">turns of forced enemy targeting onto the caster — the tank-charge pattern (Vow of Stone, Aegis Step)</span></label></div>
     </div>
 
     <div class="panel">
@@ -167,7 +171,7 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="sect">IDENTITY</div>
       <div class="f"><label>id</label><input type="text" id="u_id" value="newunit"></div>
       <div class="f"><label>name</label><input type="text" id="u_name" value="New Unit"></div>
-      <div class="f"><label>role</label><input type="text" id="u_role" value="attacker"></div>
+      <div class="f"><label>role <span class="hint">flavor/class label only — attacker, healer, tank, etc. Not read by the engine.</span></label><input type="text" id="u_role" value="attacker"></div>
       <div class="f"><label>row</label><select id="u_row"><option value="front">front (×1.35 physical taken)</option>
         <option value="back">back (×0.75 physical taken)</option></select></div>
     </div>
@@ -181,23 +185,23 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="f"><label>spd</label><input type="number" id="u_spd" value="100"></div>
       <div class="f"><label>atk_crit <span class="hint">0.03–0.12, not level-scaled</span></label><input type="number" id="u_acrit" step="0.01" value="0.05"></div>
       <div class="f"><label>mag_crit <span class="hint">0.03–0.12, not level-scaled</span></label><input type="number" id="u_mcrit" step="0.01" value="0.05"></div>
-      <div class="f"><label>block</label><input type="number" id="u_block" step="0.01" value="0.03"></div>
-      <div class="f"><label>evade</label><input type="number" id="u_evade" step="0.01" value="0.03"></div>
-      <div class="f"><label>charge_rate</label><input type="number" id="u_crate" step="0.1" value="1"></div>
+      <div class="f"><label>block <span class="hint">chance to halve an incoming physical hit</span></label><input type="number" id="u_block" step="0.01" value="0.03"></div>
+      <div class="f"><label>evade <span class="hint">chance to fully negate an incoming hit</span></label><input type="number" id="u_evade" step="0.01" value="0.03"></div>
+      <div class="f"><label>charge_rate <span class="hint">multiplier on how fast THIS unit's own charge gauge fills, from any source. Default 1 — every shipped unit uses 1; Surging status doubles it.</span></label><input type="number" id="u_crate" step="0.1" value="1"></div>
     </div>
     <div class="panel">
       <div class="sect">CHARGE ACTION <span style="font-weight:400;color:var(--dim);letter-spacing:0"> — must be unique per unit</span></div>
-      <div class="f"><label>charge_action id</label><input type="text" id="u_chargeid" value="newunitcharge"></div>
-      <div class="f"><label>power</label><input type="number" id="u_chargepower" step="0.01" value="2.5"></div>
-      <div class="f"><label>rank</label><input type="number" id="u_chargerank" step="0.05" value="1.6"></div>
+      <div class="f"><label>charge_action id <span class="hint">this unit's own action id — also needs a full row of its own on the Action tab (kind=charge)</span></label><input type="text" id="u_chargeid" value="newunitcharge"></div>
+      <div class="f"><label>power <span class="hint">same meaning as the Action tab's power</span></label><input type="number" id="u_chargepower" step="0.01" value="2.5"></div>
+      <div class="f"><label>rank <span class="hint">same meaning as the Action tab's rank</span></label><input type="number" id="u_chargerank" step="0.05" value="1.6"></div>
       <div class="f"><label>target</label><select id="u_chargetarget">
         <option value="foe">foe</option><option value="allFoes">allFoes</option><option value="ally">ally</option>
         <option value="allAllies">allAllies</option><option value="self">self</option><option value="deadAlly">deadAlly</option></select></div>
-      <div class="f"><label>applies_status</label><input type="text" id="u_chargestatus" value=""></div>
+      <div class="f"><label>applies_status <span class="hint">buff/debuff this charge inflicts, if any — see the EFFECT tab</span></label><input type="text" id="u_chargestatus" value=""></div>
     </div>
     <div class="panel">
       <div class="sect">AVAILABILITY</div>
-      <div class="chk"><input type="checkbox" id="u_starting"><label>starting_unit</label></div>
+      <div class="chk"><input type="checkbox" id="u_starting"><label>starting_unit <span class="hint">TRUE for exactly one unit — the default starting character (Kesh). Every other unit is pull-only.</span></label></div>
       <div class="f"><label>design_note</label><input type="text" id="u_note" value="" style="width:100%"></div>
     </div>
     <div class="panel">
@@ -221,8 +225,8 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="sect">IDENTITY</div>
       <div class="f"><label>key</label><input type="text" id="e_key" value="newfoe"></div>
       <div class="f"><label>name</label><input type="text" id="e_name" value="New Foe"></div>
-      <div class="f"><label>archetype_role</label><input type="text" id="e_role" value="baseline"></div>
-      <div class="f"><label>hp_multiplier <span class="hint">existing range 0.55–1.60</span></label><input type="number" id="e_hpmul" step="0.05" value="1.00"></div>
+      <div class="f"><label>archetype_role <span class="hint">flavor/class label only — baseline, armoured, fast_evasive, etc. Not read by the engine.</span></label><input type="text" id="e_role" value="baseline"></div>
+      <div class="f"><label>hp_multiplier <span class="hint">applied to a wave-scaled HP base — existing range 0.55–1.60</span></label><input type="number" id="e_hpmul" step="0.05" value="1.00"></div>
     </div>
     <div class="panel">
       <div class="sect">STATS</div>
@@ -232,19 +236,19 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="f"><label>res</label><input type="number" id="e_res" value="8"></div>
       <div class="f"><label>spd</label><input type="number" id="e_spd" value="92"></div>
       <div class="f"><label>atk_crit <span class="hint">0.03–0.08, not depth-scaled</span></label><input type="number" id="e_acrit" step="0.01" value="0.04"></div>
-      <div class="f"><label>mag_crit</label><input type="number" id="e_mcrit" step="0.01" value="0.04"></div>
-      <div class="f"><label>evade</label><input type="number" id="e_evade" step="0.01" value="0.05"></div>
-      <div class="f"><label>block</label><input type="number" id="e_block" step="0.01" value="0"></div>
+      <div class="f"><label>mag_crit <span class="hint">0.03–0.08, not depth-scaled</span></label><input type="number" id="e_mcrit" step="0.01" value="0.04"></div>
+      <div class="f"><label>evade <span class="hint">chance to fully negate an incoming hit</span></label><input type="number" id="e_evade" step="0.01" value="0.05"></div>
+      <div class="f"><label>block <span class="hint">chance to halve an incoming physical hit</span></label><input type="number" id="e_block" step="0.01" value="0"></div>
       <div class="f"><label>thorns <span class="hint">fraction of physical reflected</span></label><input type="number" id="e_thorns" step="0.01" value="0"></div>
     </div>
     <div class="panel">
       <div class="sect">KIT</div>
       <div class="f"><label>charge_action id <span class="hint">blank if none</span></label><input type="text" id="e_chargeid" value=""></div>
-      <div class="f"><label>charge_action_effect</label><input type="text" id="e_chargefx" value=""></div>
-      <div class="f"><label>slot1_condition</label><input type="text" id="e_slot1cond" value="none"></div>
-      <div class="f"><label>slot1_action</label><input type="text" id="e_slot1act" value="bite"></div>
-      <div class="f"><label>slot2_condition</label><input type="text" id="e_slot2cond" value="none"></div>
-      <div class="f"><label>slot2_action</label><input type="text" id="e_slot2act" value="bite"></div>
+      <div class="f"><label>charge_action_effect <span class="hint">prose description of what firing the charge does</span></label><input type="text" id="e_chargefx" value=""></div>
+      <div class="f"><label>slot1_condition <span class="hint">gambit condition gating this slot — "none" always fires it</span></label><input type="text" id="e_slot1cond" value="none"></div>
+      <div class="f"><label>slot1_action <span class="hint">action id used when slot1_condition is true</span></label><input type="text" id="e_slot1act" value="bite"></div>
+      <div class="f"><label>slot2_condition <span class="hint">checked only if slot 1 doesn't fire</span></label><input type="text" id="e_slot2cond" value="none"></div>
+      <div class="f"><label>slot2_action <span class="hint">action id used when slot2_condition is true</span></label><input type="text" id="e_slot2act" value="bite"></div>
       <div class="f"><label>design_note</label><input type="text" id="e_note" value="" style="width:100%"></div>
     </div>
     <div class="panel">
@@ -268,12 +272,12 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
       <div class="sect">IDENTITY</div>
       <div class="f"><label>id</label><input type="text" id="g_id" value="new_condition"></div>
       <div class="f"><label>label</label><input type="text" id="g_label" value="New Condition"></div>
-      <div class="f"><label>scope</label><select id="g_scope"><option value="Foe">Foe</option>
+      <div class="f"><label>scope <span class="hint">which unit group this condition inspects</span></label><select id="g_scope"><option value="Foe">Foe</option>
         <option value="Ally">Ally</option><option value="Self">Self</option><option value="Any">Any</option></select></div>
-      <div class="f"><label>what_it_tests</label><input type="text" id="g_tests" value="" style="width:100%"></div>
-      <div class="f"><label>state_it_reads</label><input type="text" id="g_reads" value="" style="width:100%"></div>
-      <div class="f"><label>returns_target</label><input type="text" id="g_returns" value="" style="width:100%"></div>
-      <div class="f"><label>pairs_well_with</label><input type="text" id="g_pairs" value=""></div>
+      <div class="f"><label>what_it_tests <span class="hint">plain-English description of the check, e.g. "Any foe at or below 30% HP"</span></label><input type="text" id="g_tests" value="" style="width:100%"></div>
+      <div class="f"><label>state_it_reads <span class="hint">which battle data the resolver looks at, e.g. "foe HP fraction" — documentation only</span></label><input type="text" id="g_reads" value="" style="width:100%"></div>
+      <div class="f"><label>returns_target <span class="hint">which unit gets chosen when the condition is true, e.g. "lowest-HP foe"</span></label><input type="text" id="g_returns" value="" style="width:100%"></div>
+      <div class="f"><label>pairs_well_with <span class="hint">actions this is a natural gate for — free text, for other authors' reference</span></label><input type="text" id="g_pairs" value=""></div>
       <div class="f"><label>design_note</label><input type="text" id="g_note" value="" style="width:100%"></div>
     </div>
     <div class="panel">
@@ -341,7 +345,7 @@ hr{border:0;border-top:1px solid var(--line);margin:10px 0}
         <option value="hot">Heal-over-time (buff) — like regen</option>
         <option value="threat">Targeting-weight modifier — like taunted</option>
         <option value="novel">Doesn't fit any of these — novel mechanic</option></select></div>
-      <div class="f" id="x_statwrap"><label>which stat</label><select id="x_stat">
+      <div class="f" id="x_statwrap"><label>which stat <span class="hint">the one this effect multiplies or adds to</span></label><select id="x_stat">
         <option value="atk">ATK</option><option value="mag">MAG</option><option value="def">DEF</option>
         <option value="res" selected>RES</option><option value="block">block</option><option value="evade">evade</option></select></div>
       <div class="f"><label>magnitude <span class="hint" id="x_maghint">multiplier, e.g. 0.75</span></label><input type="number" id="x_mag" step="0.01" value="0.85"></div>
