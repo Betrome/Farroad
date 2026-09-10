@@ -1477,3 +1477,123 @@ wrote `localStorage` into — write from tab A, then open a genuinely fresh
 tab B to observe, and close tab A (or otherwise ensure it never gets a
 chance to autosave or unload) before its own 15s poller or a later
 navigation of it can fire.
+
+## Live battle visualization for quests and dungeons
+
+Ian's report: attempting a quest "just says the next stage is available —
+there aren't any actual battles." `attemptQuestStage()`/`enterDungeon()`
+were resolving headlessly, synchronously, in a tight `while(!battle.over)`
+loop — the same shape expedition catch-up uses — so nothing was ever
+visibly watched. Ask: both should "take the place of" the Road's own live
+battle display, pausing Road combat while they play out, then handing
+control back. Confirmed with Ian: expedition bonus-fight "events" stay
+exactly as they are (headless/instant) — they're found automatically by a
+benched party, often during an offline catch-up that can resolve dozens in
+one pass, so there's nothing sensible to watch there.
+
+**Key enabler**: `G.battle` was already a bare, reassignable module-level
+pointer, written only by `startWave()` by convention, not by any
+structural requirement. `renderUnits()`/`renderRail()` already read
+`G.battle` generically (`G.battle.units`, `C.preview(G.battle,6)`) — they
+don't care what kind of fight is in it. So a side battle just points
+`G.battle` at its own battle object and lets the EXISTING `doStep()`/
+`tick()`/`play()`/`stop()` loop drive it forward exactly like Road travel
+does — no new stepping/pacing logic, no new overlay/CSS (this codebase
+has no floating-modal pattern at all, only a `.hidden`-toggle full-panel
+swap; reusing the existing always-visible battle panel — outside any
+`#tab-*` wrapper — is simpler than adding one).
+
+**New state**: `G.sideBattle` (null outside a side fight, else
+`{savedWave, wasPlaying, wave, meta}`) and `G.roadBattle` (the parked real
+Road battle while one is active) — both transient, never added to
+`farroad-save.js` FIELDS, same precedent as `G.battle` itself never being
+persisted (a reload mid-side-fight simply loses it, same as reloading
+mid-Road-fight already does).
+
+**`startSideBattle(enemies,wave,meta)`** (new): guards against stacking a
+second fight (`if(G.sideBattle)return false;`), `stop()`s the Road's timer
+chain if it was running, parks `G.battle` into `G.roadBattle`, pins
+`C.setWave(wave)` for the fight's whole visible duration (not just a
+single synchronous bracket any more — many separate `setTimeout` turns
+now), builds the battle, and calls the existing `play()` to auto-run it.
+
+**`finishSideBattle(result)`** (new): the exact reward/log tail
+`attemptQuestStage`/`enterDungeon` used to run inline right after their
+own synchronous while-loop, moved here verbatim (reading `meta` instead of
+closure variables) since the fight now finishes asynchronously. Restores
+`C.setWave`/`G.battle` to the real Road battle, then either `play()`s
+(if the Road was traveling before) or explicitly `stop()`s.
+
+**Real bug caught by live verification, not assumed away**: the first
+version only called `play()` conditionally
+(`if(sb.wasPlaying)play();`) and never called `stop()` in the else case.
+Since `startSideBattle()` unconditionally calls `play()` to auto-run the
+fight, `playing` stays `true` regardless of the Road's prior state — so
+when a side battle finished from a "Road wasn't traveling" state, nothing
+ever reset it, and the still-alive `tick()` timer chain silently started
+auto-traveling the just-restored Road battle the player never asked to
+resume. Caught by seeding a solo, low-level Kesh (guaranteed loss) with
+the Road stopped beforehand, watching the header/button after the loss —
+"Wave 1" restored correctly, but the button stayed on "⏸ Fighting"
+instead of reverting to "▶ Travel". Fixed with an explicit
+`else stop();`.
+
+**`doStep()`** branches on `G.sideBattle` before the Road-specific
+wave-transition checks, mirroring the exact check-before/step/check-after
+shape the Road branch already used, swapping `afterWaveCleared()`/
+`startWave()`/`onWipe()` for `finishSideBattle()`. **`renderHead()`**
+branches similarly — "QUEST — Name, stage N of 5" / "DUNGEON — Name"
+instead of "Wave X · N enemies · farthest Y · checkpoint Z" (all
+Road-specific globals that don't apply to a side fight). One line in
+`renderUnits()` needed a fix beyond the obvious redirect: the enemy "Lv"
+tag read `C.levelCurve(G.wave)` directly — during a side battle that's the
+Road's current wave, not the fight's own frozen one, so it would have
+shown the wrong level. Now reads `G.sideBattle?G.sideBattle.wave:G.wave`.
+`play()`/`stop()`'s button labels also branch (`⏸ Fighting`/`▶ Resume`)
+so a player who manually pauses mid-side-battle isn't shown the misleading
+"▶ Travel". `renderQuests()` disables both Enter/Attempt while any side
+battle is active (`busy=!!G.sideBattle`), so a second fight can't be
+stacked from the UI either, on top of `startSideBattle`'s own guard.
+
+Pure `farroad-ui.js` change — `farroad-core.js`/`farroad-progression.js`/
+`farroad-save.js` untouched, confirmed via `git diff --stat` showing zero
+overlap with `resolveExpedition`/`rollExpeditionDiscovery` (the bonus-fight
+event path), so the existing 115 smoke checks are a regression guard, not
+something expected to gain new checks — there's no new headless-testable
+math here, only orchestration of when `C.step()` fires.
+
+**Verified live** (same fresh-tab-per-write discipline as every other
+session in this log; also surfaced a THIRD variant of the tab-clobbering
+hazard — see below): a guaranteed-loss quest attempt (solo Kesh, level 1,
+vs. a stage scaled to a 5-unit level-80 party's power) showed the live
+header/enemies/ticking, resolved to "Quest attempt failed" with the stage
+held, and correctly reverted the header/button to normal Road display (the
+`else stop()` fix above, confirmed working after the fix). A guaranteed
+win (full level-80 party) started mid-Road-travel correctly paused it
+(`⏸ Fighting`, "QUEST — Kesh, stage 1 of 5"), and while it was running,
+both Enter and Attempt showed `disabled` with "A battle is already in
+progress" — clicking Enter on the dungeon while the quest fight was live
+was confirmed a no-op. Once resolved: "Quest stage cleared" + the
+placeholder story banner + stage advanced, AND the Road resumed traveling
+on its own (reached wave 2) — confirming the `wasPlaying:true` path.
+Repeated for a seeded dungeon Enter: same live header/ticking, "Dungeon
+cleared" logged, `clears` incremented, Road resumed.
+
+**Testing note, not a game bug**: mid-verification, beats appeared to
+almost completely stall (the combat log stopped growing for 10+ seconds
+even at the in-game 40x speed setting). This traced to the Browser pane
+being *hidden* during automated testing — browsers heavily throttle
+`setTimeout` timers on backgrounded/hidden tabs regardless of the delay
+requested, which is exactly what `tick()`'s self-rescheduling chain runs
+on. Not reproducible for a real player with the tab open and focused.
+Worked around for verification by clicking `#btnStep` in a tight loop
+(each click synchronously runs one `doStep()`, bypassing the timer
+entirely) rather than waiting on wall-clock time.
+
+**Tab-clobbering hazard, third variant**: confirmed the existing
+discipline (write `localStorage` from tab A, observe from fresh tab B,
+never reload A) is necessary but not sufficient on its own if tab A is
+left OPEN afterward with its own `G.sideBattle`/travel state diverging
+from what's on disk — not a new mechanism, just a reminder that the same
+15s-poller and `beforeunload` triggers documented above apply to this
+feature's state too, not only expeditions.

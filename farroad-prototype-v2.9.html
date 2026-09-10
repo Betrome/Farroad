@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 02:17 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 04:08 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -271,7 +271,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 02:17 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 04:08 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -2304,6 +2304,11 @@ function newGame(seed,mc){
   dropsGranted:{},
   lvl:{kesh:1}, bank:{kesh:0}, maxLevelEver:1, owned:{kesh:1},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
+  /* Live side-battle-in-progress state (quests/dungeons) — see MODULES.md.
+     sideBattle is null outside a side fight; roadBattle parks the real
+     G.battle object while one plays out. Both are transient, like G.battle
+     itself — never in farroad-save.js FIELDS, never restored on reload. */
+  sideBattle:null, roadBattle:null,
   mc:mc||null, expeditions:[], pullsSinceUnit:0,
   /* Discoverable content — see MODULES.md. dungeons: [] of fully-baked,
      frozen-difficulty repeatable fights found by expeditions. quests:
@@ -3111,6 +3116,17 @@ var playing=false,timer=null,speed=1,lastActor=null;
 var mcExpedPick=[];   /* UI-only: units checked in the expedition party picker */
 function doStep(){
  if(!G.battle)return;
+ /* Live quest/dungeon side battle in progress — mirrors the Row shape
+    below exactly, swapping afterWaveCleared/startWave/onWipe (Road-only
+    side effects) for finishSideBattle(). See MODULES.md. */
+ if(G.sideBattle){
+  if(G.battle.over==='party'){finishSideBattle('party');renderAll();return;}
+  if(G.battle.over==='enemy'){finishSideBattle('enemy');renderAll();return;}
+  var se=C.step(G.battle);
+  if(se){lastActor=se.actorId;logEntry(se);}
+  if(G.battle.over==='enemy'){finishSideBattle('enemy');renderAll();return;}
+  renderTick();
+  return;}
  if(G.battle.over==='party'){afterWaveCleared();startWave(G.wave+1);renderAll();return;}
  if(G.battle.over==='enemy'){onWipe();renderAll();return;}
  var e=C.step(G.battle);
@@ -3141,8 +3157,71 @@ function tick(){
   G.idleAcc=0;renderPurse();autoSave();}
  if(!playing)return;
  timer=setTimeout(tick,C.beatMs(Math.max(1,G.battle.beat+1))/speed);}
-function play(){playing=true;$('#btnPlay').textContent='⏸ Rest';$('#btnPlay').classList.add('on');tick();}
-function stop(){playing=false;clearTimeout(timer);$('#btnPlay').textContent='▶ Travel';$('#btnPlay').classList.remove('on');}
+function play(){playing=true;$('#btnPlay').textContent=G.sideBattle?'⏸ Fighting':'⏸ Rest';$('#btnPlay').classList.add('on');tick();}
+function stop(){playing=false;clearTimeout(timer);$('#btnPlay').textContent=G.sideBattle?'▶ Resume':'▶ Travel';$('#btnPlay').classList.remove('on');}
+
+/* ===== LIVE SIDE BATTLES (quests/dungeons) =====
+   Was: attemptQuestStage()/enterDungeon() resolved headlessly, synchronously,
+   in a tight while(!battle.over) loop — the same shape expedition catch-up
+   uses — so nothing was ever visibly watched (Ian's report: "it just says
+   the next stage is available... there aren't any actual battles").
+   G.battle is already a bare, reassignable pointer — renderUnits()/
+   renderRail() already read it generically — so a side fight just points
+   G.battle at ITS OWN battle object and lets the existing doStep()/tick()/
+   play()/stop() loop drive it forward exactly like Road travel does,
+   pausing the real Road battle (parked in G.roadBattle) for the duration.
+   Only doStep()'s wave-transition branch and renderHead()'s labels needed
+   to learn to tell the two apart (via G.sideBattle) — see MODULES.md. */
+function startSideBattle(enemies,wave,meta){
+ if(G.sideBattle)return false;   /* one at a time — see renderQuests()'s busy-gate */
+ var wasPlaying=playing;if(playing)stop();
+ G.roadBattle=G.battle;
+ var savedWave=G.wave;
+ C.setWave(wave);   /* stays pinned for the whole visible fight — K_of() reads it every beat */
+ var party=buildExpeditionParty(G.party,1);
+ G.battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+ G.sideBattle={savedWave:savedWave,wasPlaying:wasPlaying,wave:wave,meta:meta};
+ lastActor=null;
+ play();
+ return true;}
+/* result: 'party' (won) or 'enemy' (lost) — matches battle.over's own values.
+   Reward/log logic here is the exact tail attemptQuestStage()/enterDungeon()
+   used to run inline, right after their own synchronous while-loop — moved
+   here verbatim, reading from meta instead of closure variables, since the
+   fight now finishes asynchronously (many doStep() calls later). */
+function finishSideBattle(result){
+ var sb=G.sideBattle,meta=sb.meta;
+ C.setWave(sb.savedWave);
+ G.battle=G.roadBattle;G.roadBattle=null;G.sideBattle=null;lastActor=null;
+ if(meta.kind==='quest'){
+  var q=G.quests[meta.uid];
+  if(result==='party'){
+   q.stage++;
+   pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
+    why:q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
+   sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5.</span>');
+  }else{
+   sysLog('<b>Quest attempt failed.</b> <span class="tiny">'+meta.name+
+    ' — the party was defeated. No penalty, try again any time.</span>');}
+ }else{
+  var dungeon=null;G.dungeons.forEach(function(d){if(d.id===meta.dungeonId)dungeon=d;});
+  if(result==='party'&&dungeon){
+   dungeon.clears++;
+   var r=P.killReward(meta.rewardWave,meta.enemyCount);
+   G.aether+=r.aether;G.marks+=r.marks*P.marksMul(G);
+   sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+meta.name+' — earned '+
+    '<b style="color:var(--aether)">+'+Math.round(r.aether)+' Aether</b> and '+
+    '<b style="color:var(--marks)">+'+Math.floor(r.marks*P.marksMul(G))+' Marks</b>.</span>');
+  }else{
+   sysLog('<b>Dungeon attempt failed.</b> <span class="tiny">'+(dungeon?dungeon.name:'')+
+    ' — the party was defeated. No penalty, try again any time.</span>');}}
+ /* startSideBattle() unconditionally called play() to auto-run the fight,
+    so `playing` is still true here regardless of whether the Road itself
+    was traveling before — without an explicit stop() in the wasPlaying:
+    false case, the still-alive tick() timer chain would silently start
+    auto-traveling the just-restored Road battle the player never asked
+    to resume. */
+ if(sb.wasPlaying)play();else stop();}
 
 /* -------------------------------------------------------------- render --- */
 /* ===== INITIATIVE MULTIPLIER (v1.0 presentation) =====
@@ -3222,7 +3301,7 @@ function renderUnits(){
      that one number — a wave-difficulty proxy, not a precise per-enemy
      power rating (a boss is tougher than its number alone suggests, by
      design — see P.BOSS_HARD_EXTRA/bossSpdMul). */
-  var lvl=u.isParty?levelOf(u.id):Math.round(C.levelCurve(G.wave));
+  var lvl=u.isParty?levelOf(u.id):Math.round(C.levelCurve(G.sideBattle?G.sideBattle.wave:G.wave));
   d.innerHTML='<div class="spread"><span class="uname '+(u.isParty?'p':(u.isBoss?'b':'f'))+'">'+
    u.name+' <span class="tiny">Lv'+lvl+'</span>'+(u.hp<=0?' — DOWN':'')+' '+tag+'</span>'+
    '<span class="tiny mono">'+Math.max(0,Math.round(u.hp))+' / '+u.maxHp+'</span></div>'+
@@ -3267,6 +3346,18 @@ function renderRail(){
    (p.isCharge?'⚡ ':'')+p.actionName+'</div><div class="ct mono">'+initTag(rk,p.cost)+'</div>';
   h.appendChild(el);});}
 function renderHead(){
+ /* Live side battle in progress — takes over the always-visible battle
+    header instead of the Road's own wave/checkpoint readout. See
+    startSideBattle()/finishSideBattle() and MODULES.md. */
+ if(G.sideBattle){
+  var m=G.sideBattle.meta;
+  var label=m.kind==='quest'?(m.name+' — stage '+(m.stage+1)+' of 5'):m.name;
+  $('#waveLbl').innerHTML='<span class="bosstag">'+(m.kind==='quest'?'QUEST':'DUNGEON')+'</span> '+label;
+  var foeCount=G.battle.units.filter(function(u){return !u.isParty;}).length;
+  $('#encLbl').textContent='· '+foeCount+(foeCount===1?' enemy':' enemies');
+  $('#secLbl').textContent=(G.battle.elapsedMs/1000).toFixed(1)+'s';
+  $('#ckptLbl').innerHTML='<span class="tiny">No penalty on a loss — try again any time.</span>';
+  return;}
  var boss=P.isBossWave(G.wave);
  $('#waveLbl').innerHTML='Wave '+G.wave+(boss?' <span class="bosstag">BOSS</span>':'');
  $('#encLbl').textContent='· '+(G.enemies?G.enemies.length:0)+
@@ -3799,26 +3890,12 @@ function updateExpeditionTimers(){
    own difficulty, defeating the point of a frozen fight. No cost to
    attempt, no penalty on a loss — just try again any time. */
 function enterDungeon(id){
+ if(G.sideBattle)return;
  var dungeon=null;G.dungeons.forEach(function(d){if(d.id===id)dungeon=d;});
  if(!dungeon)return;
- var savedWave=G.wave;
- C.setWave(dungeon.discoveredAtWave);
- var party=buildExpeditionParty(G.party,1);
- var enemies=unitsFromSnapshots(dungeon.enemies);
- var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
- var guard=0;
- while(!battle.over&&guard++<4000)C.step(battle);
- C.setWave(savedWave);
- if(battle.over==='party'){
-  dungeon.clears++;
-  var r=P.killReward(dungeon.discoveredAtWave,enemies.length);
-  G.aether+=r.aether;G.marks+=r.marks*P.marksMul(G);
-  sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned '+
-   '<b style="color:var(--aether)">+'+Math.round(r.aether)+' Aether</b> and '+
-   '<b style="color:var(--marks)">+'+Math.floor(r.marks*P.marksMul(G))+' Marks</b>.</span>');
- }else{
-  sysLog('<b>Dungeon attempt failed.</b> <span class="tiny">'+dungeon.name+
-   ' — the party was defeated. No penalty, try again any time.</span>');}}
+ startSideBattle(unitsFromSnapshots(dungeon.enemies),dungeon.discoveredAtWave,
+  {kind:'dungeon',dungeonId:id,name:dungeon.name,
+   rewardWave:dungeon.discoveredAtWave,enemyCount:dungeon.enemies.length});}
 /* Resolves one companion's next quest stage headlessly against the
    current main party at full HP — that companion must already be
    fielded (validated again here, not just via the disabled button, in
@@ -3830,6 +3907,7 @@ function enterDungeon(id){
    acquired still gets an approachable early stage instead of whatever
    wave the player is actually on. */
 function attemptQuestStage(uid){
+ if(G.sideBattle)return;
  var q=G.quests[uid];
  if(!q||q.stage>=5)return;
  if(G.party.indexOf(uid)<0)return;
@@ -3843,30 +3921,17 @@ function attemptQuestStage(uid){
   var wave=P.questStageWave(G,stage);
   var fresh=buildEnemies(wave,true);
   q.frozen[stage]={wave:wave,enemies:fresh.map(bakeEnemySnapshot)};}
- var savedWave=G.wave;
- C.setWave(q.frozen[stage].wave);
- var party=buildExpeditionParty(G.party,1);
- var enemies=unitsFromSnapshots(q.frozen[stage].enemies);
- var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
- var guard=0;
- while(!battle.over&&guard++<4000)C.step(battle);
- C.setWave(savedWave);
  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
  var name=def?def.name:uid;
- if(battle.over==='party'){
-  q.stage++;
-  pushDrop({name:name+' — stage '+(stage+1)+' of 5',kind:'QUEST',body:story,
-   why:q.stage>=5?name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
-  sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+name+' — stage '+(stage+1)+' of 5.</span>');
- }else{
-  sysLog('<b>Quest attempt failed.</b> <span class="tiny">'+name+
-   ' — the party was defeated. No penalty, try again any time.</span>');}}
+ startSideBattle(unitsFromSnapshots(q.frozen[stage].enemies),q.frozen[stage].wave,
+  {kind:'quest',uid:uid,stage:stage,name:name,story:story});}
 /* "Let's add discoverable dungeons... repeated by the main party" +
    "quest lines of 5 battles for each new unit." One tab, two sections —
    both are main-party content, distinct from EXPEDITION's benched-party
    focus. */
 function renderQuests(){
  var host=$('#questsView');if(!host)return;
+ var busy=!!G.sideBattle;   /* a live side battle is already running — see startSideBattle() */
  var h='<div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>DUNGEONS</b> ('+
   G.dungeons.length+')</div>';
  if(!G.dungeons.length){
@@ -3876,7 +3941,8 @@ function renderQuests(){
    h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+d.name+'</div>'+
     '<div class="tiny mono" style="margin-top:2px">'+d.enemies.length+' foe'+(d.enemies.length===1?'':'s')+
      ' · cleared '+d.clears+' time'+(d.clears===1?'':'s')+'</div>'+
-    '<button class="mini questEnter" data-id="'+d.id+'" style="margin-top:6px">Enter</button></div>';});}
+    '<button class="mini questEnter" data-id="'+d.id+'" style="margin-top:6px"'+
+     (busy?' disabled title="A battle is already in progress"':'')+'>Enter</button></div>';});}
  h+='<hr><div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>COMPANION QUESTS</b></div>';
  var active=Object.keys(G.owned).filter(function(uid){return G.quests[uid]&&G.quests[uid].stage<5;});
  if(!active.length){
@@ -3885,10 +3951,11 @@ function renderQuests(){
   active.forEach(function(uid){
    var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
    var name=def?def.name:uid, stage=G.quests[uid].stage, fielded=G.party.indexOf(uid)>=0;
+   var dis=!fielded?' disabled title="'+name+' must be in your fielded party to attempt their own quest"':
+    (busy?' disabled title="A battle is already in progress"':'');
    h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+name+'</div>'+
     '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5</div>'+
-    '<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+
-     (fielded?'':' disabled title="'+name+' must be in your fielded party to attempt their own quest"')+
+    '<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+dis+
     '>Attempt</button></div>';});}
  host.innerHTML=h;
  Array.prototype.forEach.call(host.querySelectorAll('.questEnter'),function(el){
