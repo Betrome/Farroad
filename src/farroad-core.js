@@ -309,6 +309,11 @@ function bonusPrice(a,bid,totalOnAction){
  * Fusing them would leave ONE status upgrade, which every status build would buy,
  * recreating exactly the auto-buy the deadness matrix exists to prevent. Kept
  * apart so a status build has to choose "lasts longer" against "bites harder". */
+/* v2.11: Keen (crit) removed entirely — redundant now that ATK/MAG Crit
+   are Aether-investable directly (P.PCT_STAT, farroad-progression.js),
+   same treatment Block got when Body affinity made it redundant. Any
+   Lore a player had already sunk into Keen migrates to a flat G.lore
+   refund on load — see farroad-save.js. */
 var BONUSES={
  swift:{n:'Swift',d:'corrective — big gains below ×1.00 initiative, little above it'},
  potent:{n:'Potent',d:'+15% to whatever it does — damage or healing',mag:true},
@@ -316,8 +321,11 @@ var BONUSES={
  deepening:{n:'Deepening',d:'debuff bites 25% harder — dead on buffs and on damage'},
  surge:{n:'Surge',d:'+10 charge gain — dead on charge actions themselves'},
  piercing:{n:'Piercing',d:'+0.15 armour pierce — worth most vs armour'},
- keen:{n:'Keen',d:'+8% crit — worth most on multi-hit'},
- broad:{n:'Broad',d:'+1 target covered — dead on a self or already-multi action'},
+ /* v2.11: was "+1 target covered" — actively wrong. applyBonuses (below)
+    shows the real mechanic: ONE stack converts a single-target action to
+    hit the WHOLE party or WHOLE enemy side, flat — not a per-stack
+    target-count increment. */
+ broad:{n:'Broad',d:'single target → full AoE (whole party or whole enemy side) — dead on a self or already-multi action'},
  cleansing:{n:'Cleansing',d:'the heal also strips one debuff — dead if it does not heal'},
  /* v2.8: the counterweight to CHARGE_UP_COST. Only a charge action has a gauge
     to make cheaper, so this is dead on all 22 equippable actions. */
@@ -350,7 +358,6 @@ function bonusApplies(a,bid){
   case 'deepening': return !!(a.applies&&!isBuffStatus(a.applies));
   case 'surge':     return !a.isCharge;
   case 'piercing':  return !!(a.power&&a.camp==='atk'&&!a.heal);
-  case 'keen':      return !!(a.power&&!a.heal);
   case 'broad':     return a.tk==='foe'||a.tk==='ally';
   case 'cleansing': return !!a.heal;
   case 'thrifty':   return !!a.isCharge;
@@ -385,7 +392,6 @@ function applyBonuses(map){snapshot();
    a.rank=1/ini;}
   if(b.weighty)a.power=a.power*(1+0.12*b.weighty);
   if(b.piercing)a.defPierce=Math.min(0.85,(a.defPierce||0)+0.15*b.piercing);
-  if(b.keen)a.critBonus=(a.critBonus||0)+0.08*b.keen;
   /* --- v2.4 merged set --- */
   if(b.surge&&!a.isCharge)a.charge=(a.charge||0)+10*b.surge;        /* +thrifty */
   if(b.lasting&&a.applies)a.turns=(a.turns||3)+b.lasting;           /* +enduring */
@@ -666,7 +672,13 @@ function step(b){
   else if(pv>0){for(var h=0;h<(act.hits||1);h++){var tl=act.randomPerHit?[defFoe(b,u)]:targets;
     for(var ti=0;ti<tl.length;ti++){var tg=tl[ti];if(!tg||tg.hp<=0)continue;
      var r=resolveHit(u,tg,act,b,pv);e.hits.push(r);e.totalDamage+=r.damage;tg.hp=Math.max(0,tg.hp-r.damage);
-     if(act.lifesteal&&r.damage>0){var hb=u.hp;u.hp=Math.min(u.maxHp,u.hp+Math.floor(r.damage*act.lifesteal));
+     /* v2.11: lifesteal/drain is healing — Spirit scales it same as any other
+        heal, via the same affBoost helper healFor uses. Self-heal (the
+        attacker is both caster and recipient), so both sides of affBoost
+        read the SAME unit's own Spirit — a Spirit-negative unit drains less
+        off its own hits, a Spirit-positive one drains more. */
+     if(act.lifesteal&&r.damage>0){var hb=u.hp;
+      u.hp=Math.min(u.maxHp,u.hp+Math.floor(r.damage*act.lifesteal*affBoost(u.affinity.spirit,u.affinity.spirit)));
       if(u.hp>hb)e.heals.push({heal:true,targetName:u.name,amount:u.hp-hb});}}}
     if(act.tk==='allFoes'){var refl=0;
      for(var z=0;z<targets.length;z++)if(targets[z].thorns)refl+=Math.max(1,Math.round(targets[z].thorns*targets[z].maxHp));
@@ -694,9 +706,14 @@ function step(b){
     one unit's own turn count.) */
  if(b.enrage&&!u.isParty&&u.hp>0&&b.beat>ENRAGE_AFTER){
   u.enrageN=(u.enrageN||0)+1;
+  /* v2.11: was ATK-only — a MAG-using enemy (Fen Priest, or any archetype
+     with a real mag stat) got no stronger from enrage at all. Both damage
+     stats scale now, matching the "enraged should increase damage, not
+     just attack" ask. */
   u.base.atk=u.base.atk*(1+ENRAGE_PCT);
+  u.base.mag=u.base.mag*(1+ENRAGE_PCT);
   e.enrageStacks=u.enrageN;
-  e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*100)+'% ATK)');}
+  e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*100)+'% damage)');}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
  for(var i=0;i<b.units.length;i++)if(b.units[i].hp>0){if(b.units[i].isParty)pa=true;else fa=true;}

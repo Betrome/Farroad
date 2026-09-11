@@ -8,7 +8,12 @@
 <style>
 :root{--bg:#12100e;--panel:#1c1916;--panel2:#241f1b;--line:#3a322b;--ink:#e8dfd2;--dim:#9a8d7c;--dimmer:#6d6255;
  --party:#7fb8d8;--foe:#d88a6a;--charge:#e8b84b;--hp:#7fc98a;--crit:#f0c060;--bad:#d8695a;--buff:#8fd8b0;--debuff:#c98fd8;
- --threat:#e0794f;--row:#9fd0e8;--aether:#8fb8f0;--lore:#6fd8c8;--marks:#e0b060;--boss:#e05a7a}
+ --threat:#e0794f;--row:#9fd0e8;--aether:#8fb8f0;--lore:#6fd8c8;--marks:#e0b060;--boss:#e05a7a;
+ /* v2.11: element/camp icon colors — actionGlyph() (farroad-ui.js). Body
+    intentionally shares a visual identity with the Body affinity, since
+    both mean "physical" — one accent, not two. */
+ --fire:#e8623c;--water:#4a9ce0;--earth:#9c7a4a;--air:#b8e8d8;--light:#f5e6a8;--dark:#8868c0;
+ --body:#d8a868;--magic:#a878e0}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 #app,#mcCreate{max-width:560px;margin:0 auto;padding:8px 8px 40px}
@@ -72,7 +77,15 @@ th{color:var(--dim);font-weight:600}
 .cur.lo{border-color:#2f5f57}.cur.lo .v{color:var(--lore)}
 .cur.ma{border-color:#5f4a20}.cur.ma .v{color:var(--marks)}
 .cur .n{font-size:9px;color:var(--dim);letter-spacing:.08em}
-.node{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:5px 6px;border:1px solid var(--line);border-radius:5px;margin-bottom:4px;background:#1a1714}
+/* v2.11: was display:flex;justify-content:space-between — a single row
+   cramming name+description against value+button. Fine for Recovery's
+   short one-liner, broke down for the longer affinity descriptions
+   (Body/Spirit especially — confirmed live, the value wrapped onto two
+   lines fighting a squeezed column). Stacked now, same shape .bslot/
+   .bname/.bdesc already use in the LORE tab for exactly this problem —
+   name, then description on its own full-width line, then a .spread
+   row (already flex/space-between, reused as-is) for value+button. */
+.node{display:block;padding:5px 6px;border:1px solid var(--line);border-radius:5px;margin-bottom:4px;background:#1a1714}
 .nname{font-size:11px}
 .nval{color:var(--aether);font-weight:700;min-width:34px;text-align:right}
 .ncost{color:var(--charge);font-size:10px}

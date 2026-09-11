@@ -26,6 +26,11 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
  'loadout','hpCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
  'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
+ /* v2.11: {lore,aether} running total for the condensed duplicate-drop
+    notice (addDropGain(), farroad-ui.js) — same lazy-init/no-explicit-
+    default-fill treatment dropQueue/dropHistory already get just above,
+    since renderDropNote() already guards a missing value with ||{}. */
+ 'dropGains',
  /* the player-built starting character (roadmap item 1), or null for the
     hardcoded default — see applyCustomMC() in the UI layer, which is what
     actually turns this back into stats/growth on the 'kesh' roster slot. */
@@ -105,6 +110,23 @@ S.deserialize=function(snap,C){
  if(!G.conditions||!G.conditions.length)G.conditions=['none'];
  ['actionCounts','condCounts','bonuses','recovery','loadout','hpCarry','touched',
   'clearedWaves','lvl','bank','owned'].forEach(function(k){G[k]=G[k]||{};});
+ /* v2.11 MIGRATION: Keen (crit) retired from Lore entirely (redundant once
+    ATK/MAG Crit became directly Aether-investable) — a save with banked
+    keen stacks on some action must not just lose that spent Lore. Refund
+    the difference this action's own triangular price (bonusSpend, same
+    closed-form every other Lore cost already uses) drops by once keen no
+    longer counts toward its stack total, then strip keen so it can never
+    be read again — same "don't strand a purchase" rule every other
+    removed/changed stat this codebase has followed (Block's own removal,
+    two phases back, needed no such migration only because nothing had
+    been spent buying it up yet at the time). */
+ Object.keys(G.bonuses).forEach(function(aid){
+  var b=G.bonuses[aid];
+  if(!b||!b.keen)return;
+  var without={};Object.keys(b).forEach(function(k){if(k!=='keen')without[k]=b[k];});
+  var refund=C.bonusSpend({x:b})-C.bonusSpend({x:without});
+  G.lore=(G.lore||0)+refund;
+  delete b.keen;});
  /* v2.9: dropsGranted is a NEW, stricter gate than clearedWaves (see
     grantDrops() in the UI layer) — a save from before this field existed
     has no history for it. Defaulting to {} would let every ALREADY-cleared

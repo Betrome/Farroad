@@ -195,7 +195,7 @@ var AFFINITY_INFO={
  light:{n:'Light',d:'Damage dealt and taken by Light-tagged attacks.'},
  dark:{n:'Dark',d:'Damage dealt and taken by Dark-tagged attacks.'},
  body:{n:'Body',d:'Physical damage dealt and taken, on top of any element a physical attack also carries.'},
- spirit:{n:'Spirit',d:'Healing given and received, and how strongly buffs/debuffs land — as caster and as target.'}};
+ spirit:{n:'Spirit',d:'In-combat healing given and received (including drain/lifesteal effects like Siphon), and how strongly buffs/debuffs land — as caster and as target. Does not affect Recovery, the separate between-wave stat.'}};
 function affinityBaseline(uid){
  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
  return (def&&def.affinity)||{};}
@@ -364,6 +364,36 @@ function sysLog(html,cls){
  var d=document.createElement('div');d.className='le sys';d.innerHTML=html;
  var L=$('#log');L.insertBefore(d,L.firstChild);}
 
+/* ===== ELEMENT/CAMP ICONS (v2.11) =====
+ * "Color code actions with icons... dependent on their element, same
+ * with if physical or magical" — two ADDITIVE signals, not either/or:
+ * every action always gets its camp icon (physical vs magic), and ALSO
+ * an element icon+color on top when act.element is set (mandatory on
+ * every magic damage action, optional on physical, absent on heal/
+ * buff-only actions — content-pipeline.js's own build-time validation
+ * already enforces the mandatory half). A physical action that also
+ * carries an element (e.g. Spellbrand) shows both: ⚔️💧. */
+var ELEMENT_GLYPH={
+ fire:{icon:'🔥',n:'Fire',color:'var(--fire)'}, water:{icon:'💧',n:'Water',color:'var(--water)'},
+ earth:{icon:'🪨',n:'Earth',color:'var(--earth)'}, air:{icon:'💨',n:'Air',color:'var(--air)'},
+ light:{icon:'☀️',n:'Light',color:'var(--light)'}, dark:{icon:'🌑',n:'Dark',color:'var(--dark)'}};
+/* HTML prefix (colored spans) for headings/titles — describeAction()'s
+   callers, the LORE/GAMBITS detail boxes, combat log entries. */
+function actionGlyph(a){
+ if(!a)return '';
+ var camp=a.camp==='atk'?{icon:'⚔️',n:'Physical',color:'var(--body)'}:{icon:'🔮',n:'Magic',color:'var(--magic)'};
+ var h='<span style="color:'+camp.color+'" title="'+camp.n+'">'+camp.icon+'</span>';
+ var e=a.element&&ELEMENT_GLYPH[a.element];
+ if(e)h+='<span style="color:'+e.color+'" title="'+e.n+'">'+e.icon+'</span>';
+ return h+' ';}
+/* Plain-text prefix (no HTML/color) for native <select> option labels,
+   which can't render markup — the icons alone still read fine there. */
+function actionGlyphText(a){
+ if(!a)return '';
+ var h=a.camp==='atk'?'⚔️':'🔮';
+ var e=a.element&&ELEMENT_GLYPH[a.element];
+ return h+(e?e.icon:'')+' ';}
+
 /* ===== DROP NOTICE (v2.2) =====
  * A drop is one of the few genuinely NEW things that happens, and it was buried in
  * the log. This describes what arrived, what it does, and — during the curated run
@@ -382,7 +412,7 @@ function describeAction(id){
  if(a.defPierce)bits.push('ignores '+Math.round(a.defPierce*100)+'% armour');
  if(a.lifesteal)bits.push('heals you '+Math.round(a.lifesteal*100)+'% of damage');
  if(a.revive)bits.push('revives at '+Math.round(a.revive*100)+'% HP');
- return {name:a.name,
+ return {name:actionGlyph(a)+a.name,
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
   note:withMcName(a.note||'')};}
@@ -419,14 +449,37 @@ function pushDrop(entry){
  G.dropQueue.push(entry);G.dropHistory.unshift(entry);
  while(G.dropHistory.length>60)G.dropHistory.pop();
  renderDropNote();}
+/* v2.11: "condense lore and aether gains into a single notice" — the
+   bare, highly-repeatable duplicate-conversion cards (duplicate action/
+   charge action/gambit -> +1 Lore, duplicate unit pull -> +N Aether)
+   carry no real per-event narrative, just a number, and an idle catch-up
+   that fires several in a row used to clutter the banner with one
+   near-identical card each. These accumulate into a running total
+   instead of pushing a new card — rendered as ONE synthetic card
+   alongside the real dropQueue items. Boss Hoard/Welcome Back/quest
+   rewards stay real pushDrop() cards — each has genuine per-event
+   context (which wave, why), not just a bare number. */
+function addDropGain(loreDelta,aetherDelta){
+ G.dropGains=G.dropGains||{lore:0,aether:0};
+ G.dropGains.lore+=loreDelta||0;G.dropGains.aether+=aetherDelta||0;
+ renderDropNote();}
 function renderDropNote(){
  var host=$('#dropnote');if(!host)return;
  var q=G.dropQueue||[];
- if(!q.length){host.className='hidden';host.innerHTML='';return;}
+ var gains=G.dropGains||{lore:0,aether:0};
+ var hasGains=gains.lore>0||gains.aether>0;
+ var count=q.length+(hasGains?1:0);
+ if(!count){host.className='hidden';host.innerHTML='';return;}
  host.className='';
  var h='<div class="dn-h"><span class="dn-t">'+
-  (q.length>1?q.length+' NEW THINGS':'SOMETHING NEW')+'</span>'+
+  (count>1?count+' NEW THINGS':'SOMETHING NEW')+'</span>'+
   '<button class="mini" id="dnOk">Got it</button></div>';
+ if(hasGains){
+  var bits=[];
+  if(gains.lore>0)bits.push('<b style="color:var(--lore)">+'+gains.lore+' Lore</b>');
+  if(gains.aether>0)bits.push('<b style="color:var(--aether)">+'+Math.round(gains.aether)+' Aether</b>');
+  h+='<div class="dn-item"><div class="dn-name">Duplicates <span class="dn-kind">GAINS</span></div>'+
+   '<div class="dn-body">'+bits.join(', ')+' from duplicate drops and pulls.</div></div>';}
  q.forEach(function(d){
   h+='<div class="dn-item"><div class="dn-name">'+d.name+
    ' <span class="dn-kind">'+d.kind+(d.wave?' · wave '+d.wave:'')+'</span></div>'+
@@ -440,7 +493,7 @@ function renderDropNote(){
       `why`), these are genuinely secondary asides. */
    (d.note?'<div class="dn-pair">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;
- var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];renderDropNote();};}
+ var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];G.dropGains={lore:0,aether:0};renderDropNote();};}
 function grantDrops(w){
  /* FIRST ATTEMPT ONLY, not first CLEAR — v2.9 bugfix (see dropsGranted in
     newGame()). Gate runs BEFORE computing drops so a gated call doesn't
@@ -462,9 +515,7 @@ function grantDrops(w){
    if(!dup)G.actions.push(d.id); else G.lore+=1;
    var info=describeAction(d.id);
    if(dup){
-    pushDrop({wave:w,kind:'DUPLICATE ACTION',name:'+1 Lore',
-     body:'You already hold this. Duplicates become <b style="color:var(--lore)">Lore</b>, '+
-      'which upgrades actions in the LORE tab.'});
+    addDropGain(1,0);
    }else{
     pushDrop({wave:w,kind:'NEW ACTION',name:info.name,
      body:info.body+(info.note?'<br>'+info.note:''),
@@ -477,8 +528,7 @@ function grantDrops(w){
    if(!dupC)G.mc.acquiredCharges.push(d.id); else G.lore+=1;
    var infoC=describeAction(d.id);
    if(dupC){
-    pushDrop({wave:w,kind:'DUPLICATE CHARGE ACTION',name:'+1 Lore',
-     body:'You already hold this. Duplicates become <b style="color:var(--lore)">Lore</b>.'});
+    addDropGain(1,0);
    }else{
     pushDrop({wave:w,kind:'NEW CHARGE ACTION',name:infoC.name,
      body:infoC.body+(infoC.note?'<br>'+infoC.note:''),
@@ -491,8 +541,7 @@ function grantDrops(w){
    if(!dup2)G.conditions.push(d.id); else G.lore+=1;
    var lab=C.condById(d.id).label;
    if(dup2){
-    pushDrop({wave:w,kind:'DUPLICATE GAMBIT',name:'+1 Lore',
-     body:'Already held. Converts to <b style="color:var(--lore)">Lore</b>.'});
+    addDropGain(1,0);
    }else{
     pushDrop({wave:w,kind:'NEW GAMBIT CONDITION',name:lab,
      body:'A test you can put in front of any action. The first rule whose condition '+
@@ -1303,6 +1352,19 @@ function defResPair(u){
   '<span class="drsep">/</span>'+cell('RES',r,flagR,rMod)+
   (flagD||flagR?'<span class="drhint">'+(flagD?'physical':'magic')+' lands harder</span>':'')+
   '</span>';}
+/* v2.11: "note on enemies and units on the road if there are any
+   affinities they're weak to." u.affinity is already the EFFECTIVE
+   value (baseline+investment for a party unit, baseline only for an
+   enemy — computed once at build time, see effectiveAffinity()/
+   buildEnemies()) so this just reads it straight off the live unit,
+   no recomputation. Omitted entirely when nothing is negative — most
+   units/enemies today have nothing to show here, and a silent line is
+   better than an always-present "Weak to: (none)". */
+function weaknessLine(u){
+ if(!u.affinity)return '';
+ var weak=[];
+ AFFINITY_AXES.forEach(function(ax){if((u.affinity[ax]||0)<0)weak.push(AFFINITY_INFO[ax].n);});
+ return weak.length?'<div class="tiny mono" style="color:var(--bad)">Weak to: '+weak.join(', ')+'</div>':'';}
 function pct(a,b){return Math.max(0,Math.min(100,100*a/b));}
 /* C.ROSTER stores role lowercase ('attacker', etc.) — capitalized only at
    display time so the stored value stays a plain identifier-ish string. */
@@ -1354,6 +1416,7 @@ function renderUnits(){
    '<div class="tiny mono" style="margin-top:3px">ATK '+Math.round(C.effAtk(u))+
     ' MAG '+Math.round(C.effMag(u))+' SPD '+u.base.spd+'</div>'+
    '<div class="tiny mono" style="margin-top:2px">'+defResPair(u)+'</div>'+
+   weaknessLine(u)+
    (u.isParty?'<div class="tiny mono" style="color:var(--hp)">RECOVERY '+
      Math.round(recoveryOf(u.id)*100)+'%<span style="color:var(--dimmer)"> — HP regained between waves'+
      (recoveryMaxed(u.id)?' · at cap':'')+'</span></div>':'')+
@@ -1364,7 +1427,7 @@ function renderUnits(){
         its own next turn actually applies a stack. */
      var st=C.enrageStacks(u),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
      if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% ATK, rising each of its turns</div>';
+       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% damage, rising each of its turns</div>';
      if(gateOpen)return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages on its next turn</div>';
      return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
        ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
@@ -1380,9 +1443,9 @@ function renderRail(){
  var pv=C.preview(G.battle,6),h=$('#rail');h.innerHTML='';
  pv.forEach(function(p,i){var el=document.createElement('div');
   el.className='chip '+(p.isParty?'p':'f')+(i===0?' now':'');
-  var rk=(C.ACTIONS[p.actionId]||{}).rank||1;
+  var act=C.ACTIONS[p.actionId];var rk=(act||{}).rank||1;
   el.innerHTML='<div class="cn">'+p.unitName.split(' ')[0]+'</div><div class="ca">'+
-   (p.isCharge?'⚡ ':'')+p.actionName+'</div><div class="ct mono">'+initTag(rk,p.cost)+'</div>';
+   (p.isCharge?'⚡ ':'')+actionGlyph(act)+p.actionName+'</div><div class="ct mono">'+initTag(rk,p.cost)+'</div>';
   h.appendChild(el);});}
 function renderHead(){
  /* Live side battle in progress — takes over the always-visible battle
@@ -1436,7 +1499,7 @@ function logEntry(e){
  e.heals.forEach(function(x){extra+='<div class="note">✚ '+x.targetName+' +'+x.amount+'</div>';});
  e.notes.forEach(function(x){extra+='<div class="note">· '+x+'</div>';});
  d.innerHTML='<div class="lh"><span><span class="lt mono">b'+e.beat+'</span> <b>'+
-  e.actorName.split(' ')[0]+'</b> → '+(e.isCharge?'⚡ ':'')+e.actionName+
+  e.actorName.split(' ')[0]+'</b> → '+(e.isCharge?'⚡ ':'')+actionGlyph(C.ACTIONS[e.actionId])+e.actionName+
   (e.targetName?' <span class="lt">→ '+e.targetName+'</span>':'')+tags+'</span>'+
   '<span class="dmg mono">'+(e.hits.length?e.totalDamage:'—')+'</span></div>'+
   '<div class="via">'+e.via+' · initiative '+initTag(e.rank||1,e.tickCost)+'</div>'+
@@ -1468,7 +1531,7 @@ function renderAether(){
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
    '<span class="uname'+(fielded?' p':'')+'">'+def.name+' <span class="tiny">'+capRole(def.role)+
     (fielded?'':(isOnExpedition(uid)?' · on expedition':' · benched'))+'</span></span>'+
-   '<span class="nval">LV '+L+'</span></div>'+
+   '<span class="nval">LV '+L+' → LV '+(L+1)+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
    '<div class="tiny mono" style="margin-top:3px">'+Math.floor(x)+' / '+need+' to LV '+(L+1)+'</div>'+
    '<div class="tiny mono" style="margin-top:3px">hp '+st.hp+'  atk '+st.atk+'  mag '+st.mag+
@@ -1477,14 +1540,14 @@ function renderAether(){
     ' atk, +'+g.mag+' mag, +'+g.def+' def, +'+g.res+' res, +'+g.spd+' spd</div>'+
    '<div class="tiny" style="margin-top:2px">gambit slots <b>'+slots+'</b>'+
     (nxt?' <span style="color:var(--dimmer)">· '+(slots+1)+'th at LV '+nxt+'</span>':' <span class="ckpt">· max</span>')+'</div>'+
-   '<div class="node" style="margin-top:6px"><span class="nname">Recovery '+
-     '<span class="tiny">'+Math.round(recoveryOf(uid)*100)+'% → '+
+   '<div class="node" style="margin-top:6px"><div class="nname">Recovery</div>'+
+     '<div class="bdesc">HP regained between waves.</div>'+
+     '<div class="spread"><span class="tiny mono">'+Math.round(recoveryOf(uid)*100)+'% → '+
      (recoveryMaxed(uid)?'<b style="color:var(--hp)">at cap ('+Math.round(P.REST_CAP*100)+'%)</b>'
-      :Math.round(Math.min(P.REST_CAP,recoveryOf(uid)+0.03)*100)+'%')+
-     ' · HP regained between waves</span></span>'+
-    '<span><button class="mini rec" data-u="'+uid+'"'+
+      :Math.round(Math.min(P.REST_CAP,recoveryOf(uid)+0.03)*100)+'%')+'</span>'+
+    '<button class="mini rec" data-u="'+uid+'"'+
      ((recoveryMaxed(uid)||G.aether<recoveryCost(uid))?' disabled':'')+'>+3% <span class="ncost">'+
-     recoveryCost(uid)+'</span></button></span></div>'+
+     recoveryCost(uid)+'</span></button></div></div>'+
    '<div class="row" style="margin-top:5px">'+
     '<button class="mini feed" data-u="'+uid+'" data-a="'+STEP+'"'+(G.aether>=STEP?'':' disabled')+'>+'+STEP+'</button>'+
     '<button class="mini feed" data-u="'+uid+'" data-a="'+(STEP*5)+'"'+(G.aether>=STEP*5?'':' disabled')+'>+'+(STEP*5)+'</button>'+
@@ -1496,13 +1559,13 @@ function renderAether(){
   PCT_STAT_KEYS.forEach(function(stat){
    var info=PCT_STAT_INFO[stat],cur=pctStatValue(uid,stat),maxed=pctStatMaxed(uid,stat),cost=pctStatNextCost(uid,stat);
    var next=Math.min(P.PCT_STAT[stat].cap,cur+P.PCT_STAT[stat].step);
-   pRows+='<div class="node" style="margin-top:4px"><span class="nname">'+info.n+
-    ' <span class="tiny">'+info.d+'</span></span>'+
-    '<span><span class="tiny mono" style="margin-right:6px">'+Math.round(cur*1000)/10+'% → '+
+   pRows+='<div class="node" style="margin-top:4px"><div class="nname">'+info.n+'</div>'+
+    '<div class="bdesc">'+info.d+'</div>'+
+    '<div class="spread"><span class="tiny mono">'+Math.round(cur*1000)/10+'% → '+
      (maxed?'<b style="color:var(--hp)">at cap</b>':Math.round(next*1000)/10+'%')+'</span>'+
     '<button class="mini pctbuy" data-u="'+uid+'" data-st="'+stat+'"'+
      ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+'+Math.round(P.PCT_STAT[stat].step*1000)/10+
-      '% <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
+      '% <span class="ncost">'+cost+'</span>')+'</button></div></div>';});
   pBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>EVADE / CRIT</b> — none of '+
    'these grow with level for any unit in the game (unchanged). Aether buys them up directly here '+
    'instead, same as Recovery, hard-capped at the same ceiling the combat formula has always enforced.</div>'+pRows;
@@ -1512,14 +1575,14 @@ function renderAether(){
   AFFINITY_AXES.forEach(function(axis){
    var info=AFFINITY_INFO[axis],raw=affinityRaw(uid,axis),pct=Math.round(C.affinityMul(raw)*100);
    var maxed=affinityMaxed(uid,axis),cost=affinityNextCost(uid,axis);
-   aRows+='<div class="node" style="margin-top:4px"><span class="nname">'+info.n+
-    ' <span class="tiny">'+info.d+'</span></span>'+
-    '<span><span class="tiny mono" style="margin-right:6px">'+(raw>=0?'+':'')+raw+' → '+(pct>=0?'+':'')+pct+'%</span>'+
+   aRows+='<div class="node" style="margin-top:4px"><div class="nname">'+info.n+'</div>'+
+    '<div class="bdesc">'+info.d+'</div>'+
+    '<div class="spread"><span class="tiny mono">'+(raw>=0?'+':'')+raw+' → '+(pct>=0?'+':'')+pct+'%</span>'+
     '<button class="mini affbuy" data-u="'+uid+'" data-ax="'+axis+'"'+
-     ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+1 <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
+     ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+1 <span class="ncost">'+cost+'</span>')+'</button></div></div>';});
   aBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>AFFINITIES</b> — Fire, Water, Earth, '+
    'Air, Light and Dark scale damage dealt and taken by attacks of that element; Body does the same for '+
-   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Evade, '+
+   'physical attacks; Spirit scales in-combat healing (including drain effects) and buff/debuff potency, both given and received. Like Evade, '+
    'none of these grow with level — Aether buys them up directly here instead, with '+
    'diminishing returns the higher any one climbs, capped at ±80%.</div>'+aRows;
   host.appendChild(aBox);});
@@ -1683,7 +1746,7 @@ function renderLore(){
   /* "let's list the descriptions for an action under their name when
      selected" — a.note is the same flavor/mechanical text GAMBITS already
      shows under each slot, just wasn't surfaced here before. */
-  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+a.name+' <span class="tiny">Lv'+
+  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+actionGlyph(a)+a.name+' <span class="tiny">Lv'+
    actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
@@ -1831,10 +1894,7 @@ function doPull(){
    /* Duplicate unit -> Aether. With 5 of a planned 25 units authored this is the
       COMMON case, not an edge case, so it must read as a result. */
    var dup=P.dupUnitAether(G.wave);G.aether+=dup;
-   pushDrop({name:'+'+dup+' Aether',kind:'PULL · duplicate unit',wave:G.wave,
-    body:'You already own every authored companion, so this converted to '+
-     '<b style="color:var(--aether)">+'+dup+' Aether</b> — about '+
-     P.DUP_UNIT_WAVES+' waves of income.'});}
+   addDropGain(0,dup);}
   else{var pick=avail[G.rng.nextInt(avail.length)];
    var fielded=joinCompanion(pick.id);
    var ca=pick.chargeAction?C.ACTIONS[pick.chargeAction]:null;
@@ -2207,7 +2267,7 @@ function renderActionTabs(host,actionIds,active,onChange){
  actionIds.forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;
   h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
-   a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
+   actionGlyph(a)+a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
@@ -2302,7 +2362,7 @@ function buildGambits(){
     var benchHolder=(!holder&&aid!==s.action)?benchedActionHolder(aid,uid):null;
     var dis=holder?' disabled title="'+C.ACTIONS[aid].name+' is equipped by '+holder+' — non-starter actions can only be used by one unit at a time"':'';
     var tag=holder?' (used by '+holder+')':(benchHolder?' (also held by '+benchHolder+', benched)':'');
-    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+C.ACTIONS[aid].name+tag+'</option>';});
+    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+actionGlyphText(C.ACTIONS[aid])+C.ACTIONS[aid].name+tag+'</option>';});
    /* Grandfathered conflict: a loadout saved before the one-unit-per-action
       rule could already have this same non-starter action on another
       fielded unit. The <select> above leaves the current pick selectable
@@ -2362,9 +2422,9 @@ function buildGambits(){
    var nameRow=swappable?
     '<select class="mcc-swap mono" style="margin-top:2px;color:var(--charge);border-color:var(--charge)">'+
      G.mc.acquiredCharges.map(function(id){var ai=C.ACTIONS[id];
-      return '<option value="'+id+'"'+(id===ca?' selected':'')+'>'+(ai?ai.name:id)+'</option>';}).join('')+
+      return '<option value="'+id+'"'+(id===ca?' selected':'')+'>'+(ai?actionGlyphText(ai)+ai.name:id)+'</option>';}).join('')+
      '</select>'
-    :'<div class="uname" style="color:var(--charge);margin-top:2px">'+a.name+'</div>';
+    :'<div class="uname" style="color:var(--charge);margin-top:2px">'+actionGlyph(a)+a.name+'</div>';
    cbox.innerHTML='<div class="spread"><span class="lbl" style="color:var(--charge)">'+
      '⚡ CHARGE ACTION</span><span class="tiny">'+initTag(a.rank)+'</span></div>'+
     nameRow+

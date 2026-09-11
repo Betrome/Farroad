@@ -2378,3 +2378,114 @@ pass confirmed the AETHER tab renders the new figures exactly as
 calculated: Evade "0% → 1.5%" (was 3%) at cost 8 (unchanged), ATK/MAG
 Crit "0% → 4%" (was 8%) at cost 15 (unchanged), and Fire (representative
 affinity) "+1" at cost 4 (was 8, the halved base). No console errors.
+
+## Nine-item feedback batch — layout, Spirit/drain, icons, weaknesses, Lore cleanup
+
+Ian's feedback on the affinities/investment arc, all raised in one
+message. Two needed real back-and-forth to pin down exactly, not just
+implement — flagged here since "asked a clarifying question, got a
+clear answer, moved on" is itself worth recording as the reason the fix
+landed on the right target the first time:
+
+- **"Squished" affinity rows** — screenshotted the live AETHER tab
+  before touching anything. `.node` (`shell.html`) turned out to be
+  `display:flex;justify-content:space-between` — fine for Recovery's
+  one-line description, but the longer affinity descriptions (Body/
+  Spirit especially) wrapped their VALUE column too, visibly breaking
+  ("+0 →" and "+0%" splitting across lines). Grepped first: `.node` is
+  used by exactly 3 call sites in the whole codebase (Recovery, the
+  Evade/Crit rows, the affinity rows — all in `renderAether()`), so
+  restyling it directly was safe. Changed to a stacked layout reusing
+  `.bslot`/`.bdesc`'s already-established shape from the LORE tab (name,
+  then description on its own line, then a `.spread` row for value+
+  button) — the three row types now share one real layout, not just a
+  similar-looking one.
+- **The level-up arrow** — two rounds of AskUserQuestion, because "an
+  arrow pointing to the current level" didn't match anything in the
+  three places level+arrow both appear in the AETHER tab (all three
+  already pointed at the NEXT level correctly). Confirmed on the second
+  round: the plain "LV 1" header badge itself should become "LV 1 →
+  LV 2". Not what a code-only read would have found.
+
+The rest, more directly scoped:
+
+- **Spirit's description** now says "in-combat healing... including
+  drain/lifesteal effects like Siphon" AND says so correctly — Siphon/
+  Bloodfury/Hollow Toll's lifesteal previously did NOT scale with
+  Spirit at all (`step()`'s lifesteal branch read straight off the
+  already-affinity-scaled damage, which is element/Body, never Spirit).
+  Real fix, not just a claim made true by wording: lifesteal now
+  multiplies by `affBoost(u.affinity.spirit,u.affinity.spirit)` (a
+  self-heal — same unit is both caster and recipient).
+- **Element/camp icons** — new `actionGlyph(a)`/`actionGlyphText(a)`
+  (`farroad-ui.js`): every action always shows a camp icon (⚔️ physical/
+  🔮 magic), ADDITIONALLY an element icon+color when `a.element` is set
+  — both signals together, not either/or, so Spellbrand (physical +
+  water) shows ⚔️💧. `describeAction()` is the one choke point that
+  covers most display sites (drop notices, MC creation charge cards);
+  6 more direct call sites needed their own wrap (LORE/GAMBITS detail
+  headers, combat log, turn-order rail, both `<select>` dropdowns — the
+  plain-text `actionGlyphText` variant for those, since native
+  `<option>` elements can't render HTML/color). 8 new CSS vars
+  (`--fire`/`--water`/`--earth`/`--air`/`--light`/`--dark`/`--body`/
+  `--magic`) — `--body` deliberately doubles as both "physical action"
+  and "Body affinity," one visual identity, not two.
+- **"Weak to" notes on unit/enemy cards** — `weaknessLine(u)`
+  (`farroad-ui.js`), right after the existing DEF/RES line in
+  `renderUnits()`: lists any affinity axis where `u.affinity` (already
+  the effective value — baseline+investment for a party unit, straight
+  baseline for an enemy) is negative. Grepped every CSV baseline first:
+  zero negatives existed anywhere, so this would have shipped silent
+  for every unit and enemy in the game. Added a first pass of 3 thematic
+  weaknesses to give it real content — Mire Hound/Light (-3, "a creature
+  of the mire's gloom"), Stone Ox/Water (-3, "stone wears down under
+  running water"), Thorn Shrike/Fire (-3, "dry bramble growth") — same
+  "I do a first pass, Ian tunes later" precedent as the original
+  element-on-actions assignment.
+- **Keen (crit) removed from Lore** — redundant now that ATK/MAG Crit
+  are directly Aether-investable (`P.PCT_STAT`). Real removal (`BONUSES`/
+  `bonusApplies`/`applyBonuses`, `farroad-core.js`), same treatment
+  Block got — but unlike Block (nothing had been spent on it yet when
+  it was removed), players COULD already have Lore sunk into Keen, so
+  `farroad-save.js` migrates it: refunds the triangular-cost difference
+  a save's own bonus map drops by once keen no longer counts toward that
+  action's stack total (reuses `C.bonusSpend`'s existing closed-form
+  pricing rather than reimplementing it), then strips keen so it can
+  never be read again.
+- **Broad's description** was actively wrong — "+1 target covered"
+  describes a per-stack increment; `applyBonuses` shows the real
+  mechanic (confirmed by reading the code, not assumed): ONE stack
+  converts a single-target action to hit the WHOLE party or WHOLE enemy
+  side, flat, further stacks doing nothing. Reworded to say what it
+  actually does; mechanic untouched.
+- **Enrage** scaled ATK only — a MAG-using enemy (Fen Priest, or any
+  archetype with a real mag stat) got no stronger from enrage at all.
+  Now scales MAG too, log/card wording changed from "+N% ATK" to
+  "+N% damage" to match.
+- **Drop-notice condensing** — the three bare "+1 Lore" duplicate cards
+  (action/charge action/gambit) and the "PULL · duplicate unit" Aether
+  conversion are exactly the shape that clutters an idle catch-up
+  banner with several near-identical cards in a row; Boss Hoard/Welcome
+  Back/quest rewards stay real cards since each carries genuine per-
+  event context, not just a number. New `G.dropGains={lore,aether}`
+  running total + `addDropGain()`, rendered as ONE synthetic card
+  alongside the real `dropQueue` items, both reset together on "Got it".
+
+**Verified**: `node farroadsmoke.js` — 179/179 (11 new checks): Keen
+genuinely gone from `BONUSES`/`bonusApplies`; a save with banked keen
+stacks migrates the correct triangular-cost refund to `G.lore` and
+strips keen without throwing; enrage's MAG scaling and lifesteal's
+Spirit scaling both confirmed via real battles (`C.makeBattle`/
+`C.step`), not just formula inspection. Live browser pass: AETHER tab's
+three row types confirmed visually consistent via screenshot (no more
+wrapped/squished values); the level badge reads "LV 1 → LV 2"; Spirit's
+corrected description renders correctly; MC creation's charge cards and
+the turn-order rail both confirmed showing icons correctly (⚔️ physical,
+🔮 magic, element icons layered on top); `C.BONUSES.keen` confirmed
+`undefined` and `C.BONUSES.broad.d` confirmed reading the corrected
+text live; the 3 new enemy weakness baselines confirmed compiled
+correctly via `C.ARCH`. Not exercised live: the condensed drop-notice
+card specifically, which needs wave 20+ (when drops turn random) to
+trigger a real duplicate — covered by code review and the save-
+round-trip structure only, disclosed rather than claimed as fully
+verified.

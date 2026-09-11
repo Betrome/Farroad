@@ -1045,6 +1045,91 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  })();
 })();
 
+/* =================== 19. FEEDBACK BATCH (v2.11) ============================
+ * Keen (crit) retired from Lore — redundant now that ATK/MAG Crit are
+ * directly Aether-investable (P.PCT_STAT) — with a save migration so
+ * banked keen stacks refund to G.lore rather than vanishing; enrage now
+ * scales MAG as well as ATK; lifesteal/drain scales with the caster's
+ * own Spirit, same as any other heal. */
+(function(){
+ /* --- Keen is genuinely gone, not just hidden ---------------------------- */
+ ok('C.BONUSES.keen no longer exists', C.BONUSES.keen===undefined);
+ ok('C.bonusApplies never returns true for keen on any action', (function(){
+  return Object.keys(C.ACTIONS).every(function(id){return !C.bonusApplies(C.ACTIONS[id],'keen');});
+ })());
+ ok('applying a keen stack does not add a crit bonus', (function(){
+  var before=C.ACTIONS.strike.critBonus;
+  C.applyBonuses({strike:{keen:5}});
+  var after=C.ACTIONS.strike.critBonus;
+  C.applyBonuses({});   /* reset back to pristine for any later test */
+  return before===after;
+ })());
+
+ /* --- old save with banked keen stacks migrates to a G.lore refund ------- */
+ (function(){
+  var fakeG5={seed:1,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:10,marks:0,wipes:0,
+   party:['kesh'],actions:['strike','ember'],conditions:['none'],actionCounts:{},condCounts:{},
+   bonuses:{strike:{keen:3,potent:2},ember:{keen:2}},
+   recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},dropsGranted:{},
+   lvl:{kesh:1},bank:{kesh:0},maxLevelEver:1,owned:{kesh:1},enrage:true,idleAcc:0,
+   dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,expeditions:[],dungeons:[],
+   quests:{kesh:{stage:0,frozen:[]}},directions:{},affinities:{kesh:{}},statInvest:{kesh:{}}};
+  var snap5=V.serialize(fakeG5,1700000000000);
+  var restored5=V.deserialize(JSON.parse(JSON.stringify(snap5)),C);
+  ok('a save with banked keen stacks does not throw on load', !!restored5);
+  ok('keen is stripped from every bonus map on load',
+   !!restored5&&!restored5.bonuses.strike.keen&&!restored5.bonuses.ember.keen);
+  ok('non-keen stacks on the same action survive the migration untouched',
+   !!restored5&&restored5.bonuses.strike.potent===2);
+  /* strike had {keen:3,potent:2} -> total 5, triangular cost 15; without
+     keen it's just {potent:2} -> total 2, cost 3; refund 12.
+     ember had {keen:2} -> total 2, cost 3; without keen, total 0, cost 0;
+     refund 3. Combined refund 15, on top of the original lore:10. */
+  ok('banked keen stacks refund the correct triangular-cost difference to G.lore',
+   !!restored5&&restored5.lore===25, restored5&&restored5.lore);
+ })();
+
+ /* --- enrage scales MAG as well as ATK, in a real battle ----------------- */
+ (function(){
+  C.setWave(1);
+  var rng=C.makeRNG(4242);
+  var tank=C.makeUnit({id:'p1',name:'Tank',isParty:true,level:1,slotIndex:0,row:'front',
+   stats:{atk:1,mag:1,def:9999,res:9999,spd:100,evade:0},maxHp:1e9,hp:1e9,
+   slots:[{cond:'none',action:'strike'}]});
+  var caster=C.makeUnit({id:'e1',name:'Caster',isParty:false,level:1,slotIndex:10,
+   stats:{atk:1,mag:50,def:9999,res:9999,spd:100,evade:0},maxHp:1e9,hp:1e9,
+   slots:[{cond:'none',action:'ember'}]});
+  var magBefore=caster.base.mag,atkBefore=caster.base.atk;
+  var b=C.makeBattle([tank,caster],{rng:rng,enrage:true});
+  var guard=0;
+  while(b.beat<C.ENRAGE_AFTER+10&&guard++<1000)C.step(b);
+  ok('enrage raises MAG as well as ATK on a real enemy',
+   caster.base.mag>magBefore&&caster.base.atk>atkBefore,
+   'mag '+magBefore+'->'+caster.base.mag+' atk '+atkBefore+'->'+caster.base.atk);
+ })();
+
+ /* --- lifesteal scales with the attacker's own Spirit --------------------- */
+ (function(){
+  function drainWith(spiritVal){
+   C.setWave(1);
+   var atk=C.makeUnit({id:'a',name:'A',isParty:false,level:1,slotIndex:0,
+    stats:{atk:30,mag:10,def:10,res:10,spd:100},affinity:{spirit:spiritVal},hp:1,
+    slots:[{cond:'none',action:'siphon'},{cond:'none',action:'siphon'}]});
+   var tgt=C.makeUnit({id:'t',name:'T',isParty:true,level:1,slotIndex:10,
+    stats:{hp:1000000,atk:10,mag:10,def:10,res:10,spd:90},
+    slots:[{cond:'none',action:'strike'},{cond:'none',action:'strike'}]});
+   var b=C.makeBattle([atk,tgt],{rng:C.makeRNG(1),deterministic:true});
+   var before=atk.hp;C.step(b);
+   return atk.hp-before;}
+  ok('siphon is a lifesteal action (fixture sanity check)', C.ACTIONS.siphon&&C.ACTIONS.siphon.lifesteal>0);
+  var drainHigh=drainWith(C.AFFINITY_CAP), drainNeutral=drainWith(0), drainLow=drainWith(-C.AFFINITY_CAP);
+  ok('positive Spirit increases the attacker\'s own lifesteal/drain',
+   drainHigh>drainNeutral, drainHigh+' vs '+drainNeutral);
+  ok('negative Spirit decreases the attacker\'s own lifesteal/drain',
+   drainLow<drainNeutral, drainLow+' vs '+drainNeutral);
+ })();
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);
