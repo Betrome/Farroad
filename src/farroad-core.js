@@ -15,6 +15,30 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
    raising the cap cannot let a deep enemy crit more than its archetype says. */
 var TICK_K=10000,CRIT_MUL=1.75,CAP_EVADE=.40,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
+/* ===== RARITY (v2.12) =====
+ * Common/Rare/Legendary — actions and units now, equipment later once it
+ * ships (farroadgdd.md: "specified, never built," a future stat layer
+ * between level and status — this table is the shared vocabulary it will
+ * reuse, nothing equipment-specific added yet).
+ * Generalizes a 2-tier split that already existed in every way but name:
+ * P.MC_STARTER_CHARGES (3 generic, plain) vs. P.MC_CHARGE_DROP_POOL (18
+ * "corner" charges — attached status/conditional/resource effect, gated
+ * behind a 10% rare-drop roll) — see farroad-progression.js.
+ * Lives here, not progression, for the same cross-module reason
+ * AFFINITY_CAP/affinityMul do just above: consumed directly inside
+ * bonusPrice/bonusSpend below (core.js), and ALSO needed by progression's
+ * unit-leveling cost curve and the UI's rarity badge — core loads first,
+ * so a P.* table wouldn't exist yet at the point core's own functions
+ * need it. Cost scales FASTER than power at every tier on purpose — "I'd
+ * like units and actions to be comparable with the same investment [but]
+ * the rarer something is, the more expensive it is to upgrade" (Ian) — a
+ * Rare/Legendary pick isn't a strict upgrade at equal spend, it's a
+ * genuinely higher ceiling that costs proportionally more to reach,
+ * which is what makes it a late-game payoff rather than an always-pick
+ * from wave 1. Validated via balance script (scratchpad) before shipping
+ * these exact numbers, not guessed and left alone. */
+var RARITY_POWER_MUL={common:1.00, rare:1.25, legendary:1.55};
+var RARITY_COST_MUL ={common:1.00, rare:1.60, legendary:2.40};
 /* ===== ELEMENTAL AFFINITIES (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — one value per unit per axis,
  * used symmetrically: a unit's OWN value in an axis both boosts its output on
@@ -236,7 +260,10 @@ var ACTION_DYNAMIC={
  execute:{critFn:function(s,t){return (t&&t.hp/t.maxHp<=.30)?0.65:-1;}},
  vengeance:{powerFn:function(s){return 0.55+1.55*(1-s.hp/s.maxHp);}},
  onslaught:{powerFn:function(s){return s.turnsTaken===0?2.20:0.65;}},
- reckoning:{powerFn:function(s,t){return t?(2.0+4.5*(1-t.hp/t.maxHp)):2.0;}},
+ /* Legendary (v2.12): scaled 55% over the original 2.0/4.5 baseline via
+    RARITY_POWER_MUL.legendary, same as the CSV power field on this row
+    (which this powerFn overrides for actual damage — see the note there). */
+ reckoning:{powerFn:function(s,t){return t?(3.1+6.975*(1-t.hp/t.maxHp)):3.1;}},
  ninefold:{randomPerHit:true}};
 Object.keys(ACTION_DYNAMIC).forEach(function(id){
  if(ACTIONS[id])for(var k in ACTION_DYNAMIC[id])ACTIONS[id][k]=ACTION_DYNAMIC[id][k];});
@@ -283,9 +310,16 @@ function actionBonusTotal(b){
    pays into NOR counts toward the linear total the other bonuses escalate
    against. */
 var BONUS_COST_BROAD=50;
+/* v2.12: every Lore price on a Rare/Legendary action now costs more,
+   RARITY_COST_MUL applied uniformly (Broad included — "everything about
+   a rare action costs more," not a special case). bonusSpend below must
+   apply the SAME multiplier to its closed-form reconstruction, or a save
+   with Lore already spent on a Rare/Legendary action would recompute a
+   smaller total than was actually paid. */
 function bonusPrice(a,bid,totalOnAction){
- if(bid==='broad')return BONUS_COST_BROAD;
- return (totalOnAction||0)+1;}
+ var mul=RARITY_COST_MUL[(a&&a.rarity)||'common']||1;
+ if(bid==='broad')return Math.round(BONUS_COST_BROAD*mul);
+ return Math.round(((totalOnAction||0)+1)*mul);}
 /* ===== LORE BONUSES =====
  * v2.2 (item 5): support actions had NO upgrade path — Mend did not scale at all
  * while attacks had piercing/keen/weighty. Six support bonuses added below.
@@ -414,14 +448,22 @@ function applyBonuses(map){snapshot();
    total the player actually paid. Since price now depends only on the
    ACTION's running total (not on which bonus each purchase was — see
    bonusPrice/actionBonusTotal above), the total cost of K non-broad stacks
-   on one action is the closed-form triangular sum 1+2+...+K =
-   K*(K+1)/2, regardless of how those K stacks are split across bonus types
-   or the order they were bought in — no need to replay a purchase sequence. */
+   on one action is 1+2+...+K, regardless of how those K stacks are split
+   across bonus types or the order they were bought in — no need to replay
+   a purchase sequence.
+   v2.12: at mul===1 (Common) that sum has the closed form K*(K+1)/2 exactly,
+   since every term is already an integer. At any other mul, bonusPrice
+   rounds EACH purchase individually (Lore is spent in whole points), so
+   Math.round(K*(K+1)/2*mul) drifts from the real total — rounding error
+   compounds differently than rounding the smooth sum once. Sum the same
+   per-purchase Math.round bonusPrice itself applies; K is a purchase COUNT
+   on a single action (small — tens at most), so the loop costs nothing. */
 function bonusSpend(map){var n=0;
  Object.keys(map||{}).forEach(function(aid){
   var b=map[aid],total=actionBonusTotal(b);
-  n+=total*(total+1)/2;
-  n+=(b.broad||0)*BONUS_COST_BROAD;});
+  var mul=RARITY_COST_MUL[(ACTIONS[aid]&&ACTIONS[aid].rarity)||'common']||1;
+  for(var k=1;k<=total;k++)n+=Math.round(k*mul);
+  n+=(b.broad||0)*Math.round(BONUS_COST_BROAD*mul);});
  return n;}
 function living(b,p){var o=[];for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp>0&&p(u))o.push(u);}return o;}
 function foes(b,u){return living(b,function(x){return x.isParty!==u.isParty;});}
@@ -797,6 +839,7 @@ F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;
 F.pristineOf=function(id){snapshot();return PRISTINE[id]||null;};
 F.bonusApplies=bonusApplies;F.bonusPrice=bonusPrice;F.actionBonusTotal=actionBonusTotal;
 F.BONUS_COST_BROAD=BONUS_COST_BROAD;
+F.RARITY_POWER_MUL=RARITY_POWER_MUL;F.RARITY_COST_MUL=RARITY_COST_MUL;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;
 F.costOfCharge=costOfCharge;F.CHARGE_UP_COST=CHARGE_UP_COST;
 F.CHARGE_THRIFT=CHARGE_THRIFT;F.CHARGE_COST_MIN=CHARGE_COST_MIN;

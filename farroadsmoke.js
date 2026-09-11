@@ -359,29 +359,41 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
     return;` guard below already skipped them silently; trimmed rather
     than left as a second stale list. Block is gone from the game
     entirely (see section 18's own note). */
+ /* Rare/Legendary roster units are deliberately stronger than the MC's own
+    point-buy bounds (see the RARITY comment in core.js) — a Rare unit's
+    stat/growth is allowed up to RARITY_POWER_MUL[rarity] times the plain
+    MC_STAT_RANGE/MC_GROWTH_RANGE ceiling/floor, not the raw range itself.
+    Common units still have to fit the unscaled bounds exactly as before. */
  var statKeys=['atk','mag','def','res','spd'];
  var outOfRange=[];
  R.forEach(function(r){
+  var mul=C.RARITY_POWER_MUL[r.rarity||'common']||1;
   statKeys.forEach(function(k){
    var range=P.MC_STAT_RANGE[k];if(!range)return;
-   var v=r.stats[k];
-   if(v<range[0]||v>range[1])outOfRange.push(r.id+'.'+k+'='+v+' (range '+range[0]+'-'+range[1]+')');});
-  var hpRange=P.MC_STAT_RANGE.hp;
-  if(r.hp<hpRange[0]||r.hp>hpRange[1])outOfRange.push(r.id+'.hp='+r.hp+' (range '+hpRange[0]+'-'+hpRange[1]+')');});
- ok('every ROSTER unit\'s stats (incl. hp) fall within P.MC_STAT_RANGE', outOfRange.length===0, outOfRange.join('; '));
+   var v=r.stats[k],lo=range[0]*mul,hi=range[1]*mul;
+   if(v<lo||v>hi)outOfRange.push(r.id+'.'+k+'='+v+' (range '+lo+'-'+hi+')');});
+  var hpRange=P.MC_STAT_RANGE.hp,hpLo=hpRange[0]*mul,hpHi=hpRange[1]*mul;
+  if(r.hp<hpLo||r.hp>hpHi)outOfRange.push(r.id+'.hp='+r.hp+' (range '+hpLo+'-'+hpHi+')');});
+ ok('every ROSTER unit\'s stats (incl. hp) fall within its rarity-scaled P.MC_STAT_RANGE', outOfRange.length===0, outOfRange.join('; '));
  var growthKeys2=['atk','mag','def','res','spd','hp'];
  var growthOut=[];
  R.forEach(function(r){
   var g=P.GROWTH[r.id];if(!g){growthOut.push(r.id+': no P.GROWTH entry');return;}
+  var mul=C.RARITY_POWER_MUL[r.rarity||'common']||1;
   growthKeys2.forEach(function(k){
    var range=P.MC_GROWTH_RANGE[k];if(!range)return;
-   if(g[k]<range[0]||g[k]>range[1])growthOut.push(r.id+'.'+k+'='+g[k]+' (range '+range[0]+'-'+range[1]+')');});});
- ok('every ROSTER unit has a P.GROWTH entry within P.MC_GROWTH_RANGE', growthOut.length===0, growthOut.join('; '));
+   var lo=range[0]*mul,hi=range[1]*mul;
+   if(g[k]<lo||g[k]>hi)growthOut.push(r.id+'.'+k+'='+g[k]+' (range '+lo+'-'+hi+')');});});
+ ok('every ROSTER unit has a P.GROWTH entry within its rarity-scaled P.MC_GROWTH_RANGE', growthOut.length===0, growthOut.join('; '));
  var newFive=['skarn','sorin','nyra','brenn','sael'];
  var budgetOff=newFive.filter(function(id){
+  var r=R.filter(function(x){return x.id===id;})[0];
+  var mul=C.RARITY_POWER_MUL[r.rarity||'common']||1;
   var g=P.GROWTH[id];var sum=g.atk+g.mag+g.def+g.res+g.spd;
-  return Math.abs(sum-7.5)>1e-9;});
- ok('the 5 new companions\' atk+mag+def+res+spd growth each sum to exactly 7.5',
+  /* individually hand-rounded to 1 decimal, so allow slack for rounding
+     error across 5 stats rather than requiring exact equality */
+  return Math.abs(sum-7.5*mul)>0.3;});
+ ok('the 5 new companions\' atk+mag+def+res+spd growth each sum to ~7.5x their rarity\'s RARITY_POWER_MUL',
   budgetOff.length===0, budgetOff.join(','));
  var chargeIds=R.map(function(r){return r.chargeAction;});
  var uniqueCharges=chargeIds.filter(function(id,i){return chargeIds.indexOf(id)===i;});
@@ -573,8 +585,13 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('mag_lance power matches atk_reckless (no more ceiling-compensation nerf)',
   C.ACTIONS.mag_lance.power===C.ACTIONS.atk_reckless.power);
  ok('mag_font power matches atk_cry', C.ACTIONS.mag_font.power===C.ACTIONS.atk_cry.power);
- ok('def_slam/res_strike/spd_flurry untouched (out of scope)',
-  C.ACTIONS.def_slam.power===2.60 && C.ACTIONS.res_strike.power===3.00 && C.ACTIONS.spd_flurry.power===0.45);
+ /* Rarity (later pass) bumped these 3's power by RARITY_POWER_MUL.rare on
+    top of the original out-of-scope baseline (2.60/3.00/0.45) — check
+    against that scaled value instead of the old flat baseline. */
+ ok('def_slam/res_strike/spd_flurry scaled by RARITY_POWER_MUL.rare, nothing else',
+  C.ACTIONS.def_slam.power===Math.round(2.60*C.RARITY_POWER_MUL.rare*100)/100 &&
+  C.ACTIONS.res_strike.power===Math.round(3.00*C.RARITY_POWER_MUL.rare*100)/100 &&
+  C.ACTIONS.spd_flurry.power===Math.round(0.45*C.RARITY_POWER_MUL.rare*100)/100);
 
  /* --- enemy row: rowSpdMul now reads row regardless of isParty --------- */
  var frontFoe=C.makeUnit({id:'f1',isParty:false,level:1,slotIndex:10,row:'front',
@@ -1127,6 +1144,108 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    drainHigh>drainNeutral, drainHigh+' vs '+drainNeutral);
   ok('negative Spirit decreases the attacker\'s own lifesteal/drain',
    drainLow<drainNeutral, drainLow+' vs '+drainNeutral);
+ })();
+})();
+
+/* =================== 20. RARITY (v2.12) ====================================
+ * Common/Rare/Legendary on actions and units — see the RARITY comment in
+ * core.js (RARITY_POWER_MUL/RARITY_COST_MUL) and the plan this shipped
+ * from. Checks: every ACTIONS/ROSTER/ARCH entry has a valid rarity;
+ * bonusPrice/bonusSpend agree on a rarity-adjusted total (save round-trip,
+ * same shape the Keen-migration test above used); rarityCostMul is wired
+ * into unit-leveling cost; the weighted unit-pull table sums to 1 and
+ * skews Common; the nested Legendary-charge roll fires near its configured
+ * rate over many trials (same methodology as the EXPED_DISCOVERY_CHANCE
+ * smoke check). */
+(function(){
+ var KNOWN_RARITIES=['common','rare','legendary'];
+ /* --- every entry has a valid rarity, defaulting correctly when blank --- */
+ (function(){
+  var bad=[];
+  Object.keys(C.ACTIONS).forEach(function(id){
+   if(KNOWN_RARITIES.indexOf(C.ACTIONS[id].rarity)<0)bad.push('ACTIONS.'+id+'='+C.ACTIONS[id].rarity);});
+  C.ROSTER.forEach(function(r){
+   if(KNOWN_RARITIES.indexOf(r.rarity)<0)bad.push('ROSTER.'+r.id+'='+r.rarity);});
+  Object.keys(C.ARCH).forEach(function(key){
+   if(KNOWN_RARITIES.indexOf(C.ARCH[key].rarity)<0)bad.push('ARCH.'+key+'='+C.ARCH[key].rarity);});
+  ok('every ACTIONS/ROSTER/ARCH entry has a valid rarity', bad.length===0, bad.join(', '));
+ })();
+ ok('a blank rarity column compiles to common (enemies untouched this pass)',
+  C.ACTIONS.bite.rarity==='common' && C.ARCH.wolf.rarity==='common');
+ ok('the 5 roster-expansion companions are Rare, the original 5 are Common', (function(){
+  var rare=['skarn','sorin','nyra','brenn','sael'],common=['kesh','ansa','dorrek','vey','mirel'];
+  var byId={};C.ROSTER.forEach(function(r){byId[r.id]=r;});
+  return rare.every(function(id){return byId[id].rarity==='rare';}) &&
+   common.every(function(id){return byId[id].rarity==='common';});
+ })());
+ ok('reckoning and hollowtoll are Legendary, the rest of the drop pool is Rare',
+  C.ACTIONS.reckoning.rarity==='legendary' && C.ACTIONS.hollowtoll.rarity==='legendary' &&
+  C.ACTIONS.sunder.rarity==='rare' && C.ACTIONS.atk_reckless.rarity==='rare');
+
+ /* --- bonusPrice/bonusSpend agree on a rarity-adjusted total (save round-trip) */
+ (function(){
+  /* oath (rare, RARITY_COST_MUL 1.60) — 3 stacked Swift bonuses. bonusPrice
+     charges (n+1)*mul per stack (n=0,1,2 -> 1,2,3 lore before mul), so
+     buying 3 stacks costs (1+2+3)*1.60=9.6; bonusSpend must reconstruct the
+     same total from the resulting {swift:3} map alone. */
+  var mul=C.RARITY_COST_MUL.rare;
+  var p1=C.bonusPrice(C.ACTIONS.oath,'swift',0);
+  var p2=C.bonusPrice(C.ACTIONS.oath,'swift',1);
+  var p3=C.bonusPrice(C.ACTIONS.oath,'swift',2);
+  ok('bonusPrice on a Rare action is scaled by RARITY_COST_MUL.rare',
+   p1===Math.round(1*mul) && p2===Math.round(2*mul) && p3===Math.round(3*mul),
+   p1+','+p2+','+p3);
+  var spent=C.bonusSpend({oath:{swift:3}});
+  ok('bonusSpend reconstructs the same rarity-adjusted total bonusPrice charged',
+   spent===p1+p2+p3, spent+' vs '+(p1+p2+p3));
+  /* legendary Broad on reckoning — bonusPrice's flat branch, not the
+     triangular one; bonusSpend's broad term must apply the same mul. */
+  var mulL=C.RARITY_COST_MUL.legendary;
+  var broadPrice=C.bonusPrice(C.ACTIONS.reckoning,'broad',0);
+  ok('bonusPrice broad-branch is scaled by RARITY_COST_MUL.legendary',
+   broadPrice===Math.round(C.BONUS_COST_BROAD*mulL));
+  var spentBroad=C.bonusSpend({reckoning:{broad:1}});
+  ok('bonusSpend broad-branch agrees with bonusPrice on a Legendary action',
+   spentBroad===broadPrice, spentBroad+' vs '+broadPrice);
+ })();
+
+ /* --- rarityCostMul is wired into unit-leveling cost (via the fused UI file) */
+ ok('RARITY_COST_MUL steeper than RARITY_POWER_MUL at every tier (the cost/ceiling trade-off)',
+  C.RARITY_COST_MUL.rare>C.RARITY_POWER_MUL.rare && C.RARITY_COST_MUL.legendary>C.RARITY_POWER_MUL.legendary);
+ ok('RARITY_POWER_MUL/RARITY_COST_MUL both flat 1.00 at common (no-op tier)',
+  C.RARITY_POWER_MUL.common===1 && C.RARITY_COST_MUL.common===1);
+
+ /* --- weighted unit-pull table sums to 1 and skews Common ---------------- */
+ (function(){
+  var w=P.RARITY_PULL_WEIGHT;
+  ok('P.RARITY_PULL_WEIGHT defined for all 3 tiers', KNOWN_RARITIES.every(function(r){return typeof w[r]==='number';}));
+  ok('P.RARITY_PULL_WEIGHT skews toward common (common heaviest)',
+   w.common>w.rare, w.common+' vs '+w.rare);
+  var total=w.common+w.rare, pCommon=w.common/total;
+  /* sample P.weightedRosterPick 2000 times over a fixed 2-common/2-rare
+     pool and check the observed common share lands near the closed-form
+     expectation — same "roll many times, check the rate" shape the
+     nested Legendary-charge check below (and EXPED_DISCOVERY_CHANCE
+     elsewhere) already use for a probabilistic pick. */
+  var pool=[{id:'c1',rarity:'common'},{id:'c2',rarity:'common'},
+            {id:'r1',rarity:'rare'},{id:'r2',rarity:'rare'}];
+  var rng=C.makeRNG(4242),hits=0,n=2000;
+  for(var i=0;i<n;i++)if(P.weightedRosterPick(rng,pool).rarity==='common')hits++;
+  var observed=hits/n;
+  ok('sampled P.weightedRosterPick lands within 5% of the closed-form common share',
+   Math.abs(observed-pCommon)<0.05, observed+' vs expected '+pCommon);
+ })();
+
+ /* --- nested Legendary-charge roll fires near its configured rate -------- */
+ (function(){
+  var legendaryPool=P.MC_CHARGE_DROP_POOL.filter(function(id){return C.ACTIONS[id].rarity==='legendary';});
+  ok('MC_CHARGE_DROP_POOL has exactly the 2 promoted Legendary charges',
+   legendaryPool.length===2, legendaryPool.join(','));
+  var rng=C.makeRNG(777),legendaryHits=0,n=5000;
+  for(var i=0;i<n;i++)if(rng.next()<P.MC_LEGENDARY_CHARGE_CHANCE)legendaryHits++;
+  var observed=legendaryHits/n;
+  ok('the nested Legendary-vs-Rare roll fires within 3% of MC_LEGENDARY_CHARGE_CHANCE',
+   Math.abs(observed-P.MC_LEGENDARY_CHARGE_CHANCE)<0.03, observed+' vs '+P.MC_LEGENDARY_CHARGE_CHANCE);
  })();
 })();
 

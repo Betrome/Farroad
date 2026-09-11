@@ -60,6 +60,17 @@ function compileAffinity(r) {
   return a;
 }
 
+/* Common/Rare/Legendary (v2.12) — shared across units, enemies, and
+   actions, all three CSVs using the same `rarity` column and the same
+   default. Blank/missing -> 'common'; anything ELSE is passed through
+   as typed (not silently coerced to 'common') so buildContent's own
+   validation below can catch a typo loudly instead of quietly treating
+   it as the default tier. */
+const RARITIES = ['common', 'rare', 'legendary'];
+function compileRarity(r) {
+  return (r.rarity || '').trim().toLowerCase() || 'common';
+}
+
 function compileRoster(rows) {
   return rows.map(r => ({
     id: r.id, name: r.name, role: r.role, row: r.row, hp: num(r.hp),
@@ -69,7 +80,8 @@ function compileRoster(rows) {
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit), chargeRate: num(r.charge_rate),
       evade: num(r.evade)
     },
-    affinity: compileAffinity(r)
+    affinity: compileAffinity(r),
+    rarity: compileRarity(r)
   }));
 }
 
@@ -91,6 +103,7 @@ function compileArch(rows) {
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit, 0.04),
       evade: num(r.evade),
       affinity: compileAffinity(r),
+      rarity: compileRarity(r),
       slots: [{ cond: r.slot1_condition, action: r.slot1_action },
               { cond: r.slot2_condition, action: r.slot2_action }]
     };
@@ -131,6 +144,7 @@ function compileActions(rows) {
     if (r.kind === 'charge') e.isCharge = true;
     if (r.kind === 'inert') e.inert = true;
     if (r.design_note) e.note = r.design_note;
+    e.rarity = compileRarity(r);
     actions[r.id] = e;
   });
   return actions;
@@ -214,6 +228,23 @@ function buildContent(rootDir) {
       problems.push(`farroadactions.csv: "${id}" is a magic damage action but has no element`);
     if (a.element && ELEMENTS.indexOf(a.element) < 0)
       problems.push(`farroadactions.csv: "${id}" has unrecognized element "${a.element}" (expected one of ${ELEMENTS.join('/')})`);
+  });
+
+  /* Rarity (v2.12): compileRarity() deliberately does NOT silently coerce
+     an unrecognized value to 'common' (only a truly blank one) — this is
+     what actually catches a typo, same fail-loudly pattern as element
+     above. */
+  Object.keys(ACTIONS).forEach(id => {
+    if (RARITIES.indexOf(ACTIONS[id].rarity) < 0)
+      problems.push(`farroadactions.csv: "${id}" has unrecognized rarity "${ACTIONS[id].rarity}" (expected one of ${RARITIES.join('/')} or blank)`);
+  });
+  ROSTER.forEach(r => {
+    if (RARITIES.indexOf(r.rarity) < 0)
+      problems.push(`farroadunits.csv: "${r.id}" has unrecognized rarity "${r.rarity}" (expected one of ${RARITIES.join('/')} or blank)`);
+  });
+  Object.keys(ARCH).forEach(key => {
+    if (RARITIES.indexOf(ARCH[key].rarity) < 0)
+      problems.push(`farroadenemies.csv: "${key}" has unrecognized rarity "${ARCH[key].rarity}" (expected one of ${RARITIES.join('/')} or blank)`);
   });
 
   ROSTER.forEach(r => {

@@ -182,6 +182,22 @@ P.rollCount=function(rng,w){
  for(var i=0;i<table.length;i++){acc+=table[i][1];
   if(r<=acc)return table[i][0];}
  return table[table.length-1][0];};
+/* Rarity (v2.12): unit pulls now skew toward Common instead of picking
+   uniformly among not-yet-owned companions — Rare becomes genuinely harder
+   to pull, not just costlier to grow once owned. Reasoned starting point;
+   no Legendary units exist yet (see the plan's open pick) but a weight is
+   defined regardless so one can be added later with no code change here. */
+P.RARITY_PULL_WEIGHT={common:3, rare:1, legendary:1};
+/* Roulette-wheel pick over a list of C.ROSTER entries, weighted by each
+   entry's own rarity via P.RARITY_PULL_WEIGHT — same explicit-rng shape as
+   P.rollCount just above, so this stays engine-testable headless like the
+   rest of this file rather than reaching for a global. */
+P.weightedRosterPick=function(rng,list){
+ var weights=list.map(function(r){return P.RARITY_PULL_WEIGHT[r.rarity||'common']||1;});
+ var total=weights.reduce(function(a,w){return a+w;},0);
+ var roll=rng.next()*total,acc=0,i;
+ for(i=0;i<list.length;i++){acc+=weights[i];if(roll<acc)return list[i];}
+ return list[list.length-1];};
 /* Per-enemy multiplier. n=1 -> x1.85 elite, n=4 -> x0.72 each. Total encounter
    strength (n x mul) runs 1.85 / 2.60 / 2.88 / 2.88 — rising slightly with count
    but far flatter than linear, so a lone elite is a real fight and a crowd is not
@@ -503,13 +519,19 @@ P.GROWTH={
  vey   :{hp:21,atk:2.0,mag:0.7,def:0.9,res:0.8,spd:3.2},  /* fast, fragile      */
  mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9},  /* glass caster       */
  /* Roster expansion 5->10 (prereq for roadmap item 4 — see the ROSTER
-    EXPANSION comment in core.js). Every unit's atk+mag+def+res+spd growth
-    sums to 7.5, matching the original five's 7.3-7.7 band. */
- skarn :{hp:19,atk:1.7,mag:0.7,def:1.3,res:1.2,spd:2.6},  /* berserker          */
- sorin :{hp:30,atk:1.6,mag:1.6,def:1.3,res:1.2,spd:1.8},  /* battle-mage        */
- nyra  :{hp:20,atk:0.9,mag:1.7,def:1.6,res:1.6,spd:1.7},  /* warden / debuffer  */
- brenn :{hp:38,atk:1.1,mag:1.0,def:1.5,res:1.5,spd:2.4},  /* evasion tank       */
- sael  :{hp:19,atk:0.6,mag:2.0,def:0.9,res:1.3,spd:2.7}}; /* swift support      */
+    EXPANSION comment in core.js). Originally: every unit's atk+mag+def+
+    res+spd growth summed to 7.5, matching the original five's 7.3-7.7
+    band — these five are now Rare (v2.12), so growth is deliberately
+    NOT balance-equal to the Common five any more; every value below is
+    the original x RARITY_POWER_MUL.rare (1.25, farroad-core.js),
+    rounded — 9.4ish combined instead of 7.5, on purpose. See the
+    RARITY comment there for why this is a real departure from the old
+    balance rule, not an oversight. */
+ skarn :{hp:24,atk:2.1,mag:0.9,def:1.6,res:1.5,spd:3.3},  /* berserker (Rare)         */
+ sorin :{hp:38,atk:2.0,mag:2.0,def:1.6,res:1.5,spd:2.3},  /* battle-mage (Rare)       */
+ nyra  :{hp:25,atk:1.1,mag:2.1,def:2.0,res:2.0,spd:2.1},  /* warden / debuffer (Rare) */
+ brenn :{hp:48,atk:1.4,mag:1.3,def:1.9,res:1.9,spd:3.0},  /* evasion tank (Rare)      */
+ sael  :{hp:24,atk:0.8,mag:2.5,def:1.1,res:1.6,spd:3.4}}; /* swift support (Rare)     */
 /* Verified distinct rather than noise: at L20, spd:def runs 1.46 (Dorrek) to 5.94
    (Vey), and atk:mag runs 0.29 (Mirel) to 2.69 (Dorrek). */
 /* v2.1: cost exponent 2.8, coefficient 0.4 — solved as a fixed point against the
@@ -817,6 +839,14 @@ P.MC_CHARGE_DROP_POOL=['tideturn','lastlight','sunder','gravewind','reckoning',
    200+ waves of random drops, down from 400+ — still meaningfully rarer
    than the guaranteed per-wave action/condition drop it can replace. */
 P.MC_CHARGE_DROP_CHANCE=0.10;
+/* Rarity (v2.12): 2 of the 18-action pool (reckoning, hollowtoll) are now
+   Legendary rather than Rare — nested roll INSIDE the 10% gate above, not a
+   second independent chance: once a charge-drop event fires, this decides
+   whether it's the Legendary pair or the remaining 16 Rare ones, uniform
+   within whichever tier is picked. Reasoned starting point, same as
+   MC_CHARGE_DROP_CHANCE itself — retune from balance-script results if a
+   Legendary charge turns out to land far more/less often than intended. */
+P.MC_LEGENDARY_CHARGE_CHANCE=0.15;
 P.mcLerp=function(range,point){
  return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
 P.mcPointsSpent=function(points){

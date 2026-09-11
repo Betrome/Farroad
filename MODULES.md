@@ -2489,3 +2489,150 @@ card specifically, which needs wave 20+ (when drops turn random) to
 trigger a real duplicate — covered by code review and the save-
 round-trip structure only, disclosed rather than claimed as fully
 verified.
+
+## Rarity — Common/Rare/Legendary for actions and units
+
+Ian: "I want to introduce rarities for actions and units (and in the
+future, equipment), with the rare ones being more specialized and/or
+powerful." Four clarifying questions settled the shape before writing
+any code — 3 tiers (Common/Rare/Legendary); retroactive (sort the
+existing ~59 actions and 10 units into tiers now, not just new content
+going forward); units get genuinely stronger stats AND a unique charge
+action, not just a label; actions get "real power bump too", not only
+specialization. The trade-off, quoted directly: *"I'd like units and
+actions to be comparable with the same investment. This will result in
+the things that are more rare naturally being more late game as well."*
+Read as: cost scales FASTER than power per tier, so a Rare pick isn't a
+strict upgrade at equal Aether/Lore spend — it costs more to reach its
+higher ceiling.
+
+**Not invented from nothing** — `P.MC_STARTER_CHARGES` (3 generic, plain)
+vs. `P.MC_CHARGE_DROP_POOL` (18 "corner" charges, gated behind
+`P.MC_CHARGE_DROP_CHANCE=0.10`) was already a 2-tier rarity system in
+every way but name. This generalizes that exact shape into a named,
+3-tier system covering every action and unit, rather than building
+something structurally new next to it.
+
+**Data model**: `RARITY_POWER_MUL={common:1.00,rare:1.25,legendary:1.55}`
+and `RARITY_COST_MUL={common:1.00,rare:1.60,legendary:2.40}`
+(`farroad-core.js`) — cost deliberately steeper than power at every
+tier, the mechanical expression of the trade-off above. New `rarity`
+CSV column on `farroadunits.csv`/`farroadactions.csv` (NOT
+`farroadenemies.csv` — left untouched this pass; `compileRarity(r)`
+(`content-pipeline.js`) already defaults a missing column to `'common'`
+per row, so leaving the enemy CSV alone is a real no-op, not a gap).
+Invalid rarity strings are passed through uncoerced rather than
+silently defaulted, so `buildContent()`'s new validation loop catches a
+typo the same way it already catches a bad `element`/`charge_action`.
+
+**First-pass assignment — reasoned, not arbitrary, tunable**:
+- Units: the roster-expansion five (Skarn/Sorin/Nyra/Brenn/Sael) are
+  Rare; the original five (Kesh/Ansa/Dorrek/Vey/Mirel) are Common.
+  Grounded in an asymmetry that already existed — the original five
+  arrive on a guaranteed milestone schedule (`P.UNIT_WAVES`), the
+  expansion five are pull-only with no guaranteed date — this plan just
+  names it. No Legendary unit yet (an open pick, left for later).
+- Actions: the baseline equippables + 3 MC generic starters stay
+  Common on purpose (several are explicitly authored as "the baseline,
+  everything else is measured against this" — promoting them out of
+  Common would undermine that role). The 18-action `MC_CHARGE_DROP_POOL`
+  + the 10 companion-exclusive charge actions are Rare. `reckoning` and
+  `hollowtoll` are promoted to Legendary (a companion unit's own charge
+  action would be Legendary too if/when a Legendary unit is picked).
+
+**Power** — hand-authored bumps, no new formula: every Rare/Legendary
+unit's `farroadunits.csv` base stats AND `P.GROWTH` per-level growth
+(`farroad-progression.js`) are the original value × that tier's
+`RARITY_POWER_MUL`, computed via a Node script and rounded, same as
+`power`/`defPierce`/`critBonus` on every promoted action's CSV row.
+`reckoning`'s `ACTION_DYNAMIC.powerFn` (`farroad-core.js`) — a hardcoded
+formula that overrides the CSV `power` field entirely for that one
+action — got its own constants scaled the same way (2.0/4.5 →
+3.1/6.975), since bumping the now-cosmetic CSV field alone would have
+done nothing to its actual damage.
+
+**Cost** — one multiplier layered at two existing choke points, core
+formulas left pure: `rarityCostMul(uid)` (`farroad-ui.js`) wraps
+`P.costToNext` in both `costNext()` and `feedUnit()`'s bank loop, same
+layering pattern `effectiveAffinity()`/`applyPctStatInvestment()` already
+established for per-unit adjustments. `bonusPrice`/`bonusSpend`
+(`farroad-core.js`) both read `RARITY_COST_MUL[a.rarity]` directly —
+Lore costs on a Rare/Legendary action scale the same way. Fixed a real
+bug surfaced by the new smoke test here: `bonusPrice` rounds EACH
+purchase individually (Lore is spent in whole points), so at any
+`mul!==1` the closed-form triangular sum `K*(K+1)/2*mul` drifts from
+the true total once rounded — `bonusSpend` now sums the same
+`Math.round(k*mul)` per step bonusPrice would have charged, rather than
+rounding the smooth sum once at the end.
+
+**Acquisition** — rarity is rarer to GET, not just costlier to grow:
+- `randomDrop()`'s existing 10% MC charge-drop gate now rolls a nested
+  Legendary-vs-Rare choice once it fires (`P.MC_LEGENDARY_CHARGE_CHANCE
+  =0.15`) — uniform within whichever tier is picked, derived from each
+  action's own `.rarity` field rather than a hardcoded id list.
+- `doPull()`'s unit branch now calls `P.weightedRosterPick(rng,avail)`
+  (`farroad-progression.js`, explicit-rng signature mirroring
+  `P.rollCount`/`P.COUNT_WEIGHTS` so it stays headless-testable) instead
+  of a uniform pick — `P.RARITY_PULL_WEIGHT={common:3,rare:1,legendary:1}`
+  skews pulls toward Common. Lives in progression.js rather than ui.js
+  specifically so `farroadsmoke.js` (core+progression+save only, no DOM)
+  can exercise it directly.
+- The curated milestone unit-award path (`P.unitDueAt`) is untouched —
+  deterministic, not random, so a weighting has nothing to act on there.
+
+**Visual treatment**: `--rare`/`--legendary` CSS vars (`shell.html`,
+alongside the element vars from the icon phase) and a `.rtag` pill,
+same convention `.pill`/`.bosstag` already use for short status labels.
+Common gets no badge — the absence already reads as default. Wired via
+`rarityTag()`/`rarityTagText()` (HTML pill vs. plain-text for native
+`<select>` options, which can't render markup) into `describeAction()`'s
+one choke point plus the LORE header, GAMBITS action tabs, both action
+`<select>`s, the MC's equipped-charge-action box, the AETHER-tab unit
+box and unit-tab selector, and the pull-result drop banner. Skipped
+deliberately on the turn-order rail (76px chips — too cramped) and the
+combat log (would spam every hit).
+
+**Balance validation** (Node/VM script, not shipped as a file — ad hoc,
+same as every prior tuning pass): simulated a fixed Aether budget spent
+purely on leveling a synthetic Rare unit (real base+growth × 1.25)
+against its Common counterpart, at 4 budget/ratchet pairs spanning
+early to very-late game. Rare's total stat output is consistently
+10-20% ahead of Common's at equal spend, the edge SHRINKING with scale
+rather than growing — at first glance the opposite of "more of a
+late-game thing." Traced the cause: Rare's edge comes almost entirely
+from the free, un-costed base-stat head start (`RARITY_POWER_MUL`
+applied once, for nothing, to the CSV row), not from leveling being a
+bargain. Checked the marginal claim directly — power gained per Aether
+spent on the NEXT level, for Rare vs. Common, is `1.25/1.60 = 0.78×`:
+leveling itself really is a worse deal for Rare, confirming "the rarer
+something is, the more expensive it is to upgrade" holds on the
+investment axis specifically, even though total power (head start
+included) doesn't converge to parity — which it should not, since
+Ian's own first request was that Rare units be "genuinely stronger."
+No retune applied; concluded validated rather than forced a numeric
+change without playtest signal, per the plan's own "if" framing.
+
+**Verified**: `node farroadsmoke.js` — 194/194 (15 new checks, one
+section): every `ACTIONS`/`ROSTER`/`ARCH` entry has a valid rarity,
+defaulting correctly on a blank column; the roster-expansion five are
+Rare and the original five Common; `reckoning`/`hollowtoll` are
+Legendary and the rest of the drop pool Rare; `bonusPrice`/`bonusSpend`
+agree on a rarity-adjusted total for both the triangular and flat-Broad
+pricing branches (this is what caught the rounding-drift bug above);
+`RARITY_COST_MUL` confirmed steeper than `RARITY_POWER_MUL` at every
+tier; `P.weightedRosterPick` sampled 2000 times lands within 5% of its
+closed-form Common share; the nested Legendary-charge roll sampled 5000
+times lands within 3% of `MC_LEGENDARY_CHARGE_CHANCE`. Live browser
+pass: MC creation's 3 starter charges confirmed showing no badge
+(Common); after spending the character-creation stat pool and starting
+a run, GAMBITS/AETHER tabs confirmed rendering Strike/Ember and the
+player unit with no badge and no console errors; the in-page SMOKE TEST
+(drive-the-real-UI button, distinct from `farroadsmoke.js`) ran 120
+waves of `doStep()` and reported PASS; the `.rtag` pill's computed
+background/text color confirmed resolving to readable, distinct blue
+(Rare) and gold (Legendary) against the panel background. Not exercised
+live: an actual Rare/Legendary pull or MC charge-drop, since both are
+gated behind wave 20+ (curated run) and this session's browser sandbox
+disables `localStorage` (blocks injecting a save to skip ahead) —
+covered instead by the headless weighted-pick/nested-roll sampling
+above, disclosed rather than claimed as fully verified.

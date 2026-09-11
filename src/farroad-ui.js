@@ -168,13 +168,22 @@ function recoveryCost(uid){return Math.round(10*Math.pow(1.45,(G.recovery&&G.rec
 function expOf(uid){return (G.bank&&G.bank[uid])||0;}          /* unspent bank */
 function levelOf(uid){return (G.lvl&&G.lvl[uid])||1;}
 function ratchetR(){return G.maxLevelEver||1;}
-function costNext(uid){return P.costToNext(levelOf(uid),ratchetR());}
+/* Rarity (v2.12): a Rare/Legendary unit costs more per level than the
+   unmodified, rarity-agnostic P.costToNext formula returns — layered on
+   top at this UI choke point, same pattern pctStatBaseline's own
+   C.ROSTER scan already established just above. P.costToNext itself
+   stays pure/rarity-unaware, consistent with how affinity/PCT-stat
+   investment are already layered rather than baked into core formulas. */
+function rarityCostMul(uid){
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ return C.RARITY_COST_MUL[(def&&def.rarity)||'common']||1;}
+function costNext(uid){return Math.round(P.costToNext(levelOf(uid),ratchetR())*rarityCostMul(uid));}
 function feedUnit(uid,amount){
  G.bank=G.bank||{};G.lvl=G.lvl||{};
  G.bank[uid]=(G.bank[uid]||0)+amount;
- var gained=0,guard=0;
+ var gained=0,guard=0,mul=rarityCostMul(uid);
  while(guard++<100000){
-  var c=P.costToNext(levelOf(uid),ratchetR());
+  var c=Math.round(P.costToNext(levelOf(uid),ratchetR())*mul);
   if(G.bank[uid]<c)break;
   G.bank[uid]-=c;G.lvl[uid]=levelOf(uid)+1;gained++;
   if(G.lvl[uid]>(G.maxLevelEver||1))G.maxLevelEver=G.lvl[uid];   /* the ratchet */
@@ -394,6 +403,20 @@ function actionGlyphText(a){
  var e=a.element&&ELEMENT_GLYPH[a.element];
  return h+(e?e.icon:'')+' ';}
 
+/* ===== RARITY BADGE (v2.12) ===== Common gets no badge — the absence
+   already reads as default (same reasoning ELEMENT_GLYPH's camp icons
+   use). HTML pill for headings/titles; plain-text tag for native <select>
+   option labels, which can't render markup. Shared by both actions
+   (a.rarity) and roster/arch units (r.rarity) — same 3-value field. */
+function rarityTag(r){
+ if(r==='rare')return ' <span class="rtag rare">RARE</span>';
+ if(r==='legendary')return ' <span class="rtag legendary">LEGENDARY</span>';
+ return '';}
+function rarityTagText(r){
+ if(r==='rare')return ' [RARE]';
+ if(r==='legendary')return ' [LEGENDARY]';
+ return '';}
+
 /* ===== DROP NOTICE (v2.2) =====
  * A drop is one of the few genuinely NEW things that happens, and it was buried in
  * the log. This describes what arrived, what it does, and — during the curated run
@@ -412,7 +435,7 @@ function describeAction(id){
  if(a.defPierce)bits.push('ignores '+Math.round(a.defPierce*100)+'% armour');
  if(a.lifesteal)bits.push('heals you '+Math.round(a.lifesteal*100)+'% of damage');
  if(a.revive)bits.push('revives at '+Math.round(a.revive*100)+'% HP');
- return {name:actionGlyph(a)+a.name,
+ return {name:actionGlyph(a)+a.name+rarityTag(a.rarity),
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
   note:withMcName(a.note||'')};}
@@ -583,8 +606,17 @@ function randomDrop(w){
     Never rolled during the curated run (grantDrops only calls randomDrop
     post wave-20), so the authored tutorial sequence is untouched. */
  if(G.mc&&G.rng.next()<P.MC_CHARGE_DROP_CHANCE){
+  /* Rarity (v2.12): nested roll inside this same 10% gate — decide Legendary
+     vs. Rare first, then pick uniformly within that tier (see
+     MC_LEGENDARY_CHARGE_CHANCE in progression.js). */
   var chargePool=P.MC_CHARGE_DROP_POOL;
-  return [{kind:'charge',id:chargePool[G.rng.nextInt(chargePool.length)],why:'rare charge-action drop'}];}
+  var legendaryPool=chargePool.filter(function(id){return C.ACTIONS[id]&&C.ACTIONS[id].rarity==='legendary';});
+  var rarePool=chargePool.filter(function(id){return !(C.ACTIONS[id]&&C.ACTIONS[id].rarity==='legendary');});
+  var wantLegendary=legendaryPool.length>0 && G.rng.next()<P.MC_LEGENDARY_CHARGE_CHANCE;
+  var pool=(wantLegendary?legendaryPool:rarePool);
+  if(pool.length===0)pool=chargePool;
+  return [{kind:'charge',id:pool[G.rng.nextInt(pool.length)],
+   why:(wantLegendary?'legendary':'rare')+' charge-action drop'}];}
  var out=[];
  if(w%2===0){var pool=C.EQUIPPABLE;
   out.push({kind:'action',id:pool[G.rng.nextInt(pool.length)],why:'random drop'});}
@@ -1529,7 +1561,7 @@ function renderAether(){
   var box=document.createElement('div');box.style.marginBottom='10px';
   var prog=Math.max(0,Math.min(100,100*(x-have)/Math.max(1,need-have)));
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
-   '<span class="uname'+(fielded?' p':'')+'">'+def.name+' <span class="tiny">'+capRole(def.role)+
+   '<span class="uname'+(fielded?' p':'')+'">'+def.name+rarityTag(def.rarity)+' <span class="tiny">'+capRole(def.role)+
     (fielded?'':(isOnExpedition(uid)?' · on expedition':' · benched'))+'</span></span>'+
    '<span class="nval">LV '+L+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
@@ -1746,7 +1778,7 @@ function renderLore(){
   /* "let's list the descriptions for an action under their name when
      selected" — a.note is the same flavor/mechanical text GAMBITS already
      shows under each slot, just wasn't surfaced here before. */
-  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+actionGlyph(a)+a.name+' <span class="tiny">Lv'+
+  var h='<div class="spread"><b>'+(a.isCharge?'⚡ ':'')+actionGlyph(a)+a.name+rarityTag(a.rarity)+' <span class="tiny">Lv'+
    actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
@@ -1895,12 +1927,12 @@ function doPull(){
       COMMON case, not an edge case, so it must read as a result. */
    var dup=P.dupUnitAether(G.wave);G.aether+=dup;
    addDropGain(0,dup);}
-  else{var pick=avail[G.rng.nextInt(avail.length)];
+  else{var pick=P.weightedRosterPick(G.rng,avail);
    var fielded=joinCompanion(pick.id);
    var ca=pick.chargeAction?C.ACTIONS[pick.chargeAction]:null;
    var st=pick.stats,lean=(st.mag>st.atk?'magic':'physical')+
     ', '+(st.def>=25?'sturdy':st.hp>=430?'durable':st.spd>=110?'very fast':'balanced');
-   pushDrop({name:pick.name,kind:pity?'PULL · PITY COMPANION':'PULL · NEW COMPANION',wave:G.wave,
+   pushDrop({name:pick.name+rarityTag(pick.rarity),kind:pity?'PULL · PITY COMPANION':'PULL · NEW COMPANION',wave:G.wave,
     body:capRole(pick.role)+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
      (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+withMcName(ca.note||''):''),
@@ -2237,7 +2269,7 @@ function renderUnitTabs(host,onChange,includeBenched){
   var benchTag=(includeBenched&&G.party.indexOf(uid)<0)?
    (isOnExpedition(uid)?' <span class="tiny">(expedition)</span>':' <span class="tiny">(bench)</span>'):'';
   h+='<button class="mini utab'+(uid===cur?' on':'')+'" data-u="'+uid+'">'+
-   (def?def.name:uid)+benchTag+'</button>';});
+   (def?def.name+rarityTag(def.rarity):uid)+benchTag+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedUnitTab=el.dataset.u;onChange();};});}
@@ -2267,7 +2299,7 @@ function renderActionTabs(host,actionIds,active,onChange){
  actionIds.forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;
   h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
-   actionGlyph(a)+a.name+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
+   actionGlyph(a)+a.name+rarityTag(a.rarity)+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
@@ -2362,7 +2394,7 @@ function buildGambits(){
     var benchHolder=(!holder&&aid!==s.action)?benchedActionHolder(aid,uid):null;
     var dis=holder?' disabled title="'+C.ACTIONS[aid].name+' is equipped by '+holder+' — non-starter actions can only be used by one unit at a time"':'';
     var tag=holder?' (used by '+holder+')':(benchHolder?' (also held by '+benchHolder+', benched)':'');
-    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+actionGlyphText(C.ACTIONS[aid])+C.ACTIONS[aid].name+tag+'</option>';});
+    ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+actionGlyphText(C.ACTIONS[aid])+C.ACTIONS[aid].name+rarityTagText(C.ACTIONS[aid].rarity)+tag+'</option>';});
    /* Grandfathered conflict: a loadout saved before the one-unit-per-action
       rule could already have this same non-starter action on another
       fielded unit. The <select> above leaves the current pick selectable
@@ -2422,9 +2454,9 @@ function buildGambits(){
    var nameRow=swappable?
     '<select class="mcc-swap mono" style="margin-top:2px;color:var(--charge);border-color:var(--charge)">'+
      G.mc.acquiredCharges.map(function(id){var ai=C.ACTIONS[id];
-      return '<option value="'+id+'"'+(id===ca?' selected':'')+'>'+(ai?actionGlyphText(ai)+ai.name:id)+'</option>';}).join('')+
+      return '<option value="'+id+'"'+(id===ca?' selected':'')+'>'+(ai?actionGlyphText(ai)+ai.name+rarityTagText(ai.rarity):id)+'</option>';}).join('')+
      '</select>'
-    :'<div class="uname" style="color:var(--charge);margin-top:2px">'+actionGlyph(a)+a.name+'</div>';
+    :'<div class="uname" style="color:var(--charge);margin-top:2px">'+actionGlyph(a)+a.name+rarityTag(a.rarity)+'</div>';
    cbox.innerHTML='<div class="spread"><span class="lbl" style="color:var(--charge)">'+
      '⚡ CHARGE ACTION</span><span class="tiny">'+initTag(a.rank)+'</span></div>'+
     nameRow+
