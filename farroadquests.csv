@@ -1,9 +1,9 @@
 companion_id,stage,power_fraction,is_boss,story,design_note
-kesh,1,0.5,FALSE,"PLACEHOLDER — Kesh, stage 1.",
-kesh,2,0.625,FALSE,"PLACEHOLDER — Kesh, stage 2.",
-kesh,3,0.75,FALSE,"PLACEHOLDER — Kesh, stage 3.",
-kesh,4,0.875,FALSE,"PLACEHOLDER — Kesh, stage 4.",
-kesh,5,1.0,TRUE,"PLACEHOLDER — Kesh, stage 5.",Final stage is a boss fight.
+kesh,1,0.5,FALSE,"PLACEHOLDER — {{name}}, stage 1.",
+kesh,2,0.625,FALSE,"PLACEHOLDER — {{name}}, stage 2.",
+kesh,3,0.75,FALSE,"PLACEHOLDER — {{name}}, stage 3.",
+kesh,4,0.875,FALSE,"PLACEHOLDER — {{name}}, stage 4.",
+kesh,5,1.0,TRUE,"PLACEHOLDER — {{name}}, stage 5.",Final stage is a boss fight.
 ansa,1,0.5,FALSE,"PLACEHOLDER — Ansa, stage 1.",
 ansa,2,0.625,FALSE,"PLACEHOLDER — Ansa, stage 2.",
 ansa,3,0.75,FALSE,"PLACEHOLDER — Ansa, stage 3.",

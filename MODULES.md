@@ -2058,3 +2058,323 @@ all 8 axes with descriptions, current raw→%, and a working +1 purchase
 button that spent the correct escalating Aether cost, updated the raw
 value/percentage/next-cost display, and moved Power Level; caught and
 fixed the custom-MC-baseline bug above in this same pass.
+
+## Block/Evade/ATK-Crit/MAG-Crit level like affinities — but shaped like Recovery
+
+Floated as an aside while designing elemental affinities, deliberately
+deferred then; requested directly this phase: "make the change to evade,
+block, and the crit rates to level like affinities." Two questions
+resolved the design before any code was written: character creation
+drops these 4 stats entirely (a custom MC starts at 0 in all four,
+exactly like affinities — not kept as a creation-time baseline with
+Aether stacking on top), and the investment curve mirrors **Recovery's**
+existing mechanic, not affinities' logarithmic ±80% one — Block/Evade/
+Crit are already bounded 0-to-hard-engine-cap percentages (`CAP_BLOCK`=
+.50/`CAP_EVADE`=.40/`CAP_CRIT`=1.00, `farroad-core.js`), the exact shape
+Recovery (`P.REST`/`P.REST_CAP`/`P.REST_STEP`, `recoveryCost()`) already
+solves, unlike affinities' symmetric, either-direction axis.
+
+**No CSV changes needed** — `atk_crit`/`mag_crit`/`block`/`evade` already
+existed as real per-unit/per-archetype columns and were already the sole
+source of these stats; they simply become the "baseline" half of the
+same baseline+purchased split `G.affinities` established last phase.
+New `G.statInvest` holds purchased STEP COUNTS only (`{uid:{block,evade,
+atkCrit,magCrit}}`); a new `farroad-ui.js` helper, `effectivePctStats`
+(driven by `applyPctStatInvestment`), combines baseline+steps*step into
+the effective value and overwrites `P.statsAt`'s output with it —
+`P.statsAt` itself stays completely untouched, same "core formula
+unmodified, UI layer combines it with investment" shape
+`effectiveAffinity` already used.
+
+**Caught the exact same bug class the affinity feature caught, before
+it shipped this time.** `applyCustomMC()` (`farroad-ui.js`) used to
+build `keshDef.stats` by reading `G.mc.stats.atkCrit`/`.magCrit`/
+`.block`/`.evade` straight off the creation payload — once these 4 left
+`P.MC_STAT_KEYS`, `G.mc.stats` never carries those keys again, and
+reading them would silently write literal `undefined` onto
+`keshDef.stats` (a key IS present, `makeUnit`'s `hasOwnProperty` merge
+loop WOULD copy it over the sane default). Set explicitly to `0`
+instead, in the same edit, rather than waiting to discover it live the
+way the affinity version of this bug was found last phase.
+
+**Cost curve needed real retuning, not just a plausible first guess.**
+A naive shared `growth=1.45` (Recovery's own rate) applied at each
+stat's initially-chosen step size measured wildly outside the intended
+range: Block cost 6,996 Aether to cap (4× one maxed affinity axis),
+ATK/MAG Crit cost 52,484 each (**31×**) — at that price 100% crit is
+not a build target, it is unreachable in a normal run. Re-solved per
+stat (VM-sandbox balance script, scratchpad) for a total cost-to-cap in
+the same rough order as Recovery's own climb (890 Aether) and one
+maxed affinity axis (1,680): Block 838 (10 steps of 0.05, base 12,
+growth 1.40), Evade 1,023 (14 steps of 0.03 — kept matching Recovery's
+own step for continuity, growth softened to 1.30 to compensate), ATK/
+MAG Crit 2,077 each (13 steps of 0.08, base 15, growth 1.35) —
+deliberately pricier than Block/Evade, reflecting crit's bigger ceiling
+(1.00 vs 0.50) and bigger payoff (multiplies the WHOLE hit, vs. block
+only halving it), not forced to the same total as a cheaper stat.
+Re-measured after retuning: a real deterministic battle confirmed Block
+moves from a baseline ~2.8% blocked to ~49.9% at the cap, and ATK Crit
+from ~4.8% to ~98.6% — both a real, felt combat difference, not
+swallowed by anything downstream.
+
+**Live browser pass caught one more thing code review alone would have
+missed: stale help copy.** `shell.html`'s character-creation screen
+carried a static line — "CRIT/BLOCK/EVADE don't grow with level for
+any unit in the game, so a point there is fixed for the run" — written
+for a screen where those 4 stats were still offered as points to spend.
+Once the sliders were removed the sentence still rendered, now
+describing controls that no longer exist. Found only by actually
+opening the built page and reading the creation screen, not by
+re-reading the diff. Rewritten to say what's actually true now: these
+4 aren't offered here at all, bought up via Aether in the AETHER tab
+instead, same as affinities.
+
+**Verified**: `node farroadsmoke.js` — 20 new checks (144→164, on top of
+2 existing section-7 checks updated for the shrunk `P.MC_STAT_KEYS` and
+a pre-existing hardcoded "half the stats = 5" test fixed to derive the
+split from `keys.length` generically instead, which would have silently
+broken the moment the key count changed): `P.pctStatCost` escalates and
+stays positive for all 4 stats, `P.pctStatValue`/`P.pctStatMaxed` clamp
+exactly at each stat's own cap, Power Level responds to purchased steps
+and matches its own documented formula, `G.statInvest` round-trips
+through save/load including the old-save default-fill path.
+`applyCustomMC()` itself is DOM-bound UI-layer code (not loaded in the
+headless smoke harness) — its "starts at exactly 0" property is verified
+live instead, alongside `node build.js` and a full browser pass: creation
+now shows exactly 6 stat sliders (45 points, matching the auto-scaled
+pool) with no CRIT/BLOCK/EVADE and no stale help text; a fresh custom
+MC's AETHER tab shows all 4 new rows starting at exactly 0%; a real
+purchase (Block, 0%→5%) spent the exact computed cost (12), advanced the
+displayed value, escalated the next cost to 17 (matching `12×1.40`), and
+moved Power Level (17→18) — no console errors.
+
+## Block removed — Body already covers physical mitigation
+
+Requested directly, same phase Block became Aether-investable: "remove
+block, since we already have Body which can handle physical damage
+reduction." A real mechanic removal, not a UI trim — touched the damage
+formula, every unit/enemy's CSV baseline, and the investment system
+that had only just shipped.
+
+**Confirmed with Ian mid-plan, not left as a silent gap**: removing
+Block would have left physical attacks with strictly less defense than
+before (no block AND evade at half strength, since the old `NEG` table
+gave physical only half evade effectiveness — block was meant to be its
+primary answer). Fixed directly: evade is now full strength against
+both camps, and the entire `NEG`/`NG` per-camp-weighting mechanism
+(the "a sword gets parried, a spell goes wide" asymmetry, live since
+v1.1) is gone — with block gone it would have computed nothing but a
+constant ×1.00.
+
+**Two things confirmed to need no manual rebalancing, not assumed**:
+`dmgTakenMul()` (`farroad-core.js`) already sizes each enemy archetype's
+HP relative to its own def/evade/block versus the Roadwolf reference —
+dropping block's term from that formula is itself the compensation:
+re-measured directly, Barrow Knight's computed multiplier rose from
+~0.615 to 0.647 (+5.2%) and Stone Ox's from ~0.836 to 0.857 (+2.5%),
+both self-correcting toward more HP without a hand-tuned constant
+anywhere. And Dorrek's tank identity (his design note used to read
+"Only unit with block 0.10") already had the roster's highest Body
+baseline (+4) from when affinities shipped two phases ago — the
+identity had already transferred; only the sentence describing it
+needed rewriting, not the numbers.
+
+**Explicitly out of scope, consistent with a pre-existing gap**:
+`farroadcontentdesigner.html`, Ian's own standalone authoring tool,
+still has `block`-shaped input fields, a `dmgTakenMul` preview
+calculator, and an `effBlock` code-gen snippet in its status-effect
+builder — all now describing removed mechanics. Left untouched because
+it was ALREADY out of sync (no `affinity_*` fields were ever added
+there when affinities shipped) — a resync pass is a natural, separate
+follow-up (git history shows one happened before, as its own dedicated
+commit), not something to bundle silently into this change.
+
+**`STATUS_BASE_MAG`/`magOf` simplified, not just trimmed.** Bracing was
+the one status with two independent magnitudes under one id (a DEF
+ratio and a flat block bonus, `{def:0.40,block:0.30}`) — specifically
+because it modified two stats. With block's half retired, no status in
+the table is multi-part any more, so `magOf(u,id,key)` lost its
+sub-key branch and its one caller (`effDef`) lost the now-meaningless
+`'def'` argument, rather than leaving dead generality for a case that
+can no longer occur.
+
+**Verified**: `node farroadsmoke.js` — 162/162 (down from 164: -3 from
+the STATS loop dropping to 3 stats, +1 new "Block no longer exists"
+guard, net -2, matching exactly). A VM-sandbox balance script
+(scratchpad) confirmed evade now measures IDENTICAL effectiveness
+against a physical vs. a magic attacker at the same stat (20.0% both,
+was 20% physical/40% magic-equivalent under the old asymmetry); a
+physical attacker vs. a Body/DEF-defended target produces a sane,
+non-degenerate range (no negative or runaway multipliers); crit
+measured unaffected (5.1% at a 5% setting, confirming this change is
+properly scoped); and the `dmgTakenMul` self-compensation numbers
+above. Live browser pass caught one more stale-copy bug the same way
+the custom-MC-baseline bug was caught last phase — actually opening the
+page, not re-reading the diff: the AETHER tab's investment section
+still read "BLOCK / EVADE / CRIT" as its heading after Block's row was
+removed from it. Fixed to "EVADE / CRIT". Combat log confirmed to
+contain no `BLOCK` tag or block-chance text anywhere after a live
+fight; console clean throughout.
+
+## Companion quest stage rewards + a Give Up button
+
+Ian's ask: quest stages should pay Aether, scaling 100 (stage 1) to 500
+(stage 5); and a way to back out of a quest attempt already in progress
+without waiting for the auto-battle to actually lose. Both land in
+`finishSideBattle()`/`renderQuests()` (`farroad-ui.js`), the same
+live-side-battle machinery dungeons already share.
+
+**Reward**: new `P.questStageAether(stageIdx)` (`farroad-progression.js`)
+— linear across the 5 stages, `P.QUEST_STAGE_AETHER_MIN=100` at stageIdx
+0 to `P.QUEST_STAGE_AETHER_MAX=500` at stageIdx 4, hitting both endpoints
+exactly. `finishSideBattle`'s quest-win branch now grants it
+(`G.aether+=reward`) and mentions it in both the drop notice and the
+sysLog line, same style the boss-hoard grant already uses. The AETHER-tab-
+style "+N Aether on clear" is also shown directly on each quest's row in
+the QUESTS tab (`renderQuests()`), not just after the fact, so the payoff
+is visible before committing to the attempt.
+
+**Give Up**: `giveUpQuest()` — a thin wrapper that calls
+`finishSideBattle('enemy',true)` on the currently-live side battle. The
+`gaveUp` flag is new: same result as a genuine defeat for every reward/
+state purpose (no stage advance, no penalty either way — quest losses
+already had none), but the log/drop wording says "The attempt was
+called off" / "QUEST ABANDONED" rather than "The party was defeated" /
+"QUEST FAILED" — worth the small branch rather than mislabeling a
+voluntary retreat as a loss. Scoped to quests only, not dungeons, per
+Ian's own wording ("the quests you are currently attempting"). Confirmed
+safe to call at ANY point mid-fight, not just after `battle.over` fires
+(the normal path): `finishSideBattle` never reads the live battle's own
+`over` state — it unconditionally tears down `G.sideBattle`/restores
+`G.roadBattle` and branches purely on the `result` argument — so calling
+it early just short-circuits the same teardown doStep() would have
+triggered anyway once the fight naturally ended.
+
+**UI**: `renderQuests()`'s active-quest row swaps its Attempt button for
+a Give Up button specifically on the row matching
+`G.sideBattle.meta.uid` — every OTHER quest row stays disabled with the
+existing "a battle is already in progress" title, unchanged.
+
+**Verified**: `node farroadsmoke.js` — 166/166 (4 new: `questStageAether`
+hits both endpoints exactly, is strictly increasing, and matches the
+literal 100/200/300/400/500 schedule). Live browser pass exercised the
+full loop on Kesh's own quest line (owned from `newGame()`, so stage 1 is
+attemptable immediately, no grinding needed): confirmed the row shows
+"+100 Aether on clear" before attempting; started an attempt, confirmed
+the row swapped to a working Give Up button, clicked it, confirmed a
+"QUEST ABANDONED — The attempt was called off" drop, the Road battle
+resumed cleanly, and the row reverted to Attempt at stage 1 (no
+progress lost); re-attempted, let it play to a win, confirmed Aether
+went 0→100 and the row advanced to "Stage 2 of 5 · +200 Aether on
+clear" — the full schedule confirmed end to end, not just the formula
+in isolation. No console errors throughout.
+
+## Kesh's name — replaced everywhere the player's own choice should show
+
+Ian's ask: "replace all mentions of Kesh (the MC stand-in) with the
+name the player chooses." Most of the UI already got this for free —
+`applyCustomMC()` (roadmap item 1) already writes `G.mc.name` onto
+`C.ROSTER`'s kesh row, and everything that renders a unit reads that
+row's `.name` live — so this was never about a sweeping rename; it was
+about finding the handful of spots that DIDN'T get it for free.
+
+**Researched first, not guessed**: grepped every source file and every
+content CSV for literal "Kesh" mentions, then sorted what came back
+into three buckets — the internal id `'kesh'` (a dict key throughout
+`G.lvl`/`G.bank`/`G.owned`/etc., invisible to the player, correctly
+left untouched), code comments (dev-only, left untouched), and actual
+player-facing text. The third bucket had two shapes: two hardcoded UI
+strings in `farroad-ui.js` (a LORE-tab tooltip — "kept as part of
+Kesh's charge pool" — and the TESTS tab's debug dump — "Kesh level"),
+and static CSV-authored prose that can't read live game state at
+CSV-author time: kesh's own 5 quest-stage story placeholders
+(`farroadquests.csv`) and `oath`'s (Kesh's original, pre-customisation
+charge action) design note (`farroadactions.csv`), both confirmed live
+during the PREVIOUS phase's own testing ("PLACEHOLDER — Kesh, stage 1."
+showed up in a drop notice for an MC already named "Testwind").
+
+**Built the render-time substitution the CSV cases actually needed**,
+rather than hand-fixing today's placeholder text and losing the ability
+to reference the player's name at all: `mcName()` (reads the current
+name straight off `C.ROSTER`'s kesh row, same lookup pattern used
+everywhere else in the file) and `withMcName(text)` (a no-op
+`{{name}}` token replacement — returns the string completely unchanged
+if the token isn't present, so it's safe to wrap uniformly rather than
+special-case the specific rows that use it today). CSV content authors
+`{{name}}`; the UI substitutes the live name wherever that text is
+actually displayed.
+
+**Wrapped every site that displays action-note or quest-story text**,
+not just the two currently affected — `describeAction()` is the single
+choke point for most of them (6 call sites read `.note` off its return
+value), plus 6 more direct `C.ACTIONS[...].note` reads that bypass it
+(the LORE-tab detail box, the gambit-slot editor, the charge-action
+display box, and three companion-recruitment drop notices) and the one
+`.story` capture site (`attemptQuestStage`). Cheap to wrap all of them
+uniformly (the no-op case costs one `.replace()` call) rather than
+auditing which ones could theoretically reach a `{{name}}`-bearing row
+today — future authored content (Ian's own placeholder text throughout
+is explicitly marked as such — real narrative comes later) can use the
+token in any of these fields and it'll just work.
+
+**Verified**: `node farroadsmoke.js` — 168/168 (2 new: kesh's quest
+story text and `oath`'s note both use `{{name}}`, neither contains a
+literal "Kesh" — a regression guard against the name being typed back
+in by hand later without knowing about the token).
+`mcName`/`withMcName` themselves are DOM-bound UI-layer functions, not
+loaded in the headless harness — verified live instead: created a
+custom MC named "Aria", confirmed the quest-stage story text read
+"Aria, stage 1" (not "Kesh, stage 1" or a raw "{{name}}, stage 1"), and
+confirmed the TESTS tab's debug dump read "Aria level" — both of the
+two previously-hardcoded UI strings and the CSV substitution path
+exercised end to end. No console errors.
+
+## Doubling the climb to max Evade/Crit/Affinities
+
+Ian's ask: "double the number of times [Evade, ATK/MAG Crit, and the
+affinities] need to be leveled to max them. This should double the
+cost to max them." Both halves of that sentence are real, independent
+constraints, and they don't fall out of touching one constant — every
+one of these curves is an ESCALATING cost (linear-triangular for
+affinities, geometric for the other three), so doubling how many
+purchases it takes to reach the cap, with nothing else changed, raises
+the TOTAL cost by far more than 2x (a triangular sum is quadratic in
+step count; a geometric sum is exponential in it). Solved directly
+instead of guessed — same VM-sandbox methodology as every prior tuning
+pass, but this time solving FOR the new constants rather than just
+measuring existing ones.
+
+**Affinities** (`AFFINITY_CAP`/`AFFINITY_COST_BASE`): doubling the step
+count has a clean closed-form answer here, since the cost curve is
+linear (`cost(n)=BASE*(n+1)`, a triangular sum). `AFFINITY_CAP` doubles
+20→40 (`farroad-core.js`); the base that makes THAT doubled-length sum
+land on exactly double the old total works out to
+`BASE_old*(N_old+1)/(2*N_old+1) = 8*21/41 = 4.0976` — not a round
+number, so `affinityCostToNext` now rounds its output (matching every
+other per-step cost function in the file) rather than showing
+fractional Aether. Verified: 40 steps, 3,360 Aether total — exactly
+2.000x the old 20 steps/1,680 Aether.
+
+**Evade/ATK Crit/MAG Crit** (`P.PCT_STAT`): no closed form for a
+geometric curve's growth rate given a target sum, so solved
+numerically (binary search in a scratchpad script) — step halved for
+each stat (so twice as many purchases reach the same hard-engine cap),
+`costGrowth` reduced to compensate for the geometric explosion that
+halving alone would have caused, `costBase` held deliberately fixed
+(what the FIRST purchase costs is unchanged — 8 for Evade, 15 for
+either Crit). Landed within ~1% of exactly double on total cost for
+all three (Evade 2,045 vs. the target 2,046; ATK/MAG Crit 4,177 vs.
+4,153) — step counts land at ~1.9x rather than an exact 2x purely
+because the caps (0.40, 1.00) don't divide evenly by the halved step
+sizes, the same ceiling-function rounding the ORIGINAL step counts
+(14, 13) already had, not a new imprecision this change introduced.
+
+**Verified**: `node farroadsmoke.js` — 168/168 (one pre-existing
+assertion updated for the new rounding — `affinityCostToNext(0)` now
+equals `Math.round(AFFINITY_COST_BASE)`, not the raw constant — every
+other existing check was already parametric, reading the live constants
+rather than hardcoding old numbers, so needed no changes). Live browser
+pass confirmed the AETHER tab renders the new figures exactly as
+calculated: Evade "0% → 1.5%" (was 3%) at cost 8 (unchanged), ATK/MAG
+Crit "0% → 4%" (was 8%) at cost 15 (unchanged), and Fire (representative
+affinity) "+1" at cost 4 (was 8, the halved base). No console errors.

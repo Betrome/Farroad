@@ -127,7 +127,16 @@ P.bossAether=function(w){
  * the very first Aether, so opting in is a real choice available immediately
  * rather than a gate the player discovers by dying. */
 P.REST=0.00;          /* v2.8: was 0.15 — recovery is now entirely opt-in */
-P.REST_CAP=0.30;      /* measured saturation point - beyond this it is inert */
+/* v2.10: 0.30 -> 0.50, requested directly by Ian. NOTE: the "saturates hard
+   at 30%, worth exactly nothing above it" finding above is from v1.0 —
+   several major difficulty retunes have landed since (the v2.1 rescale, the
+   v2.9 hard-scaling pass that doubled HARD_MAX) and the measurement was
+   never re-run against them, so it should be treated as stale, not as
+   confirmation this new ceiling is inert. Flagged rather than silently
+   trusted; a fresh clear-rate pass (same 0/20-vs-20/20 methodology as the
+   comment above, at 30/35/40/45/50%) would confirm whether 30-50% still
+   moves anything under the current curve. */
+P.REST_CAP=0.50;
 P.REST_STEP=0.03;     /* per purchase */
 
 /* Ramp, revised again during the v0.9 fusion. Measured: a solo character cannot
@@ -541,7 +550,7 @@ P.statsAt=function(uid,base,baseHp,L){
  var g=P.GROWTH[uid]||P.GROWTH.kesh,n=L-1,o={};
  ['atk','mag','def','res','spd'].forEach(function(s){o[s]=Math.round(base[s]+g[s]*n);});
  o.hp=Math.round(baseHp+g.hp*n);
- ['atkCrit','magCrit','chargeRate','block','evade'].forEach(function(k){o[k]=base[k];});
+ ['atkCrit','magCrit','chargeRate','evade'].forEach(function(k){o[k]=base[k];});
  return o;};
 /* ===== SLOTS UNLOCK WITH LEVEL =====
  * 2 at L1, 3rd at L10. Ties directly to the finding that a solo character
@@ -758,27 +767,26 @@ P.dupUnitAether=function(w){
  * the joint "spread" methodology above since these were requested values,
  * not re-fit ones. */
 P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
- hp:[180,840],atkCrit:[0,0.18],magCrit:[0,0.18],block:[0,0.18],evade:[0,0.18]};
+ hp:[180,840]};
 P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
  hp:[18,48]};
-/* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
-   whole percent, matching the granularity every shipped value already uses —
-   interpolating to raw floating point would imply a precision the roster
-   itself doesn't have (nothing is tuned to e.g. 7.3% block). */
-P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
-/* Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
+/* v2.10: atkCrit/magCrit/block/evade REMOVED from creation entirely — they
+   now level like affinities, bought up over time from Aether in the AETHER
+   tab (see P.PCT_STAT below) rather than fixed forever at a creation-time
+   choice. A custom MC starts at 0 in all four, same "creation stays simple,
+   Aether is where investment happens" principle affinities established.
+   P.MC_PCT_STATS (the old percent-vs-integer display branch) is gone along
+   with them — every remaining MC_STAT_KEYS member is a plain integer stat,
+   so mcBuildStats/mcStatDisplay both drop their now-dead percent branch.
+   Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
    always maps to statRange[0], so 0 points never means a literal 0 in-game
    stat) rather than a pre-filled midpoint, so building toward a plan means
    only ever ADDING points, never having to first subtract from stats you
-   don't want. Range widened 1-10 -> 0-15 for more room to specialize before
-   the fixed pool runs out. POOL is deliberately HALF of the theoretical max
-   spend (10 stats x 15 = 150) rather than derived from a per-stat default —
-   there is no default to derive it from any more — so an even split still
-   lands mid-range on every stat (75/10=7.5, roughly half of 15), while a
-   focused build can afford to max 5 of the 10 stats outright (5x15=75) and
-   leave the rest at floor, which is more extreme specialization than the
-   old 1-10/pool-50 scheme allowed. */
-P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
+   don't want. POOL is deliberately HALF of the theoretical max spend
+   (P.MC_STAT_KEYS.length x 15) — an even split still lands mid-range on
+   every stat, while a focused build can afford to max a third of the stats
+   outright and leave the rest at floor. */
+P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp'];
 P.MC_POINT_MIN=0;
 P.MC_POINT_MAX=15;
 P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
@@ -819,7 +827,7 @@ P.mcBuildStats=function(points){
  var stats={},growth={},i,k,v;
  for(i=0;i<P.MC_STAT_KEYS.length;i++){
   k=P.MC_STAT_KEYS[i];v=P.mcLerp(P.MC_STAT_RANGE[k],points[k]);
-  stats[k]=(P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)/100:Math.round(v);
+  stats[k]=Math.round(v);
   if(P.MC_GROWTH_RANGE[k])growth[k]=Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],points[k])*10)/10;}
  var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
  return {stats:stats,hp:hp,growth:growth};};
@@ -879,8 +887,16 @@ P.powerLevel=function(g){
  Object.keys(g.affinities||{}).forEach(function(uid){
   var a=g.affinities[uid];if(!a)return;
   Object.keys(a).forEach(function(axis){affinityPoints+=a[axis]||0;});});
+ /* v2.10: g.statInvest[uid][stat] is PURCHASED STEPS ONLY (Block/Evade/
+    ATK-Crit/MAG-Crit's own baseline — the CSV-authored atk_crit/mag_crit/
+    block/evade columns — does NOT count), same treatment affinityPoints
+    just got above. */
+ var pctStatSteps=0;
+ Object.keys(g.statInvest||{}).forEach(function(uid){
+  var s=g.statInvest[uid];if(!s)return;
+  Object.keys(s).forEach(function(stat){pctStatSteps+=s[stat]||0;});});
  return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE+
-  affinityPoints*P.POWER_PER_AFFINITY_POINT);};
+  affinityPoints*P.POWER_PER_AFFINITY_POINT+pctStatSteps*P.POWER_PER_PCT_STAT_STEP);};
 /* ===== AFFINITY INVESTMENT (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — see farroad-core.js's own
  * comment (AFFINITY_CAP/affinityMul/affTerm) for the combat-facing half of
@@ -906,9 +922,92 @@ P.powerLevel=function(g){
  * reaches AFFINITY_CAP exactly — C.affinityMul plateaus there by
  * construction (Math.min clamps the input), so a further point could not
  * move the number even if bought. */
-P.AFFINITY_COST_BASE=8;
+/* v2.10: 8 -> 4.0976, paired with AFFINITY_CAP doubling (20 -> 40,
+   farroad-core.js) — Ian's ask was "double the number of times it needs
+   to be leveled [and] double the cost to max them", and those two
+   requirements don't fall out of just doubling one constant: a linear-
+   escalation curve's TOTAL cost is triangular in the point count, so
+   doubling AFFINITY_CAP alone (with the base unchanged) would have
+   raised the cost to fully max an axis by ~3.9x (8*(1+...+40)=6,560),
+   not 2x. Solved directly instead: the base that makes the doubled-
+   length curve sum to exactly double the old total (1,680 -> 3,360) is
+   BASE_old*(N_old+1)/(2*N_old+1) = 8*21/41 = 4.0976 — not a round
+   number, so affinityCostToNext rounds its output (matching every other
+   per-step cost function in this file) rather than showing fractional
+   Aether. */
+P.AFFINITY_COST_BASE=4.0976;
 P.affinityCostToNext=function(investedPoints){
- return P.AFFINITY_COST_BASE*(investedPoints+1);};
+ return Math.round(P.AFFINITY_COST_BASE*(investedPoints+1));};
+
+/* ===== EVADE/CRIT INVESTMENT (v2.10) =====
+ * "Level like affinities" — but NOT affinities' logarithmic ±80% shape.
+ * Evade/ATK-Crit/MAG-Crit are already bounded 0-to-a-hard-engine-cap
+ * percentages (C.CAP_EVADE/C.CAP_CRIT, farroad-core.js), the same shape
+ * Recovery (P.REST/P.REST_CAP/P.REST_STEP, recoveryCost() in the UI layer)
+ * already solves — fixed step per purchase, geometrically escalating cost,
+ * hard-capped. Reused here as independent instances of that exact
+ * mechanic rather than adapting the affinity curve to a shape it wasn't
+ * designed for (affinityMul is symmetric and unbounded either direction;
+ * these are one-directional and already capped by the engine).
+ * No new baseline data needed — atk_crit/mag_crit/evade already exist as
+ * real per-unit/per-archetype CSV columns (C.ROSTER/C.ARCH) and already
+ * ARE the baseline; G.statInvest (UI layer) holds only the purchased step
+ * COUNT on top, same "baseline + purchased, kept separate" shape
+ * G.affinities already established and for the same reason (a real,
+ * separately-readable "how much has the player actually bought" figure).
+ * Evade's step originally matched P.REST_STEP (0.03) for continuity with
+ * Recovery — halved again since (see the v2.10 note below), so that
+ * continuity no longer holds exactly, just a shared lineage.
+ * Crit's larger step/cost reflects a bigger ceiling (1.00 vs Evade's 0.40)
+ * and a categorically bigger payoff (crit multiplies the WHOLE hit by
+ * C.CRIT_MUL) — a longer climb to a more valuable stat.
+ * v2.10 Block removal: Block dropped out of this table entirely (and out
+ * of the engine — see farroad-core.js) once Ian pointed out Body affinity
+ * already covers physical damage reduction, making a second overlapping
+ * stat redundant. */
+/* Per-stat costBase/costGrowth retuned after the first pass measured WAY
+   outside the target range (a naive shared 1.45 growth at each stat's
+   initial step count priced ATK/MAG Crit at 52,484 Aether to cap — 31x
+   the ~1,680 one maxed affinity axis costs, effectively making 100% crit
+   unreachable in a normal run). Re-solved per stat (VM-sandbox balance
+   script, scratchpad) for a total cost-to-cap in the same rough order as
+   Recovery's own full climb (890 Aether) and one maxed affinity axis
+   (1,680): Evade 1,023 (step originally matched Recovery's own 0.03 for
+   continuity), ATK/MAG Crit 2,077 each — deliberately pricier than
+   Evade, reflecting the bigger ceiling (1.00 vs 0.40) and bigger payoff
+   (crit multiplies the WHOLE hit), not forced to the same total as a
+   cheaper stat.
+   v2.10: "double the number of times it needs to be leveled [and]
+   double the cost to max them" — both step (so twice as many purchases
+   reach the same cap) AND costGrowth retuned together, same reason
+   AFFINITY_COST_BASE couldn't just be left alone above: a geometric
+   curve's total is exponential in step count, so halving the step size
+   alone (doubling how many terms get summed) would have made these
+   curves cost FAR more than double — solved numerically instead
+   (VM-sandbox script) for the growth rate that lands each doubled-length
+   curve back at exactly 2x its old total, holding costBase fixed as the
+   one deliberately-preserved number (what the FIRST purchase costs is
+   unchanged): Evade 27 steps for 2,046 Aether (was 14 steps, 1,023),
+   ATK/MAG Crit 25 steps for 4,153 Aether each (was 13 steps, 2,077). */
+P.PCT_STAT={
+ evade:  {step:0.015, cap:C.CAP_EVADE, costBase:8,  costGrowth:1.144},
+ atkCrit:{step:0.04,  cap:C.CAP_CRIT,  costBase:15, costGrowth:1.167},
+ magCrit:{step:0.04,  cap:C.CAP_CRIT,  costBase:15, costGrowth:1.167}};
+P.pctStatCost=function(stat,steps){var s=P.PCT_STAT[stat];
+ return Math.round(s.costBase*Math.pow(s.costGrowth,steps));};
+/* effective = baseline + steps*step, hard-clamped to the stat's own cap —
+   the same value the AETHER tab shows and the UI layer's effectivePctStats
+   feeds into a live unit's stats. */
+P.pctStatValue=function(baseline,stat,steps){var s=P.PCT_STAT[stat];
+ return Math.min(s.cap,baseline+steps*s.step);};
+P.pctStatMaxed=function(baseline,stat,steps){
+ return P.pctStatValue(baseline,stat,steps)>=P.PCT_STAT[stat].cap-1e-9;};
+
+/* v2.10: purchased Block/Evade/Crit steps count toward Power Level too, same
+   treatment affinity points already get (see P.POWER_PER_AFFINITY_POINT
+   above) — every real Aether-sink should count uniformly, and this is one. */
+P.POWER_PER_PCT_STAT_STEP=0.5;
+
 /* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
    player's own current P.powerLevel — that stage's OWN powerFraction
    (farroadquests.csv, per companion per stage — see the comment above
@@ -930,4 +1029,17 @@ P.affinityCostToNext=function(investedPoints){
 P.questStageWave=function(g,uid,stageIdx){
  var frac=P.QUEST_LINES[uid][stageIdx].powerFraction;
  return Math.max(1,Math.round(frac*P.powerLevel(g)));};
+/* v2.10: clearing a companion quest stage now pays Aether — was nothing at
+   all (the reward was purely the story beat + the next stage unlocking).
+   Linear across the 5 stages, stage 1 (stageIdx 0) at the floor and stage
+   5 (stageIdx 4) at the ceiling — same "scale with how far into the line
+   you are" shape every other milestone reward in this file already uses
+   (bossAether/dupUnitAether scale with wave depth; this scales with quest
+   progress instead, since a quest line's own difficulty already scales off
+   P.powerLevel via questStageWave above, not off the Road's wave number). */
+P.QUEST_STAGE_AETHER_MIN=100;
+P.QUEST_STAGE_AETHER_MAX=500;
+P.questStageAether=function(stageIdx){
+ return Math.round(P.QUEST_STAGE_AETHER_MIN+
+  stageIdx*(P.QUEST_STAGE_AETHER_MAX-P.QUEST_STAGE_AETHER_MIN)/4);};
 return P;})(window.FarroadCore);

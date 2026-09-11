@@ -266,16 +266,24 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var growthKeys=Object.keys(P.MC_GROWTH_RANGE);
  ok('mcBuildStats: every stat with a growth curve rises with points spent on it',
   growthKeys.length>0 && growthKeys.every(function(k){return atCeil.growth[k]>atFloor.growth[k];}));
- ok('mcBuildStats: stats with no growth curve (crit/block/evade) are not given one',
-  P.MC_PCT_STATS.every(function(k){return atFloor.growth[k]===undefined;}));
+ /* v2.10: atkCrit/magCrit/block/evade are no longer offered at creation at
+    all (they level like affinities now — Aether-purchased, see section 18
+    below) — MC_STAT_KEYS should have exactly the 6 remaining stats and
+    none of the old percent-stat set. */
+ ok('MC_STAT_KEYS no longer offers atkCrit/magCrit/block/evade at creation',
+  keys.length===6 && ['atkCrit','magCrit','block','evade'].every(function(k){return keys.indexOf(k)<0;}),
+  keys.join(','));
+ ok('mcBuildStats output has no stray atkCrit/magCrit/block/evade fields',
+  ['atkCrit','magCrit','block','evade'].every(function(k){return atMid.stats[k]===undefined;}));
  ok('mcPointsSpent: a balanced 5-per-stat build spends exactly the pool',
   P.mcPointsSpent(mid)===P.MC_POINTS_TOTAL);
  ok('MC_POINTS_TOTAL is exactly half of the theoretical max spend (stats x MC_POINT_MAX)',
   P.MC_POINTS_TOTAL===(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2);
  ok('MC_POINT_MIN is 0 — every stat can be dumped to its roster floor with no points spent',
   P.MC_POINT_MIN===0);
- ok('a build that maxes exactly half the stats (5x15) and floors the rest spends exactly the pool',
-  (function(){var half={};keys.forEach(function(k,i){half[k]=i<5?P.MC_POINT_MAX:P.MC_POINT_MIN;});
+ ok('a build that maxes exactly half the stats and floors the rest spends exactly the pool',
+  (function(){var half={},n=keys.length/2;
+   keys.forEach(function(k,i){half[k]=i<n?P.MC_POINT_MAX:P.MC_POINT_MIN;});
    return P.mcPointsSpent(half)===P.MC_POINTS_TOTAL;})());
  var allChargeIds=P.MC_STARTER_CHARGES.concat(P.MC_CHARGE_DROP_POOL);
  var allChargesReal=allChargeIds.every(function(id){var a=C.ACTIONS[id];return !!a&&!!a.isCharge;});
@@ -346,7 +354,12 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var uniqueIds=ids.filter(function(id,i){return ids.indexOf(id)===i;});
  ok('every ROSTER id is unique', uniqueIds.length===ids.length,
   ids.filter(function(id,i){return ids.indexOf(id)!==i;}).join(','));
- var statKeys=['atk','mag','def','res','spd','atkCrit','magCrit','block','evade'];
+ /* atkCrit/magCrit/evade dropped — MC_STAT_RANGE no longer bounds them
+    (they level like affinities now, see section 18), so the `if(!range)
+    return;` guard below already skipped them silently; trimmed rather
+    than left as a second stale list. Block is gone from the game
+    entirely (see section 18's own note). */
+ var statKeys=['atk','mag','def','res','spd'];
  var outOfRange=[];
  R.forEach(function(r){
   statKeys.forEach(function(k){
@@ -692,6 +705,32 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('questStageWave scales up for a stronger player at the same stage',
   P.questStageWave(strongerG,'kesh',0)>P.questStageWave(questG,'kesh',0));
 
+ /* --- v2.10: quest-stage Aether reward, 100 (stage 1) -> 500 (stage 5) --- */
+ ok('questStageAether hits exactly the floor at stage 1 (stageIdx 0)',
+  P.questStageAether(0)===P.QUEST_STAGE_AETHER_MIN, P.questStageAether(0));
+ ok('questStageAether hits exactly the ceiling at stage 5 (stageIdx 4)',
+  P.questStageAether(4)===P.QUEST_STAGE_AETHER_MAX, P.questStageAether(4));
+ ok('questStageAether is strictly increasing across all 5 stages', (function(){
+  var prev=-Infinity;
+  for(var i=0;i<5;i++){var v=P.questStageAether(i);if(v<=prev)return false;prev=v;}
+  return true;
+ })());
+ ok('questStageAether matches the documented 100/200/300/400/500 schedule',
+  [0,1,2,3,4].map(function(i){return P.questStageAether(i);}).join(',')==='100,200,300,400,500');
+
+ /* --- v2.10: "replace all mentions of Kesh with the name the player
+    chooses" — mcName()/withMcName() themselves are UI-layer/DOM-bound
+    (not loaded in this headless harness), so what's checked here is the
+    CSV-authored half of the fix: kesh's own quest-line story text and
+    oath's (Kesh's default charge action) design note must use the
+    {{name}} substitution token, not a literal hardcoded "Kesh" — a
+    regression guard against someone typing the name back in by hand
+    later without knowing about the token. */
+ ok('kesh\'s quest-line story text uses the {{name}} token, not a literal "Kesh"',
+  P.QUEST_LINES.kesh.every(function(s){return s.story.indexOf('{{name}}')>=0&&s.story.indexOf('Kesh')<0;}));
+ ok('oath\'s design note uses the {{name}} token, not a literal "Kesh"',
+  C.ACTIONS.oath.note.indexOf('{{name}}')>=0&&C.ACTIONS.oath.note.indexOf('Kesh')<0);
+
  /* --- FREEZE PROOF: a snapshot's baked stats must be immune to whatever
     CURRENT_WAVE / hardMul happen to be at RECONSTRUCTION time. This is the
     exact property bakeEnemySnapshot()/unitsFromSnapshots() (farroad-ui.js)
@@ -803,8 +842,12 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  })());
 
  /* --- P.affinityCostToNext: escalates, always positive ------------------ */
- ok('P.affinityCostToNext(0) equals AFFINITY_COST_BASE (first point on a fresh axis)',
-  P.affinityCostToNext(0)===P.AFFINITY_COST_BASE);
+ /* v2.10: AFFINITY_COST_BASE is no longer a round number (4.0976 — see
+    the comment above it), chosen to land the doubled-length curve
+    exactly on 2x the old total cost, so the first purchase's cost is
+    the ROUNDED base, not the raw constant. */
+ ok('P.affinityCostToNext(0) equals AFFINITY_COST_BASE, rounded (first point on a fresh axis)',
+  P.affinityCostToNext(0)===Math.round(P.AFFINITY_COST_BASE));
  ok('P.affinityCostToNext escalates with points already invested', (function(){
   var prev=0;
   for(var n=0;n<10;n++){var c=P.affinityCostToNext(n);if(c<=prev)return false;prev=c;}
@@ -922,6 +965,83 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   ok('old save missing affinities field does not throw and defaults to {kesh:{}}',
    !!oldRestored3&&!!oldRestored3.affinities&&!!oldRestored3.affinities.kesh&&
    Object.keys(oldRestored3.affinities.kesh).length===0);
+ })();
+})();
+
+/* =================== 18. EVADE/CRIT INVESTMENT (v2.10) =====================
+ * "Level like affinities" but shaped like Recovery instead — a fixed step
+ * per purchase, geometrically escalating cost, hard-capped at the ENGINE's
+ * own C.CAP_EVADE/C.CAP_CRIT. Block was here too until Ian removed it
+ * entirely (Body affinity already covers physical damage reduction — see
+ * farroad-core.js). applyCustomMC() itself lives in the DOM-bound UI layer
+ * (not loaded in this headless harness — same reason resolveExpedition/
+ * attemptQuestStage aren't unit-tested here either), so "a custom MC
+ * starts at exactly 0" is verified live in the browser instead (see the
+ * plan). What IS headless and checked here: the formulas those UI call
+ * sites are built on (P.pctStatCost/P.pctStatValue/P.pctStatMaxed), the MC
+ * creation shrink (folded into section 7 above), the new Power Level term,
+ * and G.statInvest's save/load round-trip including old-save
+ * default-fill. */
+(function(){
+ var STATS=['evade','atkCrit','magCrit'];
+ /* --- cost escalates, always positive, for all 3 stats -------------------- */
+ STATS.forEach(function(stat){
+  ok('P.pctStatCost('+stat+',0) equals the stat\'s own costBase (first step)',
+   P.pctStatCost(stat,0)===P.PCT_STAT[stat].costBase);
+  ok('P.pctStatCost('+stat+') escalates with steps already invested', (function(){
+   var prev=0;
+   for(var n=0;n<8;n++){var c=P.pctStatCost(stat,n);if(c<=prev)return false;prev=c;}
+   return true;
+  })());
+  ok('P.pctStatCost('+stat+') is always positive',
+   P.pctStatCost(stat,0)>0&&P.pctStatCost(stat,20)>0);
+ });
+
+ /* --- pctStatValue: baseline + steps*step, clamped exactly at the cap ---- */
+ ok('P.pctStatValue with 0 steps returns the baseline unchanged',
+  P.pctStatValue(0.05,'evade',0)===0.05);
+ ok('P.pctStatValue adds steps*step on top of baseline',
+  Math.abs(P.pctStatValue(0.05,'evade',2)-(0.05+2*P.PCT_STAT.evade.step))<1e-9);
+ ok('P.pctStatValue clamps exactly at the stat\'s own cap, never above it',
+  P.pctStatValue(0,'evade',1000)===C.CAP_EVADE &&
+  P.pctStatValue(0,'atkCrit',1000)===C.CAP_CRIT);
+ ok('P.pctStatMaxed agrees with pctStatValue reaching the cap',
+  P.pctStatMaxed(0,'evade',1000)===true && P.pctStatMaxed(0,'evade',0)===false);
+ ok('Block no longer exists as a purchasable stat',
+  !P.PCT_STAT.block && C.CAP_BLOCK===undefined);
+
+ /* --- Power Level responds to purchased steps, baseline excluded --------- */
+ var baseG={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},statInvest:{}};
+ var basePower=P.powerLevel(baseG);
+ var investedG={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},
+  statInvest:{kesh:{atkCrit:4,evade:2}}};
+ ok('powerLevel increases with purchased Evade/Crit steps',
+  P.powerLevel(investedG)>basePower);
+ ok('powerLevel matches the sum of its own documented pctStatSteps term', (function(){
+  var expected=Math.round(P.powerLevel(baseG)+6*P.POWER_PER_PCT_STAT_STEP);
+  return P.powerLevel(investedG)===expected;
+ })());
+
+ /* --- G.statInvest round-trips through save/load, old-save default-fill - */
+ (function(){
+  var fakeG4={seed:1,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:0,marks:0,wipes:0,
+   party:['kesh'],actions:['strike'],conditions:['none'],actionCounts:{},condCounts:{},bonuses:{},
+   recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},dropsGranted:{},
+   lvl:{kesh:1},bank:{kesh:0},maxLevelEver:1,owned:{kesh:1},enrage:true,idleAcc:0,
+   dropQueue:[],dropHistory:[],pullsSinceUnit:0,mc:null,expeditions:[],dungeons:[],
+   quests:{kesh:{stage:0,frozen:[]}},directions:{},affinities:{kesh:{}},
+   statInvest:{kesh:{evade:3,atkCrit:5}}};
+  var snap4=V.serialize(fakeG4,1700000000000);
+  var restored4=V.deserialize(JSON.parse(JSON.stringify(snap4)),C);
+  ok('G.statInvest round-trips through save/load',
+   !!restored4&&!!restored4.statInvest&&restored4.statInvest.kesh.evade===3&&
+   restored4.statInvest.kesh.atkCrit===5);
+  var oldSnap4=V.serialize(fakeG4,1700000000000);
+  delete oldSnap4.statInvest;
+  var oldRestored4=V.deserialize(JSON.parse(JSON.stringify(oldSnap4)),C);
+  ok('old save missing statInvest field does not throw and defaults to {kesh:{}}',
+   !!oldRestored4&&!!oldRestored4.statInvest&&!!oldRestored4.statInvest.kesh&&
+   Object.keys(oldRestored4.statInvest.kesh).length===0);
  })();
 })();
 

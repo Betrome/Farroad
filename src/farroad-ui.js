@@ -43,6 +43,14 @@ function newGame(seed,mc){
      baseline is separately all-0 by construction (defaultAffinity() in
      core.js), so kesh here starting at {} is genuinely neutral either way. */
   affinities:{kesh:{}},
+  /* v2.10: Evade/ATK-Crit/MAG-Crit — same shape, PURCHASED STEPS only
+     (see effectivePctStats below); a custom MC's own baseline is
+     separately 0 (applyCustomMC), so kesh starting at {} is genuinely
+     neutral either way, same reasoning as affinities immediately above.
+     (Block was here too until Ian removed it — Body affinity already
+     covers physical damage reduction, a second overlapping stat was
+     redundant — see farroad-core.js.) */
+  statInvest:{kesh:{}},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
   /* Live side-battle-in-progress state (quests/dungeons) — see MODULES.md.
      sideBattle is null outside a side fight; roadBattle parks the real
@@ -105,12 +113,41 @@ function applyCustomMC(){
  /* chargeRate is the one field NOT offered at creation (see P.MC_STAT_RANGE's
     comment — the five shipped units never vary it, so there is no already-
     played range to bound a choice against); it stays fixed at 1 same as
-    every other unit. */
+    every other unit.
+    v2.10: atkCrit/magCrit/evade are ALSO no longer offered at creation
+    (P.MC_STAT_KEYS dropped them — they level like affinities now, see
+    G.statInvest/effectivePctStats below) — explicitly 0 here, same
+    "genuinely neutral start" fix as keshDef.affinity above, and for the
+    identical reason: G.mc.stats never carries these keys any more, so
+    reading G.mc.stats.atkCrit etc. would silently write literal `undefined`
+    onto keshDef.stats (a key IS present, makeUnit's hasOwnProperty merge
+    WOULD copy it, overwriting the sane default with undefined) rather than
+    the neutral baseline this is supposed to be. (Block isn't listed here
+    at all any more — the stat itself is gone, see farroad-core.js.) */
  keshDef.stats={atk:G.mc.stats.atk,mag:G.mc.stats.mag,def:G.mc.stats.def,res:G.mc.stats.res,spd:G.mc.stats.spd,
-  atkCrit:G.mc.stats.atkCrit,magCrit:G.mc.stats.magCrit,chargeRate:1,
-  block:G.mc.stats.block,evade:G.mc.stats.evade};
+  atkCrit:0,magCrit:0,chargeRate:1,evade:0};
  P.GROWTH.kesh={hp:G.mc.growth.hp,atk:G.mc.growth.atk,mag:G.mc.growth.mag,
   def:G.mc.growth.def,res:G.mc.growth.res,spd:G.mc.growth.spd};}
+/* v2.10: "replace all mentions of Kesh with the name the player chooses."
+   The internal id 'kesh' stays exactly what it is everywhere (a dict key,
+   invisible to the player) — this is only about player-FACING text.
+   Most of the UI already shows the right name for free, since it always
+   reads C.ROSTER's own kesh row (applyCustomMC already keeps .name in
+   sync with G.mc.name, or leaves the shipped default "Kesh" untouched
+   when there's no custom MC). What DOESN'T get this for free is static
+   authored prose living in the CSVs — quest story text, an action's own
+   design note — which can't read live game state at compile/CSV-author
+   time. mcName()/withMcName() are the render-time bridge: author-facing
+   content writes the literal token {{name}}, this substitutes the
+   CURRENT Kesh/custom-MC name in wherever that text is actually
+   displayed. A no-op (returns the string unchanged) for any text that
+   doesn't contain the token, so it's safe to wrap every note/story
+   display site uniformly rather than special-casing the couple of CSV
+   rows that use it today. */
+function mcName(){
+ var d=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')d=r;});
+ return d?d.name:'Kesh';}
+function withMcName(text){return text?text.replace(/\{\{name\}\}/g,mcName()):text;}
 
 /* Recovery: base + purchased steps, hard-capped at the measured saturation point. */
 function recoveryOf(uid){
@@ -176,6 +213,38 @@ function affinityRaw(uid,axis){return (affinityBaseline(uid)[axis]||0)+(affinity
    so a further point could not move the number even if bought. */
 function affinityMaxed(uid,axis){return affinityRaw(uid,axis)>=C.AFFINITY_CAP;}
 function affinityNextCost(uid,axis){return P.affinityCostToNext(affinityPurchased(uid)[axis]||0);}
+
+/* ===== EVADE/CRIT INVESTMENT (v2.10) ===== see farroad-progression.js
+   (P.PCT_STAT/P.pctStatCost/P.pctStatValue — the cost curve, mirroring
+   Recovery's own shape) for the rest of this feature. Same UI-layer slice
+   affinities already established: combine a unit's existing baseline
+   (C.ROSTER[uid]/C.ARCH[key]'s own atkCrit/magCrit/evade — unchanged,
+   already the only source before this feature existed) with purchased
+   steps into the effective value P.statsAt's output gets overwritten with,
+   AFTER P.statsAt runs (P.statsAt itself is untouched — it still just
+   copies these 3 straight from base).
+   Block was here too until Ian removed it entirely — Body affinity
+   already covers physical damage reduction, a second overlapping stat
+   was redundant (see farroad-core.js). */
+var PCT_STAT_KEYS=['evade','atkCrit','magCrit'];
+var PCT_STAT_INFO={
+ evade:{n:'Evade',d:'Chance to take no damage at all.'},
+ atkCrit:{n:'ATK Crit',d:'Chance for a physical attack to hit for '+C.CRIT_MUL+'x.'},
+ magCrit:{n:'MAG Crit',d:'Chance for a magic attack to hit for '+C.CRIT_MUL+'x.'}};
+function pctStatBaseline(uid,stat){
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ return (def&&def.stats&&def.stats[stat])||0;}
+function pctStatPurchased(uid,stat){return ((G.statInvest&&G.statInvest[uid]&&G.statInvest[uid][stat])||0);}
+function pctStatValue(uid,stat){return P.pctStatValue(pctStatBaseline(uid,stat),stat,pctStatPurchased(uid,stat));}
+function pctStatMaxed(uid,stat){return P.pctStatMaxed(pctStatBaseline(uid,stat),stat,pctStatPurchased(uid,stat));}
+function pctStatNextCost(uid,stat){return P.pctStatCost(stat,pctStatPurchased(uid,stat));}
+/* Overwrites st.evade/st.atkCrit/st.magCrit (already computed by
+   P.statsAt, unmodified) with the investment-adjusted effective value —
+   called right before a live C.makeUnit is built, same placement
+   effectiveAffinity() already has. */
+function applyPctStatInvestment(uid,st){
+ PCT_STAT_KEYS.forEach(function(stat){st[stat]=pctStatValue(uid,stat);});
+ return st;}
 function slotsFor(uid){return P.slotsAt(levelOf(uid));}
 function ensureLoadout(uid){
  var want=slotsFor(uid);
@@ -191,6 +260,7 @@ function buildParty(){
  G.party.forEach(function(uid,i){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
+  applyPctStatInvestment(uid,st);
   var mh=st.hp;
   /* Between-wave rest. Does NOT fix the multi-enemy wall (25/50/100% measured
      identical there) but it stops waves 1-7 compounding before Mend arrives. */
@@ -275,7 +345,7 @@ function buildEnemies(w,quiet){
        instead of one hardcoded 0.04 for every archetype — falls back to 0.04
        only if an archetype somehow has none, matching the old global exactly. */
     magCrit:Math.min(C.CAP_CRIT,(a.magCrit||0.04)*Math.sqrt(S)),
-    chargeRate:(boss?1.15:1),block:a.block,evade:a.evade},
+    chargeRate:(boss?1.15:1),evade:a.evade},
    /* v1.0: enemies now carry EVERY stat the party has except Recovery, which is
       party-only by construction (recoveryOf() is only called in buildParty), so
       enemies never regain HP between waves — Ian's exclusion holds.
@@ -315,7 +385,7 @@ function describeAction(id){
  return {name:a.name,
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
-  note:a.note||''};}
+  note:withMcName(a.note||'')};}
 /* v2.9: "what stat does this scale with" and "what has Lore bought it, in
    total" — both requested for the GAMBITS/LORE screens. scalesWith just
    names a.camp; bonusTotalSummary diffs the live (post-applyBonuses)
@@ -502,6 +572,7 @@ function joinCompanion(uid){
  if(!G.owned[uid])G.quests[uid]={stage:0,frozen:[]};
  G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
  G.affinities=G.affinities||{};if(!G.affinities[uid])G.affinities[uid]={};
+ G.statInvest=G.statInvest||{};if(!G.statInvest[uid])G.statInvest[uid]={};
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
  return fielded;}
@@ -558,7 +629,7 @@ function afterWaveCleared(){
       ' DEF '+d0.stats.def+' SPD '+d0.stats.spd:''),
      why:'Their stats are poor and it does not matter — they act on their own clock, '+
       'so your side now takes roughly twice as many actions per fight.',
-     pair:ca?('⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||'')):''});})();
+     pair:ca?('⚡ Charge action: <b>'+ca.name+'</b> — '+withMcName(ca.note||'')):''});})();
    var nm='';C.ROSTER.forEach(function(x){if(x.id===next)nm=x.name;});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+nm+' joins you</b> at LV 1.'+
     '<div class="tiny">Their stats are poor and it does not matter — they act on their own '+
@@ -583,7 +654,7 @@ function afterWaveCleared(){
    var bca=bossPick.chargeAction?C.ACTIONS[bossPick.chargeAction]:null;
    pushDrop({wave:G.wave,kind:'BOSS COMPANION DROP',name:bossPick.name+' (LV 1)',
     body:capRole(bossPick.role)+' · '+bossPick.row+' row'+
-     (bca?'<br>⚡ Charge action: <b>'+bca.name+'</b> — '+(bca.note||''):''),
+     (bca?'<br>⚡ Charge action: <b>'+bca.name+'</b> — '+withMcName(bca.note||''):''),
     why:(bossFielded?'Fielded immediately.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+bossPick.name+' joins you</b> at LV 1 '+
@@ -708,6 +779,7 @@ function buildExpeditionParty(partyIds,hpFrac){
  partyIds.forEach(function(uid,i){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
+  applyPctStatInvestment(uid,st);
   var mh=st.hp;
   var frac=(hpFrac==null)?1:Math.min(1,hpFrac+recoveryOf(uid));
   var hp=Math.max(1,Math.round(mh*frac));
@@ -877,7 +949,7 @@ function bakeEnemySnapshot(u){
  return {name:u.name,arch:u.arch,thorns:u.thorns,isBoss:u.isBoss,row:u.row,
   chargeAction:u.chargeAction,slots:u.slots.map(function(s){return {cond:s.cond,action:s.action};}),
   stats:{hp:u.base.hp,atk:u.base.atk,mag:u.base.mag,def:u.base.def,res:u.base.res,spd:u.base.spd,
-   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,block:u.base.block,evade:u.base.evade}};}
+   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,evade:u.base.evade}};}
 /* Reconstructs FRESH C.makeUnit() instances from a list of frozen
    snapshots (a dungeon's `enemies`, or one quest stage's `frozen[i]`) —
    called every time that fight is (re-)entered, never reusing a live
@@ -1100,7 +1172,11 @@ function startSideBattle(enemies,wave,meta){
    used to run inline, right after their own synchronous while-loop — moved
    here verbatim, reading from meta instead of closure variables, since the
    fight now finishes asynchronously (many doStep() calls later). */
-function finishSideBattle(result){
+/* @param gaveUp true only for a voluntary quest abort (giveUpQuest() below)
+   — same 'enemy' result as a real defeat for every reward/state purpose
+   (no stage advance, no penalty either way), but the log/drop wording
+   should say the player called it off, not that the party was beaten. */
+function finishSideBattle(result,gaveUp){
  var sb=G.sideBattle,meta=sb.meta;
  /* Multi-wave dungeon, won this wave, more waves left — advance IN PLACE
     rather than fully resolving. Deliberately does NOT touch G.roadBattle/
@@ -1127,9 +1203,20 @@ function finishSideBattle(result){
   var q=G.quests[meta.uid];
   if(result==='party'){
    q.stage++;
+   /* v2.10: Aether reward, scaling 100 (stage 1) -> 500 (stage 5) — see
+      P.questStageAether. meta.stage is the 0-based stage JUST cleared. */
+   var reward=P.questStageAether(meta.stage);
+   G.aether+=reward;
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
-    why:q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
-   sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5.</span>');
+    why:(q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.')+
+     ' +'+reward+' Aether.'});
+   sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5. '+
+    '<b style="color:var(--aether)">+'+reward+' Aether</b>.</span>');
+  }else if(gaveUp){
+   pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST ABANDONED',
+    body:'The attempt was called off.',why:'No penalty — try again any time.'});
+   sysLog('<b>Quest attempt called off.</b> <span class="tiny">'+meta.name+
+    ' — no penalty, try again any time.</span>');
   }else{
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST FAILED',
     body:'The party was defeated.',why:'No penalty — try again any time.'});
@@ -1336,17 +1423,13 @@ function logEntry(e){
  var tags='',calc='';
  if(e.hits.length){var h=e.hits[0];
   if(h.evaded)tags=' <span style="color:var(--bad)">EVADED</span>';
-  else{if(h.crit)tags+=' <span style="color:var(--crit)">CRIT</span>';
-       if(h.blocked)tags+=' <span style="color:var(--party)">BLOCK</span>';}
+  else{if(h.crit)tags+=' <span style="color:var(--crit)">CRIT</span>';}
   calc=h.evaded
-   ?('MISSED — evade '+(Math.round(h.evadeChance*1000)/10)+'% (×'+h.negEvd+' vs '+
-     (h.isPhys?'physical':'magic')+')')
+   ?('MISSED — evade '+(Math.round(h.evadeChance*1000)/10)+'%')
    :('base '+(Math.round(h.power*100)/100)+' × '+Math.round(h.off)+' × '+h.K+'/('+h.K+'+'+
      Math.round(h.defEff)+') = '+(Math.round(h.base*10)/10)+
      '\nno variance roll — base damage is deterministic'+
-     (h.crit?'\ncrit ×1.75':'')+(h.blocked?'\nblocked ×0.5':'')+
-     '\nblock chance '+(Math.round(h.blockChance*1000)/10)+'% (×'+h.negBlk+' vs '+
-     (h.isPhys?'physical':'magic')+')'+
+     (h.crit?'\ncrit ×1.75':'')+
      '\n→ floor '+h.damage);}
  var extra='';
  if(e.dot)extra+='<div class="note">🔥 −'+e.dot+'</div>';
@@ -1408,6 +1491,22 @@ function renderAether(){
     '<button class="mini feed" data-u="'+uid+'" data-a="next"'+(G.aether>=(need-x)?'':' disabled')+'>→ LV '+(L+1)+' ('+Math.max(0,Math.ceil(need-x))+')</button>'+
    '</div>';
   host.appendChild(box);
+  var pBox=document.createElement('div');pBox.style.marginTop='10px';
+  var pRows='';
+  PCT_STAT_KEYS.forEach(function(stat){
+   var info=PCT_STAT_INFO[stat],cur=pctStatValue(uid,stat),maxed=pctStatMaxed(uid,stat),cost=pctStatNextCost(uid,stat);
+   var next=Math.min(P.PCT_STAT[stat].cap,cur+P.PCT_STAT[stat].step);
+   pRows+='<div class="node" style="margin-top:4px"><span class="nname">'+info.n+
+    ' <span class="tiny">'+info.d+'</span></span>'+
+    '<span><span class="tiny mono" style="margin-right:6px">'+Math.round(cur*1000)/10+'% → '+
+     (maxed?'<b style="color:var(--hp)">at cap</b>':Math.round(next*1000)/10+'%')+'</span>'+
+    '<button class="mini pctbuy" data-u="'+uid+'" data-st="'+stat+'"'+
+     ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+'+Math.round(P.PCT_STAT[stat].step*1000)/10+
+      '% <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
+  pBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>EVADE / CRIT</b> — none of '+
+   'these grow with level for any unit in the game (unchanged). Aether buys them up directly here '+
+   'instead, same as Recovery, hard-capped at the same ceiling the combat formula has always enforced.</div>'+pRows;
+  host.appendChild(pBox);
   var aBox=document.createElement('div');aBox.style.marginTop='10px';
   var aRows='';
   AFFINITY_AXES.forEach(function(axis){
@@ -1420,8 +1519,8 @@ function renderAether(){
      ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+1 <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
   aBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>AFFINITIES</b> — Fire, Water, Earth, '+
    'Air, Light and Dark scale damage dealt and taken by attacks of that element; Body does the same for '+
-   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Block '+
-   'and Evade, none of these grow with level — Aether buys them up directly here instead, with '+
+   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Evade, '+
+   'none of these grow with level — Aether buys them up directly here instead, with '+
    'diminishing returns the higher any one climbs, capped at ±80%.</div>'+aRows;
   host.appendChild(aBox);});
  host.insertAdjacentHTML('beforeend','<hr><div class="tiny">Aether is a <b>shared pool</b>: you '+
@@ -1467,6 +1566,15 @@ function renderAether(){
    G.affinities[u][ax]=(G.affinities[u][ax]||0)+1;
    sysLog('<b class="dw">AFFINITY</b> '+AFFINITY_INFO[ax].n+' → '+
     (affinityRaw(u,ax)>=0?'+':'')+affinityRaw(u,ax)+' ('+Math.round(C.affinityMul(affinityRaw(u,ax))*100)+'%)');
+   refreshLiveStats();renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.pctbuy'),function(el){
+  el.onclick=function(){var u=el.dataset.u,st=el.dataset.st,c=pctStatNextCost(u,st);
+   if(G.aether<c||pctStatMaxed(u,st))return;
+   G.aether-=c;G.statInvest=G.statInvest||{};G.statInvest[u]=G.statInvest[u]||{};
+   G.statInvest[u][st]=(G.statInvest[u][st]||0)+1;
+   sysLog('<b class="dw">'+PCT_STAT_INFO[st].n.toUpperCase()+'</b> → '+
+    (Math.round(pctStatValue(u,st)*1000)/10)+'%'+
+    (pctStatMaxed(u,st)?'<div class="tiny">At the cap — there is nothing more to buy.</div>':''));
    refreshLiveStats();renderAll();};});}
 function refreshLiveStats(){
  if(!G.units)return;
@@ -1474,7 +1582,9 @@ function refreshLiveStats(){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===u.id)def=r;});
   if(!def)return;
   var st=P.statsAt(u.id,def.stats,def.hp,levelOf(u.id));
+  applyPctStatInvestment(u.id,st);
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
+  u.base.evade=st.evade;u.base.atkCrit=st.atkCrit;u.base.magCrit=st.magCrit;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
   u.affinity=effectiveAffinity(u.id);
   u.slots=ensureLoadout(u.id).map(function(s){return {cond:s.cond,action:s.action};});});}
@@ -1577,7 +1687,7 @@ function renderLore(){
    actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
-   (a.note?'<div class="tiny" style="margin-bottom:2px">'+a.note+'</div>':'')+
+   (a.note?'<div class="tiny" style="margin-bottom:2px">'+withMcName(a.note)+'</div>':'')+
    '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
     '</b>'+(a.power?' · power ×'+a.power.toFixed(2):'')+'</div>'+
    '<div class="tiny" style="margin-bottom:2px;color:'+(holders.active.length?'var(--hp)':'var(--dimmer)')+'">'+
@@ -1586,7 +1696,7 @@ function renderLore(){
        unused" — usedActions() (`used`, computed above) is exactly the
        refund button's own eligibility check, so state it plainly here
        instead of leaving it to guesswork. */
-    (holders.active.length?'':(used[aid]?' — not refundable, kept as part of Kesh\'s charge pool'
+    (holders.active.length?'':(used[aid]?' — not refundable, kept as part of '+mcName()+'\'s charge pool'
      :' — refundable'))+'</div>'+
    (totalBonus?'<div class="tiny" style="color:var(--lore);margin-bottom:3px">Lore total: '+
     totalBonus+'</div>':'')+
@@ -1733,7 +1843,7 @@ function doPull(){
    pushDrop({name:pick.name,kind:pity?'PULL · PITY COMPANION':'PULL · NEW COMPANION',wave:G.wave,
     body:capRole(pick.role)+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
-     (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||''):''),
+     (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+withMcName(ca.note||''):''),
     /* why, not note — the "did this actually join my party" question is the
        whole point of the notification, so it gets the same prominent styling
        curated-teaching moments use, not the dim secondary-aside treatment. */
@@ -1933,7 +2043,7 @@ function attemptQuestStage(uid){
  if(!q||q.stage>=5)return;
  if(G.party.indexOf(uid)<0)return;
  var line=P.QUEST_LINES[uid];if(!line)return;
- var stage=q.stage,step=line[stage],story=step.story;
+ var stage=q.stage,step=line[stage],story=withMcName(step.story);
  q.frozen=q.frozen||[];
  /* Baked once, at first attempt — wave AND enemy stats both frozen then,
     so a later retry (after a loss, possibly with the player's power level
@@ -1953,6 +2063,14 @@ function attemptQuestStage(uid){
  var name=def?def.name:uid;
  startSideBattle(unitsFromSnapshots(q.frozen[stage].enemies),q.frozen[stage].wave,
   {kind:'quest',uid:uid,stage:stage,name:name,story:story});}
+/* v2.10: lets the player back out of a quest attempt already in progress
+   instead of waiting for the auto-battle to actually lose — same 'enemy'
+   outcome finishSideBattle already grants for a real defeat (no stage
+   advance, no penalty), just honestly worded as a give-up rather than a
+   loss. Scoped to quests only, not dungeons — Ian's ask. */
+function giveUpQuest(){
+ if(!G.sideBattle||G.sideBattle.meta.kind!=='quest')return;
+ finishSideBattle('enemy',true);}
 /* "Let's add discoverable dungeons... repeated by the main party" +
    "quest lines of 5 battles for each new unit." One tab, two sections —
    both are main-party content, distinct from EXPEDITION's benched-party
@@ -1980,17 +2098,24 @@ function renderQuests(){
   active.forEach(function(uid){
    var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
    var name=def?def.name:uid, stage=G.quests[uid].stage, fielded=G.party.indexOf(uid)>=0;
-   var dis=!fielded?' disabled title="'+name+' must be in your fielded party to attempt their own quest"':
-    (busy?' disabled title="A battle is already in progress"':'');
+   /* v2.10: the row for the quest actually being fought right now gets a
+      Give Up button instead of the (disabled, since busy) Attempt one. */
+   var isThisFight=busy&&G.sideBattle.meta.kind==='quest'&&G.sideBattle.meta.uid===uid;
+   var btn=isThisFight
+    ?'<button class="mini questGiveUp" data-uid="'+uid+'" style="margin-top:6px">Give up</button>'
+    :('<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+
+      (!fielded?' disabled title="'+name+' must be in your fielded party to attempt their own quest"':
+       (busy?' disabled title="A battle is already in progress"':''))+'>Attempt</button>');
    h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+name+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5</div>'+
-    '<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+dis+
-    '>Attempt</button></div>';});}
+    '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5 · +'+
+    P.questStageAether(stage)+' Aether on clear</div>'+btn+'</div>';});}
  host.innerHTML=h;
  Array.prototype.forEach.call(host.querySelectorAll('.questEnter'),function(el){
   el.onclick=function(){enterDungeon(el.dataset.id);renderAll();};});
  Array.prototype.forEach.call(host.querySelectorAll('.questAttempt'),function(el){
-  el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});}
+  el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.questGiveUp'),function(el){
+  el.onclick=function(){giveUpQuest();renderAll();};});}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();renderQuests();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 /* Lighter sibling of renderAll(), for the ordinary per-beat path in
@@ -2195,7 +2320,7 @@ function buildGambits(){
     '<div class="tiny" style="margin-top:2px;color:var(--dimmer)">scales with <b>'+
      scalesWith(C.ACTIONS[s.action])+'</b>'+(C.ACTIONS[s.action].power?
      ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
-    '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>'+
+    '<div class="tiny" style="margin-top:2px">'+withMcName(C.ACTIONS[s.action].note||'')+'</div>'+
     (ownConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also equipped by '+
      ownConflict+' from before this rule — pick a different action here to resolve it</div>':
      ownBenchConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also held by '+
@@ -2249,7 +2374,7 @@ function buildGambits(){
      (a.lifesteal?' · heals you '+Math.round(a.lifesteal*100)+'% of it':'')+
      (a.hits>1?' · '+a.hits+' hits':'')+'</div>'+
     '<div class="tiny" style="margin-top:4px;color:var(--dimmer)">fills in roughly <b>'+
-     turnsToFill+'</b> of this unit’s turns · '+(a.note||'')+'</div>'+
+     turnsToFill+'</b> of this unit’s turns · '+withMcName(a.note||'')+'</div>'+
     (swappable?'<div class="tiny" style="margin-top:2px;color:var(--dim)">'+
      G.mc.acquiredCharges.length+' charge actions acquired — swap freely, no cost. Lore '+
      'upgrades are kept per action, so switching back restores any you bought.</div>':'');
@@ -2391,7 +2516,7 @@ function smokeTest(waves){
   out.push('  waves advanced   '+startWaveNo+' → '+G.wave);
   out.push('  bosses cleared   '+G.bossesCleared);
   out.push('  party size       '+pulls0+' → '+G.party.length);
-  out.push('  Kesh level       '+lvl0+' → '+levelOf('kesh'));
+  out.push('  '+mcName()+' level       '+lvl0+' → '+levelOf('kesh'));
   out.push('  actions held     '+G.actions.length);
   out.push('  conditions held  '+G.conditions.length);
   out.push('  aether / lore / marks   '+Math.floor(G.aether)+' / '+
@@ -2469,15 +2594,13 @@ function boot(seed,mc){
 /* Every stat P.MC_STAT_RANGE offers, in creation-screen display order. Kept as
    a single source of truth in progression.js (P.MC_STAT_KEYS) so the pool
    size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
-var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
- atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
+var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP'};
 var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
 var mcChargeChoice=null;
 function mcSanitizeName(raw){
  return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
 function mcStatDisplay(k,point){
- var v=P.mcLerp(P.MC_STAT_RANGE[k],point);
- return (P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)+'%':Math.round(v);}
+ return Math.round(P.mcLerp(P.MC_STAT_RANGE[k],point));}
 function renderMcStats(){
  var host=$('#mcStats');if(!host)return;host.innerHTML='';
  P.MC_STAT_KEYS.forEach(function(k){

@@ -67,7 +67,7 @@ function compileRoster(rows) {
     stats: {
       atk: num(r.atk), mag: num(r.mag), def: num(r.def), res: num(r.res), spd: num(r.spd),
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit), chargeRate: num(r.charge_rate),
-      block: num(r.block), evade: num(r.evade)
+      evade: num(r.evade)
     },
     affinity: compileAffinity(r)
   }));
@@ -89,7 +89,7 @@ function compileArch(rows) {
       key: r.key, name: r.name, hpMul: num(r.hp_multiplier),
       atk: num(r.atk), def: num(r.def), res: num(r.res), spd: num(r.spd),
       atkCrit: num(r.atk_crit), magCrit: num(r.mag_crit, 0.04),
-      evade: num(r.evade), block: num(r.block),
+      evade: num(r.evade),
       affinity: compileAffinity(r),
       slots: [{ cond: r.slot1_condition, action: r.slot1_action },
               { cond: r.slot2_condition, action: r.slot2_action }]

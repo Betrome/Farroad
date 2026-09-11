@@ -24,7 +24,7 @@ recall,Recall,equippable,mag,,,0,,1.60,0.625,deadAlly,1,,,0,0,,,,0.35,,,33,,"swi
 bulwark,Bulwark,equippable,mag,,,0,,0.90,1.111,ally,1,warded,2,0,0,,,,,,,28,,"swift,lasting,surge,broad",Warded - x0.60 incoming.
 blur,Blur,equippable,mag,,,0,,0.90,1.111,ally,1,blurred,3,0,0,,,,,,,28,,"swift,lasting,surge,broad",+0.20 evade.
 quicken,Quicken,equippable,mag,,,0,,1.40,0.714,ally,1,hasted,3,0,0,,,,,,,28,,"swift,lasting,surge,broad",Hasted.
-oath,Wayfarer's Oath,charge,atk,,,4.20,,1.80,0.556,foe,1,,,0,0.30,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Kesh. Single burst. Highest power in the game.
+oath,Wayfarer's Oath,charge,atk,,,4.20,,1.80,0.556,foe,1,,,0,0.30,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - {{name}}. Single burst. Highest power in the game.
 ninefold,Ninefold Rain,charge,atk,,,0.48,,1.90,0.526,foe,9,,,0,0,,,,,,,,100,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Vey. Multi-hit random targeting.
 hearthlight,Hearthlight,charge,mag,,,2.40,,1.65,0.606,allAllies,1,,,0,0,,TRUE,,,1,,,100,"swift,potent,keen,cleansing,thrifty",CHARGE - Ansa. Party heal + cleanse.
 vowofstone,Vow of Stone,charge,atk,,,0,,1.55,0.645,allAllies,1,warded,3,0,0,,,,,,3,,100,"swift,lasting,thrifty",CHARGE - Dorrek. Party buff + taunt.

@@ -235,7 +235,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 21:53 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-11 00:37 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -253,8 +253,9 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
       ATK/MAG/DEF/RES/SPD/HP also raise that stat's growth per level — a heavy
       investment now means a bigger lead in that stat for the whole run, the
-      same tradeoff every companion already makes. CRIT/BLOCK/EVADE don't grow
-      with level for any unit in the game, so a point there is fixed for the run.
+      same tradeoff every companion already makes. Block, Evade and the crit
+      rates aren't offered here — like elemental affinities, you start neutral
+      in all four and buy them up with Aether in the AETHER tab instead.
     </div>
   </div>
 
@@ -271,7 +272,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-10 21:53 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-11 00:37 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -423,7 +424,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <button id="btnClear" class="mini">Clear</button></div><div id="log"></div></div>
 </div>
 
-<script id="farroad-content">window.FarroadContent={"ROSTER":[{"id":"kesh","name":"Kesh","role":"traveler","row":"front","hp":430,"chargeAction":"oath","stats":{"atk":26,"mag":18,"def":20,"res":16,"spd":100,"atkCrit":0.05,"magCrit":0.05,"chargeRate":1,"block":0.03,"evade":0.03},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"ansa","name":"Ansa","role":"healer","row":"back","hp":320,"chargeAction":"hearthlight","stats":{"atk":14,"mag":26,"def":14,"res":22,"spd":96,"atkCrit":0.04,"magCrit":0.06,"chargeRate":1,"block":0.02,"evade":0.04},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":2,"dark":0,"body":0,"spirit":5}},{"id":"dorrek","name":"Dorrek","role":"tank","row":"front","hp":560,"chargeAction":"vowofstone","stats":{"atk":22,"mag":10,"def":30,"res":20,"spd":84,"atkCrit":0.04,"magCrit":0.03,"chargeRate":1,"block":0.1,"evade":0.02},"affinity":{"fire":0,"water":0,"earth":2,"air":0,"light":0,"dark":0,"body":4,"spirit":0}},{"id":"vey","name":"Vey","role":"rogue","row":"front","hp":300,"chargeAction":"ninefold","stats":{"atk":24,"mag":12,"def":14,"res":12,"spd":124,"atkCrit":0.12,"magCrit":0.04,"chargeRate":1,"block":0.02,"evade":0.1},"affinity":{"fire":0,"water":0,"earth":0,"air":3,"light":0,"dark":0,"body":1,"spirit":0}},{"id":"mirel","name":"Mirel","role":"mage","row":"back","hp":270,"chargeAction":"ashfall","stats":{"atk":12,"mag":30,"def":12,"res":20,"spd":92,"atkCrit":0.03,"magCrit":0.1,"chargeRate":1,"block":0.02,"evade":0.04},"affinity":{"fire":4,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":0,"spirit":0}},{"id":"skarn","name":"Skarn","role":"berserker","row":"front","hp":340,"chargeAction":"bloodfury","stats":{"atk":25,"mag":10,"def":13,"res":13,"spd":110,"atkCrit":0.11,"magCrit":0.03,"chargeRate":1,"block":0.02,"evade":0.05},"affinity":{"fire":2,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"sorin","name":"Sorin","role":"battlemage","row":"front","hp":380,"chargeAction":"spellbrand","stats":{"atk":20,"mag":20,"def":17,"res":15,"spd":98,"atkCrit":0.06,"magCrit":0.06,"chargeRate":1,"block":0.04,"evade":0.04},"affinity":{"fire":0,"water":2,"earth":0,"air":0,"light":0,"dark":0,"body":2,"spirit":0}},{"id":"nyra","name":"Nyra","role":"warden","row":"back","hp":310,"chargeAction":"wardcurse","stats":{"atk":15,"mag":21,"def":17,"res":20,"spd":90,"atkCrit":0.04,"magCrit":0.07,"chargeRate":1,"block":0.04,"evade":0.04},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":3,"body":0,"spirit":1}},{"id":"brenn","name":"Brenn","role":"sentinel","row":"front","hp":480,"chargeAction":"aegisstep","stats":{"atk":13,"mag":11,"def":18,"res":19,"spd":102,"atkCrit":0.04,"magCrit":0.04,"chargeRate":1,"block":0.03,"evade":0.09},"affinity":{"fire":0,"water":0,"earth":2,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"sael","name":"Sael","role":"courier","row":"back","hp":290,"chargeAction":"quicksilver","stats":{"atk":12,"mag":24,"def":12,"res":16,"spd":114,"atkCrit":0.03,"magCrit":0.07,"chargeRate":1,"block":0.02,"evade":0.06},"affinity":{"fire":0,"water":0,"earth":0,"air":2,"light":0,"dark":0,"body":0,"spirit":2}}],"ARCH":{"wolf":{"key":"wolf","name":"Roadwolf","hpMul":1,"atk":21,"def":12,"res":8,"spd":92,"atkCrit":0.04,"magCrit":0.04,"evade":0.05,"block":0,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":0,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8},"knight":{"key":"knight","name":"Barrow Knight","hpMul":0.85,"atk":19,"def":34,"res":20,"spd":84,"atkCrit":0.03,"magCrit":0.04,"evade":0.02,"block":0.1,"affinity":{"fire":0,"water":0,"earth":3,"air":0,"light":0,"dark":0,"body":2,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8},"hound":{"key":"hound","name":"Mire Hound","hpMul":0.6,"atk":15,"def":8,"res":6,"spd":124,"atkCrit":0.08,"magCrit":0.04,"evade":0.1,"block":0,"affinity":{"fire":0,"water":0,"earth":0,"air":3,"light":0,"dark":0,"body":0,"spirit":0},"slots":[{"cond":"none","action":"rake"},{"cond":"none","action":"rake"}],"mag":8,"chargeAction":"quickenedhowl"},"ox":{"key":"ox","name":"Stone Ox","hpMul":1.6,"atk":27,"def":20,"res":14,"spd":70,"atkCrit":0.05,"magCrit":0.04,"evade":0.01,"block":0.05,"affinity":{"fire":0,"water":0,"earth":1,"air":0,"light":0,"dark":0,"body":4,"spirit":0},"slots":[{"cond":"none","action":"maul"},{"cond":"none","action":"maul"}],"mag":8,"chargeAction":"sunderingroar"},"priest":{"key":"priest","name":"Fen Priest","hpMul":0.55,"atk":12,"def":14,"res":22,"spd":96,"atkCrit":0.03,"magCrit":0.04,"evade":0.03,"block":0.02,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":1,"dark":0,"body":0,"spirit":4},"slots":[{"cond":"ally_hp_lte_60","action":"knitbone"},{"cond":"none","action":"bite"}],"mag":23},"shrike":{"key":"shrike","name":"Thorn Shrike","hpMul":0.8,"atk":17,"def":14,"res":26,"spd":100,"atkCrit":0.05,"magCrit":0.04,"evade":0.06,"block":0,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":2,"body":1,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8,"thorns":0.06}},"ACTIONS":{"strike":{"id":"strike","name":"Strike","camp":"atk","tk":"foe","power":1,"rank":1,"charge":20,"defPierce":0,"critBonus":0,"note":"Baseline. Every other action is measured against this."},"ember":{"id":"ember","name":"Ember","camp":"mag","tk":"foe","power":1.05,"rank":1.05,"charge":21,"defPierce":0,"critBonus":0,"element":"fire","note":"Starter. Hits RES; full power from the back rank."},"mend":{"id":"mend","name":"Mend","camp":"mag","tk":"ally","power":1.2,"rank":1.05,"charge":22,"defPierce":0,"critBonus":0,"heal":true,"note":"Heal 1.20 x MAG."},"pierce":{"id":"pierce","name":"Pierce","camp":"atk","tk":"foe","power":1,"rank":1.5,"charge":26,"defPierce":0.75,"critBonus":0,"note":"Ignores 75% DEF but slow. Wins vs armour only. S6.0 exemplar."},"cleave":{"id":"cleave","name":"Cleave","camp":"atk","tk":"allFoes","power":0.66,"rank":1.3,"charge":27,"defPierce":0,"critBonus":0,"note":"All foes physical."},"flurry":{"id":"flurry","name":"Flurry","camp":"atk","tk":"foe","power":0.43,"rank":1.25,"charge":26,"hits":3,"defPierce":0,"critBonus":0,"note":"3 hits each rolling crit. Best keen target."},"execute":{"id":"execute","name":"Execute","camp":"atk","tk":"foe","power":0.65,"rank":1,"charge":29,"defPierce":0,"critBonus":0,"note":"v2.8 payoff is CRIT not power. Power flat and HP-independent."},"guardbreak":{"id":"guardbreak","name":"Guard Break","camp":"atk","tk":"foe","power":0.85,"rank":1.1,"charge":24,"applies":"sundered","turns":3,"defPierce":0,"critBonus":0,"note":"Sundered."},"daunt":{"id":"daunt","name":"Daunt","camp":"atk","tk":"foe","power":0.6,"rank":1,"charge":22,"applies":"enfeebled","turns":3,"defPierce":0,"critBonus":0,"note":"Enfeebled - ATK x0.75."},"cripple":{"id":"cripple","name":"Cripple","camp":"atk","tk":"foe","power":0.7,"rank":1.15,"charge":25,"applies":"slowed","turns":3,"defPierce":0,"critBonus":0,"note":"Slowed - 33% fewer enemy turns. Best non-heal rule."},"brace":{"id":"brace","name":"Brace","camp":"atk","tk":"self","power":0,"rank":0.65,"charge":30,"applies":"bracing","turns":2,"defPierce":0,"critBonus":0,"note":"Fast high charge. Fastest action in the game."},"vengeance":{"id":"vengeance","name":"Vengeance","camp":"atk","tk":"foe","power":1,"rank":1.3,"charge":26,"defPierce":0,"critBonus":0,"note":"Scales on SELF HP."},"onslaught":{"id":"onslaught","name":"Onslaught","camp":"atk","tk":"foe","power":1,"rank":1.45,"charge":29,"defPierce":0,"critBonus":0,"note":"Scales on own turn count."},"rally":{"id":"rally","name":"Rally","camp":"atk","tk":"self","power":0,"rank":0.75,"charge":45,"applies":"surging","turns":3,"defPierce":0,"critBonus":0,"note":"Doubles charge rate. Highest charge gain."},"gale":{"id":"gale","name":"Gale","camp":"mag","tk":"allFoes","power":0.62,"rank":1.3,"charge":27,"defPierce":0,"critBonus":0,"element":"air","note":"All foes magic - safe vs thorns."},"sear":{"id":"sear","name":"Sear","camp":"mag","tk":"foe","power":0.62,"rank":1.1,"charge":24,"applies":"burning","turns":3,"defPierce":0,"critBonus":0,"element":"fire","note":"Burning."},"hex":{"id":"hex","name":"Hex","camp":"mag","tk":"foe","power":0.68,"rank":1.05,"charge":23,"applies":"frail","turns":3,"defPierce":0,"critBonus":0,"element":"dark","note":"Frail - cuts RES."},"smother":{"id":"smother","name":"Smother","camp":"mag","tk":"foe","power":0.6,"rank":1.05,"charge":23,"applies":"dulled","turns":3,"defPierce":0,"critBonus":0,"element":"water","note":"Dulled - cuts enemy MAG and healing."},"dazzle":{"id":"dazzle","name":"Dazzle","camp":"mag","tk":"foe","power":0.58,"rank":1,"charge":22,"applies":"blinded","turns":3,"defPierce":0,"critBonus":0,"element":"light","note":"Blinded."},"siphon":{"id":"siphon","name":"Siphon","camp":"mag","tk":"foe","power":1,"rank":1.3,"charge":26,"defPierce":0,"critBonus":0,"element":"dark","lifesteal":0.5,"note":"Heals you 50% of damage."},"renew":{"id":"renew","name":"Renew","camp":"mag","tk":"ally","power":0,"rank":1.15,"charge":24,"applies":"regen","turns":4,"defPierce":0,"critBonus":0,"note":"Regen 4 turns."},"recall":{"id":"recall","name":"Recall","camp":"mag","tk":"deadAlly","power":0,"rank":1.6,"charge":33,"defPierce":0,"critBonus":0,"revive":0.35,"note":"Revive at 35% HP."},"bulwark":{"id":"bulwark","name":"Bulwark","camp":"mag","tk":"ally","power":0,"rank":0.9,"charge":28,"applies":"warded","turns":2,"defPierce":0,"critBonus":0,"note":"Warded - x0.60 incoming."},"blur":{"id":"blur","name":"Blur","camp":"mag","tk":"ally","power":0,"rank":0.9,"charge":28,"applies":"blurred","turns":3,"defPierce":0,"critBonus":0,"note":"+0.20 evade."},"quicken":{"id":"quicken","name":"Quicken","camp":"mag","tk":"ally","power":0,"rank":1.4,"charge":28,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"note":"Hasted."},"oath":{"id":"oath","name":"Wayfarer's Oath","camp":"atk","tk":"foe","power":4.2,"rank":1.8,"defPierce":0,"critBonus":0.3,"isCharge":true,"note":"CHARGE - Kesh. Single burst. Highest power in the game."},"ninefold":{"id":"ninefold","name":"Ninefold Rain","camp":"atk","tk":"foe","power":0.48,"rank":1.9,"hits":9,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - Vey. Multi-hit random targeting."},"hearthlight":{"id":"hearthlight","name":"Hearthlight","camp":"mag","tk":"allAllies","power":2.4,"rank":1.65,"defPierce":0,"critBonus":0,"heal":true,"cleanse":1,"isCharge":true,"note":"CHARGE - Ansa. Party heal + cleanse."},"vowofstone":{"id":"vowofstone","name":"Vow of Stone","camp":"atk","tk":"allAllies","power":0,"rank":1.55,"applies":"warded","turns":3,"defPierce":0,"critBonus":0,"selfTaunt":3,"isCharge":true,"note":"CHARGE - Dorrek. Party buff + taunt."},"ashfall":{"id":"ashfall","name":"Ashfall","camp":"mag","tk":"allFoes","power":1.9,"rank":2,"applies":"burning","turns":3,"defPierce":0,"critBonus":0,"element":"fire","isCharge":true,"note":"CHARGE - Mirel. AoE damage + DoT."},"bloodfury":{"id":"bloodfury","name":"Bloodfury","camp":"atk","tk":"foe","power":3.6,"rank":1.7,"defPierce":0,"critBonus":0.4,"element":"fire","lifesteal":0.25,"isCharge":true,"note":"CHARGE - Skarn (roster expansion). Big single-target hit, heavy crit bonus, partial lifesteal - a reckless crit-fisher that sustains itself."},"spellbrand":{"id":"spellbrand","name":"Spellbrand","camp":"atk","tk":"foe","power":3.2,"rank":1.6,"applies":"frail","turns":3,"defPierce":0.2,"critBonus":0,"element":"water","isCharge":true,"note":"CHARGE - Sorin (roster expansion). Armor-piercing blade strike that sears the target Frail - melee delivery, magic payload."},"wardcurse":{"id":"wardcurse","name":"Warding Curse","camp":"mag","tk":"allFoes","power":0.65,"rank":1.75,"applies":"enfeebled","turns":4,"defPierce":0,"critBonus":0,"element":"dark","isCharge":true,"note":"CHARGE - Nyra (roster expansion). Light AoE damage plus Enfeebled on every foe - shuts down enemy offense from the back line."},"aegisstep":{"id":"aegisstep","name":"Aegis Step","camp":"mag","tk":"self","power":0,"rank":1.45,"applies":"blurred","turns":3,"defPierce":0,"critBonus":0,"selfTaunt":3,"isCharge":true,"note":"CHARGE - Brenn (roster expansion). Self Blurred (+0.20 evade) plus self-taunt - draws every attack, then dodges most of them. The dodge-tank answer to Vow of Stone."},"quicksilver":{"id":"quicksilver","name":"Quicksilver Blessing","camp":"mag","tk":"allAllies","power":1.4,"rank":1.55,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - Sael (roster expansion). Light party heal plus Hasted - trades raw healing for tempo."},"heavystrike":{"id":"heavystrike","name":"Heavy Strike","camp":"atk","tk":"foe","power":4.2,"rank":1.8,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - MC generic starter (roadmap item 2). Bulk physical damage to one foe. No status/lifesteal/condition - the plain baseline pick."},"wildfire":{"id":"wildfire","name":"Wildfire","camp":"mag","tk":"allFoes","power":2.1,"rank":2,"defPierce":0,"critBonus":0,"element":"fire","isCharge":true,"note":"CHARGE - MC generic starter. Bulk magic damage to all foes. No status/lifesteal/condition - the plain baseline pick."},"greatheal":{"id":"greatheal","name":"Great Heal","camp":"mag","tk":"allAllies","power":2.6,"rank":1.65,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC generic starter. Heals the whole party. No status/lifesteal/condition - the plain baseline pick."},"atk_reckless":{"id":"atk_reckless","name":"Reckless Blow","camp":"atk","tk":"foe","scaleStat":"atk","power":4.2,"rank":1.75,"defPierce":0,"critBonus":0.3,"isCharge":true,"note":"CHARGE - MC rare charge drop (stat-scaling set). Scales off own ATK, not camp-implied MAG. Heavy single-target hit with a big crit bonus."},"mag_lance":{"id":"mag_lance","name":"Arcane Lance","camp":"mag","tk":"foe","scaleStat":"mag","power":4.2,"rank":1.75,"defPierce":0.2,"critBonus":0,"element":"air","isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own MAG. Piercing magic strike that ignores 20% armour. camp=mag so the Piercing Lore bonus is dead on it despite the built-in def_pierce."},"def_slam":{"id":"def_slam","name":"Shield Slam","camp":"atk","tk":"foe","scaleStat":"def","power":2.6,"rank":1.9,"applies":"sundered","turns":3,"defPierce":0,"critBonus":0,"element":"earth","isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own DEF instead of ATK/MAG. Shield bash that cracks the target's armour (Sundered) - a tank archetype that hits with its tank stat."},"res_strike":{"id":"res_strike","name":"Warded Strike","camp":"mag","tk":"foe","scaleStat":"res","power":3,"rank":1.85,"defPierce":0,"critBonus":0,"element":"water","lifesteal":0.2,"isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own RES instead of MAG. Draining strike that heals 20% of the damage dealt."},"spd_flurry":{"id":"spd_flurry","name":"Fleetstrike","camp":"atk","tk":"foe","scaleStat":"spd","power":0.45,"rank":1.3,"hits":2,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own SPD. Two quick hits; fires far more often than a normal charge action."},"atk_cry":{"id":"atk_cry","name":"Battle Cry","camp":"atk","tk":"allAllies","scaleStat":"atk","power":2.8,"rank":1.7,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A rallying cry - heals the party (scaled by own ATK) and Hastes everyone."},"mag_font":{"id":"mag_font","name":"Font of Power","camp":"mag","tk":"allAllies","scaleStat":"mag","power":2.8,"rank":1.65,"applies":"warded","turns":3,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A MAG-scaled party heal that also grants Warded."},"def_bulwark":{"id":"def_bulwark","name":"Bulwark Stand","camp":"atk","tk":"ally","scaleStat":"def","power":1.75,"rank":1.8,"applies":"bracing","turns":3,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. Shields one ally - heal scaled by own DEF, plus Bracing."},"res_ward":{"id":"res_ward","name":"Calming Ward","camp":"mag","tk":"allAllies","scaleStat":"res","power":1.95,"rank":1.75,"defPierce":0,"critBonus":0,"heal":true,"cleanse":1,"isCharge":true,"note":"CHARGE - MC rare charge drop. A RES-scaled party heal that also cleanses one debuff per ally."},"spd_fleet":{"id":"spd_fleet","name":"Fleet Step","camp":"mag","tk":"allAllies","scaleStat":"spd","power":0.6,"rank":1.5,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A SPD-scaled party heal plus Hasted - a courier's trick, not a caster's."},"tideturn":{"id":"tideturn","name":"Tideturn","camp":"mag","tk":"allAllies","power":0,"rank":1.5,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - RESOURCE/TEMPO. Buys turns deals nothing."},"lastlight":{"id":"lastlight","name":"Last Light","camp":"mag","tk":"deadAlly","power":0,"rank":1.7,"defPierce":0,"critBonus":0,"revive":0.8,"isCharge":true,"note":"CHARGE - REVIVE at 80%. Only full recovery in the game."},"sunder":{"id":"sunder","name":"Sundering Vow","camp":"atk","tk":"allFoes","power":0.55,"rank":1.6,"applies":"sundered","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - DEBUFF-first. Light damage strips DEF from everything."},"gravewind":{"id":"gravewind","name":"Gravewind","camp":"mag","tk":"allFoes","power":0.7,"rank":1.75,"applies":"slowed","turns":4,"defPierce":0,"critBonus":0,"element":"air","isCharge":true,"note":"CHARGE - TEMPO DENIAL. Slows every foe."},"reckoning":{"id":"reckoning","name":"Reckoning","camp":"atk","tk":"foe","power":1,"rank":1.9,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - CONDITIONAL on target HP."},"bulwarkoath":{"id":"bulwarkoath","name":"Bulwark Oath","camp":"mag","tk":"allAllies","power":0,"rank":1.45,"applies":"warded","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - CHEAP/FREQUENT. Low rank fires often."},"emberglut":{"id":"emberglut","name":"Ember Glut","camp":"mag","tk":"self","power":0,"rank":0.9,"applies":"surging","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - RESOURCE. Doubles own charge rate to chain."},"hollowtoll":{"id":"hollowtoll","name":"Hollow Toll","camp":"mag","tk":"allFoes","power":1.35,"rank":2.1,"defPierce":0,"critBonus":0,"element":"dark","lifesteal":0.6,"isCharge":true,"note":"CHARGE - SUSTAIN-AoE. Heals caster 60% of total."},"wardensmaul":{"id":"wardensmaul","name":"Warden's Maul","camp":"atk","tk":"foe","power":3.1,"rank":1.75,"defPierce":0,"critBonus":0.1,"note":"CHARGE - boss. Heavy single target."},"sunderingroar":{"id":"sunderingroar","name":"Sundering Roar","camp":"atk","tk":"allAllies","power":0,"rank":1.5,"applies":"enfeebled","turns":3,"defPierce":0,"critBonus":0,"note":"CHARGE - Stone Ox. Enfeebles the party."},"quickenedhowl":{"id":"quickenedhowl","name":"Quickened Howl","camp":"atk","tk":"self","power":0,"rank":1.2,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"note":"CHARGE - Mire Hound. Hastes itself."},"bite":{"id":"bite","name":"Bite","camp":"atk","tk":"foe","power":1,"rank":1,"charge":19,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"rake":{"id":"rake","name":"Rake","camp":"atk","tk":"foe","power":0.85,"rank":0.85,"charge":16,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"maul":{"id":"maul","name":"Maul","camp":"atk","tk":"foe","power":1.45,"rank":1.45,"charge":26,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"knitbone":{"id":"knitbone","name":"Knit Bone","camp":"mag","tk":"ally","power":1.15,"rank":1.2,"charge":21,"defPierce":0,"critBonus":0,"heal":true,"note":"Enemy basic heal."},"wait":{"id":"wait","name":"Wait","camp":"atk","tk":"self","power":0,"rank":1,"charge":0,"defPierce":0,"critBonus":0,"inert":true,"note":"Inert fallback. Does nothing."}},"QUEST_LINES":{"kesh":[{"story":"PLACEHOLDER — Kesh, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Kesh, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Kesh, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Kesh, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Kesh, stage 5.","powerFraction":1,"isBoss":true}],"ansa":[{"story":"PLACEHOLDER — Ansa, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 5.","powerFraction":1,"isBoss":true}],"dorrek":[{"story":"PLACEHOLDER — Dorrek, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 5.","powerFraction":1,"isBoss":true}],"vey":[{"story":"PLACEHOLDER — Vey, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 5.","powerFraction":1,"isBoss":true}],"mirel":[{"story":"PLACEHOLDER — Mirel, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 5.","powerFraction":1,"isBoss":true}],"skarn":[{"story":"PLACEHOLDER — Skarn, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 5.","powerFraction":1,"isBoss":true}],"sorin":[{"story":"PLACEHOLDER — Sorin, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 5.","powerFraction":1,"isBoss":true}],"nyra":[{"story":"PLACEHOLDER — Nyra, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 5.","powerFraction":1,"isBoss":true}],"brenn":[{"story":"PLACEHOLDER — Brenn, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 5.","powerFraction":1,"isBoss":true}],"sael":[{"story":"PLACEHOLDER — Sael, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 5.","powerFraction":1,"isBoss":true}]},"DIRECTION_CONFIG":{"west":{"label":"West","mul":0.75,"waveCount":4,"unlockEvery":100,"bossName":null},"northwest":{"label":"Northwest","mul":0.89,"waveCount":4,"unlockEvery":100,"bossName":null},"southwest":{"label":"Southwest","mul":1.04,"waveCount":4,"unlockEvery":100,"bossName":null},"north":{"label":"North","mul":1.18,"waveCount":4,"unlockEvery":100,"bossName":null},"south":{"label":"South","mul":1.32,"waveCount":4,"unlockEvery":100,"bossName":null},"northeast":{"label":"Northeast","mul":1.46,"waveCount":4,"unlockEvery":100,"bossName":null},"southeast":{"label":"Southeast","mul":1.61,"waveCount":4,"unlockEvery":100,"bossName":null},"east":{"label":"East","mul":1.75,"waveCount":4,"unlockEvery":100,"bossName":null}}};</script>
+<script id="farroad-content">window.FarroadContent={"ROSTER":[{"id":"kesh","name":"Kesh","role":"traveler","row":"front","hp":430,"chargeAction":"oath","stats":{"atk":26,"mag":18,"def":20,"res":16,"spd":100,"atkCrit":0.05,"magCrit":0.05,"chargeRate":1,"evade":0.03},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"ansa","name":"Ansa","role":"healer","row":"back","hp":320,"chargeAction":"hearthlight","stats":{"atk":14,"mag":26,"def":14,"res":22,"spd":96,"atkCrit":0.04,"magCrit":0.06,"chargeRate":1,"evade":0.04},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":2,"dark":0,"body":0,"spirit":5}},{"id":"dorrek","name":"Dorrek","role":"tank","row":"front","hp":560,"chargeAction":"vowofstone","stats":{"atk":22,"mag":10,"def":30,"res":20,"spd":84,"atkCrit":0.04,"magCrit":0.03,"chargeRate":1,"evade":0.02},"affinity":{"fire":0,"water":0,"earth":2,"air":0,"light":0,"dark":0,"body":4,"spirit":0}},{"id":"vey","name":"Vey","role":"rogue","row":"front","hp":300,"chargeAction":"ninefold","stats":{"atk":24,"mag":12,"def":14,"res":12,"spd":124,"atkCrit":0.12,"magCrit":0.04,"chargeRate":1,"evade":0.1},"affinity":{"fire":0,"water":0,"earth":0,"air":3,"light":0,"dark":0,"body":1,"spirit":0}},{"id":"mirel","name":"Mirel","role":"mage","row":"back","hp":270,"chargeAction":"ashfall","stats":{"atk":12,"mag":30,"def":12,"res":20,"spd":92,"atkCrit":0.03,"magCrit":0.1,"chargeRate":1,"evade":0.04},"affinity":{"fire":4,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":0,"spirit":0}},{"id":"skarn","name":"Skarn","role":"berserker","row":"front","hp":340,"chargeAction":"bloodfury","stats":{"atk":25,"mag":10,"def":13,"res":13,"spd":110,"atkCrit":0.11,"magCrit":0.03,"chargeRate":1,"evade":0.05},"affinity":{"fire":2,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"sorin","name":"Sorin","role":"battlemage","row":"front","hp":380,"chargeAction":"spellbrand","stats":{"atk":20,"mag":20,"def":17,"res":15,"spd":98,"atkCrit":0.06,"magCrit":0.06,"chargeRate":1,"evade":0.04},"affinity":{"fire":0,"water":2,"earth":0,"air":0,"light":0,"dark":0,"body":2,"spirit":0}},{"id":"nyra","name":"Nyra","role":"warden","row":"back","hp":310,"chargeAction":"wardcurse","stats":{"atk":15,"mag":21,"def":17,"res":20,"spd":90,"atkCrit":0.04,"magCrit":0.07,"chargeRate":1,"evade":0.04},"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":3,"body":0,"spirit":1}},{"id":"brenn","name":"Brenn","role":"sentinel","row":"front","hp":480,"chargeAction":"aegisstep","stats":{"atk":13,"mag":11,"def":18,"res":19,"spd":102,"atkCrit":0.04,"magCrit":0.04,"chargeRate":1,"evade":0.09},"affinity":{"fire":0,"water":0,"earth":2,"air":0,"light":0,"dark":0,"body":3,"spirit":0}},{"id":"sael","name":"Sael","role":"courier","row":"back","hp":290,"chargeAction":"quicksilver","stats":{"atk":12,"mag":24,"def":12,"res":16,"spd":114,"atkCrit":0.03,"magCrit":0.07,"chargeRate":1,"evade":0.06},"affinity":{"fire":0,"water":0,"earth":0,"air":2,"light":0,"dark":0,"body":0,"spirit":2}}],"ARCH":{"wolf":{"key":"wolf","name":"Roadwolf","hpMul":1,"atk":21,"def":12,"res":8,"spd":92,"atkCrit":0.04,"magCrit":0.04,"evade":0.05,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":0,"body":0,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8},"knight":{"key":"knight","name":"Barrow Knight","hpMul":0.85,"atk":19,"def":34,"res":20,"spd":84,"atkCrit":0.03,"magCrit":0.04,"evade":0.02,"affinity":{"fire":0,"water":0,"earth":3,"air":0,"light":0,"dark":0,"body":2,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8},"hound":{"key":"hound","name":"Mire Hound","hpMul":0.6,"atk":15,"def":8,"res":6,"spd":124,"atkCrit":0.08,"magCrit":0.04,"evade":0.1,"affinity":{"fire":0,"water":0,"earth":0,"air":3,"light":0,"dark":0,"body":0,"spirit":0},"slots":[{"cond":"none","action":"rake"},{"cond":"none","action":"rake"}],"mag":8,"chargeAction":"quickenedhowl"},"ox":{"key":"ox","name":"Stone Ox","hpMul":1.6,"atk":27,"def":20,"res":14,"spd":70,"atkCrit":0.05,"magCrit":0.04,"evade":0.01,"affinity":{"fire":0,"water":0,"earth":1,"air":0,"light":0,"dark":0,"body":4,"spirit":0},"slots":[{"cond":"none","action":"maul"},{"cond":"none","action":"maul"}],"mag":8,"chargeAction":"sunderingroar"},"priest":{"key":"priest","name":"Fen Priest","hpMul":0.55,"atk":12,"def":14,"res":22,"spd":96,"atkCrit":0.03,"magCrit":0.04,"evade":0.03,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":1,"dark":0,"body":0,"spirit":4},"slots":[{"cond":"ally_hp_lte_60","action":"knitbone"},{"cond":"none","action":"bite"}],"mag":23},"shrike":{"key":"shrike","name":"Thorn Shrike","hpMul":0.8,"atk":17,"def":14,"res":26,"spd":100,"atkCrit":0.05,"magCrit":0.04,"evade":0.06,"affinity":{"fire":0,"water":0,"earth":0,"air":0,"light":0,"dark":2,"body":1,"spirit":0},"slots":[{"cond":"none","action":"bite"},{"cond":"none","action":"bite"}],"mag":8,"thorns":0.06}},"ACTIONS":{"strike":{"id":"strike","name":"Strike","camp":"atk","tk":"foe","power":1,"rank":1,"charge":20,"defPierce":0,"critBonus":0,"note":"Baseline. Every other action is measured against this."},"ember":{"id":"ember","name":"Ember","camp":"mag","tk":"foe","power":1.05,"rank":1.05,"charge":21,"defPierce":0,"critBonus":0,"element":"fire","note":"Starter. Hits RES; full power from the back rank."},"mend":{"id":"mend","name":"Mend","camp":"mag","tk":"ally","power":1.2,"rank":1.05,"charge":22,"defPierce":0,"critBonus":0,"heal":true,"note":"Heal 1.20 x MAG."},"pierce":{"id":"pierce","name":"Pierce","camp":"atk","tk":"foe","power":1,"rank":1.5,"charge":26,"defPierce":0.75,"critBonus":0,"note":"Ignores 75% DEF but slow. Wins vs armour only. S6.0 exemplar."},"cleave":{"id":"cleave","name":"Cleave","camp":"atk","tk":"allFoes","power":0.66,"rank":1.3,"charge":27,"defPierce":0,"critBonus":0,"note":"All foes physical."},"flurry":{"id":"flurry","name":"Flurry","camp":"atk","tk":"foe","power":0.43,"rank":1.25,"charge":26,"hits":3,"defPierce":0,"critBonus":0,"note":"3 hits each rolling crit. Best keen target."},"execute":{"id":"execute","name":"Execute","camp":"atk","tk":"foe","power":0.65,"rank":1,"charge":29,"defPierce":0,"critBonus":0,"note":"v2.8 payoff is CRIT not power. Power flat and HP-independent."},"guardbreak":{"id":"guardbreak","name":"Guard Break","camp":"atk","tk":"foe","power":0.85,"rank":1.1,"charge":24,"applies":"sundered","turns":3,"defPierce":0,"critBonus":0,"note":"Sundered."},"daunt":{"id":"daunt","name":"Daunt","camp":"atk","tk":"foe","power":0.6,"rank":1,"charge":22,"applies":"enfeebled","turns":3,"defPierce":0,"critBonus":0,"note":"Enfeebled - ATK x0.75."},"cripple":{"id":"cripple","name":"Cripple","camp":"atk","tk":"foe","power":0.7,"rank":1.15,"charge":25,"applies":"slowed","turns":3,"defPierce":0,"critBonus":0,"note":"Slowed - 33% fewer enemy turns. Best non-heal rule."},"brace":{"id":"brace","name":"Brace","camp":"atk","tk":"self","power":0,"rank":0.65,"charge":30,"applies":"bracing","turns":2,"defPierce":0,"critBonus":0,"note":"Fast high charge. Fastest action in the game."},"vengeance":{"id":"vengeance","name":"Vengeance","camp":"atk","tk":"foe","power":1,"rank":1.3,"charge":26,"defPierce":0,"critBonus":0,"note":"Scales on SELF HP."},"onslaught":{"id":"onslaught","name":"Onslaught","camp":"atk","tk":"foe","power":1,"rank":1.45,"charge":29,"defPierce":0,"critBonus":0,"note":"Scales on own turn count."},"rally":{"id":"rally","name":"Rally","camp":"atk","tk":"self","power":0,"rank":0.75,"charge":45,"applies":"surging","turns":3,"defPierce":0,"critBonus":0,"note":"Doubles charge rate. Highest charge gain."},"gale":{"id":"gale","name":"Gale","camp":"mag","tk":"allFoes","power":0.62,"rank":1.3,"charge":27,"defPierce":0,"critBonus":0,"element":"air","note":"All foes magic - safe vs thorns."},"sear":{"id":"sear","name":"Sear","camp":"mag","tk":"foe","power":0.62,"rank":1.1,"charge":24,"applies":"burning","turns":3,"defPierce":0,"critBonus":0,"element":"fire","note":"Burning."},"hex":{"id":"hex","name":"Hex","camp":"mag","tk":"foe","power":0.68,"rank":1.05,"charge":23,"applies":"frail","turns":3,"defPierce":0,"critBonus":0,"element":"dark","note":"Frail - cuts RES."},"smother":{"id":"smother","name":"Smother","camp":"mag","tk":"foe","power":0.6,"rank":1.05,"charge":23,"applies":"dulled","turns":3,"defPierce":0,"critBonus":0,"element":"water","note":"Dulled - cuts enemy MAG and healing."},"dazzle":{"id":"dazzle","name":"Dazzle","camp":"mag","tk":"foe","power":0.58,"rank":1,"charge":22,"applies":"blinded","turns":3,"defPierce":0,"critBonus":0,"element":"light","note":"Blinded."},"siphon":{"id":"siphon","name":"Siphon","camp":"mag","tk":"foe","power":1,"rank":1.3,"charge":26,"defPierce":0,"critBonus":0,"element":"dark","lifesteal":0.5,"note":"Heals you 50% of damage."},"renew":{"id":"renew","name":"Renew","camp":"mag","tk":"ally","power":0,"rank":1.15,"charge":24,"applies":"regen","turns":4,"defPierce":0,"critBonus":0,"note":"Regen 4 turns."},"recall":{"id":"recall","name":"Recall","camp":"mag","tk":"deadAlly","power":0,"rank":1.6,"charge":33,"defPierce":0,"critBonus":0,"revive":0.35,"note":"Revive at 35% HP."},"bulwark":{"id":"bulwark","name":"Bulwark","camp":"mag","tk":"ally","power":0,"rank":0.9,"charge":28,"applies":"warded","turns":2,"defPierce":0,"critBonus":0,"note":"Warded - x0.60 incoming."},"blur":{"id":"blur","name":"Blur","camp":"mag","tk":"ally","power":0,"rank":0.9,"charge":28,"applies":"blurred","turns":3,"defPierce":0,"critBonus":0,"note":"+0.20 evade."},"quicken":{"id":"quicken","name":"Quicken","camp":"mag","tk":"ally","power":0,"rank":1.4,"charge":28,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"note":"Hasted."},"oath":{"id":"oath","name":"Wayfarer's Oath","camp":"atk","tk":"foe","power":4.2,"rank":1.8,"defPierce":0,"critBonus":0.3,"isCharge":true,"note":"CHARGE - {{name}}. Single burst. Highest power in the game."},"ninefold":{"id":"ninefold","name":"Ninefold Rain","camp":"atk","tk":"foe","power":0.48,"rank":1.9,"hits":9,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - Vey. Multi-hit random targeting."},"hearthlight":{"id":"hearthlight","name":"Hearthlight","camp":"mag","tk":"allAllies","power":2.4,"rank":1.65,"defPierce":0,"critBonus":0,"heal":true,"cleanse":1,"isCharge":true,"note":"CHARGE - Ansa. Party heal + cleanse."},"vowofstone":{"id":"vowofstone","name":"Vow of Stone","camp":"atk","tk":"allAllies","power":0,"rank":1.55,"applies":"warded","turns":3,"defPierce":0,"critBonus":0,"selfTaunt":3,"isCharge":true,"note":"CHARGE - Dorrek. Party buff + taunt."},"ashfall":{"id":"ashfall","name":"Ashfall","camp":"mag","tk":"allFoes","power":1.9,"rank":2,"applies":"burning","turns":3,"defPierce":0,"critBonus":0,"element":"fire","isCharge":true,"note":"CHARGE - Mirel. AoE damage + DoT."},"bloodfury":{"id":"bloodfury","name":"Bloodfury","camp":"atk","tk":"foe","power":3.6,"rank":1.7,"defPierce":0,"critBonus":0.4,"element":"fire","lifesteal":0.25,"isCharge":true,"note":"CHARGE - Skarn (roster expansion). Big single-target hit, heavy crit bonus, partial lifesteal - a reckless crit-fisher that sustains itself."},"spellbrand":{"id":"spellbrand","name":"Spellbrand","camp":"atk","tk":"foe","power":3.2,"rank":1.6,"applies":"frail","turns":3,"defPierce":0.2,"critBonus":0,"element":"water","isCharge":true,"note":"CHARGE - Sorin (roster expansion). Armor-piercing blade strike that sears the target Frail - melee delivery, magic payload."},"wardcurse":{"id":"wardcurse","name":"Warding Curse","camp":"mag","tk":"allFoes","power":0.65,"rank":1.75,"applies":"enfeebled","turns":4,"defPierce":0,"critBonus":0,"element":"dark","isCharge":true,"note":"CHARGE - Nyra (roster expansion). Light AoE damage plus Enfeebled on every foe - shuts down enemy offense from the back line."},"aegisstep":{"id":"aegisstep","name":"Aegis Step","camp":"mag","tk":"self","power":0,"rank":1.45,"applies":"blurred","turns":3,"defPierce":0,"critBonus":0,"selfTaunt":3,"isCharge":true,"note":"CHARGE - Brenn (roster expansion). Self Blurred (+0.20 evade) plus self-taunt - draws every attack, then dodges most of them. The dodge-tank answer to Vow of Stone."},"quicksilver":{"id":"quicksilver","name":"Quicksilver Blessing","camp":"mag","tk":"allAllies","power":1.4,"rank":1.55,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - Sael (roster expansion). Light party heal plus Hasted - trades raw healing for tempo."},"heavystrike":{"id":"heavystrike","name":"Heavy Strike","camp":"atk","tk":"foe","power":4.2,"rank":1.8,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - MC generic starter (roadmap item 2). Bulk physical damage to one foe. No status/lifesteal/condition - the plain baseline pick."},"wildfire":{"id":"wildfire","name":"Wildfire","camp":"mag","tk":"allFoes","power":2.1,"rank":2,"defPierce":0,"critBonus":0,"element":"fire","isCharge":true,"note":"CHARGE - MC generic starter. Bulk magic damage to all foes. No status/lifesteal/condition - the plain baseline pick."},"greatheal":{"id":"greatheal","name":"Great Heal","camp":"mag","tk":"allAllies","power":2.6,"rank":1.65,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC generic starter. Heals the whole party. No status/lifesteal/condition - the plain baseline pick."},"atk_reckless":{"id":"atk_reckless","name":"Reckless Blow","camp":"atk","tk":"foe","scaleStat":"atk","power":4.2,"rank":1.75,"defPierce":0,"critBonus":0.3,"isCharge":true,"note":"CHARGE - MC rare charge drop (stat-scaling set). Scales off own ATK, not camp-implied MAG. Heavy single-target hit with a big crit bonus."},"mag_lance":{"id":"mag_lance","name":"Arcane Lance","camp":"mag","tk":"foe","scaleStat":"mag","power":4.2,"rank":1.75,"defPierce":0.2,"critBonus":0,"element":"air","isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own MAG. Piercing magic strike that ignores 20% armour. camp=mag so the Piercing Lore bonus is dead on it despite the built-in def_pierce."},"def_slam":{"id":"def_slam","name":"Shield Slam","camp":"atk","tk":"foe","scaleStat":"def","power":2.6,"rank":1.9,"applies":"sundered","turns":3,"defPierce":0,"critBonus":0,"element":"earth","isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own DEF instead of ATK/MAG. Shield bash that cracks the target's armour (Sundered) - a tank archetype that hits with its tank stat."},"res_strike":{"id":"res_strike","name":"Warded Strike","camp":"mag","tk":"foe","scaleStat":"res","power":3,"rank":1.85,"defPierce":0,"critBonus":0,"element":"water","lifesteal":0.2,"isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own RES instead of MAG. Draining strike that heals 20% of the damage dealt."},"spd_flurry":{"id":"spd_flurry","name":"Fleetstrike","camp":"atk","tk":"foe","scaleStat":"spd","power":0.45,"rank":1.3,"hits":2,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - MC rare charge drop. Scales off own SPD. Two quick hits; fires far more often than a normal charge action."},"atk_cry":{"id":"atk_cry","name":"Battle Cry","camp":"atk","tk":"allAllies","scaleStat":"atk","power":2.8,"rank":1.7,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A rallying cry - heals the party (scaled by own ATK) and Hastes everyone."},"mag_font":{"id":"mag_font","name":"Font of Power","camp":"mag","tk":"allAllies","scaleStat":"mag","power":2.8,"rank":1.65,"applies":"warded","turns":3,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A MAG-scaled party heal that also grants Warded."},"def_bulwark":{"id":"def_bulwark","name":"Bulwark Stand","camp":"atk","tk":"ally","scaleStat":"def","power":1.75,"rank":1.8,"applies":"bracing","turns":3,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. Shields one ally - heal scaled by own DEF, plus Bracing."},"res_ward":{"id":"res_ward","name":"Calming Ward","camp":"mag","tk":"allAllies","scaleStat":"res","power":1.95,"rank":1.75,"defPierce":0,"critBonus":0,"heal":true,"cleanse":1,"isCharge":true,"note":"CHARGE - MC rare charge drop. A RES-scaled party heal that also cleanses one debuff per ally."},"spd_fleet":{"id":"spd_fleet","name":"Fleet Step","camp":"mag","tk":"allAllies","scaleStat":"spd","power":0.6,"rank":1.5,"applies":"hasted","turns":2,"defPierce":0,"critBonus":0,"heal":true,"isCharge":true,"note":"CHARGE - MC rare charge drop. A SPD-scaled party heal plus Hasted - a courier's trick, not a caster's."},"tideturn":{"id":"tideturn","name":"Tideturn","camp":"mag","tk":"allAllies","power":0,"rank":1.5,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - RESOURCE/TEMPO. Buys turns deals nothing."},"lastlight":{"id":"lastlight","name":"Last Light","camp":"mag","tk":"deadAlly","power":0,"rank":1.7,"defPierce":0,"critBonus":0,"revive":0.8,"isCharge":true,"note":"CHARGE - REVIVE at 80%. Only full recovery in the game."},"sunder":{"id":"sunder","name":"Sundering Vow","camp":"atk","tk":"allFoes","power":0.55,"rank":1.6,"applies":"sundered","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - DEBUFF-first. Light damage strips DEF from everything."},"gravewind":{"id":"gravewind","name":"Gravewind","camp":"mag","tk":"allFoes","power":0.7,"rank":1.75,"applies":"slowed","turns":4,"defPierce":0,"critBonus":0,"element":"air","isCharge":true,"note":"CHARGE - TEMPO DENIAL. Slows every foe."},"reckoning":{"id":"reckoning","name":"Reckoning","camp":"atk","tk":"foe","power":1,"rank":1.9,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - CONDITIONAL on target HP."},"bulwarkoath":{"id":"bulwarkoath","name":"Bulwark Oath","camp":"mag","tk":"allAllies","power":0,"rank":1.45,"applies":"warded","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - CHEAP/FREQUENT. Low rank fires often."},"emberglut":{"id":"emberglut","name":"Ember Glut","camp":"mag","tk":"self","power":0,"rank":0.9,"applies":"surging","turns":4,"defPierce":0,"critBonus":0,"isCharge":true,"note":"CHARGE - RESOURCE. Doubles own charge rate to chain."},"hollowtoll":{"id":"hollowtoll","name":"Hollow Toll","camp":"mag","tk":"allFoes","power":1.35,"rank":2.1,"defPierce":0,"critBonus":0,"element":"dark","lifesteal":0.6,"isCharge":true,"note":"CHARGE - SUSTAIN-AoE. Heals caster 60% of total."},"wardensmaul":{"id":"wardensmaul","name":"Warden's Maul","camp":"atk","tk":"foe","power":3.1,"rank":1.75,"defPierce":0,"critBonus":0.1,"note":"CHARGE - boss. Heavy single target."},"sunderingroar":{"id":"sunderingroar","name":"Sundering Roar","camp":"atk","tk":"allAllies","power":0,"rank":1.5,"applies":"enfeebled","turns":3,"defPierce":0,"critBonus":0,"note":"CHARGE - Stone Ox. Enfeebles the party."},"quickenedhowl":{"id":"quickenedhowl","name":"Quickened Howl","camp":"atk","tk":"self","power":0,"rank":1.2,"applies":"hasted","turns":3,"defPierce":0,"critBonus":0,"note":"CHARGE - Mire Hound. Hastes itself."},"bite":{"id":"bite","name":"Bite","camp":"atk","tk":"foe","power":1,"rank":1,"charge":19,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"rake":{"id":"rake","name":"Rake","camp":"atk","tk":"foe","power":0.85,"rank":0.85,"charge":16,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"maul":{"id":"maul","name":"Maul","camp":"atk","tk":"foe","power":1.45,"rank":1.45,"charge":26,"defPierce":0,"critBonus":0,"note":"Enemy basic."},"knitbone":{"id":"knitbone","name":"Knit Bone","camp":"mag","tk":"ally","power":1.15,"rank":1.2,"charge":21,"defPierce":0,"critBonus":0,"heal":true,"note":"Enemy basic heal."},"wait":{"id":"wait","name":"Wait","camp":"atk","tk":"self","power":0,"rank":1,"charge":0,"defPierce":0,"critBonus":0,"inert":true,"note":"Inert fallback. Does nothing."}},"QUEST_LINES":{"kesh":[{"story":"PLACEHOLDER — {{name}}, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — {{name}}, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — {{name}}, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — {{name}}, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — {{name}}, stage 5.","powerFraction":1,"isBoss":true}],"ansa":[{"story":"PLACEHOLDER — Ansa, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Ansa, stage 5.","powerFraction":1,"isBoss":true}],"dorrek":[{"story":"PLACEHOLDER — Dorrek, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Dorrek, stage 5.","powerFraction":1,"isBoss":true}],"vey":[{"story":"PLACEHOLDER — Vey, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Vey, stage 5.","powerFraction":1,"isBoss":true}],"mirel":[{"story":"PLACEHOLDER — Mirel, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Mirel, stage 5.","powerFraction":1,"isBoss":true}],"skarn":[{"story":"PLACEHOLDER — Skarn, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Skarn, stage 5.","powerFraction":1,"isBoss":true}],"sorin":[{"story":"PLACEHOLDER — Sorin, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Sorin, stage 5.","powerFraction":1,"isBoss":true}],"nyra":[{"story":"PLACEHOLDER — Nyra, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Nyra, stage 5.","powerFraction":1,"isBoss":true}],"brenn":[{"story":"PLACEHOLDER — Brenn, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Brenn, stage 5.","powerFraction":1,"isBoss":true}],"sael":[{"story":"PLACEHOLDER — Sael, stage 1.","powerFraction":0.5,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 2.","powerFraction":0.625,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 3.","powerFraction":0.75,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 4.","powerFraction":0.875,"isBoss":false},{"story":"PLACEHOLDER — Sael, stage 5.","powerFraction":1,"isBoss":true}]},"DIRECTION_CONFIG":{"west":{"label":"West","mul":0.75,"waveCount":4,"unlockEvery":100,"bossName":null},"northwest":{"label":"Northwest","mul":0.89,"waveCount":4,"unlockEvery":100,"bossName":null},"southwest":{"label":"Southwest","mul":1.04,"waveCount":4,"unlockEvery":100,"bossName":null},"north":{"label":"North","mul":1.18,"waveCount":4,"unlockEvery":100,"bossName":null},"south":{"label":"South","mul":1.32,"waveCount":4,"unlockEvery":100,"bossName":null},"northeast":{"label":"Northeast","mul":1.46,"waveCount":4,"unlockEvery":100,"bossName":null},"southeast":{"label":"Southeast","mul":1.61,"waveCount":4,"unlockEvery":100,"bossName":null},"east":{"label":"East","mul":1.75,"waveCount":4,"unlockEvery":100,"bossName":null}}};</script>
 <script id="farroad-core">
 /* =============================================================================
  * FARROAD CORE — combat unchanged since v0.6. v0.7 per-unit copies, v0.8 Lore
@@ -439,7 +440,7 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
    variance roll. Crit is NOT scaled by level for either side (statsAt and the
    enemy builder both copy atkCrit/magCrit straight from the base block), so
    raising the cap cannot let a deep enemy crit more than its archetype says. */
-var TICK_K=10000,CRIT_MUL=1.75,BLOCK_MUL=.5,CAP_EVADE=.40,CAP_BLOCK=.50,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
+var TICK_K=10000,CRIT_MUL=1.75,CAP_EVADE=.40,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
 /* ===== ELEMENTAL AFFINITIES (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — one value per unit per axis,
@@ -455,7 +456,13 @@ var BURN_PCT=0.05,REGEN_PCT=0.06;
  * F.affinityMul/F.AFFINITY_CAP for progression's cost curve and the UI's
  * AETHER tab to read the identical formula — same precedent as F.CAP_CRIT
  * below, exported for exactly this cross-module reason. */
-var AFFINITY_CAP=20;
+/* v2.10: 20 -> 40 — Ian's ask, doubling how many Aether purchases it takes
+   to max any one axis (paired with AFFINITY_COST_BASE being roughly halved
+   in farroad-progression.js, so the TOTAL Aether to fully max an axis
+   doubles too, 1,680 -> 3,360 — see the comment there for the exact
+   solve). The ±80% ceiling itself is untouched, only how far the raw
+   value has to climb to reach it. */
+var AFFINITY_CAP=40;
 function affinityMul(raw){
  var s=raw<0?-1:1, a=Math.min(Math.abs(raw),AFFINITY_CAP);
  return s*0.80*Math.log(1+a)/Math.log(1+AFFINITY_CAP);}
@@ -510,20 +517,16 @@ function affinityFactor(src,tgt,act){
  return m;}
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
 var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
-/* ===== NEGATION PARITY + ASYMMETRY (v1.1) =====
- * Both camps are now subject to BOTH evade and block (magic could not be evaded
- * before; block already applied to both — confirmed at the old line 581, which
- * had no isPhys gate).
- * Asymmetry: a sword gets parried, a spell goes wide.
- *   physical -> block at full strength, evade at half
- *   magic    -> evade at full strength, block at half
- * At a defensive line of block 0.20 / evade 0.10 that reads as:
- *   sword  blocked 20%, missed  5%
- *   spell  blocked 10%, missed 10%
- * Measured: vs physical the two stats are worth exactly the same (5.3% each per
- * 10pp); vs magic evade is worth 4.3x block. So the matchup decides the buy,
- * which is the build decision this was for. */
-var NEG={ atk:{blk:1.00,evd:0.50}, mag:{blk:0.50,evd:1.00} };
+/* v2.10: Block removed entirely (Body affinity already covers physical
+   damage reduction — a second, overlapping stat was redundant). Evade's
+   old per-camp asymmetry (physical at half strength, magic at full —
+   the NEGATION PARITY + ASYMMETRY comment this replaces) existed only to
+   make block/evade trade off differently by camp; with block gone that
+   asymmetry would have left physical attacks with strictly less defense
+   than before (no block AND half evade), so evade is now full strength
+   against both camps — the NEG/NG per-camp weighting table this used to
+   read from is gone, not kept as dead infrastructure computing a
+   constant ×1.00. */
 function clamp(x,lo,hi){return x<lo?lo:(x>hi?hi:x);}
 function tcRaw(spd,rank){return Math.max(1,Math.round(TICK_K*rank/spd));}
 /* ===== v2.0 RESCALE — the game now runs to THOUSANDS of waves =====
@@ -584,25 +587,23 @@ function has(u,id){return u.st[id]>0;}
  * caster's and target's Spirit affinity at the moment a status lands, and
  * store the RESULT (not the raw base) in u.stMag — a per-application
  * magnitude that sits alongside the existing turn counter in u.st.
- * Bracing carries TWO independent magnitudes (a DEF ratio AND a flat block
- * bonus) under one status id, so its entry is an object of sub-magnitudes
- * rather than a bare number; every other status has exactly one number.
  * DOT/regen (burning/regen) have no "baseline" to delta from — the whole
  * magnitude IS the delta (0 unburned -> BURN_PCT burned) — affTerm still
  * applies the same way, it just scales the entire figure rather than a
- * modifier on top of something else. */
-var STATUS_BASE_MAG={enfeebled:-0.25,dulled:-0.25,bracing:{def:0.40,block:0.30},
+ * modifier on top of something else.
+ * v2.10: Bracing used to carry a SECOND magnitude here (a flat +0.30
+ * block bonus, alongside its +0.40 DEF), the one status with more than
+ * one number — retired along with Block itself, so every entry below is
+ * now a plain number and magOf no longer needs a multi-part branch. */
+var STATUS_BASE_MAG={enfeebled:-0.25,dulled:-0.25,bracing:0.40,
  sundered:-0.25,frail:-0.25,blurred:0.20,warded:-0.40,slowed:0.50,hasted:-0.40,
  surging:1.00,burning:BURN_PCT,regen:REGEN_PCT};
-/* @param key only for a multi-part status (bracing) — selects the sub-magnitude.
-   Falls back to STATUS_BASE_MAG if u.stMag has nothing recorded for id (should
-   not happen once apply() always populates it for a known id, but keeps a
-   never-applied/edge-case read from silently reading undefined). */
-function magOf(u,id,key){
+/* Falls back to STATUS_BASE_MAG if u.stMag has nothing recorded for id
+   (should not happen once apply() always populates it for a known id, but
+   keeps a never-applied/edge-case read from silently reading undefined). */
+function magOf(u,id){
  var m=(u.stMag&&u.stMag[id]!=null)?u.stMag[id]:STATUS_BASE_MAG[id];
- if(m==null)return 0;
- if(typeof m==='object')return key?(m[key]||0):0;
- return key?0:m;}
+ return m==null?0:m;}
 /* v2.10: gained a 4th param, casterSpirit — the unit APPLYING the status
    (self for a self-buff/self-taunt). Computes and stores this application's
    Spirit-scaled magnitude in u.stMag alongside the turn count in u.st;
@@ -615,15 +616,11 @@ function apply(u,id,t,casterSpirit){
  if(base==null)return;
  var mul=affBoost(casterSpirit==null?0:casterSpirit,u.affinity.spirit);
  u.stMag=u.stMag||{};
- if(typeof base==='object'){
-  var scaled={};for(var k in base)if(Object.prototype.hasOwnProperty.call(base,k))scaled[k]=base[k]*mul;
-  u.stMag[id]=scaled;
- }else u.stMag[id]=base*mul;}
+ u.stMag[id]=base*mul;}
 function effAtk(u){return u.base.atk*(1+(has(u,'enfeebled')?magOf(u,'enfeebled'):0));}
 function effMag(u){return u.base.mag*(1+(has(u,'dulled')?magOf(u,'dulled'):0));}
-function effDef(u){return u.base.def*(1+(has(u,'bracing')?magOf(u,'bracing','def'):0))*(1+(has(u,'sundered')?magOf(u,'sundered'):0));}
+function effDef(u){return u.base.def*(1+(has(u,'bracing')?magOf(u,'bracing'):0))*(1+(has(u,'sundered')?magOf(u,'sundered'):0));}
 function effRes(u){return u.base.res*(1+(has(u,'frail')?magOf(u,'frail'):0));}
-function effBlock(u){return u.base.block+(has(u,'bracing')?magOf(u,'bracing','block'):0);}
 function effEvade(u){return u.base.evade+(has(u,'blurred')?magOf(u,'blurred'):0);}
 function effChargeRate(u){return u.base.chargeRate*(1+(has(u,'surging')?magOf(u,'surging'):0));}
 /* v2.9: an action's magnitude was hardcoded to ATK (physical) or MAG (magic)
@@ -994,7 +991,7 @@ function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='deadAlly'){if(ct&&ct.isParty===u.isParty&&ct.hp<=0)return ct;return deadAllies(b,u)[0]||null;}
  return null;}
 function defaultAffinity(){return {fire:0,water:0,earth:0,air:0,light:0,dark:0,body:0,spirit:0};}
-function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03};
+function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,evade:.03};
  for(var k in (cfg.stats||{}))if(Object.prototype.hasOwnProperty.call(cfg.stats,k))d[k]=cfg.stats[k];
  var aff=defaultAffinity();
  for(var ak in (cfg.affinity||{}))if(Object.prototype.hasOwnProperty.call(cfg.affinity,ak))aff[ak]=cfg.affinity[ak];
@@ -1031,11 +1028,11 @@ function chooseFrom(u,b,state){
  return {actionId:'strike',target:null,via:'all false → implicit Strike'};}
 function choose(u,b){var st={charge:u.charge,alternateFlag:u.alternateFlag};var r=chooseFrom(u,b,st);u.alternateFlag=st.alternateFlag;return r;}
 function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp==='atk';
- var o={isPhys:isPhys,evaded:false,crit:false,blocked:false,actionName:act.name,targetName:tgt.name};
- var NG=NEG[act.camp]||NEG.atk;
- /* v1.1: BOTH camps can now be evaded, with camp-specific effectiveness */
- o.negBlk=NG.blk;o.negEvd=NG.evd;
- o.evadeChance=clamp(effEvade(tgt)*NG.evd+(has(src,'blinded')?.30:0),0,CAP_EVADE+.30);
+ var o={isPhys:isPhys,evaded:false,crit:false,actionName:act.name,targetName:tgt.name};
+ /* v2.10: evade is full strength against both camps (was half strength vs
+    physical, full vs magic, back when block existed as physical's other
+    defense — see the comment above clamp() near the top of this file). */
+ o.evadeChance=clamp(effEvade(tgt)+(has(src,'blinded')?.30:0),0,CAP_EVADE+.30);
  o.evadeRoll=det?1:rng.next();
  if(o.evadeRoll<o.evadeChance){o.evaded=true;o.damage=0;return o;}
  /* v2.7: critFn is the conditional twin of powerFn — a crit bonus that reads the
@@ -1060,8 +1057,6 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.varRoll=null;o.variance=1;
  var d=o.base;o.afterVariance=d;
  if(o.crit)d*=CRIT_MUL;
- o.blockChance=clamp(effBlock(tgt)*NG.blk,0,CAP_BLOCK);o.blockRoll=det?1:rng.next();o.blocked=o.blockRoll<o.blockChance;
- if(o.blocked)d*=BLOCK_MUL;
  o.wardMul=incomingMul(tgt);d*=o.wardMul;
  o.rowOut=rowOut(src,isPhys);o.rowIn=rowIn(tgt,isPhys);d*=o.rowOut*o.rowIn;
  o.preFloor=d;o.damage=Math.max(1,Math.floor(d));return o;}
@@ -1160,7 +1155,7 @@ function preview(b,count){count=count||6;var sim=[];
    (1.02 -> 0.80 in buildEnemies). */
 /* ARCH is generated from farroadenemies.csv at build time (see build.js) --
    window.FarroadContent.ARCH is already in this exact shape (key/name/
-   hpMul/atk/mag/def/res/spd/atkCrit/magCrit/evade/block/thorns/
+   hpMul/atk/mag/def/res/spd/atkCrit/magCrit/evade/thorns/
    chargeAction/slots). No ARCH.boss entry -- boss enemies are synthesized
    at combat-build time from ox's shape + wolf's HP (see buildEnemies in
    farroad-ui.js), a design this doesn't change. magCrit and chargeAction
@@ -1169,9 +1164,16 @@ function preview(b,count){count=count||6;var sim=[];
    seeded to match prior behavior exactly). */
 var ARCH=window.FarroadContent.ARCH;
 var ROT=['wolf','knight','hound','ox','priest','shrike'];
-var REF={def:12,evade:.05,block:.00};
+var REF={def:12,evade:.05};
+/* v2.10: dropped the block term (was ((1-a.block*.5)/(1-REF.block*.5))) —
+   Block is gone. This IS the self-correcting mechanism that keeps Barrow
+   Knight/Stone Ox (the two archetypes that had non-trivial block, 0.10/
+   0.05) properly sized without a manual HP retune: without the discount
+   block used to apply here, their computed dmgTakenMul rises back toward
+   1, which sizes them slightly MORE hp than before, automatically
+   compensating for the mitigation they lost. */
 function dmgTakenMul(a){var K=25;
- return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade))*((1-a.block*.5)/(1-REF.block*.5));}
+ return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade));}
 /* ROSTER is generated from farroadunits.csv at build time (see build.js) --
    window.FarroadContent.ROSTER is already in this exact shape (id/name/
    role/row/hp/chargeAction/stats), no per-entry logic to merge back in --
@@ -1183,6 +1185,9 @@ F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE
    'use strict', so a bare CAP_CRIT there is a ReferenceError, not a silent
    undefined — the same failure mode as the v0.9 WAVE_EXP bug. */
 F.CAP_CRIT=CAP_CRIT;F.CRIT_MUL=CRIT_MUL;
+/* v2.10: exported for progression's Evade/Crit investment curve — same
+   cross-module need F.CAP_CRIT above already exists for. */
+F.CAP_EVADE=CAP_EVADE;
 F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 /* v2.10: exported for progression's affinity-cost curve and the UI's AETHER
@@ -1347,7 +1352,16 @@ P.bossAether=function(w){
  * the very first Aether, so opting in is a real choice available immediately
  * rather than a gate the player discovers by dying. */
 P.REST=0.00;          /* v2.8: was 0.15 — recovery is now entirely opt-in */
-P.REST_CAP=0.30;      /* measured saturation point - beyond this it is inert */
+/* v2.10: 0.30 -> 0.50, requested directly by Ian. NOTE: the "saturates hard
+   at 30%, worth exactly nothing above it" finding above is from v1.0 —
+   several major difficulty retunes have landed since (the v2.1 rescale, the
+   v2.9 hard-scaling pass that doubled HARD_MAX) and the measurement was
+   never re-run against them, so it should be treated as stale, not as
+   confirmation this new ceiling is inert. Flagged rather than silently
+   trusted; a fresh clear-rate pass (same 0/20-vs-20/20 methodology as the
+   comment above, at 30/35/40/45/50%) would confirm whether 30-50% still
+   moves anything under the current curve. */
+P.REST_CAP=0.50;
 P.REST_STEP=0.03;     /* per purchase */
 
 /* Ramp, revised again during the v0.9 fusion. Measured: a solo character cannot
@@ -1761,7 +1775,7 @@ P.statsAt=function(uid,base,baseHp,L){
  var g=P.GROWTH[uid]||P.GROWTH.kesh,n=L-1,o={};
  ['atk','mag','def','res','spd'].forEach(function(s){o[s]=Math.round(base[s]+g[s]*n);});
  o.hp=Math.round(baseHp+g.hp*n);
- ['atkCrit','magCrit','chargeRate','block','evade'].forEach(function(k){o[k]=base[k];});
+ ['atkCrit','magCrit','chargeRate','evade'].forEach(function(k){o[k]=base[k];});
  return o;};
 /* ===== SLOTS UNLOCK WITH LEVEL =====
  * 2 at L1, 3rd at L10. Ties directly to the finding that a solo character
@@ -1978,27 +1992,26 @@ P.dupUnitAether=function(w){
  * the joint "spread" methodology above since these were requested values,
  * not re-fit ones. */
 P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
- hp:[180,840],atkCrit:[0,0.18],magCrit:[0,0.18],block:[0,0.18],evade:[0,0.18]};
+ hp:[180,840]};
 P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
  hp:[18,48]};
-/* Percentage-scale stats (crit/block/evade run 0.02-0.12) round to the nearest
-   whole percent, matching the granularity every shipped value already uses —
-   interpolating to raw floating point would imply a precision the roster
-   itself doesn't have (nothing is tuned to e.g. 7.3% block). */
-P.MC_PCT_STATS=['atkCrit','magCrit','block','evade'];
-/* Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
+/* v2.10: atkCrit/magCrit/block/evade REMOVED from creation entirely — they
+   now level like affinities, bought up over time from Aether in the AETHER
+   tab (see P.PCT_STAT below) rather than fixed forever at a creation-time
+   choice. A custom MC starts at 0 in all four, same "creation stays simple,
+   Aether is where investment happens" principle affinities established.
+   P.MC_PCT_STATS (the old percent-vs-integer display branch) is gone along
+   with them — every remaining MC_STAT_KEYS member is a plain integer stat,
+   so mcBuildStats/mcStatDisplay both drop their now-dead percent branch.
+   Every stat starts at 0 (its roster-derived floor — see mcLerp, point=MIN
    always maps to statRange[0], so 0 points never means a literal 0 in-game
    stat) rather than a pre-filled midpoint, so building toward a plan means
    only ever ADDING points, never having to first subtract from stats you
-   don't want. Range widened 1-10 -> 0-15 for more room to specialize before
-   the fixed pool runs out. POOL is deliberately HALF of the theoretical max
-   spend (10 stats x 15 = 150) rather than derived from a per-stat default —
-   there is no default to derive it from any more — so an even split still
-   lands mid-range on every stat (75/10=7.5, roughly half of 15), while a
-   focused build can afford to max 5 of the 10 stats outright (5x15=75) and
-   leave the rest at floor, which is more extreme specialization than the
-   old 1-10/pool-50 scheme allowed. */
-P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp','atkCrit','magCrit','block','evade'];
+   don't want. POOL is deliberately HALF of the theoretical max spend
+   (P.MC_STAT_KEYS.length x 15) — an even split still lands mid-range on
+   every stat, while a focused build can afford to max a third of the stats
+   outright and leave the rest at floor. */
+P.MC_STAT_KEYS=['atk','mag','def','res','spd','hp'];
 P.MC_POINT_MIN=0;
 P.MC_POINT_MAX=15;
 P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
@@ -2039,7 +2052,7 @@ P.mcBuildStats=function(points){
  var stats={},growth={},i,k,v;
  for(i=0;i<P.MC_STAT_KEYS.length;i++){
   k=P.MC_STAT_KEYS[i];v=P.mcLerp(P.MC_STAT_RANGE[k],points[k]);
-  stats[k]=(P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)/100:Math.round(v);
+  stats[k]=Math.round(v);
   if(P.MC_GROWTH_RANGE[k])growth[k]=Math.round(P.mcLerp(P.MC_GROWTH_RANGE[k],points[k])*10)/10;}
  var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
  return {stats:stats,hp:hp,growth:growth};};
@@ -2099,8 +2112,16 @@ P.powerLevel=function(g){
  Object.keys(g.affinities||{}).forEach(function(uid){
   var a=g.affinities[uid];if(!a)return;
   Object.keys(a).forEach(function(axis){affinityPoints+=a[axis]||0;});});
+ /* v2.10: g.statInvest[uid][stat] is PURCHASED STEPS ONLY (Block/Evade/
+    ATK-Crit/MAG-Crit's own baseline — the CSV-authored atk_crit/mag_crit/
+    block/evade columns — does NOT count), same treatment affinityPoints
+    just got above. */
+ var pctStatSteps=0;
+ Object.keys(g.statInvest||{}).forEach(function(uid){
+  var s=g.statInvest[uid];if(!s)return;
+  Object.keys(s).forEach(function(stat){pctStatSteps+=s[stat]||0;});});
  return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE+
-  affinityPoints*P.POWER_PER_AFFINITY_POINT);};
+  affinityPoints*P.POWER_PER_AFFINITY_POINT+pctStatSteps*P.POWER_PER_PCT_STAT_STEP);};
 /* ===== AFFINITY INVESTMENT (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — see farroad-core.js's own
  * comment (AFFINITY_CAP/affinityMul/affTerm) for the combat-facing half of
@@ -2126,9 +2147,92 @@ P.powerLevel=function(g){
  * reaches AFFINITY_CAP exactly — C.affinityMul plateaus there by
  * construction (Math.min clamps the input), so a further point could not
  * move the number even if bought. */
-P.AFFINITY_COST_BASE=8;
+/* v2.10: 8 -> 4.0976, paired with AFFINITY_CAP doubling (20 -> 40,
+   farroad-core.js) — Ian's ask was "double the number of times it needs
+   to be leveled [and] double the cost to max them", and those two
+   requirements don't fall out of just doubling one constant: a linear-
+   escalation curve's TOTAL cost is triangular in the point count, so
+   doubling AFFINITY_CAP alone (with the base unchanged) would have
+   raised the cost to fully max an axis by ~3.9x (8*(1+...+40)=6,560),
+   not 2x. Solved directly instead: the base that makes the doubled-
+   length curve sum to exactly double the old total (1,680 -> 3,360) is
+   BASE_old*(N_old+1)/(2*N_old+1) = 8*21/41 = 4.0976 — not a round
+   number, so affinityCostToNext rounds its output (matching every other
+   per-step cost function in this file) rather than showing fractional
+   Aether. */
+P.AFFINITY_COST_BASE=4.0976;
 P.affinityCostToNext=function(investedPoints){
- return P.AFFINITY_COST_BASE*(investedPoints+1);};
+ return Math.round(P.AFFINITY_COST_BASE*(investedPoints+1));};
+
+/* ===== EVADE/CRIT INVESTMENT (v2.10) =====
+ * "Level like affinities" — but NOT affinities' logarithmic ±80% shape.
+ * Evade/ATK-Crit/MAG-Crit are already bounded 0-to-a-hard-engine-cap
+ * percentages (C.CAP_EVADE/C.CAP_CRIT, farroad-core.js), the same shape
+ * Recovery (P.REST/P.REST_CAP/P.REST_STEP, recoveryCost() in the UI layer)
+ * already solves — fixed step per purchase, geometrically escalating cost,
+ * hard-capped. Reused here as independent instances of that exact
+ * mechanic rather than adapting the affinity curve to a shape it wasn't
+ * designed for (affinityMul is symmetric and unbounded either direction;
+ * these are one-directional and already capped by the engine).
+ * No new baseline data needed — atk_crit/mag_crit/evade already exist as
+ * real per-unit/per-archetype CSV columns (C.ROSTER/C.ARCH) and already
+ * ARE the baseline; G.statInvest (UI layer) holds only the purchased step
+ * COUNT on top, same "baseline + purchased, kept separate" shape
+ * G.affinities already established and for the same reason (a real,
+ * separately-readable "how much has the player actually bought" figure).
+ * Evade's step originally matched P.REST_STEP (0.03) for continuity with
+ * Recovery — halved again since (see the v2.10 note below), so that
+ * continuity no longer holds exactly, just a shared lineage.
+ * Crit's larger step/cost reflects a bigger ceiling (1.00 vs Evade's 0.40)
+ * and a categorically bigger payoff (crit multiplies the WHOLE hit by
+ * C.CRIT_MUL) — a longer climb to a more valuable stat.
+ * v2.10 Block removal: Block dropped out of this table entirely (and out
+ * of the engine — see farroad-core.js) once Ian pointed out Body affinity
+ * already covers physical damage reduction, making a second overlapping
+ * stat redundant. */
+/* Per-stat costBase/costGrowth retuned after the first pass measured WAY
+   outside the target range (a naive shared 1.45 growth at each stat's
+   initial step count priced ATK/MAG Crit at 52,484 Aether to cap — 31x
+   the ~1,680 one maxed affinity axis costs, effectively making 100% crit
+   unreachable in a normal run). Re-solved per stat (VM-sandbox balance
+   script, scratchpad) for a total cost-to-cap in the same rough order as
+   Recovery's own full climb (890 Aether) and one maxed affinity axis
+   (1,680): Evade 1,023 (step originally matched Recovery's own 0.03 for
+   continuity), ATK/MAG Crit 2,077 each — deliberately pricier than
+   Evade, reflecting the bigger ceiling (1.00 vs 0.40) and bigger payoff
+   (crit multiplies the WHOLE hit), not forced to the same total as a
+   cheaper stat.
+   v2.10: "double the number of times it needs to be leveled [and]
+   double the cost to max them" — both step (so twice as many purchases
+   reach the same cap) AND costGrowth retuned together, same reason
+   AFFINITY_COST_BASE couldn't just be left alone above: a geometric
+   curve's total is exponential in step count, so halving the step size
+   alone (doubling how many terms get summed) would have made these
+   curves cost FAR more than double — solved numerically instead
+   (VM-sandbox script) for the growth rate that lands each doubled-length
+   curve back at exactly 2x its old total, holding costBase fixed as the
+   one deliberately-preserved number (what the FIRST purchase costs is
+   unchanged): Evade 27 steps for 2,046 Aether (was 14 steps, 1,023),
+   ATK/MAG Crit 25 steps for 4,153 Aether each (was 13 steps, 2,077). */
+P.PCT_STAT={
+ evade:  {step:0.015, cap:C.CAP_EVADE, costBase:8,  costGrowth:1.144},
+ atkCrit:{step:0.04,  cap:C.CAP_CRIT,  costBase:15, costGrowth:1.167},
+ magCrit:{step:0.04,  cap:C.CAP_CRIT,  costBase:15, costGrowth:1.167}};
+P.pctStatCost=function(stat,steps){var s=P.PCT_STAT[stat];
+ return Math.round(s.costBase*Math.pow(s.costGrowth,steps));};
+/* effective = baseline + steps*step, hard-clamped to the stat's own cap —
+   the same value the AETHER tab shows and the UI layer's effectivePctStats
+   feeds into a live unit's stats. */
+P.pctStatValue=function(baseline,stat,steps){var s=P.PCT_STAT[stat];
+ return Math.min(s.cap,baseline+steps*s.step);};
+P.pctStatMaxed=function(baseline,stat,steps){
+ return P.pctStatValue(baseline,stat,steps)>=P.PCT_STAT[stat].cap-1e-9;};
+
+/* v2.10: purchased Block/Evade/Crit steps count toward Power Level too, same
+   treatment affinity points already get (see P.POWER_PER_AFFINITY_POINT
+   above) — every real Aether-sink should count uniformly, and this is one. */
+P.POWER_PER_PCT_STAT_STEP=0.5;
+
 /* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
    player's own current P.powerLevel — that stage's OWN powerFraction
    (farroadquests.csv, per companion per stage — see the comment above
@@ -2150,6 +2254,19 @@ P.affinityCostToNext=function(investedPoints){
 P.questStageWave=function(g,uid,stageIdx){
  var frac=P.QUEST_LINES[uid][stageIdx].powerFraction;
  return Math.max(1,Math.round(frac*P.powerLevel(g)));};
+/* v2.10: clearing a companion quest stage now pays Aether — was nothing at
+   all (the reward was purely the story beat + the next stage unlocking).
+   Linear across the 5 stages, stage 1 (stageIdx 0) at the floor and stage
+   5 (stageIdx 4) at the ceiling — same "scale with how far into the line
+   you are" shape every other milestone reward in this file already uses
+   (bossAether/dupUnitAether scale with wave depth; this scales with quest
+   progress instead, since a quest line's own difficulty already scales off
+   P.powerLevel via questStageWave above, not off the Road's wave number). */
+P.QUEST_STAGE_AETHER_MIN=100;
+P.QUEST_STAGE_AETHER_MAX=500;
+P.questStageAether=function(stageIdx){
+ return Math.round(P.QUEST_STAGE_AETHER_MIN+
+  stageIdx*(P.QUEST_STAGE_AETHER_MAX-P.QUEST_STAGE_AETHER_MIN)/4);};
 return P;})(window.FarroadCore);
 </script>
 
@@ -2217,7 +2334,14 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     affinity is baseline + this, computed at party-build time (farroad-ui.js,
     buildParty/buildExpeditionParty). Brand-new field, plain default-fill
     below, no legacy shape. */
- 'affinities'];
+ 'affinities',
+ /* v2.10: Block/Evade/ATK-Crit/MAG-Crit — same shape as 'affinities' one
+    line up, PURCHASED STEPS ONLY (P.PCT_STAT, farroad-progression.js) —
+    {uid:{block,evade,atkCrit,magCrit}}, each a step count, not a percent.
+    The baseline stays the unit's existing atk_crit/mag_crit/block/evade
+    CSV columns (unchanged, already the only source before this feature).
+    Brand-new field, plain default-fill below, no legacy shape. */
+ 'statInvest'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -2303,6 +2427,8 @@ S.deserialize=function(snap,C){
  G.pullsSinceUnit=G.pullsSinceUnit||0;
  if(!G.affinities)G.affinities={};
  if(!G.affinities.kesh)G.affinities.kesh={};   /* kesh is owned from newGame(), never through joinCompanion() */
+ if(!G.statInvest)G.statInvest={};
+ if(!G.statInvest.kesh)G.statInvest.kesh={};
  return G;};
 
 return S;})();
@@ -2353,6 +2479,14 @@ function newGame(seed,mc){
      baseline is separately all-0 by construction (defaultAffinity() in
      core.js), so kesh here starting at {} is genuinely neutral either way. */
   affinities:{kesh:{}},
+  /* v2.10: Evade/ATK-Crit/MAG-Crit — same shape, PURCHASED STEPS only
+     (see effectivePctStats below); a custom MC's own baseline is
+     separately 0 (applyCustomMC), so kesh starting at {} is genuinely
+     neutral either way, same reasoning as affinities immediately above.
+     (Block was here too until Ian removed it — Body affinity already
+     covers physical damage reduction, a second overlapping stat was
+     redundant — see farroad-core.js.) */
+  statInvest:{kesh:{}},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
   /* Live side-battle-in-progress state (quests/dungeons) — see MODULES.md.
      sideBattle is null outside a side fight; roadBattle parks the real
@@ -2415,12 +2549,41 @@ function applyCustomMC(){
  /* chargeRate is the one field NOT offered at creation (see P.MC_STAT_RANGE's
     comment — the five shipped units never vary it, so there is no already-
     played range to bound a choice against); it stays fixed at 1 same as
-    every other unit. */
+    every other unit.
+    v2.10: atkCrit/magCrit/evade are ALSO no longer offered at creation
+    (P.MC_STAT_KEYS dropped them — they level like affinities now, see
+    G.statInvest/effectivePctStats below) — explicitly 0 here, same
+    "genuinely neutral start" fix as keshDef.affinity above, and for the
+    identical reason: G.mc.stats never carries these keys any more, so
+    reading G.mc.stats.atkCrit etc. would silently write literal `undefined`
+    onto keshDef.stats (a key IS present, makeUnit's hasOwnProperty merge
+    WOULD copy it, overwriting the sane default with undefined) rather than
+    the neutral baseline this is supposed to be. (Block isn't listed here
+    at all any more — the stat itself is gone, see farroad-core.js.) */
  keshDef.stats={atk:G.mc.stats.atk,mag:G.mc.stats.mag,def:G.mc.stats.def,res:G.mc.stats.res,spd:G.mc.stats.spd,
-  atkCrit:G.mc.stats.atkCrit,magCrit:G.mc.stats.magCrit,chargeRate:1,
-  block:G.mc.stats.block,evade:G.mc.stats.evade};
+  atkCrit:0,magCrit:0,chargeRate:1,evade:0};
  P.GROWTH.kesh={hp:G.mc.growth.hp,atk:G.mc.growth.atk,mag:G.mc.growth.mag,
   def:G.mc.growth.def,res:G.mc.growth.res,spd:G.mc.growth.spd};}
+/* v2.10: "replace all mentions of Kesh with the name the player chooses."
+   The internal id 'kesh' stays exactly what it is everywhere (a dict key,
+   invisible to the player) — this is only about player-FACING text.
+   Most of the UI already shows the right name for free, since it always
+   reads C.ROSTER's own kesh row (applyCustomMC already keeps .name in
+   sync with G.mc.name, or leaves the shipped default "Kesh" untouched
+   when there's no custom MC). What DOESN'T get this for free is static
+   authored prose living in the CSVs — quest story text, an action's own
+   design note — which can't read live game state at compile/CSV-author
+   time. mcName()/withMcName() are the render-time bridge: author-facing
+   content writes the literal token {{name}}, this substitutes the
+   CURRENT Kesh/custom-MC name in wherever that text is actually
+   displayed. A no-op (returns the string unchanged) for any text that
+   doesn't contain the token, so it's safe to wrap every note/story
+   display site uniformly rather than special-casing the couple of CSV
+   rows that use it today. */
+function mcName(){
+ var d=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')d=r;});
+ return d?d.name:'Kesh';}
+function withMcName(text){return text?text.replace(/\{\{name\}\}/g,mcName()):text;}
 
 /* Recovery: base + purchased steps, hard-capped at the measured saturation point. */
 function recoveryOf(uid){
@@ -2486,6 +2649,38 @@ function affinityRaw(uid,axis){return (affinityBaseline(uid)[axis]||0)+(affinity
    so a further point could not move the number even if bought. */
 function affinityMaxed(uid,axis){return affinityRaw(uid,axis)>=C.AFFINITY_CAP;}
 function affinityNextCost(uid,axis){return P.affinityCostToNext(affinityPurchased(uid)[axis]||0);}
+
+/* ===== EVADE/CRIT INVESTMENT (v2.10) ===== see farroad-progression.js
+   (P.PCT_STAT/P.pctStatCost/P.pctStatValue — the cost curve, mirroring
+   Recovery's own shape) for the rest of this feature. Same UI-layer slice
+   affinities already established: combine a unit's existing baseline
+   (C.ROSTER[uid]/C.ARCH[key]'s own atkCrit/magCrit/evade — unchanged,
+   already the only source before this feature existed) with purchased
+   steps into the effective value P.statsAt's output gets overwritten with,
+   AFTER P.statsAt runs (P.statsAt itself is untouched — it still just
+   copies these 3 straight from base).
+   Block was here too until Ian removed it entirely — Body affinity
+   already covers physical damage reduction, a second overlapping stat
+   was redundant (see farroad-core.js). */
+var PCT_STAT_KEYS=['evade','atkCrit','magCrit'];
+var PCT_STAT_INFO={
+ evade:{n:'Evade',d:'Chance to take no damage at all.'},
+ atkCrit:{n:'ATK Crit',d:'Chance for a physical attack to hit for '+C.CRIT_MUL+'x.'},
+ magCrit:{n:'MAG Crit',d:'Chance for a magic attack to hit for '+C.CRIT_MUL+'x.'}};
+function pctStatBaseline(uid,stat){
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ return (def&&def.stats&&def.stats[stat])||0;}
+function pctStatPurchased(uid,stat){return ((G.statInvest&&G.statInvest[uid]&&G.statInvest[uid][stat])||0);}
+function pctStatValue(uid,stat){return P.pctStatValue(pctStatBaseline(uid,stat),stat,pctStatPurchased(uid,stat));}
+function pctStatMaxed(uid,stat){return P.pctStatMaxed(pctStatBaseline(uid,stat),stat,pctStatPurchased(uid,stat));}
+function pctStatNextCost(uid,stat){return P.pctStatCost(stat,pctStatPurchased(uid,stat));}
+/* Overwrites st.evade/st.atkCrit/st.magCrit (already computed by
+   P.statsAt, unmodified) with the investment-adjusted effective value —
+   called right before a live C.makeUnit is built, same placement
+   effectiveAffinity() already has. */
+function applyPctStatInvestment(uid,st){
+ PCT_STAT_KEYS.forEach(function(stat){st[stat]=pctStatValue(uid,stat);});
+ return st;}
 function slotsFor(uid){return P.slotsAt(levelOf(uid));}
 function ensureLoadout(uid){
  var want=slotsFor(uid);
@@ -2501,6 +2696,7 @@ function buildParty(){
  G.party.forEach(function(uid,i){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
+  applyPctStatInvestment(uid,st);
   var mh=st.hp;
   /* Between-wave rest. Does NOT fix the multi-enemy wall (25/50/100% measured
      identical there) but it stops waves 1-7 compounding before Mend arrives. */
@@ -2585,7 +2781,7 @@ function buildEnemies(w,quiet){
        instead of one hardcoded 0.04 for every archetype — falls back to 0.04
        only if an archetype somehow has none, matching the old global exactly. */
     magCrit:Math.min(C.CAP_CRIT,(a.magCrit||0.04)*Math.sqrt(S)),
-    chargeRate:(boss?1.15:1),block:a.block,evade:a.evade},
+    chargeRate:(boss?1.15:1),evade:a.evade},
    /* v1.0: enemies now carry EVERY stat the party has except Recovery, which is
       party-only by construction (recoveryOf() is only called in buildParty), so
       enemies never regain HP between waves — Ian's exclusion holds.
@@ -2625,7 +2821,7 @@ function describeAction(id){
  return {name:a.name,
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
-  note:a.note||''};}
+  note:withMcName(a.note||'')};}
 /* v2.9: "what stat does this scale with" and "what has Lore bought it, in
    total" — both requested for the GAMBITS/LORE screens. scalesWith just
    names a.camp; bonusTotalSummary diffs the live (post-applyBonuses)
@@ -2812,6 +3008,7 @@ function joinCompanion(uid){
  if(!G.owned[uid])G.quests[uid]={stage:0,frozen:[]};
  G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
  G.affinities=G.affinities||{};if(!G.affinities[uid])G.affinities[uid]={};
+ G.statInvest=G.statInvest||{};if(!G.statInvest[uid])G.statInvest[uid]={};
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
  return fielded;}
@@ -2868,7 +3065,7 @@ function afterWaveCleared(){
       ' DEF '+d0.stats.def+' SPD '+d0.stats.spd:''),
      why:'Their stats are poor and it does not matter — they act on their own clock, '+
       'so your side now takes roughly twice as many actions per fight.',
-     pair:ca?('⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||'')):''});})();
+     pair:ca?('⚡ Charge action: <b>'+ca.name+'</b> — '+withMcName(ca.note||'')):''});})();
    var nm='';C.ROSTER.forEach(function(x){if(x.id===next)nm=x.name;});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+nm+' joins you</b> at LV 1.'+
     '<div class="tiny">Their stats are poor and it does not matter — they act on their own '+
@@ -2893,7 +3090,7 @@ function afterWaveCleared(){
    var bca=bossPick.chargeAction?C.ACTIONS[bossPick.chargeAction]:null;
    pushDrop({wave:G.wave,kind:'BOSS COMPANION DROP',name:bossPick.name+' (LV 1)',
     body:capRole(bossPick.role)+' · '+bossPick.row+' row'+
-     (bca?'<br>⚡ Charge action: <b>'+bca.name+'</b> — '+(bca.note||''):''),
+     (bca?'<br>⚡ Charge action: <b>'+bca.name+'</b> — '+withMcName(bca.note||''):''),
     why:(bossFielded?'Fielded immediately.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+bossPick.name+' joins you</b> at LV 1 '+
@@ -3018,6 +3215,7 @@ function buildExpeditionParty(partyIds,hpFrac){
  partyIds.forEach(function(uid,i){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
+  applyPctStatInvestment(uid,st);
   var mh=st.hp;
   var frac=(hpFrac==null)?1:Math.min(1,hpFrac+recoveryOf(uid));
   var hp=Math.max(1,Math.round(mh*frac));
@@ -3187,7 +3385,7 @@ function bakeEnemySnapshot(u){
  return {name:u.name,arch:u.arch,thorns:u.thorns,isBoss:u.isBoss,row:u.row,
   chargeAction:u.chargeAction,slots:u.slots.map(function(s){return {cond:s.cond,action:s.action};}),
   stats:{hp:u.base.hp,atk:u.base.atk,mag:u.base.mag,def:u.base.def,res:u.base.res,spd:u.base.spd,
-   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,block:u.base.block,evade:u.base.evade}};}
+   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,evade:u.base.evade}};}
 /* Reconstructs FRESH C.makeUnit() instances from a list of frozen
    snapshots (a dungeon's `enemies`, or one quest stage's `frozen[i]`) —
    called every time that fight is (re-)entered, never reusing a live
@@ -3410,7 +3608,11 @@ function startSideBattle(enemies,wave,meta){
    used to run inline, right after their own synchronous while-loop — moved
    here verbatim, reading from meta instead of closure variables, since the
    fight now finishes asynchronously (many doStep() calls later). */
-function finishSideBattle(result){
+/* @param gaveUp true only for a voluntary quest abort (giveUpQuest() below)
+   — same 'enemy' result as a real defeat for every reward/state purpose
+   (no stage advance, no penalty either way), but the log/drop wording
+   should say the player called it off, not that the party was beaten. */
+function finishSideBattle(result,gaveUp){
  var sb=G.sideBattle,meta=sb.meta;
  /* Multi-wave dungeon, won this wave, more waves left — advance IN PLACE
     rather than fully resolving. Deliberately does NOT touch G.roadBattle/
@@ -3437,9 +3639,20 @@ function finishSideBattle(result){
   var q=G.quests[meta.uid];
   if(result==='party'){
    q.stage++;
+   /* v2.10: Aether reward, scaling 100 (stage 1) -> 500 (stage 5) — see
+      P.questStageAether. meta.stage is the 0-based stage JUST cleared. */
+   var reward=P.questStageAether(meta.stage);
+   G.aether+=reward;
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
-    why:q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.'});
-   sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5.</span>');
+    why:(q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.')+
+     ' +'+reward+' Aether.'});
+   sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5. '+
+    '<b style="color:var(--aether)">+'+reward+' Aether</b>.</span>');
+  }else if(gaveUp){
+   pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST ABANDONED',
+    body:'The attempt was called off.',why:'No penalty — try again any time.'});
+   sysLog('<b>Quest attempt called off.</b> <span class="tiny">'+meta.name+
+    ' — no penalty, try again any time.</span>');
   }else{
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST FAILED',
     body:'The party was defeated.',why:'No penalty — try again any time.'});
@@ -3646,17 +3859,13 @@ function logEntry(e){
  var tags='',calc='';
  if(e.hits.length){var h=e.hits[0];
   if(h.evaded)tags=' <span style="color:var(--bad)">EVADED</span>';
-  else{if(h.crit)tags+=' <span style="color:var(--crit)">CRIT</span>';
-       if(h.blocked)tags+=' <span style="color:var(--party)">BLOCK</span>';}
+  else{if(h.crit)tags+=' <span style="color:var(--crit)">CRIT</span>';}
   calc=h.evaded
-   ?('MISSED — evade '+(Math.round(h.evadeChance*1000)/10)+'% (×'+h.negEvd+' vs '+
-     (h.isPhys?'physical':'magic')+')')
+   ?('MISSED — evade '+(Math.round(h.evadeChance*1000)/10)+'%')
    :('base '+(Math.round(h.power*100)/100)+' × '+Math.round(h.off)+' × '+h.K+'/('+h.K+'+'+
      Math.round(h.defEff)+') = '+(Math.round(h.base*10)/10)+
      '\nno variance roll — base damage is deterministic'+
-     (h.crit?'\ncrit ×1.75':'')+(h.blocked?'\nblocked ×0.5':'')+
-     '\nblock chance '+(Math.round(h.blockChance*1000)/10)+'% (×'+h.negBlk+' vs '+
-     (h.isPhys?'physical':'magic')+')'+
+     (h.crit?'\ncrit ×1.75':'')+
      '\n→ floor '+h.damage);}
  var extra='';
  if(e.dot)extra+='<div class="note">🔥 −'+e.dot+'</div>';
@@ -3718,6 +3927,22 @@ function renderAether(){
     '<button class="mini feed" data-u="'+uid+'" data-a="next"'+(G.aether>=(need-x)?'':' disabled')+'>→ LV '+(L+1)+' ('+Math.max(0,Math.ceil(need-x))+')</button>'+
    '</div>';
   host.appendChild(box);
+  var pBox=document.createElement('div');pBox.style.marginTop='10px';
+  var pRows='';
+  PCT_STAT_KEYS.forEach(function(stat){
+   var info=PCT_STAT_INFO[stat],cur=pctStatValue(uid,stat),maxed=pctStatMaxed(uid,stat),cost=pctStatNextCost(uid,stat);
+   var next=Math.min(P.PCT_STAT[stat].cap,cur+P.PCT_STAT[stat].step);
+   pRows+='<div class="node" style="margin-top:4px"><span class="nname">'+info.n+
+    ' <span class="tiny">'+info.d+'</span></span>'+
+    '<span><span class="tiny mono" style="margin-right:6px">'+Math.round(cur*1000)/10+'% → '+
+     (maxed?'<b style="color:var(--hp)">at cap</b>':Math.round(next*1000)/10+'%')+'</span>'+
+    '<button class="mini pctbuy" data-u="'+uid+'" data-st="'+stat+'"'+
+     ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+'+Math.round(P.PCT_STAT[stat].step*1000)/10+
+      '% <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
+  pBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>EVADE / CRIT</b> — none of '+
+   'these grow with level for any unit in the game (unchanged). Aether buys them up directly here '+
+   'instead, same as Recovery, hard-capped at the same ceiling the combat formula has always enforced.</div>'+pRows;
+  host.appendChild(pBox);
   var aBox=document.createElement('div');aBox.style.marginTop='10px';
   var aRows='';
   AFFINITY_AXES.forEach(function(axis){
@@ -3730,8 +3955,8 @@ function renderAether(){
      ((maxed||G.aether<cost)?' disabled':'')+'>'+(maxed?'MAX':'+1 <span class="ncost">'+cost+'</span>')+'</button></span></div>';});
   aBox.innerHTML='<hr><div class="tiny" style="margin-bottom:6px"><b>AFFINITIES</b> — Fire, Water, Earth, '+
    'Air, Light and Dark scale damage dealt and taken by attacks of that element; Body does the same for '+
-   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Block '+
-   'and Evade, none of these grow with level — Aether buys them up directly here instead, with '+
+   'physical attacks; Spirit scales healing and buff/debuff potency, both given and received. Like Evade, '+
+   'none of these grow with level — Aether buys them up directly here instead, with '+
    'diminishing returns the higher any one climbs, capped at ±80%.</div>'+aRows;
   host.appendChild(aBox);});
  host.insertAdjacentHTML('beforeend','<hr><div class="tiny">Aether is a <b>shared pool</b>: you '+
@@ -3777,6 +4002,15 @@ function renderAether(){
    G.affinities[u][ax]=(G.affinities[u][ax]||0)+1;
    sysLog('<b class="dw">AFFINITY</b> '+AFFINITY_INFO[ax].n+' → '+
     (affinityRaw(u,ax)>=0?'+':'')+affinityRaw(u,ax)+' ('+Math.round(C.affinityMul(affinityRaw(u,ax))*100)+'%)');
+   refreshLiveStats();renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.pctbuy'),function(el){
+  el.onclick=function(){var u=el.dataset.u,st=el.dataset.st,c=pctStatNextCost(u,st);
+   if(G.aether<c||pctStatMaxed(u,st))return;
+   G.aether-=c;G.statInvest=G.statInvest||{};G.statInvest[u]=G.statInvest[u]||{};
+   G.statInvest[u][st]=(G.statInvest[u][st]||0)+1;
+   sysLog('<b class="dw">'+PCT_STAT_INFO[st].n.toUpperCase()+'</b> → '+
+    (Math.round(pctStatValue(u,st)*1000)/10)+'%'+
+    (pctStatMaxed(u,st)?'<div class="tiny">At the cap — there is nothing more to buy.</div>':''));
    refreshLiveStats();renderAll();};});}
 function refreshLiveStats(){
  if(!G.units)return;
@@ -3784,7 +4018,9 @@ function refreshLiveStats(){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===u.id)def=r;});
   if(!def)return;
   var st=P.statsAt(u.id,def.stats,def.hp,levelOf(u.id));
+  applyPctStatInvestment(u.id,st);
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
+  u.base.evade=st.evade;u.base.atkCrit=st.atkCrit;u.base.magCrit=st.magCrit;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
   u.affinity=effectiveAffinity(u.id);
   u.slots=ensureLoadout(u.id).map(function(s){return {cond:s.cond,action:s.action};});});}
@@ -3887,7 +4123,7 @@ function renderLore(){
    actionLevel(aid)+'</span></b><span class="tiny">cost '+
    Math.round(a.rank*100)+(a.isCharge?' · <b style="color:var(--charge)">gauge '+
     Math.round(C.costOfCharge(a))+'</b>':'')+'</span></div>'+
-   (a.note?'<div class="tiny" style="margin-bottom:2px">'+a.note+'</div>':'')+
+   (a.note?'<div class="tiny" style="margin-bottom:2px">'+withMcName(a.note)+'</div>':'')+
    '<div class="tiny" style="color:var(--dimmer);margin-bottom:2px">scales with <b>'+scalesWith(a)+
     '</b>'+(a.power?' · power ×'+a.power.toFixed(2):'')+'</div>'+
    '<div class="tiny" style="margin-bottom:2px;color:'+(holders.active.length?'var(--hp)':'var(--dimmer)')+'">'+
@@ -3896,7 +4132,7 @@ function renderLore(){
        unused" — usedActions() (`used`, computed above) is exactly the
        refund button's own eligibility check, so state it plainly here
        instead of leaving it to guesswork. */
-    (holders.active.length?'':(used[aid]?' — not refundable, kept as part of Kesh\'s charge pool'
+    (holders.active.length?'':(used[aid]?' — not refundable, kept as part of '+mcName()+'\'s charge pool'
      :' — refundable'))+'</div>'+
    (totalBonus?'<div class="tiny" style="color:var(--lore);margin-bottom:3px">Lore total: '+
     totalBonus+'</div>':'')+
@@ -4043,7 +4279,7 @@ function doPull(){
    pushDrop({name:pick.name,kind:pity?'PULL · PITY COMPANION':'PULL · NEW COMPANION',wave:G.wave,
     body:capRole(pick.role)+' · '+pick.row+' row · joins at LV 1 · leans '+lean+
      '<br>ATK '+st.atk+' · MAG '+st.mag+' · DEF '+st.def+' · RES '+st.res+' · SPD '+st.spd+
-     (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+(ca.note||''):''),
+     (ca?'<br>⚡ Charge action: <b>'+ca.name+'</b> — '+withMcName(ca.note||''):''),
     /* why, not note — the "did this actually join my party" question is the
        whole point of the notification, so it gets the same prominent styling
        curated-teaching moments use, not the dim secondary-aside treatment. */
@@ -4243,7 +4479,7 @@ function attemptQuestStage(uid){
  if(!q||q.stage>=5)return;
  if(G.party.indexOf(uid)<0)return;
  var line=P.QUEST_LINES[uid];if(!line)return;
- var stage=q.stage,step=line[stage],story=step.story;
+ var stage=q.stage,step=line[stage],story=withMcName(step.story);
  q.frozen=q.frozen||[];
  /* Baked once, at first attempt — wave AND enemy stats both frozen then,
     so a later retry (after a loss, possibly with the player's power level
@@ -4263,6 +4499,14 @@ function attemptQuestStage(uid){
  var name=def?def.name:uid;
  startSideBattle(unitsFromSnapshots(q.frozen[stage].enemies),q.frozen[stage].wave,
   {kind:'quest',uid:uid,stage:stage,name:name,story:story});}
+/* v2.10: lets the player back out of a quest attempt already in progress
+   instead of waiting for the auto-battle to actually lose — same 'enemy'
+   outcome finishSideBattle already grants for a real defeat (no stage
+   advance, no penalty), just honestly worded as a give-up rather than a
+   loss. Scoped to quests only, not dungeons — Ian's ask. */
+function giveUpQuest(){
+ if(!G.sideBattle||G.sideBattle.meta.kind!=='quest')return;
+ finishSideBattle('enemy',true);}
 /* "Let's add discoverable dungeons... repeated by the main party" +
    "quest lines of 5 battles for each new unit." One tab, two sections —
    both are main-party content, distinct from EXPEDITION's benched-party
@@ -4290,17 +4534,24 @@ function renderQuests(){
   active.forEach(function(uid){
    var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
    var name=def?def.name:uid, stage=G.quests[uid].stage, fielded=G.party.indexOf(uid)>=0;
-   var dis=!fielded?' disabled title="'+name+' must be in your fielded party to attempt their own quest"':
-    (busy?' disabled title="A battle is already in progress"':'');
+   /* v2.10: the row for the quest actually being fought right now gets a
+      Give Up button instead of the (disabled, since busy) Attempt one. */
+   var isThisFight=busy&&G.sideBattle.meta.kind==='quest'&&G.sideBattle.meta.uid===uid;
+   var btn=isThisFight
+    ?'<button class="mini questGiveUp" data-uid="'+uid+'" style="margin-top:6px">Give up</button>'
+    :('<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+
+      (!fielded?' disabled title="'+name+' must be in your fielded party to attempt their own quest"':
+       (busy?' disabled title="A battle is already in progress"':''))+'>Attempt</button>');
    h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+name+'</div>'+
-    '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5</div>'+
-    '<button class="mini questAttempt" data-uid="'+uid+'" style="margin-top:6px"'+dis+
-    '>Attempt</button></div>';});}
+    '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5 · +'+
+    P.questStageAether(stage)+' Aether on clear</div>'+btn+'</div>';});}
  host.innerHTML=h;
  Array.prototype.forEach.call(host.querySelectorAll('.questEnter'),function(el){
   el.onclick=function(){enterDungeon(el.dataset.id);renderAll();};});
  Array.prototype.forEach.call(host.querySelectorAll('.questAttempt'),function(el){
-  el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});}
+  el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});
+ Array.prototype.forEach.call(host.querySelectorAll('.questGiveUp'),function(el){
+  el.onclick=function(){giveUpQuest();renderAll();};});}
 function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();renderQuests();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 /* Lighter sibling of renderAll(), for the ordinary per-beat path in
@@ -4505,7 +4756,7 @@ function buildGambits(){
     '<div class="tiny" style="margin-top:2px;color:var(--dimmer)">scales with <b>'+
      scalesWith(C.ACTIONS[s.action])+'</b>'+(C.ACTIONS[s.action].power?
      ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
-    '<div class="tiny" style="margin-top:2px">'+(C.ACTIONS[s.action].note||'')+'</div>'+
+    '<div class="tiny" style="margin-top:2px">'+withMcName(C.ACTIONS[s.action].note||'')+'</div>'+
     (ownConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also equipped by '+
      ownConflict+' from before this rule — pick a different action here to resolve it</div>':
      ownBenchConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also held by '+
@@ -4559,7 +4810,7 @@ function buildGambits(){
      (a.lifesteal?' · heals you '+Math.round(a.lifesteal*100)+'% of it':'')+
      (a.hits>1?' · '+a.hits+' hits':'')+'</div>'+
     '<div class="tiny" style="margin-top:4px;color:var(--dimmer)">fills in roughly <b>'+
-     turnsToFill+'</b> of this unit’s turns · '+(a.note||'')+'</div>'+
+     turnsToFill+'</b> of this unit’s turns · '+withMcName(a.note||'')+'</div>'+
     (swappable?'<div class="tiny" style="margin-top:2px;color:var(--dim)">'+
      G.mc.acquiredCharges.length+' charge actions acquired — swap freely, no cost. Lore '+
      'upgrades are kept per action, so switching back restores any you bought.</div>':'');
@@ -4701,7 +4952,7 @@ function smokeTest(waves){
   out.push('  waves advanced   '+startWaveNo+' → '+G.wave);
   out.push('  bosses cleared   '+G.bossesCleared);
   out.push('  party size       '+pulls0+' → '+G.party.length);
-  out.push('  Kesh level       '+lvl0+' → '+levelOf('kesh'));
+  out.push('  '+mcName()+' level       '+lvl0+' → '+levelOf('kesh'));
   out.push('  actions held     '+G.actions.length);
   out.push('  conditions held  '+G.conditions.length);
   out.push('  aether / lore / marks   '+Math.floor(G.aether)+' / '+
@@ -4779,15 +5030,13 @@ function boot(seed,mc){
 /* Every stat P.MC_STAT_RANGE offers, in creation-screen display order. Kept as
    a single source of truth in progression.js (P.MC_STAT_KEYS) so the pool
    size (P.MC_POINTS_TOTAL) and this list can never drift apart. */
-var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP',
- atkCrit:'ATK CRIT',magCrit:'MAG CRIT',block:'BLOCK',evade:'EVADE'};
+var MC_STAT_LABELS={atk:'ATK',mag:'MAG',def:'DEF',res:'RES',spd:'SPD',hp:'HP'};
 var mcPoints=(function(){var o={};P.MC_STAT_KEYS.forEach(function(k){o[k]=P.MC_POINT_MIN;});return o;})();
 var mcChargeChoice=null;
 function mcSanitizeName(raw){
  return (raw||'').replace(/[<>&"']/g,'').trim().slice(0,20);}
 function mcStatDisplay(k,point){
- var v=P.mcLerp(P.MC_STAT_RANGE[k],point);
- return (P.MC_PCT_STATS.indexOf(k)>=0)?Math.round(v*100)+'%':Math.round(v);}
+ return Math.round(P.mcLerp(P.MC_STAT_RANGE[k],point));}
 function renderMcStats(){
  var host=$('#mcStats');if(!host)return;host.innerHTML='';
  P.MC_STAT_KEYS.forEach(function(k){

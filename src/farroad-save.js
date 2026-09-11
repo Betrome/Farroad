@@ -62,7 +62,14 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     affinity is baseline + this, computed at party-build time (farroad-ui.js,
     buildParty/buildExpeditionParty). Brand-new field, plain default-fill
     below, no legacy shape. */
- 'affinities'];
+ 'affinities',
+ /* v2.10: Block/Evade/ATK-Crit/MAG-Crit — same shape as 'affinities' one
+    line up, PURCHASED STEPS ONLY (P.PCT_STAT, farroad-progression.js) —
+    {uid:{block,evade,atkCrit,magCrit}}, each a step count, not a percent.
+    The baseline stays the unit's existing atk_crit/mag_crit/block/evade
+    CSV columns (unchanged, already the only source before this feature).
+    Brand-new field, plain default-fill below, no legacy shape. */
+ 'statInvest'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -148,6 +155,8 @@ S.deserialize=function(snap,C){
  G.pullsSinceUnit=G.pullsSinceUnit||0;
  if(!G.affinities)G.affinities={};
  if(!G.affinities.kesh)G.affinities.kesh={};   /* kesh is owned from newGame(), never through joinCompanion() */
+ if(!G.statInvest)G.statInvest={};
+ if(!G.statInvest.kesh)G.statInvest.kesh={};
  return G;};
 
 return S;})();

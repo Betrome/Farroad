@@ -13,7 +13,7 @@ function makeRNG(seed){var a=seed>>>0;var r={seed:seed>>>0,calls:0,
    variance roll. Crit is NOT scaled by level for either side (statsAt and the
    enemy builder both copy atkCrit/magCrit straight from the base block), so
    raising the cap cannot let a deep enemy crit more than its archetype says. */
-var TICK_K=10000,CRIT_MUL=1.75,BLOCK_MUL=.5,CAP_EVADE=.40,CAP_BLOCK=.50,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
+var TICK_K=10000,CRIT_MUL=1.75,CAP_EVADE=.40,CAP_CRIT=1.00,CHARGE_FULL=100,DET_VAR=16;
 var BURN_PCT=0.05,REGEN_PCT=0.06;
 /* ===== ELEMENTAL AFFINITIES (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — one value per unit per axis,
@@ -29,7 +29,13 @@ var BURN_PCT=0.05,REGEN_PCT=0.06;
  * F.affinityMul/F.AFFINITY_CAP for progression's cost curve and the UI's
  * AETHER tab to read the identical formula — same precedent as F.CAP_CRIT
  * below, exported for exactly this cross-module reason. */
-var AFFINITY_CAP=20;
+/* v2.10: 20 -> 40 — Ian's ask, doubling how many Aether purchases it takes
+   to max any one axis (paired with AFFINITY_COST_BASE being roughly halved
+   in farroad-progression.js, so the TOTAL Aether to fully max an axis
+   doubles too, 1,680 -> 3,360 — see the comment there for the exact
+   solve). The ±80% ceiling itself is untouched, only how far the raw
+   value has to climb to reach it. */
+var AFFINITY_CAP=40;
 function affinityMul(raw){
  var s=raw<0?-1:1, a=Math.min(Math.abs(raw),AFFINITY_CAP);
  return s*0.80*Math.log(1+a)/Math.log(1+AFFINITY_CAP);}
@@ -84,20 +90,16 @@ function affinityFactor(src,tgt,act){
  return m;}
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
 var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
-/* ===== NEGATION PARITY + ASYMMETRY (v1.1) =====
- * Both camps are now subject to BOTH evade and block (magic could not be evaded
- * before; block already applied to both — confirmed at the old line 581, which
- * had no isPhys gate).
- * Asymmetry: a sword gets parried, a spell goes wide.
- *   physical -> block at full strength, evade at half
- *   magic    -> evade at full strength, block at half
- * At a defensive line of block 0.20 / evade 0.10 that reads as:
- *   sword  blocked 20%, missed  5%
- *   spell  blocked 10%, missed 10%
- * Measured: vs physical the two stats are worth exactly the same (5.3% each per
- * 10pp); vs magic evade is worth 4.3x block. So the matchup decides the buy,
- * which is the build decision this was for. */
-var NEG={ atk:{blk:1.00,evd:0.50}, mag:{blk:0.50,evd:1.00} };
+/* v2.10: Block removed entirely (Body affinity already covers physical
+   damage reduction — a second, overlapping stat was redundant). Evade's
+   old per-camp asymmetry (physical at half strength, magic at full —
+   the NEGATION PARITY + ASYMMETRY comment this replaces) existed only to
+   make block/evade trade off differently by camp; with block gone that
+   asymmetry would have left physical attacks with strictly less defense
+   than before (no block AND half evade), so evade is now full strength
+   against both camps — the NEG/NG per-camp weighting table this used to
+   read from is gone, not kept as dead infrastructure computing a
+   constant ×1.00. */
 function clamp(x,lo,hi){return x<lo?lo:(x>hi?hi:x);}
 function tcRaw(spd,rank){return Math.max(1,Math.round(TICK_K*rank/spd));}
 /* ===== v2.0 RESCALE — the game now runs to THOUSANDS of waves =====
@@ -158,25 +160,23 @@ function has(u,id){return u.st[id]>0;}
  * caster's and target's Spirit affinity at the moment a status lands, and
  * store the RESULT (not the raw base) in u.stMag — a per-application
  * magnitude that sits alongside the existing turn counter in u.st.
- * Bracing carries TWO independent magnitudes (a DEF ratio AND a flat block
- * bonus) under one status id, so its entry is an object of sub-magnitudes
- * rather than a bare number; every other status has exactly one number.
  * DOT/regen (burning/regen) have no "baseline" to delta from — the whole
  * magnitude IS the delta (0 unburned -> BURN_PCT burned) — affTerm still
  * applies the same way, it just scales the entire figure rather than a
- * modifier on top of something else. */
-var STATUS_BASE_MAG={enfeebled:-0.25,dulled:-0.25,bracing:{def:0.40,block:0.30},
+ * modifier on top of something else.
+ * v2.10: Bracing used to carry a SECOND magnitude here (a flat +0.30
+ * block bonus, alongside its +0.40 DEF), the one status with more than
+ * one number — retired along with Block itself, so every entry below is
+ * now a plain number and magOf no longer needs a multi-part branch. */
+var STATUS_BASE_MAG={enfeebled:-0.25,dulled:-0.25,bracing:0.40,
  sundered:-0.25,frail:-0.25,blurred:0.20,warded:-0.40,slowed:0.50,hasted:-0.40,
  surging:1.00,burning:BURN_PCT,regen:REGEN_PCT};
-/* @param key only for a multi-part status (bracing) — selects the sub-magnitude.
-   Falls back to STATUS_BASE_MAG if u.stMag has nothing recorded for id (should
-   not happen once apply() always populates it for a known id, but keeps a
-   never-applied/edge-case read from silently reading undefined). */
-function magOf(u,id,key){
+/* Falls back to STATUS_BASE_MAG if u.stMag has nothing recorded for id
+   (should not happen once apply() always populates it for a known id, but
+   keeps a never-applied/edge-case read from silently reading undefined). */
+function magOf(u,id){
  var m=(u.stMag&&u.stMag[id]!=null)?u.stMag[id]:STATUS_BASE_MAG[id];
- if(m==null)return 0;
- if(typeof m==='object')return key?(m[key]||0):0;
- return key?0:m;}
+ return m==null?0:m;}
 /* v2.10: gained a 4th param, casterSpirit — the unit APPLYING the status
    (self for a self-buff/self-taunt). Computes and stores this application's
    Spirit-scaled magnitude in u.stMag alongside the turn count in u.st;
@@ -189,15 +189,11 @@ function apply(u,id,t,casterSpirit){
  if(base==null)return;
  var mul=affBoost(casterSpirit==null?0:casterSpirit,u.affinity.spirit);
  u.stMag=u.stMag||{};
- if(typeof base==='object'){
-  var scaled={};for(var k in base)if(Object.prototype.hasOwnProperty.call(base,k))scaled[k]=base[k]*mul;
-  u.stMag[id]=scaled;
- }else u.stMag[id]=base*mul;}
+ u.stMag[id]=base*mul;}
 function effAtk(u){return u.base.atk*(1+(has(u,'enfeebled')?magOf(u,'enfeebled'):0));}
 function effMag(u){return u.base.mag*(1+(has(u,'dulled')?magOf(u,'dulled'):0));}
-function effDef(u){return u.base.def*(1+(has(u,'bracing')?magOf(u,'bracing','def'):0))*(1+(has(u,'sundered')?magOf(u,'sundered'):0));}
+function effDef(u){return u.base.def*(1+(has(u,'bracing')?magOf(u,'bracing'):0))*(1+(has(u,'sundered')?magOf(u,'sundered'):0));}
 function effRes(u){return u.base.res*(1+(has(u,'frail')?magOf(u,'frail'):0));}
-function effBlock(u){return u.base.block+(has(u,'bracing')?magOf(u,'bracing','block'):0);}
 function effEvade(u){return u.base.evade+(has(u,'blurred')?magOf(u,'blurred'):0);}
 function effChargeRate(u){return u.base.chargeRate*(1+(has(u,'surging')?magOf(u,'surging'):0));}
 /* v2.9: an action's magnitude was hardcoded to ATK (physical) or MAG (magic)
@@ -568,7 +564,7 @@ function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='deadAlly'){if(ct&&ct.isParty===u.isParty&&ct.hp<=0)return ct;return deadAllies(b,u)[0]||null;}
  return null;}
 function defaultAffinity(){return {fire:0,water:0,earth:0,air:0,light:0,dark:0,body:0,spirit:0};}
-function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,block:.03,evade:.03};
+function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,evade:.03};
  for(var k in (cfg.stats||{}))if(Object.prototype.hasOwnProperty.call(cfg.stats,k))d[k]=cfg.stats[k];
  var aff=defaultAffinity();
  for(var ak in (cfg.affinity||{}))if(Object.prototype.hasOwnProperty.call(cfg.affinity,ak))aff[ak]=cfg.affinity[ak];
@@ -605,11 +601,11 @@ function chooseFrom(u,b,state){
  return {actionId:'strike',target:null,via:'all false → implicit Strike'};}
 function choose(u,b){var st={charge:u.charge,alternateFlag:u.alternateFlag};var r=chooseFrom(u,b,st);u.alternateFlag=st.alternateFlag;return r;}
 function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp==='atk';
- var o={isPhys:isPhys,evaded:false,crit:false,blocked:false,actionName:act.name,targetName:tgt.name};
- var NG=NEG[act.camp]||NEG.atk;
- /* v1.1: BOTH camps can now be evaded, with camp-specific effectiveness */
- o.negBlk=NG.blk;o.negEvd=NG.evd;
- o.evadeChance=clamp(effEvade(tgt)*NG.evd+(has(src,'blinded')?.30:0),0,CAP_EVADE+.30);
+ var o={isPhys:isPhys,evaded:false,crit:false,actionName:act.name,targetName:tgt.name};
+ /* v2.10: evade is full strength against both camps (was half strength vs
+    physical, full vs magic, back when block existed as physical's other
+    defense — see the comment above clamp() near the top of this file). */
+ o.evadeChance=clamp(effEvade(tgt)+(has(src,'blinded')?.30:0),0,CAP_EVADE+.30);
  o.evadeRoll=det?1:rng.next();
  if(o.evadeRoll<o.evadeChance){o.evaded=true;o.damage=0;return o;}
  /* v2.7: critFn is the conditional twin of powerFn — a crit bonus that reads the
@@ -634,8 +630,6 @@ function resolveHit(src,tgt,act,b,pv){var det=b.det,rng=b.rng,isPhys=act.camp===
  o.varRoll=null;o.variance=1;
  var d=o.base;o.afterVariance=d;
  if(o.crit)d*=CRIT_MUL;
- o.blockChance=clamp(effBlock(tgt)*NG.blk,0,CAP_BLOCK);o.blockRoll=det?1:rng.next();o.blocked=o.blockRoll<o.blockChance;
- if(o.blocked)d*=BLOCK_MUL;
  o.wardMul=incomingMul(tgt);d*=o.wardMul;
  o.rowOut=rowOut(src,isPhys);o.rowIn=rowIn(tgt,isPhys);d*=o.rowOut*o.rowIn;
  o.preFloor=d;o.damage=Math.max(1,Math.floor(d));return o;}
@@ -734,7 +728,7 @@ function preview(b,count){count=count||6;var sim=[];
    (1.02 -> 0.80 in buildEnemies). */
 /* ARCH is generated from farroadenemies.csv at build time (see build.js) --
    window.FarroadContent.ARCH is already in this exact shape (key/name/
-   hpMul/atk/mag/def/res/spd/atkCrit/magCrit/evade/block/thorns/
+   hpMul/atk/mag/def/res/spd/atkCrit/magCrit/evade/thorns/
    chargeAction/slots). No ARCH.boss entry -- boss enemies are synthesized
    at combat-build time from ox's shape + wolf's HP (see buildEnemies in
    farroad-ui.js), a design this doesn't change. magCrit and chargeAction
@@ -743,9 +737,16 @@ function preview(b,count){count=count||6;var sim=[];
    seeded to match prior behavior exactly). */
 var ARCH=window.FarroadContent.ARCH;
 var ROT=['wolf','knight','hound','ox','priest','shrike'];
-var REF={def:12,evade:.05,block:.00};
+var REF={def:12,evade:.05};
+/* v2.10: dropped the block term (was ((1-a.block*.5)/(1-REF.block*.5))) —
+   Block is gone. This IS the self-correcting mechanism that keeps Barrow
+   Knight/Stone Ox (the two archetypes that had non-trivial block, 0.10/
+   0.05) properly sized without a manual HP retune: without the discount
+   block used to apply here, their computed dmgTakenMul rises back toward
+   1, which sizes them slightly MORE hp than before, automatically
+   compensating for the mitigation they lost. */
 function dmgTakenMul(a){var K=25;
- return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade))*((1-a.block*.5)/(1-REF.block*.5));}
+ return ((K/(K+a.def))/(K/(K+REF.def)))*((1-a.evade)/(1-REF.evade));}
 /* ROSTER is generated from farroadunits.csv at build time (see build.js) --
    window.FarroadContent.ROSTER is already in this exact shape (id/name/
    role/row/hp/chargeAction/stats), no per-entry logic to merge back in --
@@ -757,6 +758,9 @@ F.makeRNG=makeRNG;F.tcRaw=tcRaw;F.tcOf=tcOf;F.beatMs=beatMs;F.CHARGE_FULL=CHARGE
    'use strict', so a bare CAP_CRIT there is a ReferenceError, not a silent
    undefined — the same failure mode as the v0.9 WAVE_EXP bug. */
 F.CAP_CRIT=CAP_CRIT;F.CRIT_MUL=CRIT_MUL;
+/* v2.10: exported for progression's Evade/Crit investment curve — same
+   cross-module need F.CAP_CRIT above already exists for. */
+F.CAP_EVADE=CAP_EVADE;
 F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
 F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
 /* v2.10: exported for progression's affinity-cost curve and the UI's AETHER
