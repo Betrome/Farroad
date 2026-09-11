@@ -1531,7 +1531,7 @@ function renderAether(){
   box.innerHTML='<div class="spread" style="margin-bottom:3px">'+
    '<span class="uname'+(fielded?' p':'')+'">'+def.name+' <span class="tiny">'+capRole(def.role)+
     (fielded?'':(isOnExpedition(uid)?' · on expedition':' · benched'))+'</span></span>'+
-   '<span class="nval">LV '+L+' → LV '+(L+1)+'</span></div>'+
+   '<span class="nval">LV '+L+'</span></div>'+
    '<div class="bar"><i style="width:'+prog+'%;background:var(--aether)"></i></div>'+
    '<div class="tiny mono" style="margin-top:3px">'+Math.floor(x)+' / '+need+' to LV '+(L+1)+'</div>'+
    '<div class="tiny mono" style="margin-top:3px">hp '+st.hp+'  atk '+st.atk+'  mag '+st.mag+
