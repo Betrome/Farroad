@@ -2636,3 +2636,100 @@ gated behind wave 20+ (curated run) and this session's browser sandbox
 disables `localStorage` (blocks injecting a save to skip ahead) —
 covered instead by the headless weighted-pick/nested-roll sampling
 above, disclosed rather than claimed as fully verified.
+
+## Elemental action grid — one atk + one mag action per element
+
+Ian: "let's create new actions for each combination of atk and magic
+with each affinity. split them up so in total each affinity is
+represented evenly among the rarities." Scoped to the 6 combat
+elements (Fire/Water/Earth/Air/Light/Dark) — Body and Spirit are
+mitigation/healing stats that already apply to every physical/healing
+action automatically (`affTerm`/`affBoost`, `farroad-core.js`), not
+something a single action can carry the way `element` works; there was
+nothing to "combine" atk/mag with for those two. Asked one clarifying
+question on what "evenly" meant, since it has genuinely different
+readings that produce different content — Ian picked: for each
+element, its atk version and its mag version land in DIFFERENT rarity
+tiers, so no tier reads as "the fire tier" and no element clusters in
+one place.
+
+**Coverage gap this fills**: before this, every `element` tag lived on
+`MAG_CAMP` only, and unevenly — Fire had 2 (Ember, Sear), Dark had 2
+(Hex, Siphon), Water/Air/Light had 1 each, Earth had 0. `ATK_CAMP` had
+zero elemental actions at all. 12 new `equippable`-kind actions
+(`farroadactions.csv`) close the gap completely: `cinderstrike`/
+`firebrand` (Fire), `riptideblow`/`tidalsurge` (Water), `stoneshatter`/
+`quakebolt` (Earth), `squallstrike`/`zephyrbolt` (Air), `radiantblow`/
+`solarflare` (Light), `shadowrend`/`umbralbolt` (Dark) — atk name
+first, mag name second in each pair. Added to `ATK_CAMP`/`MAG_CAMP`
+(`farroad-core.js`), the hardcoded id lists `C.EQUIPPABLE` is built
+from (CSV `camp` alone doesn't drive pool membership — the two have to
+be kept in sync by hand, same as every existing equippable).
+
+**Design, not new mechanics**: each action is plain elemental damage,
+same shape as Ember (mag, no status) rather than Sear/Hex/Smother/
+Dazzle (mag, carries a status) — the element tag itself is the
+differentiator (it interacts with the target's/caster's affinity via
+`affTerm`), so no new status-effect design was needed or asked for.
+Base power is the existing camp baseline — Strike's 1.00 for atk,
+Ember's 1.05 for mag — multiplied by that specific action's own
+assigned tier's `RARITY_POWER_MUL` and rounded, the exact pattern
+already established for every other rarity-promoted action last
+session. Rank/initiative/charge_gain stay flat at Strike's/Ember's own
+values regardless of tier, also matching precedent (only power/
+defPierce/critBonus scale with rarity, never action speed).
+
+**Rarity split** (round-robin over the 6 elements, tiers cycling
+common→rare→legendary, mag offset by one tier from its element's own
+atk so the two never land together):
+
+| Element | atk tier | mag tier |
+|---|---|---|
+| Fire | Common | Rare |
+| Water | Rare | Legendary |
+| Earth | Legendary | Common |
+| Air | Common | Rare |
+| Light | Rare | Legendary |
+| Dark | Legendary | Common |
+
+4 actions land in each tier, each tier covering 4 different elements —
+no tier is "the X tier," and every element is split across two of the
+three tiers rather than concentrated in one.
+
+**First non-Common equippables — acquisition needed rarity-weighting
+for the first time**: every equippable action before this was Common,
+so `C.EQUIPPABLE`'s two random-draw sites — `randomDrop()`'s wave-
+parity action drop and `doPull()`'s Marks-pull action branch
+(`farroad-ui.js`) — picked uniformly with no rarity to weight against.
+Introducing real Rare/Legendary equippables into that same uniform
+pool would have handed them out exactly as often as Strike, quietly
+defeating the entire point of the tier. New `P.weightedActionPick(rng,
+ids)` (`farroad-progression.js`), mirroring `P.weightedRosterPick`'s
+exact shape and reusing the same `P.RARITY_PULL_WEIGHT` table (common
+weighted 3x over rare/legendary) — both draw sites now call it instead
+of `pool[G.rng.nextInt(pool.length)]`.
+
+**Verified**: `node farroadsmoke.js` — 203/203 (9 new checks, one
+section): every element has its designated atk action in `ATK_CAMP`
+and mag action in `MAG_CAMP` with the right `element` field; all 12
+are `equippable` kind, not `charge`; no element has both its atk and
+mag action in the same rarity tier; the 12 split exactly 4/4/4 across
+the three tiers; every action's `power` equals its camp baseline times
+its own `RARITY_POWER_MUL`, exactly; all 12 ids appear in
+`C.EQUIPPABLE` exactly once with no duplicates introduced; `P.
+weightedActionPick` sampled 2000 times over a controlled 2-common/2-
+rare pool lands within 5% of the closed-form expected Common share.
+Live browser pass: game boots and runs a full curated sequence (the
+in-page SMOKE TEST button) with zero console errors after the
+`ATK_CAMP`/`MAG_CAMP`/`C.EQUIPPABLE` changes; each of the 12 new
+actions' compiled `camp`/`element`/`rarity`/`power` fields confirmed
+correct by reading `window.FarroadCore.ACTIONS` directly in the live
+page. Not exercised live: an actual random drop or pull landing one of
+these 12 specifically, since that requires reaching wave 20+ or a
+random-drop roll landing on one of only 12 ids among ~35 equippables —
+not practical to force in this session's `localStorage`-disabled
+sandbox (same disclosed gap as the Rarity system above); the rendering
+path itself (`describeAction`/`actionGlyph`/`rarityTag`) is unchanged,
+pre-existing code already verified live last session for arbitrary
+action/element/rarity combinations, so it was not re-verified visually
+here — only the new content's compiled data was.

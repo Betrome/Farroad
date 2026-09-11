@@ -1249,6 +1249,97 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  })();
 })();
 
+/* =================== 21. ELEMENTAL ACTION GRID (v2.13) =====================
+ * One atk + one mag equippable action per element (cinderstrike/firebrand/
+ * riptideblow/tidalsurge/quakebolt/stoneshatter/squallstrike/zephyrbolt/
+ * radiantblow/solarflare/shadowrend/umbralbolt) — every element's atk/mag
+ * pair deliberately spread across DIFFERENT rarity tiers so no tier reads
+ * as "the fire tier" and no element clusters in one place. First non-Common
+ * EQUIPPABLE actions in the game, so C.EQUIPPABLE's two draw sites
+ * (randomDrop's wave-parity drop, doPull's action branch) needed rarity
+ * weighting for the first time — P.weightedActionPick, mirroring
+ * P.weightedRosterPick's shape from section 20. */
+(function(){
+ var GRID={
+  fire:  {atk:'cinderstrike', mag:'firebrand'},
+  water: {atk:'riptideblow',  mag:'tidalsurge'},
+  earth: {atk:'stoneshatter', mag:'quakebolt'},
+  air:   {atk:'squallstrike', mag:'zephyrbolt'},
+  light: {atk:'radiantblow',  mag:'solarflare'},
+  dark:  {atk:'shadowrend',   mag:'umbralbolt'}};
+ var ELEMENTS=Object.keys(GRID);
+
+ /* --- coverage: every element has exactly one atk and one mag equippable - */
+ (function(){
+  var missing=[];
+  ELEMENTS.forEach(function(el){
+   var atkMatches=C.ATK_CAMP.filter(function(id){return C.ACTIONS[id].element===el;});
+   var magMatches=C.MAG_CAMP.filter(function(id){return C.ACTIONS[id].element===el;});
+   if(atkMatches.indexOf(GRID[el].atk)<0)missing.push(el+'.atk ('+GRID[el].atk+') not in ATK_CAMP with that element');
+   if(magMatches.indexOf(GRID[el].mag)<0)missing.push(el+'.mag ('+GRID[el].mag+') not in MAG_CAMP with that element');});
+  ok('every element has its designated atk action in ATK_CAMP and mag action in MAG_CAMP',
+   missing.length===0, missing.join('; '));
+ })();
+ ok('all 12 grid actions are equippable kind (loadout-usable, not charge)',
+  ELEMENTS.every(function(el){
+   return !C.ACTIONS[GRID[el].atk].isCharge && !C.ACTIONS[GRID[el].mag].isCharge;}));
+
+ /* --- rarity: each element's atk/mag pair lands in DIFFERENT tiers, and -- */
+ /* --- each of the 3 tiers ends up with exactly 4 of the 12 grid actions - */
+ (function(){
+  var sameTier=ELEMENTS.filter(function(el){
+   return C.ACTIONS[GRID[el].atk].rarity===C.ACTIONS[GRID[el].mag].rarity;});
+  ok('no element has both its atk and mag grid action in the same rarity tier',
+   sameTier.length===0, sameTier.join(','));
+  var counts={common:0,rare:0,legendary:0};
+  ELEMENTS.forEach(function(el){
+   counts[C.ACTIONS[GRID[el].atk].rarity]++;
+   counts[C.ACTIONS[GRID[el].mag].rarity]++;});
+  ok('the 12 grid actions split exactly 4/4/4 across common/rare/legendary',
+   counts.common===4&&counts.rare===4&&counts.legendary===4,
+   JSON.stringify(counts));
+ })();
+
+ /* --- power: each grid action's power is its camp baseline (Strike 1.00 -- */
+ /* --- for atk, Ember 1.05 for mag) x that action's own RARITY_POWER_MUL -- */
+ (function(){
+  var bad=[];
+  ELEMENTS.forEach(function(el){
+   var atk=C.ACTIONS[GRID[el].atk], mag=C.ACTIONS[GRID[el].mag];
+   var wantAtk=Math.round(1.00*C.RARITY_POWER_MUL[atk.rarity]*100)/100;
+   var wantMag=Math.round(1.05*C.RARITY_POWER_MUL[mag.rarity]*100)/100;
+   if(atk.power!==wantAtk)bad.push(atk.id+'.power='+atk.power+' want '+wantAtk);
+   if(mag.power!==wantMag)bad.push(mag.id+'.power='+mag.power+' want '+wantMag);});
+  ok('every grid action\'s power equals its camp baseline scaled by its own RARITY_POWER_MUL',
+   bad.length===0, bad.join('; '));
+ })();
+
+ /* --- C.EQUIPPABLE actually grew by these 12, no duplicates, no orphans -- */
+ (function(){
+  var allGridIds=[];ELEMENTS.forEach(function(el){allGridIds.push(GRID[el].atk,GRID[el].mag);});
+  ok('all 12 grid ids appear in C.EQUIPPABLE exactly once each',
+   allGridIds.every(function(id){
+    return C.EQUIPPABLE.filter(function(x){return x===id;}).length===1;}));
+  var uniqueEquip=C.EQUIPPABLE.filter(function(id,i){return C.EQUIPPABLE.indexOf(id)===i;});
+  ok('C.EQUIPPABLE has no duplicate ids after the grid addition',
+   uniqueEquip.length===C.EQUIPPABLE.length);
+ })();
+
+ /* --- P.weightedActionPick skews Common, same shape as the unit-pull test */
+ (function(){
+  var controlled=['strike','ember','riptideblow','zephyrbolt'];  /* strike/ember common, riptideblow/zephyrbolt rare */
+  ok('fixture sanity: controlled pool is exactly 2 common + 2 rare',
+   controlled.filter(function(id){return C.ACTIONS[id].rarity==='common';}).length===2 &&
+   controlled.filter(function(id){return C.ACTIONS[id].rarity==='rare';}).length===2);
+  var w=P.RARITY_PULL_WEIGHT, total=w.common*2+w.rare*2, pCommon=(w.common*2)/total;
+  var rng=C.makeRNG(2024),hits=0,n=2000;
+  for(var i=0;i<n;i++)if(C.ACTIONS[P.weightedActionPick(rng,controlled)].rarity==='common')hits++;
+  var observed=hits/n;
+  ok('P.weightedActionPick sampled over a mixed pool lands within 5% of the closed-form common share',
+   Math.abs(observed-pCommon)<0.05, observed+' vs expected '+pCommon);
+ })();
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);

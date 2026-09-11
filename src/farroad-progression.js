@@ -198,6 +198,22 @@ P.weightedRosterPick=function(rng,list){
  var roll=rng.next()*total,acc=0,i;
  for(i=0;i<list.length;i++){acc+=weights[i];if(roll<acc)return list[i];}
  return list[list.length-1];};
+/* v2.13: the equippable-action grid (elemental strikes, one atk + one mag
+   per element) introduced real Rare/Legendary EQUIPPABLE actions for the
+   first time — before this every equippable was Common, so C.EQUIPPABLE's
+   two draw sites (randomDrop's wave-parity action drop, doPull's action
+   branch) picked uniformly with no rarity to weight against. Same
+   P.RARITY_PULL_WEIGHT table as units, same roulette-wheel shape as
+   P.weightedRosterPick just above, reading C.ACTIONS[id].rarity instead of
+   a ROSTER entry's own field — kept as a separate function rather than a
+   shared callback-taking one since the two id shapes differ (this one
+   works over plain action id strings, C.EQUIPPABLE's own shape). */
+P.weightedActionPick=function(rng,ids){
+ var weights=ids.map(function(id){return P.RARITY_PULL_WEIGHT[(C.ACTIONS[id]&&C.ACTIONS[id].rarity)||'common']||1;});
+ var total=weights.reduce(function(a,w){return a+w;},0);
+ var roll=rng.next()*total,acc=0,i;
+ for(i=0;i<ids.length;i++){acc+=weights[i];if(roll<acc)return ids[i];}
+ return ids[ids.length-1];};
 /* Per-enemy multiplier. n=1 -> x1.85 elite, n=4 -> x0.72 each. Total encounter
    strength (n x mul) runs 1.85 / 2.60 / 2.88 / 2.88 — rising slightly with count
    but far flatter than linear, so a lone elite is a real fight and a crowd is not

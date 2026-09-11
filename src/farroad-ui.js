@@ -619,7 +619,7 @@ function randomDrop(w){
    why:(wantLegendary?'legendary':'rare')+' charge-action drop'}];}
  var out=[];
  if(w%2===0){var pool=C.EQUIPPABLE;
-  out.push({kind:'action',id:pool[G.rng.nextInt(pool.length)],why:'random drop'});}
+  out.push({kind:'action',id:P.weightedActionPick(G.rng,pool),why:'random drop'});}
  else{var cp=C.CONDITIONS.filter(function(c){return c.id!=='none';});
   out.push({kind:'cond',id:cp[G.rng.nextInt(cp.length)].id,why:'random drop'});}
  return out;}
@@ -1942,7 +1942,7 @@ function doPull(){
     why:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});}
  }else if(kind==='action'){
-  var id=C.EQUIPPABLE[G.rng.nextInt(C.EQUIPPABLE.length)];
+  var id=P.weightedActionPick(G.rng,C.EQUIPPABLE);
   G.actionCounts[id]=(G.actionCounts[id]||0)+1;
   var d=describeAction(id);
   if(G.actions.indexOf(id)<0){G.actions.push(id);

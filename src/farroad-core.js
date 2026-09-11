@@ -267,8 +267,19 @@ var ACTION_DYNAMIC={
  ninefold:{randomPerHit:true}};
 Object.keys(ACTION_DYNAMIC).forEach(function(id){
  if(ACTIONS[id])for(var k in ACTION_DYNAMIC[id])ACTIONS[id][k]=ACTION_DYNAMIC[id][k];});
-var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt','cripple','brace','vengeance','onslaught','rally'];
-var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken'];
+/* v2.13: +6 — the elemental grid, one atk action per element (cinderstrike/
+   riptideblow/stoneshatter/squallstrike/radiantblow/shadowrend). Before this,
+   zero ATK_CAMP actions carried an element at all — every element tag lived
+   on the MAG_CAMP side only (unevenly: Fire had 2, Earth had 0). */
+var ATK_CAMP=['strike','pierce','cleave','flurry','execute','guardbreak','daunt','cripple','brace','vengeance','onslaught','rally',
+ 'cinderstrike','riptideblow','stoneshatter','squallstrike','radiantblow','shadowrend'];
+/* v2.13: +6 — the elemental grid's mag half (firebrand/tidalsurge/quakebolt/
+   zephyrbolt/solarflare/umbralbolt), completing the atk+mag pair for every
+   element. See the RARITY comment above — these are the first non-Common
+   EQUIPPABLE actions, so C.EQUIPPABLE's draw sites now weight by rarity
+   (P.weightedActionPick, farroad-ui.js) instead of picking uniformly. */
+var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','renew','recall','bulwark','blur','quicken',
+ 'firebrand','tidalsurge','quakebolt','zephyrbolt','solarflare','umbralbolt'];
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
  'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
