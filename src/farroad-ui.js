@@ -1796,6 +1796,10 @@ function renderEquipment(){
     var item=C.EQUIPMENT[id];
     if(item.slot!==kind)return;
     var isCur=id===curId, avail=equipAvailableCount(id);
+    /* Only list what's actually owned — equipOwnedCount(id)>0 always
+       holds for isCur (can't have equipped something never owned), so
+       this never hides the slot's current occupant. */
+    if(equipOwnedCount(id)<=0)return;
     var dis=(avail<=0&&!isCur)?' disabled':'';
     opts+='<option value="'+id+'"'+(isCur?' selected':'')+dis+'>'+item.name+
      rarityTagText(item.rarity)+' (owned '+equipOwnedCount(id)+', '+avail+' available)</option>';});

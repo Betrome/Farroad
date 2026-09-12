@@ -1358,7 +1358,7 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  })();
 })();
 
-/* =================== 22. EQUIPMENT (v2.14) ==================================
+/* =================== 22. EQUIPMENT (v2.14, expanded v2.15) ==================
  * Head/body/legs/hand gear, compiled from farroadequipment.csv. The
  * stat-integration layer (equipOwnedCount/applyEquipmentStats/equipItem/
  * effectiveAffinity's equipment term) lives in farroad-ui.js, which this
@@ -1369,9 +1369,16 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  * leans on content-pipeline.js's own build-time validation (already run
  * once at the top of this file — a bad row would have failed loudly
  * there) for slot/rarity/stat-family correctness. The UI-layer math
- * itself is covered by a live browser pass instead. */
+ * itself is covered by a live browser pass instead.
+ * v2.15: expanded from 1 item per (slot,rarity) cell to a 4/3/2 spread
+ * (Common/Rare/Legendary) per slot, via named ARCHETYPES — same total
+ * stat budget per slot+tier, different atk:mag/def:res/spd:evade split,
+ * so "which variant" is a real lateral choice rather than padding. The
+ * baseline-reconstruction check below now maps every id to its own
+ * archetype's pre-rarity numbers rather than assuming one baseline per
+ * slot. */
 (function(){
- ok('C.EQUIPMENT compiled with all 12 authored items', Object.keys(C.EQUIPMENT).length===12,
+ ok('C.EQUIPMENT compiled with all 36 authored items', Object.keys(C.EQUIPMENT).length===36,
   Object.keys(C.EQUIPMENT).join(','));
  ok('C.EQUIPMENT_SLOTS has the 5 wearable positions, not the 4 CSV slot kinds',
   C.EQUIPMENT_SLOTS.length===5 &&
@@ -1385,17 +1392,43 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    .every(function(id){var e=C.EQUIPMENT[id];
     var axesSet=Object.keys(e.affinity).filter(function(ax){return e.affinity[ax];}).length;
     return e.atk && e.mag && axesSet===1;}));
- ok('exactly one item per (slot, rarity) cell — 4 slots x 3 rarities',
+ ok('each slot has exactly 4 Common / 3 Rare / 2 Legendary items',
   (function(){
-   var seen={};
-   Object.keys(C.EQUIPMENT).forEach(function(id){var e=C.EQUIPMENT[id];seen[e.slot+'/'+e.rarity]=(seen[e.slot+'/'+e.rarity]||0)+1;});
-   return Object.keys(seen).length===12 && Object.keys(seen).every(function(k){return seen[k]===1;});
+   var counts={};
+   Object.keys(C.EQUIPMENT).forEach(function(id){var e=C.EQUIPMENT[id];
+    var k=e.slot+'/'+e.rarity;counts[k]=(counts[k]||0)+1;});
+   var want={common:4,rare:3,legendary:2};
+   return ['head','body','legs','hand'].every(function(slot){
+    return Object.keys(want).every(function(r){return counts[slot+'/'+r]===want[r];});});
   })());
  (function(){
-  var baselineOf={head:{def:4,res:4,ax:3},body:{def:4,res:4,ax:3},hand:{atk:5,mag:5,ax:3},legs:{spd:6,evade:0.020}};
+  /* Each id's own PRE-rarity archetype numbers — the exact values used
+     to author the CSV (baseline x RARITY_POWER_MUL = the shipped
+     number), so this reconstructs "was every promoted item scaled
+     correctly from its own archetype" rather than assuming a single
+     shared baseline per slot. */
+  var archetypeOf={
+   travelersboots:{spd:6,evade:0.020}, windstepgreaves:{spd:6,evade:0.020}, skyboundsabatons:{spd:6,evade:0.020},
+   racersstriders:{spd:9,evade:0.010}, windrunnerstriders:{spd:9,evade:0.010}, tempeststriders:{spd:9,evade:0.010},
+   nimbleslippers:{spd:3,evade:0.032}, phantomslippers:{spd:3,evade:0.032},
+   wornsandals:{spd:8,evade:0.015},
+   ironcap:{def:4,res:4,ax:3}, wardedhelm:{def:4,res:4,ax:3}, crownofthebulwark:{def:4,res:4,ax:3},
+   sentinelscap:{def:6,res:2,ax:3}, vanguardhelm:{def:6,res:2,ax:3}, stormguardcrown:{def:6,res:2,ax:3},
+   blessedcoif:{def:2,res:6,ax:3}, serenecirclet:{def:2,res:6,ax:3},
+   shadowedhood:{def:5,res:3,ax:3},
+   paddedvest:{def:4,res:4,ax:3}, chainweavemail:{def:4,res:4,ax:3}, aegisofthedeep:{def:4,res:4,ax:3},
+   ironcladvest:{def:6,res:2,ax:3}, bastionplate:{def:6,res:2,ax:3}, emberforgedplate:{def:6,res:2,ax:3},
+   tidewovenrobe:{def:2,res:6,ax:3}, hallowedvestments:{def:2,res:6,ax:3},
+   rootplatejerkin:{def:5,res:3,ax:3},
+   worngauntlet:{atk:5,mag:5,ax:3}, runedbracer:{atk:5,mag:5,ax:3}, emberfist:{atk:5,mag:5,ax:3},
+   riptideknuckles:{atk:8,mag:2,ax:3}, radiantknuckles:{atk:8,mag:2,ax:3}, maelstromfists:{atk:8,mag:2,ax:3},
+   stonewovengloves:{atk:2,mag:8,ax:3}, voidwovengloves:{atk:2,mag:8,ax:3},
+   zephyrgrips:{atk:6,mag:4,ax:3}
+  };
   var bad=[];
   Object.keys(C.EQUIPMENT).forEach(function(id){
-   var e=C.EQUIPMENT[id],mul=C.RARITY_POWER_MUL[e.rarity],b=baselineOf[e.slot];
+   var e=C.EQUIPMENT[id],mul=C.RARITY_POWER_MUL[e.rarity],b=archetypeOf[id];
+   if(!b){bad.push(id+': no archetype entry in this test');return;}
    if(e.slot==='legs'){
     if(e.spd!==Math.round(b.spd*mul))bad.push(id+'.spd='+e.spd);
     if(Math.abs(e.evade-Math.round(b.evade*mul*1000)/1000)>1e-9)bad.push(id+'.evade='+e.evade);
@@ -1406,7 +1439,7 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
     var axVal=Object.keys(e.affinity).map(function(ax){return e.affinity[ax];}).reduce(function(a,x){return a+x;},0);
     if(axVal!==Math.round(b.ax*mul))bad.push(id+'.affinity='+axVal);
    }});
-  ok('every item\'s stat/affinity values equal the Common baseline x its own RARITY_POWER_MUL',
+  ok('every item\'s stat/affinity values equal its own archetype\'s baseline x its own RARITY_POWER_MUL',
    bad.length===0, bad.join('; '));
  })();
  ok('P.EQUIP_DROP_CHANCE matches the "about as rare as units" 0.10 figure reused elsewhere',

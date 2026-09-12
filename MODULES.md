@@ -2895,3 +2895,65 @@ curated) and this session's browser sandbox disables `localStorage`
 were read-reviewed line-by-line against the actual `pushDrop`/
 `grantDrops` shapes rather than left unverified, but the notice text
 itself wasn't seen rendered.
+
+## Equipment expansion — 3 more Common, 2 more Rare, 1 more Legendary per slot
+
+Ian: "Can you build out variations of 3 more common equipment for each
+type, 2 rare for each type, and 1 more legendary for each type?" — 6
+more items per slot × 4 slots = 24 new, on top of the 12 shipped
+above, landing on 4 Common / 3 Rare / 2 Legendary per slot (36 total).
+
+**"Variations", not reskins** — each new item is a genuinely different
+stat SPLIT within its slot's existing family, on the SAME total budget
+as the original item, not just a new name on the same numbers. Every
+family now has named archetypes:
+- **Legs** (spd/evade, budget ~12 "feel" either way): Balanced
+  (original — Traveler's Boots/Windstep Greaves/Skybound Sabatons,
+  spd 6/evade .020 common baseline), Swift (spd-leaning, spd 9/evade
+  .010 — Racer's Striders/Windrunner Striders/Tempest Striders, full
+  3-tier spread), Evasive (evade-leaning, spd 3/evade .032 — Nimble
+  Slippers/Phantom Slippers, Common+Rare only), and a 4th Common-only
+  in-betweener (Worn Sandals, spd 8/evade .015).
+- **Head/Body** (def+res, budget 8): Balanced (original), Bulwark
+  (def-heavy, 6/2), Warded (res-heavy, 2/6), each getting the same
+  3-tier spread as Legs' Swift/Evasive; a 4th Common-only in-betweener
+  each (Shadowed Hood def 5/res 3 for Head, Rootplate Jerkin same
+  split for Body).
+- **Hand** (atk+mag, budget 10): Balanced (original), Brawler
+  (atk-heavy, 8/2), Arcane (mag-heavy, 2/8), same shape; 4th
+  Common-only in-betweener (Zephyr Grips, atk 6/mag 4).
+
+Every new item still carries one affinity axis (head/body/hand) per
+the original design, cycling through whichever of the 8 axes its slot
+hadn't used yet — Head's new 6 cover Air/Light/Dark/Body/Spirit/Air
+(wrapping), Body's cover Fire/Water/Earth/Body/Spirit/Fire, Hand's
+cover Water/Earth/Air/Light/Dark/Water. Legs still carries no affinity
+at any tier, unchanged from the original design. All values are still
+hand-authored archetype-baseline × `RARITY_POWER_MUL`, same as every
+other rarity-promoted number in this project — no new scaling
+mechanism, no new mechanics, purely more content on the existing rails
+(acquisition odds, drop/pull weighting, the EQUIPMENT tab UI, and the
+UI-layer stat math are all completely untouched by this pass).
+
+**Not every archetype reaches every tier on purpose** — Evasive/Arcane/
+Warded (the "off-balance" archetype in each family) stop at Rare, and
+each family's 4th Common-only in-betweener never gets a Rare/Legendary
+version at all. This wasn't asked for symmetrically and inventing 3
+full tiers for every archetype would have meant 12 items per slot (48
+total) instead of the 9 actually requested (4+3+2) — the asymmetry is
+deliberate scope discipline, not an oversight, and easy to extend
+later if a specific archetype earns a higher tier.
+
+**Verified**: `node build.js` (36 items compile clean, zero validation
+problems) and `node farroadsmoke.js` — 214/214, with the equipment
+section's 3 count/baseline checks rewritten for the new shape: exactly
+4/3/2 items per slot per rarity (was "exactly 1 per cell"); every
+item's stat/affinity values reconstructed against its OWN archetype's
+pre-rarity baseline × `RARITY_POWER_MUL` (was a single shared baseline
+per slot, no longer true now that a slot has 3-4 different archetypes
+in play). Live browser pass: EQUIPMENT tab's Head slot dropdown
+confirmed listing all 9 Head items (4 Common/3 Rare/2 Legendary) with
+correct names and rarity tags; no console errors. Not re-verified: the
+stat-math/duplicate-ownership/speed-penalty mechanics themselves,
+since those are unchanged code paths already verified live in the
+Equipment section above — this pass only added data.
