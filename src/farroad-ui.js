@@ -1060,6 +1060,19 @@ function applyStatMul(enemies,mul){
   u.base.atk=Math.max(1,Math.round(u.base.atk*mul));
   u.base.mag=Math.round(u.base.mag*mul);});
  return enemies;}
+/* v2.17: "each direction has a themed affinity" — sibling to applyStatMul
+   just above, same shape and same call sites, adding the direction's own
+   axis (P.DIRECTION_CONFIG[dir].affinity) ON TOP of whatever an enemy's
+   archetype already carries (u.affinity is a fresh per-instance object —
+   see makeUnit/defaultAffinity in farroad-core.js — so mutating it here
+   never touches the shared ARCH-level affinity source). The main Road
+   (buildEnemies with no direction) and companion quests never call this —
+   theming is a directional-content thing, not a game-wide one. */
+function applyDirectionAffinity(enemies,dir){
+ var ax=P.DIRECTION_CONFIG[dir]&&P.DIRECTION_CONFIG[dir].affinity;
+ if(!ax)return enemies;
+ enemies.forEach(function(u){u.affinity[ax]=(u.affinity[ax]||0)+P.DIRECTION_AFFINITY_BONUS;});
+ return enemies;}
 /* The FIRST time an expedition is observed past its homeAt, mark arrival
    and notify — does NOT grant exp.bank into the real economy or remove
    the expedition (see collectExpedition below). Replaces the old
@@ -1087,7 +1100,7 @@ function resolveExpedition(exp){
   var cost=20+P.travelSec(exp.ew);
   if(cost>remaining)break;
   var party=buildExpeditionParty(exp.partyIds,exp.hpFrac);
-  var enemies=applyStatMul(buildEnemies(exp.ew,true),mul);
+  var enemies=applyDirectionAffinity(applyStatMul(buildEnemies(exp.ew,true),mul),exp.direction);
   var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
   var beatGuard=0;
   while(!battle.over&&beatGuard++<4000)C.step(battle);
@@ -1131,7 +1144,15 @@ function bakeEnemySnapshot(u){
  return {name:u.name,arch:u.arch,thorns:u.thorns,isBoss:u.isBoss,row:u.row,
   chargeAction:u.chargeAction,slots:u.slots.map(function(s){return {cond:s.cond,action:s.action};}),
   stats:{hp:u.base.hp,atk:u.base.atk,mag:u.base.mag,def:u.base.def,res:u.base.res,spd:u.base.spd,
-   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,evade:u.base.evade}};}
+   atkCrit:u.base.atkCrit,magCrit:u.base.magCrit,chargeRate:u.base.chargeRate,evade:u.base.evade},
+  /* v2.17: without this, a dungeon's frozen enemies silently lost their
+     applyDirectionAffinity theming (and any other affinity) on the very
+     first bake — this snapshot used to carry stats only, never affinity,
+     so unitsFromSnapshots() below reconstructed every enemy back at
+     defaultAffinity()'s flat zeros regardless of what the live unit had
+     when it was baked. Caught before shipping the theming feature, not
+     after. */
+  affinity:u.affinity};}
 /* Reconstructs FRESH C.makeUnit() instances from a list of frozen
    snapshots (a dungeon's `enemies`, or one quest stage's `frozen[i]`) —
    called every time that fight is (re-)entered, never reusing a live
@@ -1142,7 +1163,7 @@ function unitsFromSnapshots(snapshots){
  return snapshots.map(function(snap,j){
   return C.makeUnit({id:'e'+j,name:snap.name,isParty:false,level:1,slotIndex:10+j,
    arch:snap.arch,thorns:snap.thorns||0,isBoss:snap.isBoss,row:snap.row,
-   stats:snap.stats,chargeAction:snap.chargeAction,slots:snap.slots});});}
+   stats:snap.stats,chargeAction:snap.chargeAction,slots:snap.slots,affinity:snap.affinity});});}
 /* "Let's add discoverable bonus fights/events... and discoverable
    dungeons." Rolled once per WON expedition node (see the call site in
    resolveExpedition above) — a flat per-opportunity chance, same shape as
@@ -1161,7 +1182,7 @@ function rollExpeditionDiscovery(exp,mul){
  if(G.rng.next()>=P.EXPED_DISCOVERY_CHANCE)return;
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
- var bEnemies=applyStatMul(buildEnemies(exp.ew,true),mul);
+ var bEnemies=applyDirectionAffinity(applyStatMul(buildEnemies(exp.ew,true),mul),exp.direction);
  var bParty=buildExpeditionParty(exp.partyIds,exp.hpFrac);
  var bBattle=C.makeBattle(bParty.concat(bEnemies),{rng:G.rng,enrage:G.enrage});
  var bGuard=0;
@@ -1204,10 +1225,10 @@ function unlockDirectionDungeon(dir,tier){
  var regularWave=P.isBossWave(baseWave)?baseWave-1:baseWave;
  var waves=[];
  for(var i=0;i<cfg.waveCount-1;i++){
-  var enemies=applyStatMul(buildEnemies(regularWave,true),mul);
+  var enemies=applyDirectionAffinity(applyStatMul(buildEnemies(regularWave,true),mul),dir);
   waves.push({wave:regularWave,enemies:enemies.map(bakeEnemySnapshot)});}
  var bossWave=P.nextBossWave(baseWave-1);
- var bossEnemies=applyStatMul(buildEnemies(bossWave,true),mul*P.DUNGEON_LEN);
+ var bossEnemies=applyDirectionAffinity(applyStatMul(buildEnemies(bossWave,true),mul*P.DUNGEON_LEN),dir);
  if(cfg.bossName)bossEnemies.forEach(function(u){u.name=cfg.bossName;});
  waves.push({wave:bossWave,enemies:bossEnemies.map(bakeEnemySnapshot)});
  var label=cfg.label;
@@ -1958,17 +1979,24 @@ function renderLore(){
    return '<option value="'+id+'"'+(id===selectedActionTab?' selected':'')+'>'+
     actionGlyphText(a)+a.name+rarityTagText(a.rarity)+' — Lv'+actionLevel(id)+'</option>';}).join('');
   host.appendChild(uneqSel);
-  uneqSel.onchange=function(){selectedActionTab=this.value;renderLore();};}
+  uneqSel.onchange=function(){selectedActionTab=this.value;renderLore();};
+  /* v2.16 FIX: the bulk-refund button used to sit right under the flat
+     tab row, so it read as "acting on the list right above it". Moved
+     with that list into the grouped layout — it operates on exactly the
+     unequipped set this dropdown shows, so it belongs directly under it,
+     not buried past it near the Lore-total line where a report came in
+     that it looked like it had vanished. */
+  if(unusedIds.length)host.insertAdjacentHTML('beforeend',
+   '<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
+   'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
+   (unusedIds.length===1?'':'s')+'</button>');}
  /* "let's also make how much lore I have available to level more
     apparent" — was a single .tiny line easy to miss; now its own
     prominent, colored line matching how AETHER/MARKS/LORE currencies read
     in the purse bar up top. */
  host.insertAdjacentHTML('beforeend','<div style="margin-bottom:6px"><b style="color:var(--lore);font-size:15px">'+
   free+'</b> <span class="tiny">of '+Math.floor(G.lore)+' Lore free — each action\'s next upgrade costs '+
-  'one more Lore than its last</span></div>'+
-  (unusedIds.length?'<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
-   'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
-   (unusedIds.length===1?'':'s')+'</button>':''));
+  'one more Lore than its last</span></div>');
  [currentSelectedAction(actionIds)].forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;var b=G.bonuses[aid]||{};
   var holders=actionHolders(aid);
@@ -2544,7 +2572,8 @@ function wirePartyRoster(host){
  Array.prototype.forEach.call(host.querySelectorAll('.pb-bench'),function(el){
   el.onclick=function(){if(benchUnit(el.dataset.u)){buildGambits();renderAll();}};});
  Array.prototype.forEach.call(host.querySelectorAll('.pb-field'),function(el){
-  el.onclick=function(){if(fieldUnit(el.dataset.u)){buildGambits();renderAll();}};});}
+  el.onclick=function(){var uid=el.dataset.u;
+   if(fieldUnit(uid)){buildGambits();renderAll();renderFieldConflicts(uid);}};});}
 function buildGambits(){
  var host=$('#gambits');host.innerHTML='';
  /* v2.9: one unit's gambit box at a time, picked by the shared unit-tab
@@ -2607,13 +2636,15 @@ function buildGambits(){
     var dis=holder?' disabled title="'+C.ACTIONS[aid].name+' is equipped by '+holder+' — non-starter actions can only be used by one unit at a time"':'';
     var tag=holder?' (used by '+holder+')':(benchHolder?' (also held by '+benchHolder+', benched)':'');
     ao+='<option value="'+aid+'"'+(aid===s.action?' selected':'')+dis+'>'+actionGlyphText(C.ACTIONS[aid])+C.ACTIONS[aid].name+rarityTagText(C.ACTIONS[aid].rarity)+tag+'</option>';});
-   /* Grandfathered conflict: a loadout saved before the one-unit-per-action
-      rule could already have this same non-starter action on another
-      fielded unit. The <select> above leaves the current pick selectable
-      (never force-changes a slot under the player), so surface it here
-      instead — otherwise the sharing would silently persist unnoticed. */
-   var ownConflict=actionHolderInParty(s.action,uid);
-   var ownBenchConflict=ownConflict?null:benchedActionHolder(s.action,uid);
+   /* v2.16: the passive "also equipped by X from before this rule" notice
+      that used to live here is retired — a conflict now surfaces actively,
+      at the moment it's created, via the Field-time popup
+      (renderFieldConflicts) instead of waiting to be noticed on whichever
+      slot happens to have it next time this screen is opened. The <select>
+      above still disables/tags a conflicting OPTION (that's prevention —
+      it stops a manual edit here from CREATING a new conflict — a
+      different job from the retired notice, which was after-the-fact
+      disclosure of one that already existed). */
    w.innerHTML='<div class="slotbar"><span class="lbl">SLOT '+(i+1)+' — IF</span>'+
      '<button class="mini mv up" aria-label="move up">▲</button>'+
      '<button class="mini mv dn" aria-label="move down">▼</button></div>'+
@@ -2624,12 +2655,7 @@ function buildGambits(){
     '<div class="tiny" style="margin-top:2px;color:var(--dimmer)">scales with <b>'+
      scalesWith(C.ACTIONS[s.action])+'</b>'+(C.ACTIONS[s.action].power?
      ' · power ×'+C.ACTIONS[s.action].power.toFixed(2):'')+'</div>'+
-    '<div class="tiny" style="margin-top:2px">'+withMcName(C.ACTIONS[s.action].note||'')+'</div>'+
-    (ownConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also equipped by '+
-     ownConflict+' from before this rule — pick a different action here to resolve it</div>':
-     ownBenchConflict?'<div class="tiny" style="margin-top:2px;color:var(--bad)">also held by '+
-     ownBenchConflict+' (benched) — fielding both at once will conflict; pick a different action '+
-     'here to avoid it</div>':'');
+    '<div class="tiny" style="margin-top:2px">'+withMcName(C.ACTIONS[s.action].note||'')+'</div>';
    var up=w.querySelector('.up'),dn=w.querySelector('.dn');
    if(i===0)up.disabled=true;
    if(i===sl.length-1)dn.disabled=true;
@@ -2730,6 +2756,57 @@ function benchedActionHolder(aid,excludeUid){
    C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
    holder=def?def.name:uid;}});});
  return holder;}
+/* ===== FIELD CONFLICT POPUP (v2.16) =====
+ * "rather than have a notice that an action is equipped by another unit
+ * on the action, have there be a pop-up if you try to put two units in
+ * the party with the same actions." GAMBITS' <select> already disables a
+ * conflicting option and shows a passive warning if you happen to open
+ * that unit's own slot editor — but nothing stopped fielding a unit whose
+ * SAVED loadout (or a fresh autoEquip pick that happens to land on the
+ * same GATE_FOR action as someone already fielded) collided with a
+ * unit already in the party, and nothing surfaced it until you noticed.
+ * This is the one deliberate exception to "no blocking modals" — it only
+ * ever opens in direct response to a Field click, never on a timer, so
+ * it doesn't fight the reason drop notices stay non-blocking. */
+function renderFieldConflicts(uid){
+ var modal=$('#conflictModal'),host=$('#conflictModalBody');
+ var sl=G.loadout[uid]||[];
+ var conflicts=[];
+ sl.forEach(function(s,i){
+  var holder=actionHolderInParty(s.action,uid);
+  if(holder)conflicts.push({i:i,action:s.action,holder:holder});});
+ if(!conflicts.length){modal.classList.add('hidden');return;}
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ var h='<div class="spread" style="margin-bottom:6px"><b>Action conflict</b></div>'+
+  '<div class="tiny" style="margin-bottom:10px">'+(def?def.name:uid)+' shares a non-starter action '+
+  'with someone already in your party — only one fielded unit can use it at a time. Leaving it as-is '+
+  'is not just a warning: '+(def?def.name:uid)+' will skip that slot in battle rather than fire a '+
+  'copy of an action someone else already fields. Pick a different one for each slot below, or leave '+
+  'it and sort it out later from GAMBITS.</div>';
+ conflicts.forEach(function(c){
+  var a=C.ACTIONS[c.action];
+  var opts=G.actions.map(function(aid){
+   var otherHolder=(aid===c.action)?null:actionHolderInParty(aid,uid);
+   var dis=otherHolder?' disabled':'';
+   return '<option value="'+aid+'"'+(aid===c.action?' selected':'')+dis+'>'+
+    actionGlyphText(C.ACTIONS[aid])+C.ACTIONS[aid].name+rarityTagText(C.ACTIONS[aid].rarity)+
+    (otherHolder?' (used by '+otherHolder+')':'')+'</option>';}).join('');
+  h+='<div class="slot" style="margin-bottom:8px">'+
+   '<div class="tiny" style="margin-bottom:3px">Slot '+(c.i+1)+': <b>'+a.name+'</b> — also used by <b>'+c.holder+'</b></div>'+
+   '<select class="cfSel" data-i="'+c.i+'">'+opts+'</select></div>';});
+ h+='<button class="mini" id="cfDismiss">Field anyway (conflicting slots won\'t fire)</button>';
+ host.innerHTML=h;
+ modal.classList.remove('hidden');
+ Array.prototype.forEach.call(host.querySelectorAll('.cfSel'),function(el){
+  el.onchange=function(){
+   var i=parseInt(el.dataset.i,10);
+   G.loadout[uid][i].action=this.value;
+   G.touched=G.touched||{};G.touched[uid]=true;   /* never let autoEquip silently override this fix */
+   syncLoadout(uid);
+   buildGambits();renderAll();
+   renderFieldConflicts(uid);   /* re-scan: fixing one slot may resolve everything, or leave others */
+  };});
+ $('#cfDismiss').onclick=function(){modal.classList.add('hidden');};}
 
 /* --------------------------------------------------------------- tests --- */
 function tCadence(){

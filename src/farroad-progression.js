@@ -427,6 +427,23 @@ P.DIRECTIONS=Object.keys(P.DIRECTION_CONFIG);
 P.DIRECTION_LABELS={};
 P.DIRECTIONS.forEach(function(d){P.DIRECTION_LABELS[d]=P.DIRECTION_CONFIG[d].label;});
 P.directionMul=function(dir){return (P.DIRECTION_CONFIG[dir]&&P.DIRECTION_CONFIG[dir].mul)||1;};
+/* v2.17: "each direction has a themed affinity... west dungeons fire
+   themed... east Spirit themed" (Ian) — one of the 8 axes per direction
+   (farroaddungeons.csv's own `affinity` column, DIRECTION_CONFIG[dir].
+   affinity), west->east walking the canonical AFFINITY_AXES order
+   (fire/water/earth/air/light/dark/body/spirit) — the same order every
+   other CSV in this project already lists the 8 axes in, not a new
+   sequence invented for this. Applied as a flat ADDITIVE bonus on top of
+   an enemy's own archetype-authored affinity (never replacing it) by
+   applyDirectionAffinity (farroad-ui.js), the same "post-process a fresh
+   buildEnemies() list for this direction" choke point applyStatMul
+   already uses — see its call sites (resolveExpedition, the bonus-fight
+   roll, and unlockDirectionDungeon's two waves-list builds) for exactly
+   where. Reasoned starting point, same order of magnitude as a single
+   equipment piece's own affinity bonus (3-5 raw points) — flagged
+   tunable like every other rarity/theme number this project has shipped
+   with, not derived from anything Ian specified beyond "themed". */
+P.DIRECTION_AFFINITY_BONUS=6;
 
 /* ===== DISCOVERABLE CONTENT (bonus fights) =====
  * Rolled once per WON expedition node — same spirit and shape as

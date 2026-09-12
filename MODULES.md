@@ -3018,3 +3018,170 @@ the panel showing Strike unchanged; confirmed selecting an unequipped
 action from the dropdown and buying a Lore upgrade on it worked
 end-to-end (Sear → Lv1, Lore 50→49, refund button appeared); no
 console errors throughout.
+
+## LORE refund button repositioned; a Field-time conflict pop-up; themed dungeons
+
+Three requests in one message.
+
+**1. "we lost the button to refund all unequipped actions."** Not
+actually deleted — the LORE regroup above moved it, and it ended up
+buried past the new equipped-row/dropdown, near the Lore-total line,
+disconnected from the list it acts on. Moved it to sit directly under
+the "Unequipped actions" `<select>` instead — it now visually belongs
+to the exact list it bulk-refunds, which is also just better UX than
+where it lived before the regroup, not merely restored.
+
+**2. Field-time action-conflict pop-up, replacing the passive per-slot
+notice.** Ian: "rather than have a notice that an action is equipped
+by another unit on the action, have there be a pop-up if you try to
+put two units in the party with the same actions noting which actions
+need changed, and letting the player change it in the pop-up." GAMBITS'
+loadout `<select>` already disabled a conflicting option and (until
+now) showed a passive "also equipped by X from before this rule"
+paragraph if you happened to open that unit's own slot editor — but
+nothing stopped FIELDING a unit whose saved loadout collided with one
+already in the party (a `G.touched` unit's manual loadout is never
+touched by `autoEquip()`'s "never override a hand-written rule"), and
+nothing surfaced it until noticed.
+
+- New `renderFieldConflicts(uid)` (`farroad-ui.js`, beside
+  `actionHolderInParty`/`benchedActionHolder`) scans the just-fielded
+  unit's loadout for slots where `actionHolderInParty(action,uid)`
+  finds another fielded holder, and — only if any exist — opens a
+  small blocking modal listing each conflicting slot with a `<select>`
+  to pick a different action right there (options disabled the same
+  way GAMBITS' own select already disables them), or a "Field anyway,
+  fix later" dismiss. Picking a replacement re-scans immediately;
+  resolving the last conflict auto-closes the modal.
+- This is **the one deliberate exception** to this project's own
+  "no blocking modals" rule (`shell.html`'s existing comment on the
+  drop-notice banner: "an idle game cannot afford a modal that halts
+  progress every few waves") — it only ever opens in direct response
+  to a Field click, never on the game's own clock, so it doesn't fight
+  the reason that rule exists.
+- The retired passive notice is gone from GAMBITS' own slot render;
+  the SELECT's own option-disabling (prevention, stops a manual edit
+  from CREATING a new conflict) is untouched — a different job from
+  the retired notice (after-the-fact disclosure of one that already
+  existed), now superseded by the pop-up catching it at the moment of
+  creation instead.
+- New markup: `#conflictModal`/`#conflictModalBody` (`shell.html`,
+  right after `#app` closes) — a fixed-position overlay, `z-index:50`,
+  the first of its kind in this codebase.
+
+**3. Themed dungeons — one affinity axis per direction.** Ian: "let's
+make them themed, so each direction has a themed affinity... west
+dungeons... fire themed while the ones to the east are Spirit themed."
+8 directions, 8 affinity axes — a clean 1:1 mapping, walking the same
+canonical fire/water/earth/air/light/dark/body/spirit order every
+other CSV in this project already uses, landing exactly on Ian's two
+named examples (west→Fire, east→Spirit) with no separate ordering
+decision needed for the other six.
+
+- New `affinity` column on `farroaddungeons.csv`, compiled into
+  `DIRECTION_CONFIG[dir].affinity` (`content-pipeline.js`), validated
+  the same fail-loudly way as element/rarity elsewhere (an
+  unrecognized axis stops the build, not a silent blank).
+- New `P.DIRECTION_AFFINITY_BONUS=6` (`farroad-progression.js`) — a
+  flat additive bonus applied ON TOP of an enemy's own archetype-
+  authored affinity, never replacing it. Reasoned starting point, same
+  order of magnitude as a single equipment piece's own affinity bonus
+  (3-5 raw points) — flagged tunable like every other rarity/theme
+  number this project has shipped.
+- New `applyDirectionAffinity(enemies,dir)` (`farroad-ui.js`), a
+  sibling to the existing `applyStatMul` (same shape, same 4 call
+  sites: `resolveExpedition`'s regular node, `rollExpeditionDiscovery`'s
+  bonus fight, and `unlockDirectionDungeon`'s two waves-list builds) —
+  deliberately NOT wired into the main Road (`buildEnemies` called with
+  no direction) or companion quests, since theming is a directional-
+  content thing, not game-wide.
+- **Real pre-existing bug caught and fixed before it could ship
+  silently broken**: `bakeEnemySnapshot`/`unitsFromSnapshots` (the
+  freeze/replay pair every dungeon and companion-quest stage already
+  uses) never carried `affinity` at all — only `stats`. Without a fix,
+  every dungeon's frozen enemies would have LOST their themed bonus
+  (and, incidentally, their own archetype's ordinary affinity too) the
+  moment they were baked, silently reconstructing at `defaultAffinity()`
+  0 on every replay. Both functions now carry `affinity` through the
+  round trip — a strict correctness fix for quest-stage snapshots too,
+  not just new theming behavior. An old save's already-baked dungeons
+  (from before this fix) degrade gracefully to 0 via `makeUnit`'s
+  existing `cfg.affinity||{}` guard — no migration needed, no throw.
+
+**Verified**: `node build.js` + `node farroadsmoke.js` (218/218, 4 new
+checks: west=Fire/east=Spirit exactly, every direction's axis is one
+of the 8 known ones, the 8 directions walk the canonical axis order
+with none repeated, `DIRECTION_AFFINITY_BONUS` is a real positive
+number). Live browser pass (temporary debug hooks, added and fully
+removed before shipping): confirmed the refund button now sits under
+the unequipped dropdown and still round-trips a real refund correctly;
+confirmed the conflict pop-up opens exactly when fielding a unit whose
+loadout collides with an already-fielded one, correctly lists the
+right slot/holder, resolves and auto-closes when a non-conflicting
+replacement is picked, and "Field anyway" dismisses without changing
+state; confirmed `applyDirectionAffinity` adds the bonus additively
+without disturbing an enemy's other axes (spot-checked west→+6 Fire,
+east→+6 Spirit on the same base enemy); confirmed the bake→snapshot→
+restore round trip preserves the themed affinity exactly; confirmed a
+REAL dungeon built via `unlockDirectionDungeon('west',1)` carries
+Fire+6 on every enemy in both a regular wave and the boss wave; entered
+that dungeon through the actual QUESTS tab UI and confirmed the fight
+started and resolved a real combat turn with no console errors
+throughout.
+
+## Shared-action rule promoted from UI warning to a real combat restriction
+
+Ian asked for the field-conflict pop-up above to note that leaving a
+conflict unfixed means the action won't trigger. It didn't, yet — the
+one-unit-per-non-starter-action rule (`One-unit-per-non-starter-action
+rule` above) was UI-layer only by original design, purely a Lore-
+sharing-exploit guard with `farroad-core.js`'s combat resolver having
+no idea the rule existed; two fielded units sharing a non-starter
+action both fired it normally in a real fight. Flagged this discrepancy
+before writing an inaccurate note — Ian chose to make it literally
+true rather than soften the wording.
+
+**New `actionHeldByEarlierFielded(b,u,actionId)`** (`farroad-core.js`,
+beside `needsHeal`) — the engine's own version of `actionHolderInParty`,
+scanning `b.units` instead of `G.party`/`G.loadout` (core.js can't read
+UI-layer state). A naive "does any OTHER fielded unit hold this"
+symmetric check would deadlock two units that already share an action —
+neither could ever use it, each seeing the other as the blocker. Broken
+by `slotIndex` (a unit's position in `G.party`, set at `buildParty`
+time): only a unit with a LOWER slotIndex counts as a blocker, so
+exactly one fielded holder — the earliest — keeps using the action
+normally, and every other holder falls through. Starters (`strike`/
+`ember`) stay exempt via a small `STARTER_ACTIONS` list duplicated from
+`P.STARTER_ACTIONS` — core.js loads before progression.js, same
+load-order reason `RARITY_POWER_MUL` lives in core despite reading like
+an economy concern.
+
+**Wired into `chooseFrom`** at both points a slot's action gets
+selected: the `allNone` round-robin branch (falls back to Strike, same
+shape as the existing `smartHeal` skip-checks right above it) and the
+main condition-matching loop (a blocked slot is skipped exactly like a
+failed condition, `continue`s to the next one). The final "all
+conditions false" fallback was already Strike, so a fully-blocked
+unit's worst case was already handled by existing code.
+
+**Popup text updated** (`renderFieldConflicts`, `farroad-ui.js`) to
+state the real consequence plainly — "will skip that slot in battle
+rather than fire a copy of an action someone else already fields" —
+and the dismiss button now reads "Field anyway (conflicting slots
+won't fire)" instead of the vaguer "fix later".
+
+**Verified**: `node build.js` + `node farroadsmoke.js` (222/222, 4 new
+checks in a dedicated section: a lower-slotIndex party unit fires a
+shared non-starter action normally; a higher-slotIndex unit sharing the
+same id never fires it across many turns; that unit correctly falls
+back to Strike rather than going idle; both units sharing Strike itself
+remain completely unrestricted). Live browser pass (a temporary debug
+hook, added and fully removed before shipping): confirmed the pop-up's
+new wording renders correctly; built a REAL 2-unit battle via
+`C.makeBattle`/`C.step` with Kesh (earlier) and Ansa (later) both
+loadout-assigned Pierce — the combat log showed Kesh firing Pierce
+every cycle and Ansa's identical slot firing Strike every single time
+instead, tagged `via: alternate (shared with an earlier-fielded unit)`,
+while her OTHER (non-conflicting) slot fired normally; confirmed
+Strike itself stays fully shared between both units with zero blocking;
+no console errors throughout.

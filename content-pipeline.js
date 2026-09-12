@@ -196,7 +196,13 @@ function compileDirectionConfig(rows) {
     cfg[r.direction] = {
       label: r.label, mul: num(r.difficulty_multiplier),
       waveCount: num(r.wave_count), unlockEvery: num(r.unlock_every),
-      bossName: r.boss_name || null
+      bossName: r.boss_name || null,
+      // v2.17: each direction's themed affinity axis — enemies found there
+      // (expeditions, bonus fights, dungeons) carry a bonus in this axis on
+      // top of their own archetype-authored affinity. Reuses the same
+      // 8-axis vocabulary as units/enemies/actions/equipment, validated
+      // below (fail loudly, same pattern as element/rarity elsewhere).
+      affinity: (r.affinity || '').trim().toLowerCase()
     };
   });
   return cfg;
@@ -323,6 +329,13 @@ function buildContent(rootDir) {
   });
   DIRECTIONS_EXPECTED.forEach(dir => { if (!DIRECTION_CONFIG[dir]) problems.push(`farroaddungeons.csv: missing a row for direction "${dir}"`); });
   Object.keys(DIRECTION_CONFIG).forEach(dir => { if (DIRECTIONS_EXPECTED.indexOf(dir) < 0) problems.push(`farroaddungeons.csv: unrecognized direction "${dir}"`); });
+  // v2.17: same fail-loudly pattern as element/rarity — a typo in the
+  // affinity column should stop the build, not silently compile to ''.
+  Object.keys(DIRECTION_CONFIG).forEach(dir => {
+    const ax = DIRECTION_CONFIG[dir].affinity;
+    if (AFFINITY_AXES.indexOf(ax) < 0)
+      problems.push(`farroaddungeons.csv: "${dir}" has unrecognized affinity "${ax}" (expected one of ${AFFINITY_AXES.join('/')})`);
+  });
 
   return { content: { ROSTER, ARCH, ACTIONS, QUEST_LINES, DIRECTION_CONFIG, EQUIPMENT }, problems };
 }

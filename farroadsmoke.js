@@ -684,6 +684,25 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('P.directionMul falls back to 1 for an unrecognized direction',
   P.directionMul('nowhere')===1);
 
+ /* --- v2.17: each direction's themed affinity axis (farroaddungeons.csv's
+    own `affinity` column) — content-pipeline.js already fails the whole
+    build loudly on an unrecognized axis, so this is a regression guard on
+    the SHIPPED assignment, same spirit as the directionMul checks above:
+    Ian's own two named examples (west->Fire, east->Spirit) hold, and the
+    8 directions walk the canonical AFFINITY_AXES order with no axis
+    reused twice. */
+ (function(){
+  var AFFINITY_AXES=['fire','water','earth','air','light','dark','body','spirit'];
+  ok('west is Fire-themed and east is Spirit-themed, exactly as asked',
+   P.DIRECTION_CONFIG.west.affinity==='fire' && P.DIRECTION_CONFIG.east.affinity==='spirit');
+  ok('every direction\'s themed affinity is one of the 8 known axes',
+   P.DIRECTIONS.every(function(d){return AFFINITY_AXES.indexOf(P.DIRECTION_CONFIG[d].affinity)>=0;}));
+  ok('the 8 directions walk the canonical AFFINITY_AXES order west to east, no axis repeated',
+   P.DIRECTIONS.every(function(d,i){return P.DIRECTION_CONFIG[d].affinity===AFFINITY_AXES[i];}));
+ })();
+ ok('P.DIRECTION_AFFINITY_BONUS is a real, positive flat bonus',
+  P.DIRECTION_AFFINITY_BONUS>0, ''+P.DIRECTION_AFFINITY_BONUS);
+
  /* --- a discovery roll never fires below its own threshold, across many
     seeds — the exact shape rollExpeditionDiscovery() itself checks
     (G.rng.next()>=P.EXPED_DISCOVERY_CHANCE -> bail) ------------------------ */
@@ -1453,6 +1472,67 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    var observed=hits/n;
    return Math.abs(observed-pCommon)<0.05;
   })());
+})();
+
+/* =================== 23. FIELDED ACTION CONFLICT IS A REAL COMBAT RULE (v2.18) =
+ * "add a note that fielding them without fixing it will mean the action
+ * will not trigger" (Ian) — makes the one-unit-per-non-starter-action
+ * rule (previously UI-layer only, farroad-ui.js's actionHolderInParty)
+ * a genuine combat restriction: C.step's action-selection (chooseFrom,
+ * farroad-core.js) now skips a non-starter slot whose action id is also
+ * held by an earlier-fielded (lower slotIndex) party unit, falling back
+ * exactly like a failed condition would. Only the earlier unit gets to
+ * use it; the later one is not simply blocked-and-idle, it falls back to
+ * Strike (or whatever its next slot would have picked). */
+(function(){
+ C.setWave(1);
+ var rng=C.makeRNG(55);
+ var earlier=C.makeUnit({id:'p1',name:'Earlier',isParty:true,level:1,slotIndex:0,row:'front',
+  stats:{atk:20,mag:1,def:10,res:10,spd:120,evade:0},maxHp:1000,hp:1000,
+  slots:[{cond:'none',action:'pierce'}]});
+ var later=C.makeUnit({id:'p2',name:'Later',isParty:true,level:1,slotIndex:1,row:'front',
+  stats:{atk:20,mag:1,def:10,res:10,spd:100,evade:0},maxHp:1000,hp:1000,
+  slots:[{cond:'none',action:'pierce'}]});
+ var foe=C.makeUnit({id:'e1',name:'Foe',isParty:false,level:1,slotIndex:10,
+  stats:{atk:1,mag:1,def:10,res:10,spd:1,evade:0},maxHp:1e9,hp:1e9,
+  slots:[{cond:'none',action:'strike'}]});
+ var b=C.makeBattle([earlier,later,foe],{rng:rng,enrage:false});
+ var earlierUsedPierce=false,laterEverUsedPierce=false,laterUsedStrike=false,guard=0;
+ while(guard++<200&&(!earlierUsedPierce||!laterUsedStrike)){
+  var e=C.step(b);if(!e)break;
+  if(e.actorId==='p1'&&e.actionId==='pierce')earlierUsedPierce=true;
+  if(e.actorId==='p2'&&e.actionId==='pierce')laterEverUsedPierce=true;
+  if(e.actorId==='p2'&&e.actionId==='strike')laterUsedStrike=true;}
+ ok('the earlier-fielded unit (lower slotIndex) fires the shared action normally',
+  earlierUsedPierce);
+ ok('the later-fielded unit never fires the shared non-starter action — it genuinely does not trigger',
+  !laterEverUsedPierce);
+ ok('the later-fielded unit falls back to Strike instead of doing nothing',
+  laterUsedStrike);
+
+ /* --- starters stay exempt: both units sharing Strike is normal, not a conflict --- */
+ var s1=C.makeUnit({id:'p1',name:'S1',isParty:true,level:1,slotIndex:0,row:'front',
+  stats:{atk:20,mag:1,def:10,res:10,spd:120,evade:0},maxHp:1000,hp:1000,
+  slots:[{cond:'none',action:'strike'}]});
+ var s2=C.makeUnit({id:'p2',name:'S2',isParty:true,level:1,slotIndex:1,row:'front',
+  stats:{atk:20,mag:1,def:10,res:10,spd:100,evade:0},maxHp:1000,hp:1000,
+  slots:[{cond:'none',action:'strike'}]});
+ var foe2=C.makeUnit({id:'e1',name:'Foe',isParty:false,level:1,slotIndex:10,
+  stats:{atk:1,mag:1,def:10,res:10,spd:1,evade:0},maxHp:1e9,hp:1e9,
+  slots:[{cond:'none',action:'strike'}]});
+ var b2=C.makeBattle([s1,s2,foe2],{rng:C.makeRNG(56),enrage:false});
+ var bothFiredStrike={p1:false,p2:false},guard2=0;
+ while(guard2++<50&&!(bothFiredStrike.p1&&bothFiredStrike.p2)){
+  var e2=C.step(b2);if(!e2)break;
+  if(e2.actionId==='strike'&&bothFiredStrike[e2.actorId]!==undefined)bothFiredStrike[e2.actorId]=true;}
+ ok('starters (Strike) stay exempt — both fielded units can use it with no block',
+  bothFiredStrike.p1&&bothFiredStrike.p2);
+ /* Enemies are never subject to this rule by construction (the !u.isParty
+    guard in actionHeldByEarlierFielded) — not independently re-tested
+    here since every OTHER battle test in this file already runs enemies
+    sharing ids like 'bite' across multiple bodies in one wave; a broken
+    guard would surface as mass failures across the whole suite, not just
+    here. */
 })();
 
 /* ------------------------------- report ---------------------------------- */

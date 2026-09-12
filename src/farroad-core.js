@@ -670,6 +670,31 @@ function pickNext(b){var best=null;
   if(u.slotIndex<best.slotIndex)best=u;}
  return best;}
 function needsHeal(b,u){var a=allies(b,u);for(var i=0;i<a.length;i++)if(a[i].hp<a[i].maxHp)return true;return false;}
+/* v2.18: mirrors P.STARTER_ACTIONS (farroad-progression.js) — duplicated
+   here rather than referenced, since core.js loads (and this function can
+   run) before progression.js exists, same load-order reason
+   RARITY_POWER_MUL/AFFINITY_CAP live in core despite reading like
+   progression/economy concerns. Keep in sync by hand if the starter set
+   ever changes — it hasn't since v0.1. */
+var STARTER_ACTIONS=['strike','ember'];
+/* "have the action not trigger" (Ian) — makes the existing one-unit-per-
+   non-starter-action rule (farroad-ui.js's actionHolderInParty, UI-layer
+   only until now) a REAL combat restriction, not just a Lore-sharing-
+   exploit guard. Only the FIELDED party unit with the lowest slotIndex
+   (its position in G.party, set at buildParty time) among everyone
+   holding a given action gets to use it — every other fielded unit
+   holding the same id skips that slot in chooseFrom below, same as a
+   failed condition, rather than the two units deadlocking each other out
+   of it entirely (a naive "anyone else holds it -> blocked" symmetric
+   check would do exactly that). Starters are exempt — every unit starts
+   with them, so they're never "shared" in the sense this rule cares
+   about. */
+function actionHeldByEarlierFielded(b,u,actionId){
+ if(!u.isParty||STARTER_ACTIONS.indexOf(actionId)>=0)return false;   /* enemies never subject to this rule */
+ for(var i=0;i<b.units.length;i++){var o=b.units[i];
+  if(o===u||!o.isParty||o.slotIndex>=u.slotIndex)continue;
+  for(var j=0;j<o.slots.length;j++)if(o.slots[j].action===actionId)return true;}
+ return false;}
 function chooseFrom(u,b,state){
  if(u.chargeAction&&state.charge>=costOfCharge(ACTIONS[u.chargeAction]))
   return {actionId:u.chargeAction,target:null,via:'charge full → override'};
@@ -679,8 +704,11 @@ function chooseFrom(u,b,state){
   var a0=ACTIONS[s[idx].action];
   if(b.smartHeal&&a0&&a0.heal&&!needsHeal(b,u))return {actionId:'strike',target:null,via:'alternate (heal skipped)'};
   if(b.smartHeal&&a0&&a0.tk==='deadAlly'&&deadAllies(b,u).length===0)return {actionId:'strike',target:null,via:'alternate (nobody down)'};
+  if(actionHeldByEarlierFielded(b,u,s[idx].action))return {actionId:'strike',target:null,via:'alternate (shared with an earlier-fielded unit)'};
   return {actionId:s[idx].action,target:null,via:'alternate → slot '+(idx+1)};}
- for(i=0;i<n;i++){act=ACTIONS[s[i].action];r=condById(s[i].cond).resolve(u,b,act);
+ for(i=0;i<n;i++){act=ACTIONS[s[i].action];
+  if(actionHeldByEarlierFielded(b,u,s[i].action))continue;
+  r=condById(s[i].cond).resolve(u,b,act);
   if(r.ok)return {actionId:s[i].action,target:r.target,via:'slot '+(i+1)+' ['+condById(s[i].cond).label+'] ✓'};}
  return {actionId:'strike',target:null,via:'all false → implicit Strike'};}
 function choose(u,b){var st={charge:u.charge,alternateFlag:u.alternateFlag};var r=chooseFrom(u,b,st);u.alternateFlag=st.alternateFlag;return r;}
