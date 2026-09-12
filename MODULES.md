@@ -3227,3 +3227,37 @@ screenshot of the full app also showed no overlay), confirmed
 correct conflict text inside it), and confirmed `"none"` again after
 dismissing it — the show and hide paths both independently re-verified,
 not just the fix's own target case. No console errors throughout.
+
+## Version number actually moves now — v2.9 -> v2.18
+
+Ian, after the first real GitHub release went out under a stale label:
+"we'll want to start actually versioning the files, not just leave it
+at 2.9." The mechanism already existed — `build.js`'s `VERSION`
+constant (env-overridable via `FARROAD_VERSION`) drives both the
+in-page badge (`shell.html`'s two `<!--@@VERSION@@-->` placeholders,
+character creation + main app) and the output filename
+(`farroad-prototype-${VERSION}.html`) — it just never got bumped. Nine
+features' worth of comments elsewhere in the codebase kept their own
+informal "v2.10", "v2.11"... tally (elemental affinities through the
+shared-action combat restriction two sections up) while the actual
+shown/shipped version sat frozen at "v2.9" the entire time.
+
+Caught up the default to `v2.18`, matching where the codebase's own
+comments already were, rather than a flat +1 from the stale number —
+a version number only means something if it lines up with what
+`MODULES.md`/git history actually say happened by that point. The old
+tracked `farroad-prototype-v2.9.html` build artifact is retired (`git
+rm`, replaced by the new-versioned filename); `node build.js` now
+produces `farroad-prototype-v2.18.html` going forward.
+
+**Discipline, not a one-time fix**: `build.js`'s own top-of-file
+comment now says explicitly to bump the `VERSION` default with every
+shipped feature or fix, not just when it feels like a milestone —
+that's the whole habit that slipped for nine versions' worth of work.
+
+**Verified**: `node build.js` (produces `farroad-prototype-v2.18.html`,
+correct size, no placeholder/DOM/global-leak failures) + `node build.js
+--check` (round-trip fidelity intact) + `node farroadsmoke.js`
+(222/222, unaffected — a build-identity change, not a game-logic one).
+Live browser pass: opened the new file directly, confirmed the header
+reads "FARROAD V2.18" with a fresh build timestamp, no console errors.

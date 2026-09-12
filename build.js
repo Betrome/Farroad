@@ -9,7 +9,7 @@
  * stay a single file; the module split exists purely so the source can be
  * executed and tested, which the fused file cannot be.
  *
- *   node build.js            -> farroad-prototype-v2.9.html
+ *   node build.js            -> farroad-prototype-v2.18.html
  *   node build.js --check    -> verifies round-trip fidelity, writes nothing
  *
  * ROUND-TRIP GUARANTEE
@@ -17,12 +17,22 @@
  * only slices and build.js only concatenates, neither ever reformats, minifies
  * or rewrites a single character. That is what makes "the refactor is a no-op"
  * a checkable claim rather than a hopeful one.
+ *
+ * VERSIONING: bump the default below with every shipped feature/fix, not
+ * just when it feels like a milestone. It was left at 'v2.9' through
+ * rarity/equipment/LORE-regroup/themed-dungeons/etc — nine features'
+ * worth of drift — while comments elsewhere in the codebase kept their
+ * own informal "v2.10", "v2.11"... tally that the shown version never
+ * caught up to. The whole point of a version number is that it means
+ * something when cross-referenced against MODULES.md; it does that only
+ * if it moves every time the code does. FARROAD_VERSION env var still
+ * overrides for a one-off/experimental build without touching this line.
  * =========================================================================== */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = process.env.FARROAD_VERSION || 'v2.9';
+const VERSION = process.env.FARROAD_VERSION || 'v2.18';
 const srcDir  = path.join(__dirname, 'src');
 const outFile = path.join(__dirname, `farroad-prototype-${VERSION}.html`);
 
