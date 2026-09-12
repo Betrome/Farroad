@@ -390,7 +390,13 @@ var BONUSES={
  lasting:{n:'Lasting',d:'+1 turn on the status it applies — nothing if it applies none'},
  deepening:{n:'Deepening',d:'debuff bites 25% harder — dead on buffs and on damage'},
  surge:{n:'Surge',d:'+10 charge gain — dead on charge actions themselves'},
- piercing:{n:'Piercing',d:'+0.15 armour pierce — worth most vs armour'},
+ /* v2.19: reworded from "+0.15 armour pierce — worth most vs armour" —
+    that phrasing read as physical-only, which was true when the bonus
+    was gated to camp==='atk', but the underlying defPierce mechanic
+    always reduced whichever stat the action's own camp mitigates
+    against. Now that the gate is gone (bonusApplies above), the
+    description needs to say so plainly rather than imply "armour". */
+ piercing:{n:'Piercing',d:'+0.15 pierce — DEF for a physical action, RES for a magic one; worth most vs a target strong in that stat'},
  /* v2.11: was "+1 target covered" — actively wrong. applyBonuses (below)
     shows the real mechanic: ONE stack converts a single-target action to
     hit the WHOLE party or WHOLE enemy side, flat — not a per-stack
@@ -427,7 +433,16 @@ function bonusApplies(a,bid){
   case 'lasting':   return !!a.applies;
   case 'deepening': return !!(a.applies&&!isBuffStatus(a.applies));
   case 'surge':     return !a.isCharge;
-  case 'piercing':  return !!(a.power&&a.camp==='atk'&&!a.heal);
+  /* v2.19: was camp==='atk' only — "does piercing affect defense and
+     resistance?" caught that the restriction was arbitrary. defPierce
+     itself (applyBonuses below, and resolveHit's o.defRaw=isPhys?
+     effDef(tgt):effRes(tgt) in this same file) was ALREADY fully
+     camp-agnostic — it reduces whichever stat the action's own camp
+     mitigates against, DEF for atk, RES for mag. The only thing
+     actually restricting Piercing to physical actions was this one
+     check, not the underlying mechanic; a magic action buying Piercing
+     genuinely pierces RES, not a no-op. */
+  case 'piercing':  return !!(a.power&&!a.heal);
   case 'broad':     return a.tk==='foe'||a.tk==='ally';
   case 'cleansing': return !!a.heal;
   case 'thrifty':   return !!a.isCharge;

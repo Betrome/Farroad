@@ -9,7 +9,7 @@
  * stay a single file; the module split exists purely so the source can be
  * executed and tested, which the fused file cannot be.
  *
- *   node build.js            -> farroad-prototype-v2.18.html
+ *   node build.js            -> farroad-prototype-v2.19.html
  *   node build.js --check    -> verifies round-trip fidelity, writes nothing
  *
  * ROUND-TRIP GUARANTEE
@@ -32,7 +32,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = process.env.FARROAD_VERSION || 'v2.18';
+const VERSION = process.env.FARROAD_VERSION || 'v2.19';
 const srcDir  = path.join(__dirname, 'src');
 const outFile = path.join(__dirname, `farroad-prototype-${VERSION}.html`);
 

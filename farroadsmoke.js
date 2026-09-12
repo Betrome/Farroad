@@ -1535,6 +1535,52 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
     here. */
 })();
 
+/* =================== 24. PIERCING WORKS ON MAGIC ACTIONS TOO (v2.19) ========
+ * "Does piercing affect defense and resistance? If not, it should" (Ian).
+ * It didn't — bonusApplies('piercing') required camp==='atk', even though
+ * the underlying mechanic (applyBonuses setting a.defPierce; resolveHit's
+ * o.defRaw=isPhys?effDef(tgt):effRes(tgt)) was already fully camp-agnostic.
+ * The restriction was the ONLY thing stopping Piercing from working on a
+ * magic action; nothing else needed to change. */
+(function(){
+ ok('bonusApplies(piercing) is true for a magic damage action (was atk-only)',
+  C.bonusApplies(C.ACTIONS.ember,'piercing'));
+ ok('bonusApplies(piercing) is still true for a physical damage action',
+  C.bonusApplies(C.ACTIONS.strike,'piercing'));
+ ok('bonusApplies(piercing) is still false for a heal (no defense to pierce)',
+  !C.bonusApplies(C.ACTIONS.mend,'piercing'));
+ (function(){
+  C.applyBonuses({ember:{piercing:2}});
+  ok('buying Piercing on a magic action actually sets its defPierce',
+   Math.abs(C.ACTIONS.ember.defPierce-0.30)<1e-9, ''+C.ACTIONS.ember.defPierce);
+  C.applyBonuses({});   /* reset — same hygiene the Keen-migration test above uses */
+ })();
+ /* Real combat proof, not just the flag being set: a magic action with
+    Piercing must deal MORE damage against a high-RES target than the same
+    action unpierced — if defPierce were being ignored for mag actions (the
+    old bug, re-introduced), this would show no difference at all. */
+ (function(){
+  C.setWave(1);
+  function dmgAgainstHighRes(pierced){
+   C.applyBonuses(pierced?{ember:{piercing:2}}:{});
+   var src=C.makeUnit({id:'s',name:'Src',isParty:true,level:1,slotIndex:0,
+    stats:{atk:15,mag:40,def:15,res:15,spd:100},maxHp:1000,hp:1000,
+    slots:[{cond:'none',action:'ember'}]});
+   var tgt=C.makeUnit({id:'t',name:'Tgt',isParty:false,level:1,slotIndex:10,
+    stats:{atk:10,mag:10,def:10,res:80,spd:90},maxHp:100000,hp:100000,
+    slots:[{cond:'none',action:'strike'}]});
+   var b=C.makeBattle([src,tgt],{rng:C.makeRNG(1),deterministic:true});
+   var e=null,guard=0;
+   while(!e&&guard++<10){var ev=C.step(b);if(ev&&ev.actorId==='s'&&ev.hits&&ev.hits.length)e=ev;}
+   C.applyBonuses({});   /* reset before returning, whichever branch ran */
+   return e?e.hits[0].damage:null;}
+  var dmgUnpierced=dmgAgainstHighRes(false), dmgPierced=dmgAgainstHighRes(true);
+  ok('a magic action with Piercing deals more damage to a high-RES target than the same action unpierced',
+   dmgUnpierced!=null&&dmgPierced!=null&&dmgPierced>dmgUnpierced,
+   'unpierced='+dmgUnpierced+' pierced='+dmgPierced);
+ })();
+})();
+
 /* ------------------------------- report ---------------------------------- */
 console.log('\nFARROAD SMOKE TEST');
 console.log('  passed ' + passed + '   failed ' + failed);

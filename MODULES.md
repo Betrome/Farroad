@@ -3261,3 +3261,52 @@ correct size, no placeholder/DOM/global-leak failures) + `node build.js
 (222/222, unaffected — a build-identity change, not a game-logic one).
 Live browser pass: opened the new file directly, confirmed the header
 reads "FARROAD V2.18" with a fresh build timestamp, no console errors.
+
+## Piercing now works on magic actions (v2.18 -> v2.19)
+
+Ian: "Does piercing affect defense and resistance? If not, it should,
+and should be noted as such." It didn't — `bonusApplies`'s 'piercing'
+case (`farroad-core.js`) required `a.camp==='atk'`, even though the
+mechanic it gates was ALREADY fully camp-agnostic: `applyBonuses`
+just sets `a.defPierce`, and `resolveHit`'s `o.defRaw=isPhys?
+effDef(tgt):effRes(tgt)` was already reading whichever stat the
+action's own camp mitigates against, unconditionally. The `camp===
+'atk'` check was the ONLY thing stopping Piercing from working on a
+magic action — removing it was a one-line fix with a real, previously-
+impossible outcome behind it (a magic action can now genuinely pierce
+RES, not a no-op).
+
+**"noted as such"**: `BONUSES.piercing`'s description (`farroad-core.js`)
+was "+0.15 armour pierce — worth most vs armour" — accurate back when
+the bonus was physical-only, actively misleading once it isn't (RES
+isn't "armour"). Reworded to state both cases plainly: "DEF for a
+physical action, RES for a magic one." Two more UI strings had the same
+physical-flavored "armour" wording baked in regardless of camp —
+`describeAction`'s "ignores X% armour" bit and `bonusTotalSummary`'s
+"armour pierce" Lore-total line (both `farroad-ui.js`) — both now read
+"DEF" or "RES" depending on the action's own `camp`.
+
+**Stale content note fixed**: `mag_lance`'s design note
+(`farroadactions.csv`) explicitly documented the old limitation —
+"camp=mag so the Piercing Lore bonus is dead on it despite the
+built-in def_pierce" — since this action already ships with a baked-in
+`defPierce` (20% RES ignore) that a Lore-bought Piercing stack now
+genuinely stacks with instead of doing nothing.
+
+**Verified**: `node build.js` + `node farroadsmoke.js` — 227/227 (5 new
+checks in a dedicated section): `bonusApplies(piercing)` is true for a
+magic action (Ember) and a physical one (Strike), false for a heal;
+buying 2 Piercing stacks on a magic action sets its `defPierce` to
+exactly 0.30; and — the real proof, not just the flag — a real
+deterministic battle shows a magic action with Piercing dealing MORE
+damage against a high-RES target than the same action unpierced,
+ruling out a "flag set but ignored" false positive. Live browser pass:
+bought Piercing on Ember (a magic starter) in the LORE tab, confirmed
+it now appears in the bonus list at all (previously hidden entirely
+for magic actions) with the reworded description, confirmed the
+post-purchase "Lore total" line reads "+15% RES pierce" (not
+"armour"). No console errors throughout.
+
+`build.js`'s VERSION bumped v2.18 -> v2.19 for this fix, per the
+discipline established immediately above — a real gameplay change
+gets a real version bump, not just doc/build-tooling changes.

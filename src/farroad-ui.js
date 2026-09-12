@@ -495,7 +495,10 @@ function describeAction(id){
  if(a.power)bits.push('power ×'+a.power+(a.hits>1?' × '+a.hits+' hits':''));
  if(a.heal)bits.push('HEALS');
  if(a.applies)bits.push('applies <b>'+a.applies+'</b> for '+(a.turns||3)+' turns');
- if(a.defPierce)bits.push('ignores '+Math.round(a.defPierce*100)+'% armour');
+ /* v2.19: was "ignores X% armour" regardless of camp — inaccurate once
+    Piercing (core.js's BONUSES.piercing) stopped being physical-only;
+    RES isn't "armour". */
+ if(a.defPierce)bits.push('ignores '+Math.round(a.defPierce*100)+'% '+(a.camp==='atk'?'DEF':'RES'));
  if(a.lifesteal)bits.push('heals you '+Math.round(a.lifesteal*100)+'% of damage');
  if(a.revive)bits.push('revives at '+Math.round(a.revive*100)+'% HP');
  return {name:actionGlyph(a)+a.name+rarityTag(a.rarity),
@@ -527,7 +530,9 @@ function bonusTotalSummary(id){
  var bits=[];
  if(a.power&&p.power&&a.power!==p.power)
   bits.push('+'+Math.round((a.power/p.power-1)*100)+'% '+(a.heal?'healing':'damage'));
- if(a.defPierce!==p.defPierce)bits.push('+'+Math.round(((a.defPierce||0)-(p.defPierce||0))*100)+'% armour pierce');
+ /* v2.19: was "armour pierce" regardless of camp — same fix as
+    describeAction above, since Piercing now works on magic actions too. */
+ if(a.defPierce!==p.defPierce)bits.push('+'+Math.round(((a.defPierce||0)-(p.defPierce||0))*100)+'% '+(a.camp==='atk'?'DEF':'RES')+' pierce');
  if(a.critBonus!==p.critBonus)bits.push('+'+Math.round(((a.critBonus||0)-(p.critBonus||0))*100)+'% crit');
  if(a.turns!==p.turns)bits.push('+'+((a.turns||0)-(p.turns||0))+' turn duration');
  if(a.rank!==p.rank)bits.push('×'+Math.round((1/a.rank)/(1/p.rank)*100)+'% initiative');
