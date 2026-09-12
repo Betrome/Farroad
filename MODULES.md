@@ -3185,3 +3185,45 @@ instead, tagged `via: alternate (shared with an earlier-fielded unit)`,
 while her OTHER (non-conflicting) slot fired normally; confirmed
 Strike itself stays fully shared between both units with zero blocking;
 no console errors throughout.
+
+## BUGFIX: the conflict modal was permanently visible ("a static box stuck over the screen")
+
+Ian, immediately after the above shipped: "There's an error where the
+a static box is stuck over the screen." Real regression, live on
+every page load, not edge-case — a CSS specificity mistake in the new
+`#conflictModal` markup (`shell.html`): its `display:flex` was set as
+an INLINE style, and an inline style always beats a class-selector
+rule, so `.hidden{display:none}` could never actually hide it
+regardless of whether the `hidden` class was present. The modal
+rendered as a full-screen dark overlay from the moment the page
+loaded, every time, for every player.
+
+**Why the earlier verification missed it**: every check on the modal
+up to that point only asked `modal.classList.contains('hidden')` —
+true/false on the CLASS being present — never `getComputedStyle
+(modal).display`, the actual rendered outcome. The class was being
+added and removed exactly correctly the whole time; it just stopped
+controlling anything the moment an inline style outranked it.
+
+**Fix**: moved the layout (`position:fixed;inset:0;...;display:flex`)
+out of the inline `style=` attribute into a real `#conflictModal` CSS
+rule in `shell.html`, and added `#conflictModal.hidden{display:none}`
+— an id+class selector, which is MORE specific than the bare
+`#conflictModal` rule (so the hidden state correctly wins when
+present) and also more specific than the generic `.hidden` class rule
+elsewhere (so this survives even if `.hidden`'s own definition ever
+changes). This is the standard fix for "a hidden class stopped
+working after adding an inline style" — never put display in an
+inline `style=` on anything that also gets toggled by a class.
+
+**Verified properly this time**: `node build.js` + `node
+farroadsmoke.js` (222/222, unaffected — this was always a DOM/CSS
+issue, invisible to the headless harness). Live browser pass used
+`getComputedStyle(modal).display`, not `classList`, at every step:
+confirmed `"none"` on the character-creation screen, confirmed
+`"none"` again after starting a run and reaching the main game view (a
+screenshot of the full app also showed no overlay), confirmed
+`"flex"` the moment a real field-conflict popup opened (with the
+correct conflict text inside it), and confirmed `"none"` again after
+dismissing it — the show and hide paths both independently re-verified,
+not just the fix's own target case. No console errors throughout.

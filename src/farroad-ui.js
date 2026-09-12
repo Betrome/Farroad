@@ -863,7 +863,7 @@ function doSave(){
    hooking autoSave() there covers "after each change" without touching every
    call site individually. Throttled to 2s of wall-clock time because renderAll
    also fires on every combat BEAT during active play — unthrottled, that is
-   dozens of localStorage writes per second at 40x speed. idle-income accrual
+   dozens of localStorage writes per second at 10x speed. idle-income accrual
    (tick(), below) bypasses renderAll and gets its own explicit call. */
 var lastAutoSave=0;
 function autoSave(){

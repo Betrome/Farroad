@@ -57,6 +57,16 @@ label{font-size:11px;color:var(--dim);display:block;margin-bottom:2px}
 #tabs{display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap}
 #tabs button{flex:1;font-size:10px;padding:7px 2px;min-height:34px}
 .hidden{display:none}
+/* v2.18 BUGFIX: was `display:flex` inline on the element itself, which — as
+   an inline style — beats ANY class-selector CSS rule including .hidden,
+   so the modal rendered as a full-screen overlay on every page load
+   regardless of the hidden class ("a static box stuck over the screen").
+   #conflictModal.hidden (id+class, more specific than plain #conflictModal)
+   is what actually needs to win when hidden is present — moving the
+   layout here instead of inline is what makes that override possible. */
+#conflictModal{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;
+ display:flex;align-items:center;justify-content:center;padding:12px}
+#conflictModal.hidden{display:none}
 #log{max-height:32vh;overflow-y:auto;font-size:11px}
 .le{border-bottom:1px solid #241f1b;padding:5px 2px}
 .le.p{border-left:2px solid var(--party);padding-left:6px}
@@ -430,7 +440,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
     <div class="row">
       <span class="tiny" style="width:44px">Speed</span>
       <button class="spd on" data-s="1">1×</button><button class="spd" data-s="3">3×</button>
-      <button class="spd" data-s="10">10×</button><button class="spd" data-s="40">40×</button>
+      <button class="spd" data-s="10">10×</button>
       <span style="flex:1"></span><!-- v2.9: ms-per-beat readout removed (instrumentation) -->
     </div>
     <div class="tiny" style="margin-top:6px;color:var(--dimmer)">
@@ -459,7 +469,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
      game can't afford a modal firing every few waves on its own clock. This
      one only ever opens in direct response to a player clicking Field, not
      on any timer, so it doesn't fight that rule. -->
-<div id="conflictModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px">
+<div id="conflictModal" class="hidden">
   <div class="panel" style="max-width:420px;width:100%;max-height:82vh;overflow:auto;margin-bottom:0" id="conflictModalBody"></div>
 </div>
 
