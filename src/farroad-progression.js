@@ -445,6 +445,36 @@ P.directionMul=function(dir){return (P.DIRECTION_CONFIG[dir]&&P.DIRECTION_CONFIG
    with, not derived from anything Ian specified beyond "themed". */
 P.DIRECTION_AFFINITY_BONUS=6;
 
+/* v2.20: Super Boss Quests — "found every 250 waves on the Road... about
+   three times as difficult as the wave they're found at... first time
+   defeated, drop a unique related equipment or action... any time after,
+   aether and marks like normal dungeons" (Ian). A fixed pool of 5,
+   CYCLING after tier 5 (wave 1500 re-encounters bossKey #1, etc) — the
+   Road has no ceiling, so a one-shot batch of unique rewards can't keep
+   pace with it forever; cycling back to an already-cleared identity
+   simply falls into the "any time after" branch with no special case
+   needed. Small hand-authored table, same treatment P.MC_CHARGE_DROP_POOL
+   gets, not CSV-scale content. Each rewardId is an ordinary row already
+   compiled into C.EQUIPMENT/C.ACTIONS (farroadequipment.csv/
+   farroadactions.csv) — uniqueness comes from being excluded from every
+   random pool by id (see the two C.EQUIPMENT pool-construction sites in
+   farroad-ui.js), not from extra stat inflation beyond a normal
+   Legendary. Reward kind alternates equipment/action for variety. */
+P.SUPER_BOSSES=[
+ {key:'emberwarden',      name:'The Ember Warden',      affinity:'fire',  rewardKind:'equipment', rewardId:'emberwardencrown'},
+ {key:'tidalsovereign',   name:'The Tidal Sovereign',   affinity:'water', rewardKind:'equipment', rewardId:'sovereigntideblade'},
+ {key:'stoneheartcolossus',name:'The Stoneheart Colossus',affinity:'earth',rewardKind:'action',   rewardId:'colossusslam'},
+ {key:'galetyrant',       name:'The Gale Tyrant',       affinity:'air',   rewardKind:'equipment', rewardId:'tyrantwindstride'},
+ {key:'voidreaper',       name:'The Void Reaper',       affinity:'dark',  rewardKind:'action',    rewardId:'reapersharvest'}];
+/* "three times as difficult as the wave" read literally in the game's own
+   existing difficulty currency: BOSS_LEN(1.40) is the multiplier a normal
+   every-20 boss already applies over a plain full wave's total HP in
+   buildEnemies' boss branch — SUPERBOSS_LEN plugs into that exact same
+   formula in its place, so "3x" means 3x a normal wave, not 3x a
+   regular boss. */
+P.SUPERBOSS_LEN=3.0;
+P.SUPERBOSS_EVERY=250;
+
 /* ===== DISCOVERABLE CONTENT (bonus fights) =====
  * Rolled once per WON expedition node — same spirit and shape as
  * MC_CHARGE_DROP_CHANCE (a flat per-opportunity roll, checked once, no

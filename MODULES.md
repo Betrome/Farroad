@@ -3310,3 +3310,177 @@ post-purchase "Lore total" line reads "+15% RES pierce" (not
 `build.js`'s VERSION bumped v2.18 -> v2.19 for this fix, per the
 discipline established immediately above — a real gameplay change
 gets a real version bump, not just doc/build-tooling changes.
+
+## Super Boss Quests — a third repeatable side-fight, found every 250 waves on the Road (v2.19 -> v2.20)
+
+Ian: "Let's add new super boss quests that are found every 250 waves
+on [the Road, corrected mid-message from an initial "expeditions"]. I
+want them to be about three times as difficult as the wave they're
+found at. The first time they're defeated, have them drop a unique
+related equipment or action previously unique to them. Any time after
+that they're defeated have them drop aether and marks like normal
+dungeons." A new, THIRD kind of side-fight alongside discoverable
+dungeons and companion quest lines — triggered by Road progress
+instead of expedition depth, frozen at discovery like a dungeon, but
+carrying a one-time unique reward a dungeon never has.
+
+**A cycling pool, not a one-shot batch**: "found every 250 waves" on
+an unbounded Road is an ONGOING mechanic — hand-authoring a unique
+reward for every future milestone forever is impossible. Design is a
+fixed pool of 5 super bosses (`P.SUPER_BOSSES`, `farroad-progression.js`
+— same small-hardcoded-table treatment `P.MC_CHARGE_DROP_POOL` already
+gets), CYCLING after tier 5: wave 1500 (tier 6) re-encounters tier 1's
+identity, `(tier-1)%5` walking the table. This works cleanly because
+Ian's own reward rule already covers a repeat encounter — cycling back
+to an already-cleared identity simply falls into the "any time after"
+Aether/Marks branch, no special case needed. The 5, one per element
+family, reward kind alternating equipment/action:
+
+| Tier | Wave | Boss | Affinity | Reward |
+|---|---|---|---|---|
+| 1 | 250 | The Ember Warden | Fire | Ember Warden's Crown (head) |
+| 2 | 500 | The Tidal Sovereign | Water | Sovereign's Tide-Blade (hand) |
+| 3 | 750 | The Stoneheart Colossus | Earth | Colossus Slam (charge action) |
+| 4 | 1000 | The Gale Tyrant | Air | Tyrant's Windstride Boots (legs) |
+| 5 | 1250 | The Void Reaper | Dark | Reaper's Harvest (charge action) |
+
+**Content, not a new content type**: all 5 rewards are ordinary rows
+in the EXISTING `farroadequipment.csv`/`farroadactions.csv` (full
+build-time validation, full compile pipeline), authored at standard
+Legendary rarity but scaled ~25% past a normal Legendary of their own
+slot's "balanced" archetype (e.g. `emberwardencrown`'s def/res/affinity
+= `crownofthebulwark`'s own Legendary values × 1.25, `sovereigntideblade`
+vs `emberfist`, `tyrantwindstride` vs `skyboundsabatons`) — uniqueness
+comes from being unobtainable any other way, not extra-extreme stats.
+The 2 action rewards (`colossusslam`, `reapersharvest`) are added to
+`CHARGE_ACTIONS` (`farroad-core.js`) for pristine-snapshot/Lore-total
+UI support, but deliberately NEVER to `P.MC_CHARGE_DROP_POOL` or any
+other random-roll list — the exact unreachable-by-`randomDrop()`
+whitelist-exclusion pattern `EQUIPPABLE`/`CHARGE_ACTIONS` already
+enforce for actions. Equipment had no equivalent exclusion mechanism
+before this (every `C.EQUIPMENT` row was always poolable) — new
+`randomEquipmentIds()` (`farroad-ui.js`) filters `P.SUPER_BOSSES`'
+own equipment rewardIds out of `Object.keys(C.EQUIPMENT)`, used at
+both random-equipment-pool call sites (the wave-drop branch and
+`doPull()`'s equip branch) in place of the raw `Object.keys` call.
+
+**Difficulty — "about three times as difficult as the wave", read
+literally**: `P.BOSS_LEN=1.40` is the existing "boss vs a same-depth
+normal wave's total HP" multiplier every ordinary every-20 boss uses
+in `buildEnemies`'s boss-HP formula. New `P.SUPERBOSS_LEN=3.0` plugs
+into that SAME formula in place of `BOSS_LEN` — 3x a normal WAVE, not
+3x a regular boss (3x a boss would read `BOSS_LEN*3≈4.2x` a wave,
+which is not what Ian asked for). `buildEnemies(w,quiet,superBossKey)`
+gained an optional 3rd param: when set, forces the single-enemy boss
+path (`n=1`) even off the normal wave-40 boss-wave schedule, uses
+`SUPERBOSS_LEN` for HP, and reuses every other boss treatment
+unchanged (the `atkMul` boss bump, `P.BOSS_HARD_EXTRA`, `bossSpdMul`,
+`wardensmaul` charge action) — no new ATK/SPD formula invented. The
+enemy's display name is looked up from `P.SUPER_BOSSES` (e.g. "THE
+EMBER WARDEN") instead of the generic "ROADWARDEN" every other boss
+gets. New `applySuperBossAffinity(enemies,bossKey)` is `applyDirectionAffinity`'s
+exact sibling, reading the boss's own theme off `P.SUPER_BOSSES`
+instead of a direction, adding `P.DIRECTION_AFFINITY_BONUS` on top of
+the archetype's own baseline affinity.
+
+**Trigger — mirrors `unlockDirectionDungeon`'s own catch-up pattern
+exactly**: `G.farthest` is already updated by the time `afterWaveCleared()`
+runs for the wave just cleared (set in `startWave`, before combat for
+that wave even happens) — the same signal every other Road-milestone
+check already keys off. New ratchet `G.superBossesUnlocked`, checked
+in `afterWaveCleared()` via the identical "catch up more than one
+threshold in a single pass" while-loop `unlockDirectionDungeon`'s own
+caller already uses (needed for e.g. a save resumed after a long
+simulated-offline jump crossing more than one 250-wave line at once):
+```js
+var targetSuperBossTier=Math.floor(G.farthest/P.SUPERBOSS_EVERY);
+while(targetSuperBossTier>G.superBossesUnlocked){
+ G.superBossesUnlocked++; unlockSuperBoss(G.superBossesUnlocked);}
+```
+`unlockSuperBoss(tier)` builds and bakes ONE frozen fight (`buildEnemies`
++ `applySuperBossAffinity` + `bakeEnemySnapshot`, the same freeze
+technique dungeons use — confirmed to already carry `affinity` through
+the round-trip, a fix from the themed-dungeons work earlier this
+project), pushes it to new `G.superBossQuests`, and fires a "SUPER
+BOSS SIGHTED" `pushDrop`.
+
+**The subtle correctness point — "first clear" is per IDENTITY, not
+per quest-list entry**: because the pool cycles, the SAME `bossKey`
+can appear in more than one `G.superBossQuests` entry over a long run
+(tier 1 and tier 6 are both "emberwarden"). A naive `entry.clears===0`
+check — which correctly signals "first ever clear" for a dungeon,
+where one dungeon id is never reused — would be WRONG here: a
+cycled-back entry's own `clears` starts fresh at 0 even though that
+IDENTITY was already cleared once before, which would incorrectly
+re-grant the unique reward (or worse, try to grant a duplicate charge
+action) on every cycle. New `G.superBossesCleared={bossKey:true}` is
+the actual gate, keyed by identity, checked BEFORE the entry's own
+`clears++` in `finishSideBattle`'s new `kind==='superboss'` branch.
+Verified live: manually fast-forwarding to wave 1500 produced a tier-6
+entry with `bossKey:'emberwarden', clears:0` sitting alongside the
+already-cleared tier-1 entry; clearing the tier-6 entry granted
+Aether/Marks, not a second Crown.
+
+**Reward granting** (`finishSideBattle`'s new `kind==='superboss'`
+branch, mirroring the existing `kind==='quest'`/dungeon branches):
+first-ever clear of an identity grants the unique reward — equipment
+increments `G.equipInv[rewardId]`; a charge action pushes into
+`G.mc.acquiredCharges` (charge actions have nowhere else to go for a
+companion — only the customizable MC has a swappable charge pool) —
+then sets `G.superBossesCleared[bossKey]=true`. **Edge case**: `G.mc`
+can legitimately be `null` (companion-only/legacy save state, an
+existing documented possibility). An action-type reward with no MC to
+receive it converts to a flat Aether grant (`P.killReward(wave,1).aether*3`)
+instead of being silently lost — verified live by nulling `G.mc` and
+confirming Reaper's Harvest converted to "+74 Aether" with a clear
+explanatory drop, while still correctly marking the identity cleared
+so it never re-offers the (now-unreachable) action reward again. Every
+subsequent clear (of any entry sharing that identity) grants
+`P.killReward(entry.wave,1)`-scaled Aether/Marks — no direction
+multiplier applies here (this isn't direction-based content), so
+simpler than the dungeon version, not more complex.
+
+**UI**: new "SUPER BOSSES" section in the QUESTS tab (`renderQuests()`),
+listed ABOVE dungeons (more exciting content first), each entry
+showing its reward's name and claimed/"first clear only!" status plus
+a clear counter, wired to new `enterSuperBoss(id)` (mirrors `enterDungeon`
+almost verbatim — a super boss quest is a single frozen fight, so
+there's no multi-wave `waveIndex`/`totalWaves` bookkeeping to carry).
+
+**Save**: `G.superBossQuests`/`G.superBossesUnlocked`/`G.superBossesCleared`
+added to `farroad-save.js`'s `FIELDS` + `newGame()`/`deserialize()`
+defaults — brand-new fields, plain default-fill, no legacy shape, the
+exact `dungeons`/`directions` precedent.
+
+**Verified**: `node build.js` + `node farroadsmoke.js` — 236/236 (9
+new checks — 8 in a dedicated section plus 1 alongside the existing
+equipment tests, everything headlessly reachable —
+`P.SUPER_BOSSES` table sanity, every rewardId resolving to real
+Legendary content of the matching kind, the 2 action rewards present
+in `CHARGE_ACTIONS` but absent from `P.MC_CHARGE_DROP_POOL`, the 5
+bossKeys unique, the `(tier-1)%5` cycling sequence for tier 1-10, the
+`SUPERBOSS_LEN` HP formula reconstructed from headless-reachable
+primitives proving exactly 3x a same-depth normal wave — not 3x a
+regular boss — plus the 3 equipment rewards' own "1.25x their slot's
+balanced-archetype Legendary" scaling, and updated the pre-existing
+36-item/4-3-2-per-slot equipment tests for the 3 new items).
+`buildEnemies`/`unlockSuperBoss`/`enterSuperBoss`/`applySuperBossAffinity`/
+`finishSideBattle`'s superboss branch all live in `farroad-ui.js` and
+are UI-only-reachable (this suite loads no DOM/UI layer — see its own
+file header) — verified instead via a temporary `window.__debug` hook
+(added and fully removed before shipping, same technique used
+throughout this project): fast-forwarded `G.farthest` to 250, confirmed
+"SUPER BOSSES (1)" appeared correctly in the QUESTS tab with the right
+reward name and "first clear only!"; drove `finishSideBattle('party')`
+directly (bypassing an actual fight — a level-1 debug character has no
+realistic chance against a wave-750+ boss) to prove: first clear grants
+the unique reward exactly once, a repeat clear of the SAME entry
+grants currency, a REAL fight loss correctly logs "SUPER BOSS FAILED"
+with no state change (`clears` stays 0, `superBossesCleared` stays
+empty), the cycled-back tier-6 entry (same identity as tier 1) grants
+currency rather than re-granting the Crown, both action-reward paths
+(with and without a live `G.mc`) work as designed, and the "claimed"/
+"first clear only!" status line updates correctly after each clear. No
+console errors throughout.
+
+`build.js`'s VERSION bumped v2.19 -> v2.20 for this feature.

@@ -1397,8 +1397,15 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  * archetype's pre-rarity numbers rather than assuming one baseline per
  * slot. */
 (function(){
- ok('C.EQUIPMENT compiled with all 36 authored items', Object.keys(C.EQUIPMENT).length===36,
+ ok('C.EQUIPMENT compiled with all 39 authored items (36 + 3 v2.20 super boss rewards)',
+  Object.keys(C.EQUIPMENT).length===39,
   Object.keys(C.EQUIPMENT).join(','));
+ /* v2.20: the 3 super-boss unique rewards sit OUTSIDE the normal 4/3/2
+    per-slot distribution below and outside the normal RARITY_POWER_MUL
+    reconstruction (they're deliberately scaled ~25% past a normal
+    Legendary, not drawn from the same archetype pool) — excluded from
+    both, verified by their own dedicated test further down. */
+ var SUPERBOSS_EQUIP_IDS=['emberwardencrown','sovereigntideblade','tyrantwindstride'];
  ok('C.EQUIPMENT_SLOTS has the 5 wearable positions, not the 4 CSV slot kinds',
   C.EQUIPMENT_SLOTS.length===5 &&
   C.EQUIPMENT_SLOTS.indexOf('hand1')>=0 && C.EQUIPMENT_SLOTS.indexOf('hand2')>=0);
@@ -1411,10 +1418,11 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    .every(function(id){var e=C.EQUIPMENT[id];
     var axesSet=Object.keys(e.affinity).filter(function(ax){return e.affinity[ax];}).length;
     return e.atk && e.mag && axesSet===1;}));
- ok('each slot has exactly 4 Common / 3 Rare / 2 Legendary items',
+ ok('each slot has exactly 4 Common / 3 Rare / 2 Legendary items (excluding the 3 super boss rewards)',
   (function(){
    var counts={};
-   Object.keys(C.EQUIPMENT).forEach(function(id){var e=C.EQUIPMENT[id];
+   Object.keys(C.EQUIPMENT).filter(function(id){return SUPERBOSS_EQUIP_IDS.indexOf(id)<0;})
+    .forEach(function(id){var e=C.EQUIPMENT[id];
     var k=e.slot+'/'+e.rarity;counts[k]=(counts[k]||0)+1;});
    var want={common:4,rare:3,legendary:2};
    return ['head','body','legs','hand'].every(function(slot){
@@ -1445,7 +1453,8 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    zephyrgrips:{atk:6,mag:4,ax:3}
   };
   var bad=[];
-  Object.keys(C.EQUIPMENT).forEach(function(id){
+  Object.keys(C.EQUIPMENT).filter(function(id){return SUPERBOSS_EQUIP_IDS.indexOf(id)<0;})
+   .forEach(function(id){
    var e=C.EQUIPMENT[id],mul=C.RARITY_POWER_MUL[e.rarity],b=archetypeOf[id];
    if(!b){bad.push(id+': no archetype entry in this test');return;}
    if(e.slot==='legs'){
@@ -1461,6 +1470,21 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   ok('every item\'s stat/affinity values equal its own archetype\'s baseline x its own RARITY_POWER_MUL',
    bad.length===0, bad.join('; '));
  })();
+ /* v2.20: the 3 super boss equipment rewards are each "~25% past a normal
+    Legendary" of their slot's own balanced archetype (crownofthebulwark/
+    emberfist/skyboundsabatons — the same balanced-archetype legendary
+    already in archetypeOf above), not an independent number. */
+ ok('the 3 super boss equipment rewards are each ~1.25x their slot\'s own balanced-archetype Legendary',
+  (function(){
+   var bumpMul=1.25;
+   var head=C.EQUIPMENT.crownofthebulwark, ember=C.EQUIPMENT.emberwardencrown;
+   var hand=C.EQUIPMENT.emberfist, tide=C.EQUIPMENT.sovereigntideblade;
+   var legs=C.EQUIPMENT.skyboundsabatons, wind=C.EQUIPMENT.tyrantwindstride;
+   return ember.def===Math.round(head.def*bumpMul) && ember.res===Math.round(head.res*bumpMul) &&
+    tide.atk===Math.round(hand.atk*bumpMul) && tide.mag===Math.round(hand.mag*bumpMul) &&
+    wind.spd===Math.round(legs.spd*bumpMul) &&
+    Math.abs(wind.evade-Math.round(legs.evade*bumpMul*1000)/1000)<1e-9;
+  })());
  ok('P.EQUIP_DROP_CHANCE matches the "about as rare as units" 0.10 figure reused elsewhere',
   P.EQUIP_DROP_CHANCE===0.10);
  ok('P.weightedEquipmentPick sampled over a mixed pool lands within 5% of the closed-form common share',
@@ -1579,6 +1603,68 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    dmgUnpierced!=null&&dmgPierced!=null&&dmgPierced>dmgUnpierced,
    'unpierced='+dmgUnpierced+' pierced='+dmgPierced);
  })();
+})();
+
+/* =================== 25. SUPER BOSS QUESTS (v2.20) ==========================
+ * "found every 250 waves on the Road... about three times as difficult as
+ * the wave they're found at... first time defeated, drop a unique related
+ * equipment or action... any time after, aether and marks like normal
+ * dungeons" (Ian). Most of this feature lives in farroad-ui.js (buildEnemies'
+ * superBossKey branch, unlockSuperBoss, enterSuperBoss, finishSideBattle's
+ * superboss case) which this suite cannot reach (see the file header — no
+ * DOM/UI layer loaded headlessly), so those are verified live in-browser
+ * instead (see MODULES.md). What IS headlessly reachable: the P.SUPER_BOSSES
+ * data table and P.SUPERBOSS_LEN/P.SUPERBOSS_EVERY constants (progression.js),
+ * CHARGE_ACTIONS membership (core.js), and the difficulty formula's own
+ * math (every primitive it uses — C.ARCH, C.waveScale, C.dmgTakenMul,
+ * P.enemyCount — is core/progression, even though buildEnemies itself isn't). */
+(function(){
+ ok('P.SUPER_BOSSES has exactly 5 entries, each with a valid affinity axis and rewardKind',
+  (function(){
+   var axes=Object.keys(C.defaultAffinity());   /* the 8-axis vocabulary, not exported as its own list */
+   return P.SUPER_BOSSES.length===5 &&
+    P.SUPER_BOSSES.every(function(sb){
+     return axes.indexOf(sb.affinity)>=0 &&
+      (sb.rewardKind==='equipment'||sb.rewardKind==='action');});
+  })(),
+  JSON.stringify(P.SUPER_BOSSES));
+ ok('every P.SUPER_BOSSES rewardId resolves to real, Legendary-rarity content of the matching kind',
+  P.SUPER_BOSSES.every(function(sb){
+   var item=sb.rewardKind==='equipment'?C.EQUIPMENT[sb.rewardId]:C.ACTIONS[sb.rewardId];
+   return item&&item.rarity==='legendary';}),
+  P.SUPER_BOSSES.map(function(sb){return sb.rewardId+': '+
+   JSON.stringify(sb.rewardKind==='equipment'?C.EQUIPMENT[sb.rewardId]:C.ACTIONS[sb.rewardId]);}).join('; '));
+ ok('every P.SUPER_BOSSES action-kind reward is in CHARGE_ACTIONS (pristine-snapshot support) but NOT in P.MC_CHARGE_DROP_POOL (never randomly rollable)',
+  P.SUPER_BOSSES.filter(function(sb){return sb.rewardKind==='action';}).every(function(sb){
+   return C.CHARGE_ACTIONS.indexOf(sb.rewardId)>=0 && P.MC_CHARGE_DROP_POOL.indexOf(sb.rewardId)<0;}));
+ ok('the 5 bossKeys are unique (cycling must never alias two different rewards to one identity)',
+  (function(){var keys=P.SUPER_BOSSES.map(function(sb){return sb.key;});
+   return keys.length===Object.keys(keys.reduce(function(m,k){m[k]=1;return m;},{})).length;})());
+ ok('the cycling formula (tier-1)%5 walks the 5 bossKeys in order and wraps at tier 6',
+  (function(){
+   var seq=[];for(var tier=1;tier<=10;tier++)seq.push(P.SUPER_BOSSES[(tier-1)%P.SUPER_BOSSES.length].key);
+   var want=P.SUPER_BOSSES.map(function(sb){return sb.key;});
+   return JSON.stringify(seq)===JSON.stringify(want.concat(want));
+  })());
+ ok('P.SUPERBOSS_LEN is 3.0 — "three times as difficult as the wave", read literally', P.SUPERBOSS_LEN===3.0);
+ /* Reconstructs buildEnemies' own boss-HP formula (farroad-ui.js) from
+    headless-reachable primitives only, without calling buildEnemies itself —
+    same technique the file header describes for every other UI-only-reached
+    formula this suite still manages to prove. hpBase's own comment there
+    is explicit: it sizes a boss against "a NORMAL WAVE at this depth, not
+    against one body" — i.e. ref.hpMul*S*enemyCount(w) (no *_LEN factor) IS
+    that normal wave's own total HP baseline, so a super boss's ratio
+    against it must equal SUPERBOSS_LEN exactly, not BOSS_LEN's 1.40 (that
+    would be "3x a regular BOSS", which Ian's "three times as difficult as
+    the wave" explicitly is not). */
+ ok('a super boss\'s HP is exactly SUPERBOSS_LEN(3.0)x a same-depth NORMAL WAVE\'s total HP, not 3x a regular boss',
+  (function(){
+   var w=750,ref=C.ARCH.wolf,S=C.waveScale(w);
+   var normalWaveHp=200*ref.hpMul*C.dmgTakenMul(ref)*S*Math.max(1,P.enemyCount(w));
+   var superHp=normalWaveHp*P.SUPERBOSS_LEN;
+   return Math.abs(superHp/normalWaveHp-3.0)<1e-9 && Math.abs(superHp/(normalWaveHp*P.BOSS_LEN)-3.0/P.BOSS_LEN)<1e-9;
+  })());
+ ok('P.SUPERBOSS_EVERY matches "every 250 waves"', P.SUPERBOSS_EVERY===250);
 })();
 
 /* ------------------------------- report ---------------------------------- */

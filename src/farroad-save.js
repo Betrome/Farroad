@@ -85,7 +85,21 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     buildParty/buildExpeditionParty/refreshLiveStats — see
     applyEquipmentStats/equipmentAffinity). Both brand-new fields, plain
     default-fill below, no legacy shape. */
- 'equipInv', 'equipped'];
+ 'equipInv', 'equipped',
+ /* v2.20: Super Boss Quests. 'superBossQuests' is [] of fully-baked, frozen-
+    difficulty repeatable fights the Road has surfaced (same shape as
+    'dungeons' above, plus a bossKey identifying WHICH of the fixed
+    P.SUPER_BOSSES identities this entry is — needed because the pool
+    cycles past tier 5, so the same bossKey can appear in more than one
+    entry over a long run). 'superBossesUnlocked' is the ratchet tier
+    counter (unlockSuperBoss(), farroad-ui.js) driving that cycle.
+    'superBossesCleared' is {bossKey:true} — which IDENTITIES have EVER
+    been cleared at least once, the actual "grant the unique reward"
+    gate, deliberately independent of any single entry's own clears count
+    (see finishSideBattle()'s superboss branch). All three brand-new
+    fields, plain default-fill below, no legacy shape — same precedent as
+    'dungeons'/'directions'. */
+ 'superBossQuests', 'superBossesUnlocked', 'superBossesCleared'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -175,6 +189,9 @@ S.deserialize=function(snap,C){
   }else{
    G.expeditions=[];}}
  if(!G.dungeons)G.dungeons=[];
+ if(!G.superBossQuests)G.superBossQuests=[];
+ if(!G.superBossesUnlocked)G.superBossesUnlocked=0;
+ if(!G.superBossesCleared)G.superBossesCleared={};
  if(!G.quests)G.quests={};
  if(!G.quests.kesh)G.quests.kesh={stage:0,frozen:[]};   /* kesh is owned from newGame(), never through joinCompanion() */
  /* v2.9: directional expeditions. A save from before this existed has

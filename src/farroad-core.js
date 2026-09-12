@@ -311,7 +311,8 @@ var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
  'heavystrike','wildfire','greatheal',
  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll',
  'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
- 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet'];
+ 'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet',
+ 'colossusslam','reapersharvest'];
 /* 21 of a target 25 authored (13 + the 3 MC generic starters + the 5 roster-
    expansion companions above). The remaining 4 are content, not design — the
    five axes above define where they sit; see VERIFICATION for the coverage

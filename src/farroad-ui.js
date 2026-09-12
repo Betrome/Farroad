@@ -72,6 +72,12 @@ function newGame(seed,mc){
      attempt (win or lose) so a stage's difficulty is pinned to whenever
      the player actually first tries it, not re-derived on every retry. */
   dungeons:[], quests:{kesh:{stage:0,frozen:[]}},
+  /* v2.20: Super Boss Quests — see unlockSuperBoss()/finishSideBattle()'s
+     superboss branch. superBossQuests: [] of fully-baked frozen fights the
+     Road has surfaced so far. superBossesUnlocked: the ratchet tier
+     counter driving the every-P.SUPERBOSS_EVERY-waves cycle. Empty
+     objects/array — the pool has produced nothing yet on a fresh run. */
+  superBossQuests:[], superBossesUnlocked:0, superBossesCleared:{},
   /* Per-direction persistent exploration progress — see MODULES.md.
      maxDepth is the DEEPEST exp.ew any expedition has ever reached in
      this direction, cumulative across every trip ever sent there (never
@@ -284,6 +290,16 @@ function equipInUseCount(id){
   C.EQUIPMENT_SLOTS.forEach(function(slot){if(G.equipped[uid][slot]===id)n++;});});
  return n;}
 function equipAvailableCount(id){return equipOwnedCount(id)-equipInUseCount(id);}
+/* v2.20: super boss unique rewards are ordinary C.EQUIPMENT rows (full
+   validation/compile pipeline) but must never surface from a random roll —
+   mirrors the exact whitelist-exclusion EQUIPPABLE/CHARGE_ACTIONS already
+   use for actions (farroad-core.js); equipment had no such list before this,
+   so this filters the offending ids out at the two pool-construction call
+   sites instead of adding a parallel whitelist for everything else. */
+function randomEquipmentIds(){
+ var excluded=P.SUPER_BOSSES.filter(function(sb){return sb.rewardKind==='equipment';})
+  .map(function(sb){return sb.rewardId;});
+ return Object.keys(C.EQUIPMENT).filter(function(id){return excluded.indexOf(id)<0;});}
 /* A hand item fits either hand1 or hand2; every other slot only fits its
    own exact name — EQUIPMENT_SLOTS' 5 positions collapse to the CSV's 4
    item kinds via this one substring rule (hand1/hand2 -> 'hand'). */
@@ -348,8 +364,8 @@ function buildParty(){
 /* @param quiet skips the variety-roll sysLog line — used by expedition
    resolution (resolveExpedition() below), which builds enemies against its
    own synthetic wave counter and must not spam the ROAD log with them. */
-function buildEnemies(w,quiet){
- var boss=P.isBossWave(w);
+function buildEnemies(w,quiet,superBossKey){
+ var boss=P.isBossWave(w)||!!superBossKey;
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
  var n=boss?1:(variety?P.rollCount(G.rng,w):P.enemyCount(w));
@@ -367,7 +383,7 @@ function buildEnemies(w,quiet){
       The first attempt multiplied the Stone Ox's own 1.60 hpMul by 2.66 and
       produced 116-740 beat fights - 4x to 35x a normal fight, not 1.3-1.5x. */
    var ref=C.ARCH.wolf;
-   hpBase=200*ref.hpMul*C.dmgTakenMul(ref)*S*Math.max(1,P.enemyCount(w))*P.BOSS_LEN;
+   hpBase=200*ref.hpMul*C.dmgTakenMul(ref)*S*Math.max(1,P.enemyCount(w))*(superBossKey?P.SUPERBOSS_LEN:P.BOSS_LEN);
   } else hpBase=200*a.hpMul*C.dmgTakenMul(a)*S;
   /* DIFFICULTY scales HP *and* damage. Scaling HP alone measured as almost inert:
      runs still ended at the same waves, because what kills a solo character is
@@ -386,7 +402,8 @@ function buildEnemies(w,quiet){
      while a solo character grows 2.05x, so enemies outpaced the player by ~50%
      and the game was only survivable behind the 65% crutch. At 0.80 they track. */
   var ATK_EXP=0.80;
-  out.push(C.makeUnit({id:'e'+j,name:(boss?'ROADWARDEN':a.name)+(n>1?' '+(j+1):''),
+  var superBossDef=superBossKey&&P.SUPER_BOSSES.filter(function(sb){return sb.key===superBossKey;})[0];
+ out.push(C.makeUnit({id:'e'+j,name:(superBossDef?superBossDef.name.toUpperCase():(boss?'ROADWARDEN':a.name))+(n>1?' '+(j+1):''),
    isParty:false,level:1,slotIndex:10+j,arch:key,thorns:a.thorns||0,isBoss:boss,
    /* v2.9: enemies now carry a row too (first 5 slots front, next 5 back —
       see P.ENEMY_CAP). Only rowSpdMul reads it for enemies (front acts more
@@ -719,7 +736,7 @@ function randomDrop(w){
     companion-only included, same as the ordinary action/condition drop it
     replaces when it fires (see P.EQUIP_DROP_CHANCE's own comment). */
  if(G.rng.next()<P.EQUIP_DROP_CHANCE){
-  var equipIds=Object.keys(C.EQUIPMENT);
+  var equipIds=randomEquipmentIds();
   return [{kind:'equip',id:P.weightedEquipmentPick(G.rng,equipIds),why:'equipment drop'}];}
  var out=[];
  if(w%2===0){var pool=C.EQUIPPABLE;
@@ -844,7 +861,16 @@ function afterWaveCleared(){
     why:(bossFielded?'Fielded immediately.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});
    sysLog('<span class="bosstag">BOSS DOWN</span> <b>'+bossPick.name+' joins you</b> at LV 1 '+
-    '<span class="tiny">(10% boss companion roll)</span>.');}}}
+    '<span class="tiny">(10% boss companion roll)</span>.');}}
+ /* v2.20: same catch-up while-loop shape unlockDirectionDungeon's own
+    caller uses (more than one threshold can be crossed in a single pass —
+    e.g. resuming a save after a long simulated-offline jump) — see
+    unlockSuperBoss's own comment for why G.farthest, not G.wave, is the
+    right, and already-updated-by-now, signal to key off. */
+ var targetSuperBossTier=Math.floor(G.farthest/P.SUPERBOSS_EVERY);
+ while(targetSuperBossTier>G.superBossesUnlocked){
+  G.superBossesUnlocked++;
+  unlockSuperBoss(G.superBossesUnlocked);}}
 
 function onWipe(){
  G.wipes++;
@@ -1078,6 +1104,15 @@ function applyDirectionAffinity(enemies,dir){
  if(!ax)return enemies;
  enemies.forEach(function(u){u.affinity[ax]=(u.affinity[ax]||0)+P.DIRECTION_AFFINITY_BONUS;});
  return enemies;}
+/* v2.20: same shape as applyDirectionAffinity just above, but the theme
+   comes from a super boss's own entry in P.SUPER_BOSSES instead of a
+   direction — Road-triggered content has no direction of its own. */
+function applySuperBossAffinity(enemies,bossKey){
+ var sb=P.SUPER_BOSSES.filter(function(s){return s.key===bossKey;})[0];
+ var ax=sb&&sb.affinity;
+ if(!ax)return enemies;
+ enemies.forEach(function(u){u.affinity[ax]=(u.affinity[ax]||0)+P.DIRECTION_AFFINITY_BONUS;});
+ return enemies;}
 /* The FIRST time an expedition is observed past its homeAt, mark arrival
    and notify — does NOT grant exp.bank into the real economy or remove
    the expedition (see collectExpedition below). Replaces the old
@@ -1246,6 +1281,29 @@ function unlockDirectionDungeon(dir,tier){
   body:'A new dungeon has opened up to the '+label+' — '+baseWave+' depth reached.',
   why:'Repeatable any time from the QUESTS tab — '+(cfg.waveCount-1)+
    ' wave'+(cfg.waveCount-1===1?'':'s')+' then a boss.'});}
+/* v2.20: "found every 250 waves on the Road" — modeled directly on
+   unlockDirectionDungeon just above, but keyed off G.farthest/SUPERBOSS_EVERY
+   (a Road milestone) instead of a direction's own expedition depth, and a
+   single frozen fight (SUPERBOSS_LEN-scaled boss) rather than a multi-wave
+   run. tier cycles through the fixed P.SUPER_BOSSES pool — tier 6 reuses
+   bossKey #1's identity, etc — so the SAME identity can appear in more than
+   one G.superBossQuests entry over a long run; G.superBossesCleared tracks
+   "ever cleared" per IDENTITY, independent of any one entry's own clears. */
+function unlockSuperBoss(tier){
+ var sb=P.SUPER_BOSSES[(tier-1)%P.SUPER_BOSSES.length];
+ var wave=tier*P.SUPERBOSS_EVERY;
+ var enemies=applySuperBossAffinity(buildEnemies(wave,true,sb.key),sb.key);
+ var quest={id:'sbq'+Date.now()+'_'+Math.floor(Math.random()*1e6),
+  bossKey:sb.key,name:sb.name,tier:tier,wave:wave,
+  enemies:enemies.map(bakeEnemySnapshot),clears:0};
+ G.superBossQuests.push(quest);
+ sysLog('<b>A Super Boss has appeared on the Road: '+sb.name+'.</b> '+
+  '<span class="tiny">'+wave+' depth reached.</span>');
+ pushDrop({name:sb.name,kind:'SUPER BOSS SIGHTED',
+  body:'A super boss has appeared at '+wave+' depth on the Road.',
+  why:'Repeatable any time from the QUESTS tab — '+
+   (G.superBossesCleared[sb.key]?'this identity has already been defeated once, so clears grant Aether and Marks.':
+    'the first clear grants a unique reward found nowhere else.')});}
 /* Resolves every active expedition in one pass — slice() first so
    settling one mid-loop (settleExpedition reassigns G.expeditions via
    filter) can't skip its neighbor. */
@@ -1429,6 +1487,64 @@ function finishSideBattle(result,gaveUp){
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST FAILED',
     body:'The party was defeated.',why:'No penalty — try again any time.'});
    sysLog('<b>Quest attempt failed.</b> <span class="tiny">'+meta.name+
+    ' — the party was defeated. No penalty, try again any time.</span>');}
+ }else if(meta.kind==='superboss'){
+  var sbq=null;G.superBossQuests.forEach(function(s){if(s.id===meta.questId)sbq=s;});
+  var sb=P.SUPER_BOSSES.filter(function(s){return s.key===meta.bossKey;})[0];
+  if(result==='party'&&sbq){
+   sbq.clears++;
+   if(!G.superBossesCleared[meta.bossKey]){
+    /* First-ever clear of this IDENTITY — deliberately keyed off
+       G.superBossesCleared, NOT sbq.clears===0: a cycled-back entry (tier
+       6+ reusing tier 1's bossKey) starts its OWN clears fresh at 0 even
+       though the identity was already cleared once before. */
+    G.superBossesCleared[meta.bossKey]=true;
+    if(sb.rewardKind==='equipment'){
+     G.equipInv=G.equipInv||{};
+     G.equipInv[sb.rewardId]=(G.equipInv[sb.rewardId]||0)+1;
+     var rewardName=(C.EQUIPMENT[sb.rewardId]&&C.EQUIPMENT[sb.rewardId].name)||sb.rewardId;
+     pushDrop({name:sb.name,kind:'SUPER BOSS DEFEATED',
+      body:'First clear! Earned unique equipment: '+rewardName+'.',
+      why:'One-time only — every clear after this grants Aether and Marks instead.'});
+     sysLog('<b>Super boss defeated.</b> <span class="tiny">'+sb.name+
+      ' — earned unique equipment: '+rewardName+'.</span>');
+    }else{
+     var actionName=(C.ACTIONS[sb.rewardId]&&C.ACTIONS[sb.rewardId].name)||sb.rewardId;
+     /* charge actions have nowhere to go for a companion (fixed, non-
+        swappable loadouts) — only the customizable MC has a swappable
+        charge pool. G.mc can legitimately be null (companion-only/legacy
+        save state) — fall back to a flat Aether grant so the reward is
+        never simply lost. */
+     if(G.mc){
+      G.mc.acquiredCharges=G.mc.acquiredCharges||[];
+      if(G.mc.acquiredCharges.indexOf(sb.rewardId)<0)G.mc.acquiredCharges.push(sb.rewardId);
+      pushDrop({name:sb.name,kind:'SUPER BOSS DEFEATED',
+       body:'First clear! Earned unique action: '+actionName+'.',
+       why:'Added to your Main Character\'s charge action pool — one-time only, every clear after this grants Aether and Marks instead.'});
+      sysLog('<b>Super boss defeated.</b> <span class="tiny">'+sb.name+
+       ' — earned unique action: '+actionName+'.</span>');
+     }else{
+      var fallback=P.killReward(sbq.wave,1);
+      G.aether+=fallback.aether*3;
+      pushDrop({name:sb.name,kind:'SUPER BOSS DEFEATED',
+       body:'First clear! '+actionName+' is a charge action with no Main Character to hold it — '+
+        'converted to +'+Math.round(fallback.aether*3)+' Aether instead.',
+       why:'One-time only — every clear after this grants Aether and Marks.'});
+      sysLog('<b>Super boss defeated.</b> <span class="tiny">'+sb.name+
+       ' — no Main Character to receive '+actionName+'; converted to Aether instead.</span>');}}
+   }else{
+    var r=P.killReward(sbq.wave,1),sbAether=r.aether,sbMarks=r.marks*P.marksMul(G);
+    G.aether+=sbAether;G.marks+=sbMarks;
+    pushDrop({name:sb.name,kind:'SUPER BOSS CLEARED',
+     body:'Earned +'+Math.round(sbAether)+' Aether and +'+Math.floor(sbMarks)+' Marks.',
+     why:'This identity\'s unique reward was already claimed on an earlier clear.'});
+    sysLog('<b>Super boss cleared.</b> <span class="tiny">'+sb.name+' — earned '+
+     '<b style="color:var(--aether)">+'+Math.round(sbAether)+' Aether</b> and '+
+     '<b style="color:var(--marks)">+'+Math.floor(sbMarks)+' Marks</b>.</span>');}
+  }else{
+   pushDrop({name:sbq?sbq.name:'Super Boss',kind:'SUPER BOSS FAILED',
+    body:'The party was defeated.',why:'No penalty — try again any time.'});
+   sysLog('<b>Super boss attempt failed.</b> <span class="tiny">'+(sbq?sbq.name:'')+
     ' — the party was defeated. No penalty, try again any time.</span>');}
  }else{
   var dungeon=null;G.dungeons.forEach(function(d){if(d.id===meta.dungeonId)dungeon=d;});
@@ -2184,7 +2300,7 @@ function doPull(){
   /* Same rule as the wave-drop branch in grantDrops: an equipment dupe is
      never converted to Lore, since owning more copies is genuinely useful
      (dual-wielding a hand item, the same armor on two units). */
-  var equipIds=Object.keys(C.EQUIPMENT);
+  var equipIds=randomEquipmentIds();
   var eid=P.weightedEquipmentPick(G.rng,equipIds);
   G.equipInv=G.equipInv||{};
   G.equipInv[eid]=(G.equipInv[eid]||0)+1;
@@ -2372,6 +2488,15 @@ function enterDungeon(id){
  startSideBattle(unitsFromSnapshots(wave0.enemies),wave0.wave,
   {kind:'dungeon',dungeonId:id,name:dungeon.name,direction:dungeon.direction,tier:dungeon.tier,
    waveIndex:0,totalWaves:dungeon.waves.length});}
+/* v2.20: mirrors enterDungeon almost verbatim — a super boss quest is
+   already a single frozen fight (no multi-wave list), so there's no
+   waveIndex/totalWaves bookkeeping to carry. */
+function enterSuperBoss(id){
+ if(G.sideBattle)return;
+ var q=null;G.superBossQuests.forEach(function(s){if(s.id===id)q=s;});
+ if(!q)return;
+ startSideBattle(unitsFromSnapshots(q.enemies),q.wave,
+  {kind:'superboss',questId:id,bossKey:q.bossKey,name:q.name});}
 /* Resolves one companion's next quest stage headlessly against the
    current main party at full HP — that companion must already be
    fielded (validated again here, not just via the disabled button, in
@@ -2423,7 +2548,23 @@ function giveUpQuest(){
 function renderQuests(){
  var host=$('#questsView');if(!host)return;
  var busy=!!G.sideBattle;   /* a live side battle is already running — see startSideBattle() */
- var h='<div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>DUNGEONS</b> ('+
+ var h='<div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>SUPER BOSSES</b> ('+
+  G.superBossQuests.length+')</div>';
+ if(!G.superBossQuests.length){
+  h+='<div class="tiny">None yet — one appears on the Road every '+P.SUPERBOSS_EVERY+' waves reached.</div>';
+ }else{
+  G.superBossQuests.forEach(function(q){
+   var sb=P.SUPER_BOSSES.filter(function(s){return s.key===q.bossKey;})[0];
+   var claimed=G.superBossesCleared[q.bossKey];
+   var rewardName=sb&&(sb.rewardKind==='equipment'?
+     (C.EQUIPMENT[sb.rewardId]&&C.EQUIPMENT[sb.rewardId].name):
+     (C.ACTIONS[sb.rewardId]&&C.ACTIONS[sb.rewardId].name))||(sb&&sb.rewardId);
+   h+='<div class="slot" style="margin-bottom:6px"><div class="uname">'+q.name+' <span class="tiny mono">(depth '+q.wave+')</span></div>'+
+    '<div class="tiny mono" style="margin-top:2px">Reward: '+rewardName+
+     (claimed?' — claimed':' — first clear only!')+' · cleared '+q.clears+' time'+(q.clears===1?'':'s')+'</div>'+
+    '<button class="mini superBossEnter" data-id="'+q.id+'" style="margin-top:6px"'+
+     (busy?' disabled title="A battle is already in progress"':'')+'>Enter</button></div>';});}
+ h+='<hr><div class="tiny" style="margin-bottom:4px;color:var(--dimmer)"><b>DUNGEONS</b> ('+
   G.dungeons.length+')</div>';
  if(!G.dungeons.length){
   h+='<div class="tiny">None yet — each direction unlocks its own dungeons as '+
@@ -2455,6 +2596,8 @@ function renderQuests(){
     '<div class="tiny mono" style="margin-top:2px">Stage '+(stage+1)+' of 5 · +'+
     P.questStageAether(stage)+' Aether on clear</div>'+btn+'</div>';});}
  host.innerHTML=h;
+ Array.prototype.forEach.call(host.querySelectorAll('.superBossEnter'),function(el){
+  el.onclick=function(){enterSuperBoss(el.dataset.id);renderAll();};});
  Array.prototype.forEach.call(host.querySelectorAll('.questEnter'),function(el){
   el.onclick=function(){enterDungeon(el.dataset.id);renderAll();};});
  Array.prototype.forEach.call(host.querySelectorAll('.questAttempt'),function(el){
