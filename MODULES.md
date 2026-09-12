@@ -2733,3 +2733,165 @@ path itself (`describeAction`/`actionGlyph`/`rarityTag`) is unchanged,
 pre-existing code already verified live last session for arbitrary
 action/element/rarity combinations, so it was not re-verified visually
 here — only the new content's compiled data was.
+
+## Equipment — head/body/legs/2 hands, new farroadequipment.csv
+
+Ian: "I want each unit to be able to equip one head, one body, one
+legs, and two hand equipments (left and right). these can affect
+everything but health. have legs primarily affect speed and evasion,
+body and head defense, resistance, and affinities, and hands attack,
+magic, and affinities. have non leg equipment marginally reduce speed,
+based on how good it is. they will also have varying rarities. they
+should be added as random drops to waves and pulls, about as rare as
+units. we'll need a new csv for easy editing as well." Followed
+mid-turn by: "You can have duplicate equipment." This is the
+"equipment later" item the Rarity plan explicitly flagged as future
+scope (`farroadgdd.md`'s own "specified, never built" note) — nothing
+equipment-shaped existed before this; every prior "equip" hit in the
+codebase was combat ACTIONS in loadout slots, an unrelated concept.
+
+Sized as a real feature, not a quick add — three Explore passes (stat-
+assembly pipeline, save/UI structure, drop/pull mechanics) plus a Plan
+review before writing any code. The review caught a real, otherwise-
+silent bug before it shipped: `grantDrops()` (`farroad-ui.js`) is a
+separate dispatcher from `randomDrop()` with an if/elseif chain ending
+in a bare `else` that treats anything unrecognized as a gambit
+condition — an equipment drop without its own branch would have
+silently miscounted as a condition, wrong array, wrong notice, wrong
+everything. Fixed before it was ever live.
+
+**Data model**: new `farroadequipment.csv` — `id,name,slot,rarity,atk,
+mag,def,res,spd,evade,affinity_fire...affinity_spirit,design_note`.
+`slot` is one of 4 item KINDS (`head/body/legs/hand`); a unit wears 5
+POSITIONS (`EQUIPMENT_SLOTS` in `farroad-core.js` —
+`head/body/legs/hand1/hand2`), a `hand` item fitting either hand
+position. That kind-vs-position split is exactly why duplicate
+ownership matters: dual-wielding the same hand item, or putting the
+same body armor on two different units, needs 2 owned copies — hence
+Ian's own clarification, taken literally rather than treated as a
+throwaway remark. `compileEquipment(rows)` (`content-pipeline.js`)
+reuses `compileAffinity`/`compileRarity` verbatim, no new parsing
+code. Stat columns are scoped by slot and enforced at build time
+(legs: spd/evade only, no affinity by design; head/body: def/res+one
+affinity axis; hand: atk/mag+one affinity axis) — same fail-loudly
+validation style as the existing element/rarity checks, catching a
+stray value in the wrong column as a content error rather than a
+silent no-op.
+
+Equipment affects exactly atk/mag/def/res/spd/evade and the 8 affinity
+axes — not atkCrit/magCrit/chargeRate (never mentioned in Ian's own
+per-slot breakdown) and not HP (explicit). Values are hand-authored,
+already tier-scaled by `RARITY_POWER_MUL` at authoring time, same as
+every other rarity-promoted number this project has shipped — not
+computed at runtime from a smaller base. The one number that IS
+computed at runtime: the marginal speed penalty. `EQUIP_SPD_PENALTY_
+BASE=1.5` (`farroad-core.js`) × that item's own `RARITY_POWER_MUL`,
+summed once across every equipped NON-leg slot (head/body/hand1/
+hand2 — legs are the speed slot, exempt) and rounded ONCE at the end
+rather than per-item, so it stays proportionate instead of compounding
+rounding error. Verified live (see below): a fully-Common loadout nets
+to exactly 0 net speed change; a fully-Legendary loadout also nets to
+~0 — genuinely marginal at every tier, not a real tax, exactly as
+asked.
+
+**12 initial items** = 4 slot kinds × 3 rarities, one per cell —
+Traveler's Boots/Windstep Greaves/Skybound Sabatons (legs); Iron Cap/
+Warded Helm/Crown of the Bulwark (head); Padded Vest/Chainweave Mail/
+Aegis of the Deep (body); Worn Gauntlet/Runed Bracer/Emberfist (hand).
+Every item in a slot family grants its FULL family stat set (no
+per-item subset-rolling — simplest maintainable shape); each head/
+body/hand item also carries one affinity axis, cycled fire→water→
+earth→air→light→dark→body→spirit across the 9 non-leg items (wrapping
+once, Emberfist landing back on Fire).
+
+**Acquisition — "about as rare as units"**: both existing "rare
+special content" gates already used the figure `0.10`
+(`P.PULL_ODDS.unit`, `P.MC_CHARGE_DROP_CHANCE`) — equipment reuses
+that exact figure rather than inventing a new one. `P.PULL_ODDS`
+(`farroad-ui.js`) extended from `{unit:.10,action:.45,cond:.45}` to
+`{unit:.10,equip:.10,action:.40,cond:.40}`; a new `P.EQUIP_DROP_
+CHANCE=0.10` gate in `randomDrop()`, checked WITHOUT the `G.mc` guard
+the charge-action gate uses — equipment drops for every run,
+companion-only included, same as the ordinary action/condition drop
+it replaces when it fires. New `P.weightedEquipmentPick(rng,ids)`
+(`farroad-progression.js`) mirrors `P.weightedActionPick` exactly,
+reusing the existing `P.RARITY_PULL_WEIGHT` table. Equipment
+duplicates are NEVER converted to Lore the way action/condition dupes
+are — a dupe always increments the shared `G.equipInv` count and
+always gets its own drop notice ("NEW EQUIPMENT" vs. "EQUIPMENT
+(DUPLICATE)"), since owning more copies is the entire point.
+
+**Save format**: `G.equipInv` (`{itemId:countOwned}` — the count
+itself IS the ownership signal, no separate unlock-boolean, unlike
+actions/conditions) and `G.equipped` (`{uid:{head,body,legs,hand1,
+hand2}}`). Added to `FIELDS`/`newGame()`/`deserialize()`/
+`joinCompanion()` following the `statInvest`/`affinities` precedent
+exactly — brand-new fields, plain default-fill, no legacy shape.
+
+**Stat integration**: `effectiveAffinity(uid)` (`farroad-ui.js`)
+extended from baseline+purchased to baseline+purchased+equipment (one
+new `equipmentAffinity(uid)` term inside the existing single choke
+point every assembly site already calls, rather than touching each
+site separately). New `applyEquipmentStats(uid,st)` mirrors
+`applyPctStatInvestment`'s exact shape and placement — called
+immediately after it at all 3 real assembly sites (`buildParty`,
+`buildExpeditionParty`, `refreshLiveStats`), mutating `st.atk/mag/def/
+res/spd/evade` before `C.makeUnit` (or the direct `u.base` copy-back
+in `refreshLiveStats`) reads it. `equipOwnedCount`/`equipInUseCount`/
+`equipAvailableCount` derive availability by scanning `G.equipped`
+live rather than tracking a separate counter — small data, no
+precedent for anything fancier here. `equipItem(uid,slot,itemId)`
+validates the item's own `slot` kind matches the position (`hand1`/
+`hand2` both accept kind `hand` via `equipKindForSlot`) and that a
+copy is actually available (or it's already this exact slot's
+occupant — a no-op swap); `unequipItem` just clears it.
+
+**UI**: new EQUIPMENT tab (`shell.html` button+panel,
+`farroad-ui.js`'s hardcoded tab-visibility array, `renderEquipment()`
+called from `renderEconomy()`). Modeled on GAMBITS' loadout `<select>`
+editor, not AETHER's "buy an upgrade node" rows — equip-slot
+assignment is "pick one of a shared, contention-limited pool per
+slot," the exact problem GAMBITS already solved for actions (disabling
+an option when something else holds it), just gated on OWNED COUNT
+instead of fielded-unit identity. 5 `<select>` rows per unit (Head/
+Body/Legs/Hand (left)/Hand (right)), each option labeled with owned/
+available counts and the existing `rarityTagText()` badge — no new CSS
+needed. `onchange` calls `equipItem`/`unequipItem` then
+`refreshLiveStats();renderAll();`, identical to every existing
+affinity/pct-stat buy handler.
+
+**Verified**: `node farroadsmoke.js` — 214/214 (11 new checks): all 12
+items compiled with correct slot/rarity/stat-family shape (content-
+pipeline.js's own build-time validation catches a scoping mistake
+before this even runs); exactly one item per (slot,rarity) cell; every
+item's numbers equal the Common baseline × its own `RARITY_POWER_MUL`
+exactly; `P.EQUIP_DROP_CHANCE`/`P.weightedEquipmentPick` correct,
+sampled 2000 times landing within 5% of the closed-form Common share;
+a save round-trip preserves `G.equipInv`/`G.equipped` exactly, and an
+old save missing both fields entirely default-fills without throwing.
+The UI-layer stat math itself (`applyEquipmentStats`/`equipItem`/
+`effectiveAffinity`'s equipment term) lives in `farroad-ui.js`, which
+the headless harness doesn't load (DOM-dependent, same reason `P.
+PULL_ODDS`/`doPull` aren't smoke-tested either) — verified instead via
+a temporary debug hook in a live browser session (added, exercised,
+then fully removed before this shipped): equipping Iron Cap/Padded
+Vest/Worn Gauntlet ×2/Traveler's Boots on Kesh produced an exact
++10/+10/+8/+8/+0 atk/mag/def/res/spd delta against the unequipped
+baseline (matching the authored numbers precisely, and confirming the
+Common-tier speed penalty nets to exactly 0 as designed); a fully-
+Legendary loadout also netted to 0 speed; `effectiveAffinity` summed
+Fire+3/Air+3/Body+6 exactly as equipped; attempting to equip an
+unowned item, a wrong-slot-kind item, or a 3rd copy of a 2-owned item
+all correctly failed and left state untouched; unequipping via an
+actual `<select>` change event (not just a direct function call)
+correctly freed the item back to available; the live battle view's
+displayed ATK/MAG/DEF/RES (35/35/40/35 from a 19/19/28/23 baseline)
+matched the equipped bonuses exactly, confirming the full pipeline
+from equip state through to the actual combat unit; no console errors
+throughout. Not exercised live: an actual wave/pull equipment drop
+landing in the notice queue, since real drops need wave 20+ (post-
+curated) and this session's browser sandbox disables `localStorage`
+(blocks injecting a save to skip ahead) — the acquisition CODE PATHS
+were read-reviewed line-by-line against the actual `pushDrop`/
+`grantDrops` shapes rather than left unverified, but the notice text
+itself wasn't seen rendered.

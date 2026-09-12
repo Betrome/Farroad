@@ -74,7 +74,18 @@ var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
     The baseline stays the unit's existing atk_crit/mag_crit/block/evade
     CSV columns (unchanged, already the only source before this feature).
     Brand-new field, plain default-fill below, no legacy shape. */
- 'statInvest'];
+ 'statInvest',
+ /* v2.14: equipment. 'equipInv' is {itemId:countOwned} — the count itself
+    IS the ownership signal, no separate unlock-boolean (unlike actions/
+    conditions), since equipment duplicates are genuinely useful (dual-
+    wielding a hand item, the same armor on two units). 'equipped' is
+    {uid:{head,body,legs,hand1,hand2}} — an item id or absent per position;
+    a unit's effective combat-time stats/affinity are baseline+investment+
+    whatever's equipped, computed at party-build time (farroad-ui.js,
+    buildParty/buildExpeditionParty/refreshLiveStats — see
+    applyEquipmentStats/equipmentAffinity). Both brand-new fields, plain
+    default-fill below, no legacy shape. */
+ 'equipInv', 'equipped'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -179,6 +190,9 @@ S.deserialize=function(snap,C){
  if(!G.affinities.kesh)G.affinities.kesh={};   /* kesh is owned from newGame(), never through joinCompanion() */
  if(!G.statInvest)G.statInvest={};
  if(!G.statInvest.kesh)G.statInvest.kesh={};
+ if(!G.equipInv)G.equipInv={};
+ if(!G.equipped)G.equipped={};
+ if(!G.equipped.kesh)G.equipped.kesh={};   /* kesh is owned from newGame(), never through joinCompanion() */
  return G;};
 
 return S;})();

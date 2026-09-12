@@ -214,6 +214,16 @@ P.weightedActionPick=function(rng,ids){
  var roll=rng.next()*total,acc=0,i;
  for(i=0;i<ids.length;i++){acc+=weights[i];if(roll<acc)return ids[i];}
  return ids[ids.length-1];};
+/* Equipment (v2.14): identical shape to weightedActionPick just above,
+   reading C.EQUIPMENT[id].rarity instead of C.ACTIONS — kept as its own
+   function for the same reason: a plain-id-list pick over a different
+   content table, not worth a shared callback-taking generic. */
+P.weightedEquipmentPick=function(rng,ids){
+ var weights=ids.map(function(id){return P.RARITY_PULL_WEIGHT[(C.EQUIPMENT[id]&&C.EQUIPMENT[id].rarity)||'common']||1;});
+ var total=weights.reduce(function(a,w){return a+w;},0);
+ var roll=rng.next()*total,acc=0,i;
+ for(i=0;i<ids.length;i++){acc+=weights[i];if(roll<acc)return ids[i];}
+ return ids[ids.length-1];};
 /* Per-enemy multiplier. n=1 -> x1.85 elite, n=4 -> x0.72 each. Total encounter
    strength (n x mul) runs 1.85 / 2.60 / 2.88 / 2.88 — rising slightly with count
    but far flatter than linear, so a lone elite is a real fight and a crowd is not
@@ -863,6 +873,14 @@ P.MC_CHARGE_DROP_CHANCE=0.10;
    MC_CHARGE_DROP_CHANCE itself — retune from balance-script results if a
    Legendary charge turns out to land far more/less often than intended. */
 P.MC_LEGENDARY_CHARGE_CHANCE=0.15;
+/* Equipment (v2.14): "about as rare as units" (Ian) — reuses the exact
+   0.10 figure that already means "rare special content" in two places
+   above (this and P.PULL_ODDS.unit in farroad-ui.js), rather than
+   inventing a third number. Checked in randomDrop() WITHOUT the G.mc
+   guard MC_CHARGE_DROP_CHANCE uses — equipment drops for every run,
+   companion-only included, same as the ordinary action/condition drop
+   it replaces when it fires. */
+P.EQUIP_DROP_CHANCE=0.10;
 P.mcLerp=function(range,point){
  return range[0]+(point-P.MC_POINT_MIN)/(P.MC_POINT_MAX-P.MC_POINT_MIN)*(range[1]-range[0]);};
 P.mcPointsSpent=function(points){

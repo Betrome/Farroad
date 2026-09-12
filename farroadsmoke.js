@@ -174,6 +174,8 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   recovery:{kesh:2},loadout:{kesh:[{cond:'none',action:'strike'}]},
   hpCarry:{kesh:0.8},touched:{},clearedWaves:{1:1,2:1},
   lvl:{kesh:5,ansa:1},bank:{kesh:12,ansa:0},maxLevelEver:5,owned:{kesh:1,ansa:1},
+  /* v2.14: equipment — {itemId:countOwned} and {uid:{slot:itemId}}. */
+  equipInv:{ironcap:2,worngauntlet:1},equipped:{kesh:{head:'ironcap',hand1:'worngauntlet'}},
   enrage:true,idleAcc:3,dropQueue:[],dropHistory:[],
   expeditions:[{id:'exp1',partyIds:['dorrek','vey'],startedAt:1700000000000-3600000,
    lastResolvedAt:1700000000000-3600000,ew:3,hpFrac:0.7,bank:{aether:40,marks:5},homeAt:null,
@@ -193,6 +195,10 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   ok('save round-trip preserves actions/conditions/loadout',
    restored.actions.indexOf('sear')>=0&&restored.conditions.indexOf('foe_armoured')>=0&&
    restored.loadout.kesh&&restored.loadout.kesh[0].action==='strike');
+  ok('save round-trip preserves equipment inventory and equipped slots',
+   restored.equipInv&&restored.equipInv.ironcap===2&&restored.equipInv.worngauntlet===1&&
+   restored.equipped&&restored.equipped.kesh&&restored.equipped.kesh.head==='ironcap'&&
+   restored.equipped.kesh.hand1==='worngauntlet');
   ok('save round-trip preserves an in-progress expedition',
    restored.expeditions&&restored.expeditions.length===1&&
    restored.expeditions[0].partyIds.length===2&&restored.expeditions[0].partyIds[0]==='dorrek'&&
@@ -217,6 +223,18 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('old save missing expeditions field does not throw', !oldThrew, oldThrew&&oldThrew.message);
  ok('old save missing expeditions field defaults to []',
   !!oldRestored&&Array.isArray(oldRestored.expeditions)&&oldRestored.expeditions.length===0);
+ /* v2.14: a save from before equipment existed has neither field at all —
+    same contract, default-fill rather than throw or leave undefined. */
+ var noEquipSnap=null,noEquipThrew=null,noEquipRestored=null;
+ try{
+  noEquipSnap=V.serialize(fakeG,1700000000000);
+  delete noEquipSnap.equipInv;delete noEquipSnap.equipped;
+  noEquipRestored=V.deserialize(JSON.parse(JSON.stringify(noEquipSnap)),C);
+ }catch(e){noEquipThrew=e;}
+ ok('old save missing equipInv/equipped does not throw', !noEquipThrew, noEquipThrew&&noEquipThrew.message);
+ ok('old save missing equipInv/equipped defaults to {}/{} (with kesh seeded)',
+  !!noEquipRestored&&JSON.stringify(noEquipRestored.equipInv)==='{}'&&
+  !!noEquipRestored.equipped&&!!noEquipRestored.equipped.kesh);
  /* MIGRATION: a save from BEFORE multi-expedition support (singular
     'expedition' object + shared 'expeditionLog' array, neither in FIELDS
     anymore) must have its real in-flight expedition preserved, not
@@ -1338,6 +1356,70 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   ok('P.weightedActionPick sampled over a mixed pool lands within 5% of the closed-form common share',
    Math.abs(observed-pCommon)<0.05, observed+' vs expected '+pCommon);
  })();
+})();
+
+/* =================== 22. EQUIPMENT (v2.14) ==================================
+ * Head/body/legs/hand gear, compiled from farroadequipment.csv. The
+ * stat-integration layer (equipOwnedCount/applyEquipmentStats/equipItem/
+ * effectiveAffinity's equipment term) lives in farroad-ui.js, which this
+ * headless harness doesn't load (DOM-dependent, same reason P.PULL_ODDS/
+ * doPull aren't smoke-tested either) — so this section covers exactly
+ * what IS reachable: the compiled content and the progression-layer
+ * acquisition pieces (P.weightedEquipmentPick, P.EQUIP_DROP_CHANCE), and
+ * leans on content-pipeline.js's own build-time validation (already run
+ * once at the top of this file — a bad row would have failed loudly
+ * there) for slot/rarity/stat-family correctness. The UI-layer math
+ * itself is covered by a live browser pass instead. */
+(function(){
+ ok('C.EQUIPMENT compiled with all 12 authored items', Object.keys(C.EQUIPMENT).length===12,
+  Object.keys(C.EQUIPMENT).join(','));
+ ok('C.EQUIPMENT_SLOTS has the 5 wearable positions, not the 4 CSV slot kinds',
+  C.EQUIPMENT_SLOTS.length===5 &&
+  C.EQUIPMENT_SLOTS.indexOf('hand1')>=0 && C.EQUIPMENT_SLOTS.indexOf('hand2')>=0);
+ ok('every legs item has spd and/or evade but no affinity (content-pipeline.js already enforces this at build time)',
+  Object.keys(C.EQUIPMENT).filter(function(id){return C.EQUIPMENT[id].slot==='legs';})
+   .every(function(id){var e=C.EQUIPMENT[id];
+    return (e.spd||e.evade) && Object.keys(e.affinity).every(function(ax){return !e.affinity[ax];});}));
+ ok('every hand item has atk+mag and exactly one nonzero affinity axis',
+  Object.keys(C.EQUIPMENT).filter(function(id){return C.EQUIPMENT[id].slot==='hand';})
+   .every(function(id){var e=C.EQUIPMENT[id];
+    var axesSet=Object.keys(e.affinity).filter(function(ax){return e.affinity[ax];}).length;
+    return e.atk && e.mag && axesSet===1;}));
+ ok('exactly one item per (slot, rarity) cell — 4 slots x 3 rarities',
+  (function(){
+   var seen={};
+   Object.keys(C.EQUIPMENT).forEach(function(id){var e=C.EQUIPMENT[id];seen[e.slot+'/'+e.rarity]=(seen[e.slot+'/'+e.rarity]||0)+1;});
+   return Object.keys(seen).length===12 && Object.keys(seen).every(function(k){return seen[k]===1;});
+  })());
+ (function(){
+  var baselineOf={head:{def:4,res:4,ax:3},body:{def:4,res:4,ax:3},hand:{atk:5,mag:5,ax:3},legs:{spd:6,evade:0.020}};
+  var bad=[];
+  Object.keys(C.EQUIPMENT).forEach(function(id){
+   var e=C.EQUIPMENT[id],mul=C.RARITY_POWER_MUL[e.rarity],b=baselineOf[e.slot];
+   if(e.slot==='legs'){
+    if(e.spd!==Math.round(b.spd*mul))bad.push(id+'.spd='+e.spd);
+    if(Math.abs(e.evade-Math.round(b.evade*mul*1000)/1000)>1e-9)bad.push(id+'.evade='+e.evade);
+   }else{
+    var k1=(e.slot==='hand')?'atk':'def', k2=(e.slot==='hand')?'mag':'res';
+    if(e[k1]!==Math.round(b[k1]*mul))bad.push(id+'.'+k1+'='+e[k1]);
+    if(e[k2]!==Math.round(b[k2]*mul))bad.push(id+'.'+k2+'='+e[k2]);
+    var axVal=Object.keys(e.affinity).map(function(ax){return e.affinity[ax];}).reduce(function(a,x){return a+x;},0);
+    if(axVal!==Math.round(b.ax*mul))bad.push(id+'.affinity='+axVal);
+   }});
+  ok('every item\'s stat/affinity values equal the Common baseline x its own RARITY_POWER_MUL',
+   bad.length===0, bad.join('; '));
+ })();
+ ok('P.EQUIP_DROP_CHANCE matches the "about as rare as units" 0.10 figure reused elsewhere',
+  P.EQUIP_DROP_CHANCE===0.10);
+ ok('P.weightedEquipmentPick sampled over a mixed pool lands within 5% of the closed-form common share',
+  (function(){
+   var controlled=['travelersboots','ironcap','windstepgreaves','wardedhelm'];   /* 2 common, 2 rare */
+   var w=P.RARITY_PULL_WEIGHT, total=w.common*2+w.rare*2, pCommon=(w.common*2)/total;
+   var rng=C.makeRNG(3131),hits=0,n=2000;
+   for(var i=0;i<n;i++)if(C.EQUIPMENT[P.weightedEquipmentPick(rng,controlled)].rarity==='common')hits++;
+   var observed=hits/n;
+   return Math.abs(observed-pCommon)<0.05;
+  })());
 })();
 
 /* ------------------------------- report ---------------------------------- */

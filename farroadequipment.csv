@@ -1,0 +1,13 @@
+id,name,slot,rarity,atk,mag,def,res,spd,evade,affinity_fire,affinity_water,affinity_earth,affinity_air,affinity_light,affinity_dark,affinity_body,affinity_spirit,design_note
+travelersboots,Traveler's Boots,legs,common,,,,,6,0.020,,,,,,,,,"Legs grant speed and evasion only, per design - no affinity slot here. Common: flat baseline."
+windstepgreaves,Windstep Greaves,legs,rare,,,,,8,0.025,,,,,,,,,"Rare: spd/evade scaled up ~25% over Traveler's Boots' baseline (RARITY_POWER_MUL.rare)."
+skyboundsabatons,Skybound Sabatons,legs,legendary,,,,,9,0.031,,,,,,,,,"Legendary: spd/evade scaled up ~55% over the Common baseline (RARITY_POWER_MUL.legendary)."
+ironcap,Iron Cap,head,common,,,4,4,,,3,,,,,,,,"Head/body grant def+res+one affinity axis. Common: flat baseline, Fire-leaning."
+wardedhelm,Warded Helm,head,rare,,,5,5,,,,4,,,,,,,"Rare: def/res/affinity scaled up ~25% over Iron Cap's baseline, Water-leaning."
+crownofthebulwark,Crown of the Bulwark,head,legendary,,,6,6,,,,,5,,,,,,"Legendary: def/res/affinity scaled up ~55% over the Common baseline, Earth-leaning."
+paddedvest,Padded Vest,body,common,,,4,4,,,,,,3,,,,,"Common: flat baseline, Air-leaning."
+chainweavemail,Chainweave Mail,body,rare,,,5,5,,,,,,,4,,,,"Rare: def/res/affinity scaled up ~25% over Padded Vest's baseline, Light-leaning."
+aegisofthedeep,Aegis of the Deep,body,legendary,,,6,6,,,,,,,,5,,,"Legendary: def/res/affinity scaled up ~55% over the Common baseline, Dark-leaning."
+worngauntlet,Worn Gauntlet,hand,common,5,5,,,,,,,,,,,3,,"Hand grants atk+mag+one affinity axis - fits either hand slot; own 2 copies to dual-wield the same piece. Common: flat baseline, Body-leaning."
+runedbracer,Runed Bracer,hand,rare,6,6,,,,,,,,,,,,4,"Rare: atk/mag/affinity scaled up ~25% over Worn Gauntlet's baseline, Spirit-leaning."
+emberfist,Emberfist,hand,legendary,8,8,,,,,5,,,,,,,,"Legendary: atk/mag/affinity scaled up ~55% over the Common baseline, Fire-leaning (wraps the 8-axis cycle back to Fire)."

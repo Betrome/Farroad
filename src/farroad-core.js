@@ -39,6 +39,31 @@ var BURN_PCT=0.05,REGEN_PCT=0.06;
  * these exact numbers, not guessed and left alone. */
 var RARITY_POWER_MUL={common:1.00, rare:1.25, legendary:1.55};
 var RARITY_COST_MUL ={common:1.00, rare:1.60, legendary:2.40};
+/* ===== EQUIPMENT (v2.14) ===== the "specified, never built" future stat
+ * layer the RARITY_POWER_MUL comment above already flagged — now built.
+ * Head/body/legs/hand gear (farroadequipment.csv, compiled to C.EQUIPMENT
+ * below), stacked on top of a unit's level/affinity/investment stack at
+ * the UI assembly layer (equipmentBonuses/equipmentAffinity/
+ * applyEquipmentStats, farroad-ui.js) — core.js itself stays as unaware
+ * of equipment as it already is of affinity investment or PCT_STAT.
+ * EQUIPMENT_SLOTS is the 5 wearable POSITIONS a unit has; a CSV row's own
+ * `slot` field is one of only 4 item KINDS (head/body/legs/hand) — a
+ * `hand` item fits either hand1 or hand2, which is exactly why owning
+ * duplicate equipment matters (dual-wielding, or the same body armor on
+ * two different units, needs 2 owned copies of one item). */
+var EQUIPMENT_SLOTS=['head','body','legs','hand1','hand2'];
+/* Marginal speed cost for wearing anything in a NON-leg slot (legs are
+ * the speed slot, so they're exempt) — "based on how good it is" (Ian),
+ * i.e. scaled by the same RARITY_POWER_MUL every other rarity-tied
+ * number in this game already uses, summed once per equipped non-leg
+ * item then rounded ONCE at the end (farroad-ui.js) rather than
+ * per-item, so the total stays proportionate instead of compounding
+ * rounding error. At a fully-Legendary loadout this nets out to roughly
+ * nothing against Legendary legs' own +9 spd — genuinely marginal, not
+ * a real tax. Reasoned starting point, tunable like every other rarity
+ * multiplier this project has shipped with. */
+var EQUIP_SPD_PENALTY_BASE=1.5;
+var EQUIPMENT=window.FarroadContent.EQUIPMENT;   /* no per-id defaulting needed, same as ROSTER/ARCH below */
 /* ===== ELEMENTAL AFFINITIES (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — one value per unit per axis,
  * used symmetrically: a unit's OWN value in an axis both boosts its output on
@@ -851,6 +876,7 @@ F.pristineOf=function(id){snapshot();return PRISTINE[id]||null;};
 F.bonusApplies=bonusApplies;F.bonusPrice=bonusPrice;F.actionBonusTotal=actionBonusTotal;
 F.BONUS_COST_BROAD=BONUS_COST_BROAD;
 F.RARITY_POWER_MUL=RARITY_POWER_MUL;F.RARITY_COST_MUL=RARITY_COST_MUL;
+F.EQUIPMENT=EQUIPMENT;F.EQUIPMENT_SLOTS=EQUIPMENT_SLOTS;F.EQUIP_SPD_PENALTY_BASE=EQUIP_SPD_PENALTY_BASE;
 F.SWIFT_CEIL=SWIFT_CEIL;F.SWIFT_DECAY=SWIFT_DECAY;
 F.costOfCharge=costOfCharge;F.CHARGE_UP_COST=CHARGE_UP_COST;
 F.CHARGE_THRIFT=CHARGE_THRIFT;F.CHARGE_COST_MIN=CHARGE_COST_MIN;

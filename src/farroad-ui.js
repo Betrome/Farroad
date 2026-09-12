@@ -51,6 +51,10 @@ function newGame(seed,mc){
      covers physical damage reduction, a second overlapping stat was
      redundant — see farroad-core.js.) */
   statInvest:{kesh:{}},
+  /* v2.14: equipment — see farroad-save.js's FIELDS comment for the shape.
+     equipInv is flat (no per-uid seeding needed); equipped is per-unit,
+     kesh seeded the same way affinities/statInvest are just above. */
+  equipInv:{}, equipped:{kesh:{}},
   battle:null, units:null, enemies:null, over:null, enrage:true, idleAcc:0,
   /* Live side-battle-in-progress state (quests/dungeons) — see MODULES.md.
      sideBattle is null outside a side fight; roadBattle parks the real
@@ -212,9 +216,20 @@ function affinityPurchased(uid){return (G.affinities&&G.affinities[uid])||{};}
 /* Effective combat-time value = authored baseline + purchased points — see
    the "Data model" comment in the plan / P.powerLevel's affinity term for
    why these stay two separate numbers rather than one mutated figure. */
+/* Equipment (v2.14): sums the 8 axes across whatever's sitting in
+   G.equipped[uid]'s 5 slots — legs items carry no affinity by design
+   (content-pipeline.js validates this), so summing all 5 slots
+   unconditionally is safe, a legs item just contributes 0 everywhere. */
+function equipmentAffinity(uid){
+ var out={},equipped=(G.equipped&&G.equipped[uid])||{};
+ AFFINITY_AXES.forEach(function(ax){out[ax]=0;});
+ C.EQUIPMENT_SLOTS.forEach(function(slot){
+  var id=equipped[slot],item=id&&C.EQUIPMENT[id];
+  if(item)AFFINITY_AXES.forEach(function(ax){out[ax]+=item.affinity[ax]||0;});});
+ return out;}
 function effectiveAffinity(uid){
- var base=affinityBaseline(uid),purchased=affinityPurchased(uid),out={};
- AFFINITY_AXES.forEach(function(ax){out[ax]=(base[ax]||0)+(purchased[ax]||0);});
+ var base=affinityBaseline(uid),purchased=affinityPurchased(uid),equip=equipmentAffinity(uid),out={};
+ AFFINITY_AXES.forEach(function(ax){out[ax]=(base[ax]||0)+(purchased[ax]||0)+equip[ax];});
  return out;}
 function affinityRaw(uid,axis){return (affinityBaseline(uid)[axis]||0)+(affinityPurchased(uid)[axis]||0);}
 /* Stops offering a purchase once the EFFECTIVE raw hits the cap exactly —
@@ -254,6 +269,53 @@ function pctStatNextCost(uid,stat){return P.pctStatCost(stat,pctStatPurchased(ui
 function applyPctStatInvestment(uid,st){
  PCT_STAT_KEYS.forEach(function(stat){st[stat]=pctStatValue(uid,stat);});
  return st;}
+
+/* ===== EQUIPMENT (v2.14) ===== see farroad-core.js (EQUIPMENT_SLOTS/
+   EQUIP_SPD_PENALTY_BASE/RARITY_POWER_MUL, C.EQUIPMENT — the compiled
+   farroadequipment.csv) for the constants/content this reads. Same
+   UI-layer slice affinity/PCT-stat investment already established:
+   combine whatever's equipped into the effective value P.statsAt's
+   output gets adjusted with, AFTER P.statsAt runs and right alongside
+   applyPctStatInvestment. */
+function equipOwnedCount(id){return (G.equipInv&&G.equipInv[id])||0;}
+function equipInUseCount(id){
+ var n=0;
+ Object.keys(G.equipped||{}).forEach(function(uid){
+  C.EQUIPMENT_SLOTS.forEach(function(slot){if(G.equipped[uid][slot]===id)n++;});});
+ return n;}
+function equipAvailableCount(id){return equipOwnedCount(id)-equipInUseCount(id);}
+/* A hand item fits either hand1 or hand2; every other slot only fits its
+   own exact name — EQUIPMENT_SLOTS' 5 positions collapse to the CSV's 4
+   item kinds via this one substring rule (hand1/hand2 -> 'hand'). */
+function equipKindForSlot(slot){return slot.indexOf('hand')===0?'hand':slot;}
+/* Sums atk/mag/def/res/spd/evade across a unit's 5 equipped positions,
+   then applies the marginal speed penalty (every NON-leg slot that's
+   occupied, scaled by that item's own RARITY_POWER_MUL, summed once and
+   rounded once — see EQUIP_SPD_PENALTY_BASE's comment in core.js for why
+   not per-item). Mutates st in place, called right after
+   applyPctStatInvestment, same placement/shape as that function. */
+function applyEquipmentStats(uid,st){
+ var equipped=(G.equipped&&G.equipped[uid])||{},spdPenalty=0;
+ C.EQUIPMENT_SLOTS.forEach(function(slot){
+  var id=equipped[slot],item=id&&C.EQUIPMENT[id];
+  if(!item)return;
+  ['atk','mag','def','res','spd'].forEach(function(k){if(item[k])st[k]+=item[k];});
+  if(item.evade)st.evade+=item.evade;
+  if(slot!=='legs')spdPenalty+=C.EQUIP_SPD_PENALTY_BASE*(C.RARITY_POWER_MUL[item.rarity]||1);});
+ if(spdPenalty)st.spd=Math.round(st.spd-spdPenalty);
+ return st;}
+function equipItem(uid,slot,itemId){
+ var item=C.EQUIPMENT[itemId];
+ if(!item||item.slot!==equipKindForSlot(slot))return false;
+ G.equipped=G.equipped||{};G.equipped[uid]=G.equipped[uid]||{};
+ if(G.equipped[uid][slot]===itemId)return true;   /* no-op, already worn here */
+ if(equipAvailableCount(itemId)<=0)return false;
+ G.equipped[uid][slot]=itemId;
+ return true;}
+function unequipItem(uid,slot){
+ G.equipped=G.equipped||{};G.equipped[uid]=G.equipped[uid]||{};
+ delete G.equipped[uid][slot];}
+
 function slotsFor(uid){return P.slotsAt(levelOf(uid));}
 function ensureLoadout(uid){
  var want=slotsFor(uid);
@@ -270,6 +332,7 @@ function buildParty(){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
   applyPctStatInvestment(uid,st);
+  applyEquipmentStats(uid,st);
   var mh=st.hp;
   /* Between-wave rest. Does NOT fix the multi-enemy wall (25/50/100% measured
      identical there) but it stops waves 1-7 compounding before Mend arrives. */
@@ -439,6 +502,19 @@ function describeAction(id){
   body:bits.join(' · ')+' · initiative '+initTag(a.rank)+
    ' <span style="color:var(--dimmer)">(higher acts more often)</span>',
   note:withMcName(a.note||'')};}
+/* Equipment (v2.14) — same describeX shape as describeAction just above,
+   used by both the wave-drop and pull notices so the two acquisition
+   paths never describe an item differently. */
+var EQUIP_SLOT_ICON={head:'🪖',body:'🛡️',legs:'🥾',hand:'🖐️'};
+function describeEquipment(id){
+ var e=C.EQUIPMENT[id];if(!e)return{name:id,body:''};
+ var bits=[];
+ ['atk','mag','def','res','spd'].forEach(function(k){if(e[k])bits.push(k.toUpperCase()+' +'+e[k]);});
+ if(e.evade)bits.push('Evade +'+Math.round(e.evade*100)+'%');
+ AFFINITY_AXES.forEach(function(ax){if(e.affinity[ax])bits.push(AFFINITY_INFO[ax].n+' affinity +'+e.affinity[ax]);});
+ return {name:(EQUIP_SLOT_ICON[e.slot]||'')+' '+e.name+rarityTag(e.rarity),
+  slotLabel:e.slot.charAt(0).toUpperCase()+e.slot.slice(1),
+  body:e.slot.charAt(0).toUpperCase()+e.slot.slice(1)+' · '+bits.join(' · ')};}
 /* v2.9: "what stat does this scale with" and "what has Lore bought it, in
    total" — both requested for the GAMBITS/LORE screens. scalesWith just
    names a.camp; bonusTotalSummary diffs the live (post-applyBonuses)
@@ -558,6 +634,22 @@ function grantDrops(w){
      pair:'Swap to it any time from the GAMBITS tab — no cost, and Lore upgrades '+
       'are kept per action, so switching back restores what you bought.'});}
    sysLog('<span class="dw">WAVE '+w+' · CHARGE ACTION</span> <b>'+C.ACTIONS[d.id].name+'</b>');
+  }else if(d.kind==='equip'){
+   /* Equipment dupes are genuinely useful (dual-wielding a hand item, the
+      same armor on two units) — unlike action/condition dupes just above,
+      an equipment dupe is NEVER converted to Lore. It always increments
+      the shared inventory count and always gets its own notice, worded
+      differently for a first copy vs. an Nth. */
+   G.equipInv=G.equipInv||{};
+   G.equipInv[d.id]=(G.equipInv[d.id]||0)+1;
+   var infoE=describeEquipment(d.id);
+   var nOwned=G.equipInv[d.id];
+   pushDrop({wave:w,kind:nOwned===1?'NEW EQUIPMENT':'EQUIPMENT (DUPLICATE)',name:infoE.name,
+    body:infoE.body,
+    why:curated&&d.why?d.why:null,
+    pair:nOwned===1?'Equip it from the EQUIPMENT tab — no cost.':
+     'You now own '+nOwned+'× '+C.EQUIPMENT[d.id].name+' — enough to equip it on more than one slot/unit at once.'});
+   sysLog('<span class="dw">WAVE '+w+' · EQUIPMENT</span> <b>'+C.EQUIPMENT[d.id].name+'</b>');
   }else{
    G.condCounts[d.id]=(G.condCounts[d.id]||0)+1;
    var dup2=G.conditions.indexOf(d.id)>=0;
@@ -617,6 +709,13 @@ function randomDrop(w){
   if(pool.length===0)pool=chargePool;
   return [{kind:'charge',id:pool[G.rng.nextInt(pool.length)],
    why:(wantLegendary?'legendary':'rare')+' charge-action drop'}];}
+ /* Equipment (v2.14): same "replace, don't stack" shape as the charge gate
+    above, but WITHOUT the G.mc guard — equipment drops for every run,
+    companion-only included, same as the ordinary action/condition drop it
+    replaces when it fires (see P.EQUIP_DROP_CHANCE's own comment). */
+ if(G.rng.next()<P.EQUIP_DROP_CHANCE){
+  var equipIds=Object.keys(C.EQUIPMENT);
+  return [{kind:'equip',id:P.weightedEquipmentPick(G.rng,equipIds),why:'equipment drop'}];}
  var out=[];
  if(w%2===0){var pool=C.EQUIPPABLE;
   out.push({kind:'action',id:P.weightedActionPick(G.rng,pool),why:'random drop'});}
@@ -654,6 +753,7 @@ function joinCompanion(uid){
  G.lvl[uid]=1;G.bank[uid]=0;G.owned[uid]=1;
  G.affinities=G.affinities||{};if(!G.affinities[uid])G.affinities[uid]={};
  G.statInvest=G.statInvest||{};if(!G.statInvest[uid])G.statInvest[uid]={};
+ G.equipped=G.equipped||{};if(!G.equipped[uid])G.equipped[uid]={};
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
  return fielded;}
@@ -861,6 +961,7 @@ function buildExpeditionParty(partyIds,hpFrac){
   var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
   var st=P.statsAt(uid,def.stats,def.hp,levelOf(uid));
   applyPctStatInvestment(uid,st);
+  applyEquipmentStats(uid,st);
   var mh=st.hp;
   var frac=(hpFrac==null)?1:Math.min(1,hpFrac+recoveryOf(uid));
   var hp=Math.max(1,Math.round(mh*frac));
@@ -1671,6 +1772,46 @@ function renderAether(){
     (Math.round(pctStatValue(u,st)*1000)/10)+'%'+
     (pctStatMaxed(u,st)?'<div class="tiny">At the cap — there is nothing more to buy.</div>':''));
    refreshLiveStats();renderAll();};});}
+
+/* ===== EQUIPMENT TAB (v2.14) ===== structurally "pick one of a shared,
+   contention-limited pool per slot" — the same problem GAMBITS' loadout
+   <select> editor already solves for actions (disabling an option when
+   something else already holds it), not AETHER's "buy an upgrade node"
+   shape above. Mirrors that pattern, gating on OWNED COUNT instead of
+   fielded-unit identity: an option is disabled only when nothing is left
+   to equip and it isn't already this exact slot's occupant. */
+var EQUIP_SLOT_LABEL={head:'Head',body:'Body',legs:'Legs',hand1:'Hand (left)',hand2:'Hand (right)'};
+function renderEquipment(){
+ var host=$('#equipmentView');host.innerHTML='';
+ renderUnitTabs(host,function(){renderEquipment();},true);
+ [currentSelectedUnit(true)].forEach(function(uid){
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  var equipped=(G.equipped&&G.equipped[uid])||{};
+  var box=document.createElement('div');
+  var h='<div class="uname" style="margin-bottom:6px">'+(def?def.name+rarityTag(def.rarity):uid)+'</div>';
+  C.EQUIPMENT_SLOTS.forEach(function(slot){
+   var kind=equipKindForSlot(slot), curId=equipped[slot];
+   var opts='<option value="">— empty —</option>';
+   Object.keys(C.EQUIPMENT).forEach(function(id){
+    var item=C.EQUIPMENT[id];
+    if(item.slot!==kind)return;
+    var isCur=id===curId, avail=equipAvailableCount(id);
+    var dis=(avail<=0&&!isCur)?' disabled':'';
+    opts+='<option value="'+id+'"'+(isCur?' selected':'')+dis+'>'+item.name+
+     rarityTagText(item.rarity)+' (owned '+equipOwnedCount(id)+', '+avail+' available)</option>';});
+   h+='<div class="slot" style="margin-bottom:6px">'+
+    '<label>'+EQUIP_SLOT_LABEL[slot]+'</label>'+
+    '<select class="eq-slot" data-slot="'+slot+'">'+opts+'</select>'+
+    (curId&&C.EQUIPMENT[curId]?'<div class="tiny" style="margin-top:4px">'+
+     describeEquipment(curId).body+'</div>':'')+
+    '</div>';});
+  box.innerHTML=h;host.appendChild(box);
+  Array.prototype.forEach.call(box.querySelectorAll('.eq-slot'),function(el){
+   el.onchange=function(){
+    var slot=el.dataset.slot,val=this.value;
+    if(val)equipItem(uid,slot,val);else unequipItem(uid,slot);
+    refreshLiveStats();renderAll();};});});}
+
 function refreshLiveStats(){
  if(!G.units)return;
  G.units.forEach(function(u){
@@ -1678,6 +1819,7 @@ function refreshLiveStats(){
   if(!def)return;
   var st=P.statsAt(u.id,def.stats,def.hp,levelOf(u.id));
   applyPctStatInvestment(u.id,st);
+  applyEquipmentStats(u.id,st);
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
   u.base.evade=st.evade;u.base.atkCrit=st.atkCrit;u.base.magCrit=st.magCrit;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
@@ -1872,13 +2014,15 @@ function renderMarks(){
    ' Marks</button>'+
    '<div class="tiny" style="margin-top:6px;color:var(--dimmer)">Rolls across everything: '+
    Math.round(P.PULL_ODDS.action*100)+'% action · '+Math.round(P.PULL_ODDS.cond*100)+
-   '% gambit condition · '+Math.round(P.PULL_ODDS.unit*100)+'% companion — guaranteed a companion '+
+   '% gambit condition · '+Math.round(P.PULL_ODDS.equip*100)+'% equipment · '+
+   Math.round(P.PULL_ODDS.unit*100)+'% companion — guaranteed a companion '+
    'every '+P.PULL_PITY_AT+' pulls regardless of odds ('+(G.pullsSinceUnit||0)+'/'+P.PULL_PITY_AT+
    ' since your last one).</div>'+
    '<div class="tiny" style="margin-top:6px">Duplicate actions and gambits convert to '+
    '<b style="color:var(--lore)">Lore</b>; duplicate units convert to '+
-   '<b style="color:var(--aether)">Aether</b>. You OWN every unit you pull — the party is '+
-   'the '+P.PARTY_CAP+' you field, and extras stay benched but yours.'+
+   '<b style="color:var(--aether)">Aether</b>; duplicate equipment just adds to your stock — '+
+   'own 2 of the same piece to wear it on two hands or two units at once. You OWN every unit '+
+   'you pull — the party is the '+P.PARTY_CAP+' you field, and extras stay benched but yours.'+
    (G.party.length>=P.PARTY_CAP?' <b>Party full — new units arrive benched.</b>':'')+
    '</div></div>';
  }
@@ -1900,7 +2044,10 @@ function renderMarks(){
  * That is why a working pull was indistinguishable from a dead button. Every
  * outcome now goes through pushDrop(), the same banner the curated drops use,
  * which is non-blocking, stacks, and persists until acknowledged. */
-P.PULL_ODDS={unit:0.10, action:0.45, cond:0.45};
+/* Equipment (v2.14): "about as rare as units" (Ian) — equip gets the exact
+   same 0.10 as unit, action/cond rebalanced down from .45/.45 to keep the
+   table summing to 1. */
+P.PULL_ODDS={unit:0.10, equip:0.10, action:0.40, cond:0.40};
 /* v2.9 PITY: the 10% unit odds above mean a genuinely unlucky run could go
    very long stretches without a companion (the same complaint that drove
    the boss unit-drop above) — guarantee one at least every 30 pulls. Counts
@@ -1916,7 +2063,9 @@ function doPull(){
  G.pullsSinceUnit=(G.pullsSinceUnit||0)+1;
  var pity=G.pullsSinceUnit>=P.PULL_PITY_AT;
  var roll=G.rng.next(), O=P.PULL_ODDS;
- var kind=pity?'unit':((roll<O.unit)?'unit':((roll<O.unit+O.action)?'action':'cond'));
+ var kind=pity?'unit':((roll<O.unit)?'unit':
+   ((roll<O.unit+O.equip)?'equip':
+   ((roll<O.unit+O.equip+O.action)?'action':'cond')));
  if(kind==='unit'){
   G.pullsSinceUnit=0;   /* nothing more this pity cycle could grant, hit or not */
   /* v2.8 BUGFIX kept: filter on OWNED, not party. Collection and party are
@@ -1941,6 +2090,20 @@ function doPull(){
        curated-teaching moments use, not the dim secondary-aside treatment. */
     why:(fielded?'Fielded immediately. The value is the extra actions per fight, not the stat line.'
       :'<b>Benched</b> — your party of '+P.PARTY_CAP+' is full, but this companion is yours and can be swapped in.')});}
+ }else if(kind==='equip'){
+  /* Same rule as the wave-drop branch in grantDrops: an equipment dupe is
+     never converted to Lore, since owning more copies is genuinely useful
+     (dual-wielding a hand item, the same armor on two units). */
+  var equipIds=Object.keys(C.EQUIPMENT);
+  var eid=P.weightedEquipmentPick(G.rng,equipIds);
+  G.equipInv=G.equipInv||{};
+  G.equipInv[eid]=(G.equipInv[eid]||0)+1;
+  var infoE2=describeEquipment(eid);
+  var nOwned2=G.equipInv[eid];
+  pushDrop({name:infoE2.name,kind:nOwned2===1?'PULL · NEW EQUIPMENT':'PULL · EQUIPMENT (DUPLICATE)',wave:G.wave,
+   body:infoE2.body,
+   why:nOwned2===1?'Equip it from the EQUIPMENT tab — no cost.':
+    'You now own '+nOwned2+'× '+C.EQUIPMENT[eid].name+' — enough to equip it on more than one slot/unit at once.'});
  }else if(kind==='action'){
   var id=P.weightedActionPick(G.rng,C.EQUIPPABLE);
   G.actionCounts[id]=(G.actionCounts[id]||0)+1;
@@ -2208,7 +2371,7 @@ function renderQuests(){
   el.onclick=function(){attemptQuestStage(el.dataset.uid);renderAll();};});
  Array.prototype.forEach.call(host.querySelectorAll('.questGiveUp'),function(el){
   el.onclick=function(){giveUpQuest();renderAll();};});}
-function renderEconomy(){renderPurse();renderAether();renderLore();renderMarks();renderExpedition();renderQuests();}
+function renderEconomy(){renderPurse();renderAether();renderEquipment();renderLore();renderMarks();renderExpedition();renderQuests();}
 function renderAll(){renderHead();renderPowerLevel();renderUnits();renderRail();renderEconomy();renderDropNote();autoSave();}
 /* Lighter sibling of renderAll(), for the ordinary per-beat path in
    doStep()/tick() only — see the comment there. Skips renderEconomy()'s
@@ -2663,7 +2826,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
  b.onclick=function(){
   Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(x){x.classList.remove('on');});
   b.classList.add('on');
-  ['log','gambits','aether','lore','marks','expedition','quests','tests'].forEach(function(t){
+  ['log','gambits','aether','equipment','lore','marks','expedition','quests','tests'].forEach(function(t){
    $('#tab-'+t).classList.toggle('hidden',t!==b.dataset.t);});};});
 
 function boot(seed,mc){

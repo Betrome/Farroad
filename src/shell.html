@@ -320,7 +320,8 @@ pre{font-size:13px;line-height:1.6;padding:10px}
        panel happens to be selected. -->
   <div id="tabs">
     <button data-t="log" class="on">ROAD</button><button data-t="gambits">GAMBITS</button>
-    <button data-t="aether">AETHER</button><button data-t="lore">LORE</button>
+    <button data-t="aether">AETHER</button><button data-t="equipment">EQUIPMENT</button>
+    <button data-t="lore">LORE</button>
     <button data-t="marks">MARKS</button><button data-t="expedition">EXPEDITION</button>
     <button data-t="quests">QUESTS</button>
     <button data-t="tests">TESTS</button>
@@ -343,6 +344,14 @@ pre{font-size:13px;line-height:1.6;padding:10px}
       diversity and buys distinct characters. Solo still needs ~4% compounding growth per wave;
       the EXP curve is calibrated to put a solo character at <b>LV 14 ≈ 2.05×</b> by wave 20.</span></div>
     <div id="aetherView"></div></div>
+
+  <div class="panel hidden" id="tab-equipment">
+    <div class="tiny" style="margin-bottom:6px"><b>Equipment</b> — head, body, legs, and two hands
+      per unit. Legs mainly boost speed and evasion; head/body add defense, resistance, and an
+      affinity; hands add attack, magic, and an affinity. Anything worn in a non-leg slot marginally
+      slows that unit down — the better the piece, the bigger the trade. You can own more than one
+      copy of the same item to wear it on two hands, or on two different units, at once.</div>
+    <div id="equipmentView"></div></div>
 
   <div class="panel hidden" id="tab-lore">
     <div class="tiny" style="margin-bottom:6px"><b>Lore</b> upgrades <b>actions</b>, not characters

@@ -150,6 +150,30 @@ function compileActions(rows) {
   return actions;
 }
 
+/* Equipment (v2.14) — head/body/legs/hand gear. `slot` is one of the 4
+   item KINDS a row can be (head/body/legs/hand); a unit wears 5
+   POSITIONS (head/body/legs/hand1/hand2 — EQUIPMENT_SLOTS in
+   farroad-core.js), a `hand` item fitting either hand position. Stat
+   columns are scoped by slot (validated below, not here) — atk/mag/
+   def/res/spd/evade are all optional flat bonuses, already tier-scaled
+   by RARITY_POWER_MUL at authoring time like every other rarity-
+   promoted number this project has. Affinity reuses compileAffinity()
+   verbatim, same 8-column convention as units/enemies. */
+function compileEquipment(rows) {
+  const equipment = {};
+  rows.forEach(r => {
+    const e = { id: r.id, name: r.name, slot: r.slot };
+    ['atk', 'mag', 'def', 'res', 'spd', 'evade'].forEach(k => {
+      if (r[k] !== '') e[k] = num(r[k]);
+    });
+    e.affinity = compileAffinity(r);
+    if (r.design_note) e.note = r.design_note;
+    e.rarity = compileRarity(r);
+    equipment[r.id] = e;
+  });
+  return equipment;
+}
+
 /* One entry per companion, 5 stages each: {story, powerFraction, isBoss}.
    powerFraction replaces the old fixed P.QUEST_STAGE_POWER_FRAC array with
    an explicit per-companion-per-stage value (validated ascending below). */
@@ -181,7 +205,7 @@ function compileDirectionConfig(rows) {
 const ACTION_DYNAMIC_IDS = ['execute', 'vengeance', 'onslaught', 'reckoning', 'ninefold'];
 const DIRECTIONS_EXPECTED = ['west', 'northwest', 'southwest', 'north', 'south', 'northeast', 'southeast', 'east'];
 
-/* Reads and compiles all 5 CSVs from `rootDir`, validates them (fail loudly,
+/* Reads and compiles all 6 CSVs from `rootDir`, validates them (fail loudly,
    never ship/test a silent undefined), and returns {content, problems} —
    `content` is the plain object window.FarroadContent gets set to;
    `problems` is a string[] of validation failures (empty = clean). */
@@ -194,12 +218,14 @@ function buildContent(rootDir) {
   const actionRows = parseCSV(readCsv('farroadactions.csv'));
   const questRows = parseCSV(readCsv('farroadquests.csv'));
   const dungeonRows = parseCSV(readCsv('farroaddungeons.csv'));
+  const equipmentRows = parseCSV(readCsv('farroadequipment.csv'));
 
   const ROSTER = compileRoster(rosterRows);
   const ARCH = compileArch(archRows);
   const ACTIONS = compileActions(actionRows);
   const QUEST_LINES = compileQuestLines(questRows);
   const DIRECTION_CONFIG = compileDirectionConfig(dungeonRows);
+  const EQUIPMENT = compileEquipment(equipmentRows);
 
   function dupCheck(name, rows, keyFn) {
     const seen = {};
@@ -247,6 +273,38 @@ function buildContent(rootDir) {
       problems.push(`farroadenemies.csv: "${key}" has unrecognized rarity "${ARCH[key].rarity}" (expected one of ${RARITIES.join('/')} or blank)`);
   });
 
+  /* Equipment (v2.14): dup-id, rarity, slot membership, and — the check
+     that actually matters — stat-family scoping. Each `slot` kind grants
+     only its own family (legs: spd/evade; head/body: def/res; hand:
+     atk/mag), enforced here rather than trusted, same fail-loudly
+     reasoning as the element check above: a stray nonzero value in the
+     wrong column is a content mistake a spreadsheet edit could make
+     silently, and the effective-stat math downstream has no way to catch
+     it itself (it just sums whatever's there). */
+  dupCheck('farroadequipment.csv', equipmentRows, r => r.id);
+  const EQUIP_KINDS = ['head', 'body', 'legs', 'hand'];
+  const EQUIP_STAT_FAMILY = {
+    head: ['def', 'res'], body: ['def', 'res'],
+    legs: ['spd', 'evade'], hand: ['atk', 'mag']
+  };
+  const EQUIP_ALL_STATS = ['atk', 'mag', 'def', 'res', 'spd', 'evade'];
+  Object.keys(EQUIPMENT).forEach(id => {
+    const e = EQUIPMENT[id];
+    if (RARITIES.indexOf(e.rarity) < 0)
+      problems.push(`farroadequipment.csv: "${id}" has unrecognized rarity "${e.rarity}" (expected one of ${RARITIES.join('/')} or blank)`);
+    if (EQUIP_KINDS.indexOf(e.slot) < 0) {
+      problems.push(`farroadequipment.csv: "${id}" has unrecognized slot "${e.slot}" (expected one of ${EQUIP_KINDS.join('/')})`);
+      return;   // family check below is meaningless against an unknown slot
+    }
+    const allowed = EQUIP_STAT_FAMILY[e.slot];
+    EQUIP_ALL_STATS.forEach(stat => {
+      if ((e[stat] || 0) !== 0 && allowed.indexOf(stat) < 0)
+        problems.push(`farroadequipment.csv: "${id}" is slot "${e.slot}" but has a nonzero "${stat}" (${e.slot} may only use ${allowed.join('/')})`);
+    });
+    if (e.slot === 'legs' && AFFINITY_AXES.some(ax => (e.affinity[ax] || 0) !== 0))
+      problems.push(`farroadequipment.csv: "${id}" is slot "legs" but has a nonzero affinity (legs items carry no affinity by design)`);
+  });
+
   ROSTER.forEach(r => {
     const line = QUEST_LINES[r.id];
     /* .some()/.filter() SKIP holes in a sparse array (a missing stage row
@@ -266,7 +324,7 @@ function buildContent(rootDir) {
   DIRECTIONS_EXPECTED.forEach(dir => { if (!DIRECTION_CONFIG[dir]) problems.push(`farroaddungeons.csv: missing a row for direction "${dir}"`); });
   Object.keys(DIRECTION_CONFIG).forEach(dir => { if (DIRECTIONS_EXPECTED.indexOf(dir) < 0) problems.push(`farroaddungeons.csv: unrecognized direction "${dir}"`); });
 
-  return { content: { ROSTER, ARCH, ACTIONS, QUEST_LINES, DIRECTION_CONFIG }, problems };
+  return { content: { ROSTER, ARCH, ACTIONS, QUEST_LINES, DIRECTION_CONFIG, EQUIPMENT }, problems };
 }
 
-module.exports = { parseCSV, compileRoster, compileArch, compileActions, compileQuestLines, compileDirectionConfig, buildContent };
+module.exports = { parseCSV, compileRoster, compileArch, compileActions, compileEquipment, compileQuestLines, compileDirectionConfig, buildContent };
