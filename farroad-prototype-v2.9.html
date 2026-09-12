@@ -256,7 +256,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 <body>
 <div id="mcCreate" class="hidden">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-12 02:25 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-12 03:06 UTC</div>
   <div class="sub">Before the road begins — build your character.</div>
 
   <div class="panel">
@@ -293,7 +293,7 @@ pre{font-size:13px;line-height:1.6;padding:10px}
 
 <div id="app">
   <h1>Farroad <span class="vbadge">v2.9</span></h1>
-  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-12 02:25 UTC</div>
+  <div class="tiny" style="color:var(--dimmer);margin:-4px 0 6px">built 2026-09-12 03:06 UTC</div>
   <div class="sub">solo start → curated onboarding → boss at wave 20 → second character</div>
   <div class="tiny" style="margin-bottom:8px;color:var(--dimmer)">
     v1.0: the <b>clock</b> is on — enemies enrage after turn 20 of the fight, +5%/turn. That is
@@ -4526,6 +4526,19 @@ function actionHolders(aid){
   if(holds)active.push(rd?rd.name:uid);
   else if(mcOwns&&G.mc.acquiredCharges.indexOf(aid)>=0)banked=true;});
  return {active:active,banked:banked};}
+/* v2.16 (LORE regroup) — the inverse of actionHolders: given a unit, which
+   action ids does it CURRENTLY have equipped (loadout slots, deduped,
+   plus its live charge action)? Same chargeAction resolution GAMBITS'
+   own loadout render already uses (mcOwns ? G.mc.chargeAction : the
+   roster's fixed one), kept identical rather than re-derived. */
+function unitActiveActions(uid){
+ var ids=[];
+ (G.loadout[uid]||[]).forEach(function(s){if(ids.indexOf(s.action)<0)ids.push(s.action);});
+ var rd=null;C.ROSTER.forEach(function(r){if(r.id===uid)rd=r;});
+ var mcOwns=(uid==='kesh'&&G.mc&&G.mc.acquiredCharges&&G.mc.acquiredCharges.length);
+ var ca=mcOwns?G.mc.chargeAction:(rd&&rd.chargeAction);
+ if(ca&&ids.indexOf(ca)<0)ids.push(ca);
+ return ids;}
 function renderLore(){
  var host=$('#loreView');host.innerHTML='';
  var spent=C.bonusSpend(G.bonuses),free=Math.max(0,G.lore-spent);
@@ -4540,35 +4553,75 @@ function renderLore(){
  var refundTotal=0;
  unusedIds.forEach(function(aid){var b=G.bonuses[aid],total=C.actionBonusTotal(b);
   refundTotal+=total*(total+1)/2+(b.broad||0)*C.BONUS_COST_BROAD;});
- /* v2.9: per-ACTION tabs, not per-unit — "I want Lore to have per action
-    tabs, with the ones in use having a star next to them." Tab pool starts
-    as G.actions (every loadout-slot basic the player has unlocked), plus
-    any charge action currently in play — those are NEVER entries in
-    G.actions (a companion's chargeAction is a fixed roster property, the
-    MC's come from G.mc.acquiredCharges, neither goes through the
-    drop/pull unlock path G.actions tracks), so they'd silently vanish from
-    LORE without this — caught live: "charge actions aren't available on
-    the Lore tab now." `used` (usedActions(), computed above) already scans
-    exactly this same set for its own purposes, so reuse it rather than
-    re-deriving it. Sorted used-first so the starred ones cluster at the
-    front of the row too, not just visually marked mid-list. */
+ /* Tab pool starts as G.actions (every loadout-slot basic the player has
+    unlocked), plus any charge action currently in play — those are NEVER
+    entries in G.actions (a companion's chargeAction is a fixed roster
+    property, the MC's come from G.mc.acquiredCharges, neither goes through
+    the drop/pull unlock path G.actions tracks), so they'd silently vanish
+    from LORE without this — caught live: "charge actions aren't available
+    on the Lore tab now." `used` (usedActions(), computed above) already
+    scans exactly this same set for its own purposes, so reuse it rather
+    than re-deriving it. */
  var actionIds=G.actions.slice();
  Object.keys(used).forEach(function(id){
   if(actionIds.indexOf(id)<0&&C.ACTIONS[id]&&C.ACTIONS[id].isCharge)actionIds.push(id);});
- /* v2.9: star/sort now key off ACTUALLY-equipped-right-now (actionHolders
-    .active), not usedActions()'s broader "protected from refund" sense —
-    those are different questions, and conflating them is exactly what
-    produced "starred charge actions listed as banked on Kesh — not
-    currently equipped": a banked-but-unequipped MC charge is refund-
-    protected (used[aid]=true, so it was starred) while genuinely not in
-    use anywhere, a real contradiction, not just bad wording. `used` itself
-    is untouched below — the refund button's own eligibility logic is a
+ /* active[] keys off ACTUALLY-equipped-right-now (actionHolders.active),
+    not usedActions()'s broader "protected from refund" sense — those are
+    different questions, and conflating them once produced "starred charge
+    actions listed as banked on Kesh — not currently equipped": a banked-
+    but-unequipped MC charge is refund-protected (used[aid]=true) while
+    genuinely not in use anywhere, a real contradiction. `used` itself is
+    untouched below — the refund button's own eligibility logic is a
     separate, correct concern and still needs the broader sense. */
  var active={};
  actionIds.forEach(function(aid){active[aid]=actionHolders(aid).active.length>0;});
- actionIds.sort(function(x,y){
-  var ax=active[x]?0:1,ay=active[y]?0:1;return ax-ay;});   /* stable sort: active first, original order within each group */
- renderActionTabs(host,actionIds,active,function(){renderLore();});
+ /* v2.16: "scrolling through them is unwieldy" — one button per action
+    (a dozen-plus once drops turn random) wrapped into a long flat block.
+    Grouped instead, into the two buckets LORE spend already cares about:
+    the shared unit-tab row (same selectedUnitTab AETHER/GAMBITS/EQUIPMENT
+    already use) picks a unit; a short row below shows just THAT unit's
+    2-3 actively-equipped actions; everything nobody currently has
+    equipped lives in one <select> under that. renderActionTabs (the old
+    flat-row renderer) is retired — this was its only call site. */
+ renderUnitTabs(host,function(){renderLore();},true);
+ var curUid=currentSelectedUnit(true);
+ var equippedIds=unitActiveActions(curUid).filter(function(id){return C.ACTIONS[id];});
+ /* Ensure selectedActionTab is valid BEFORE the "which unit does it belong
+    to" fixup below — currentSelectedAction() defaults a null/stale value
+    to actionIds[0], so this also covers LORE's very first render, not
+    just a later re-render with a stale selection. */
+ currentSelectedAction(actionIds);
+ /* Keep the equipped-row highlight and the dropdown's "selected" state
+    honest on every render, not just on a tab click — if the action
+    currently shown belongs to some OTHER unit (switched tabs elsewhere,
+    or this is the very first render), snap to the newly-current unit's
+    own first equipped action instead of leaving the row looking like
+    nothing is picked while the panel below shows someone else's action. */
+ if(active[selectedActionTab]&&equippedIds.indexOf(selectedActionTab)<0)
+  selectedActionTab=equippedIds[0]||selectedActionTab;
+ var curDef=null;C.ROSTER.forEach(function(r){if(r.id===curUid)curDef=r;});
+ if(equippedIds.length){
+  var eqBox=document.createElement('div');eqBox.className='row';
+  eqBox.style.cssText='flex-wrap:wrap;margin-bottom:6px';
+  eqBox.innerHTML=equippedIds.map(function(aid){var a=C.ACTIONS[aid];
+   return '<button class="mini utab'+(aid===selectedActionTab?' on':'')+'" data-a="'+aid+'">'+
+    actionGlyph(a)+a.name+rarityTag(a.rarity)+' <span class="tiny">Lv'+actionLevel(aid)+'</span></button>';}).join('');
+  host.appendChild(eqBox);
+  Array.prototype.forEach.call(eqBox.querySelectorAll('.utab'),function(el){
+   el.onclick=function(){selectedActionTab=el.dataset.a;renderLore();};});
+ }else{
+  host.insertAdjacentHTML('beforeend','<div class="tiny" style="margin-bottom:6px">'+
+   (curDef?curDef.name:curUid)+' has nothing equipped.</div>');}
+ var unequippedIds=actionIds.filter(function(id){return !active[id];});
+ if(unequippedIds.length){
+  host.insertAdjacentHTML('beforeend','<label>Unequipped actions</label>');
+  var uneqSel=document.createElement('select');uneqSel.id='loreUnequipped';
+  uneqSel.style.marginBottom='6px';
+  uneqSel.innerHTML=unequippedIds.map(function(id){var a=C.ACTIONS[id];
+   return '<option value="'+id+'"'+(id===selectedActionTab?' selected':'')+'>'+
+    actionGlyphText(a)+a.name+rarityTagText(a.rarity)+' — Lv'+actionLevel(id)+'</option>';}).join('');
+  host.appendChild(uneqSel);
+  uneqSel.onchange=function(){selectedActionTab=this.value;renderLore();};}
  /* "let's also make how much lore I have available to level more
     apparent" — was a single .tiny line easy to miss; now its own
     prominent, colored line matching how AETHER/MARKS/LORE currencies read
@@ -5103,12 +5156,15 @@ function renderUnitTabs(host,onChange,includeBenched){
  box.innerHTML=h;host.appendChild(box);
  Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
   el.onclick=function(){selectedUnitTab=el.dataset.u;onChange();};});}
-/* ===== PER-ACTION TABS (LORE) =====
- * "I want Lore to have per action tabs, with the ones in use having a star
- * next to them." Same tab-bar pattern as renderUnitTabs above, but keyed on
- * action id rather than unit id — a separate selectedActionTab rather than
- * reusing selectedUnitTab, since the two are independent selections (LORE
- * no longer has a unit dimension at all). */
+/* ===== SELECTED ACTION (LORE) =====
+ * v2.16: which action's Lore panel is currently shown. Originally driven
+ * by a flat per-action tab row (one button per action, active ones
+ * starred) — retired in favor of grouping by unit (renderLore's own
+ * equipped-row + unequipped <select>, see unitActiveActions above), since
+ * the flat row became an unwieldy scroll once a run had a dozen-plus
+ * actions. selectedActionTab itself is unchanged: still independent from
+ * selectedUnitTab (LORE's grouping reads the unit tab to decide WHICH
+ * action row to show, but the actual open panel is still just one id). */
 var selectedActionTab=null;
 function currentSelectedAction(actionIds){
  if(!selectedActionTab||actionIds.indexOf(selectedActionTab)<0)selectedActionTab=actionIds[0];
@@ -5122,17 +5178,6 @@ function currentSelectedAction(actionIds){
    is untouched (bonusPrice/actionBonusTotal still exclude broad on
    purpose, for the escalation math) — only this display number changes. */
 function actionLevel(aid){var b=G.bonuses[aid]||{};return C.actionBonusTotal(b)+(b.broad||0);}
-function renderActionTabs(host,actionIds,active,onChange){
- var box=document.createElement('div');box.className='row';
- box.style.cssText='flex-wrap:wrap;margin-bottom:8px';
- var cur=currentSelectedAction(actionIds),h='';
- actionIds.forEach(function(aid){
-  var a=C.ACTIONS[aid];if(!a)return;
-  h+='<button class="mini utab'+(aid===cur?' on':'')+'" data-a="'+aid+'">'+
-   actionGlyph(a)+a.name+rarityTag(a.rarity)+' <span class="tiny">Lv'+actionLevel(aid)+'</span>'+(active[aid]?' ★':'')+'</button>';});
- box.innerHTML=h;host.appendChild(box);
- Array.prototype.forEach.call(box.querySelectorAll('.utab'),function(el){
-  el.onclick=function(){selectedActionTab=el.dataset.a;onChange();};});}
 /* Returns a plain HTML string rather than appending to a host directly —
    renderExpedition() (its one call site) already assembles its own content
    as a single string and sets host.innerHTML once, so this needs to slot

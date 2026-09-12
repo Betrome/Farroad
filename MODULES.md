@@ -2957,3 +2957,64 @@ correct names and rarity tags; no console errors. Not re-verified: the
 stat-math/duplicate-ownership/speed-penalty mechanics themselves,
 since those are unchanged code paths already verified live in the
 Equipment section above — this pass only added data.
+
+## LORE regrouped by unit — equipped row + unequipped dropdown
+
+Ian: "I need a better way to organize actions on the lore tab.
+scrolling through them is unwieldy. what if we had buttons for each
+unit which drop-down you show their equipped actions and a drop-down
+for all unequipped actions." The v2.9 per-action tab row (one button
+per action the player has ever unlocked, active ones sorted first) was
+fine at a handful of actions but became a long wrapped block once
+drops turn random past wave 20 and duplicates start piling up Lore.
+
+**Reused the shared unit-tab row rather than inventing a new one** —
+`renderUnitTabs` (the same `selectedUnitTab` AETHER/GAMBITS/EQUIPMENT
+already read/write) now drives LORE too, so picking a unit anywhere
+in the app keeps LORE in sync rather than adding a fifth independent
+"which unit am I looking at" concept. New `unitActiveActions(uid)`
+(`farroad-ui.js`, beside `actionHolders` — the inverse question: given
+a unit, not an action) returns that unit's deduped loadout-slot action
+ids plus its live charge action, reusing the exact `mcOwns ?
+G.mc.chargeAction : def.chargeAction` resolution GAMBITS' own loadout
+render already has, rather than re-deriving it a third time.
+
+**Two buckets, matching what LORE spend already cares about**: a short
+row of the selected unit's 2-3 actively-equipped actions (reusing the
+old tab-button visual exactly — icon, name, rarity badge, level), and
+one `<select>` below it listing every action nobody currently has
+equipped (icon/name/rarity/level as option text, same as GAMBITS'
+action selects). The ★-marked "active" flag that used to live on every
+button is gone — which BUCKET an action is in now says that
+structurally, so a separate marker was redundant. `renderActionTabs`
+(the old flat-row renderer, LORE's only caller) is deleted rather than
+kept dead.
+
+**Kept the currently-open action honest across renders**, not just on
+a tab click: if the action shown in the detail panel belongs to some
+OTHER unit than the one just selected (switching from a different tab
+elsewhere, or LORE's very first render this session), it snaps to the
+newly-selected unit's own first equipped action instead of leaving the
+equipped-row looking unselected while the panel below shows someone
+else's action — verified live to correctly NOT snap when the shown
+action is also equipped by the newly-selected unit (e.g. Strike, used
+by both a fresh MC and Dorrek), only snapping when there's truly no
+overlap.
+
+**Verified**: `node build.js` + `node farroadsmoke.js` (214/214, no
+regressions — this pass touched only rendering, no touched formula/
+data). Live browser pass (a temporary debug hook, added and fully
+removed before shipping, seeded a 3-unit party with overlapping and
+non-overlapping loadouts and 50 Lore): confirmed the equipped row
+shows exactly a unit's own 2-3 actions with correct dedup (Dorrek's
+`[strike,strike]` loadout collapsed to one Strike button, not two);
+confirmed the unequipped dropdown excludes anything any unit currently
+holds and updates live as loadouts change (emptying Kesh's loadout
+moved Pierce from the equipped row into the dropdown on the next
+render); confirmed switching to Ansa (no action overlap with the
+previously-viewed Strike) auto-snapped the detail panel to her own
+Mend, while switching to Dorrek (who also uses Strike) correctly left
+the panel showing Strike unchanged; confirmed selecting an unequipped
+action from the dropdown and buying a Lore upgrade on it worked
+end-to-end (Sear → Lv1, Lore 50→49, refund button appeared); no
+console errors throughout.
