@@ -17,6 +17,27 @@ window.onerror=function(msg,src,line,col){
 var C=window.FarroadCore, P=window.FarroadProgression, Save=window.FarroadSave;
 var $=function(s){return document.querySelector(s);};
 var SAVE_KEY='farroad-save-v1';
+/* v2.21: prep for a future server-backed Coliseum (real design tabled until
+   there's an actual player base — see MODULES.md) — a stable, device-scoped
+   identity is the one piece that can't be retrofitted for free once real
+   players exist, so it's established now even though nothing reads it yet.
+   Deliberately its OWN localStorage key, never a farroad-save.js FIELD:
+   it must survive "Reset run" (which only clears SAVE_KEY — device identity
+   and game progress are different concepts) and must NOT travel if a save
+   blob is ever shared between two people (that should never make the
+   receiving device silently adopt the sender's identity). */
+var PLAYER_ID_KEY='farroad-player-id';
+function uuidV4Fallback(){
+ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
+  var r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);});}
+function getOrCreatePlayerId(){
+ try{
+  var id=localStorage.getItem(PLAYER_ID_KEY);
+  if(id)return id;
+  id=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID():uuidV4Fallback();
+  localStorage.setItem(PLAYER_ID_KEY,id);
+  return id;
+ }catch(e){return uuidV4Fallback();}}   /* localStorage unavailable (e.g. a data: URL) — unpersisted id for this session only */
 
 var G;   /* game state */
 /* @param mc optional {name,stats,hp,growth,chargeAction} from character
@@ -1332,6 +1353,7 @@ function tryResumeSave(){
  var loaded=Save.deserialize(snap,C);
  if(!loaded){sysLog('<span style="color:var(--bad)">Save was corrupt — starting a fresh run.</span>');return false;}
  G=loaded;
+ G.playerId=getOrCreatePlayerId();
  applyCustomMC();
  $('#log').innerHTML='';
  /* Rebuild the battle for the wave the player was actually on BEFORE
@@ -3105,6 +3127,7 @@ Array.prototype.forEach.call(document.querySelectorAll('#tabs button'),function(
 
 function boot(seed,mc){
  G=newGame(seed,mc||(G&&G.mc));   /* Reset run keeps the same custom character */
+ G.playerId=getOrCreatePlayerId();
  applyCustomMC();
  C.applyBonuses({});
  $('#log').innerHTML='';
@@ -3228,5 +3251,6 @@ setInterval(function(){if(G)updateExpeditionTimers();},1000);
    here, so it's left starting paused like before. A fresh first-ever
    visit (tryResumeSave() returns false) always goes to character
    creation, where there is no travel loop to start yet regardless. */
+getOrCreatePlayerId();   /* established before either branch below — see its own comment */
 if(tryResumeSave()){if(G.mc)play();}else showMcCreate();
 })();

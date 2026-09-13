@@ -3484,3 +3484,86 @@ currency rather than re-granting the Crown, both action-reward paths
 console errors throughout.
 
 `build.js`'s VERSION bumped v2.19 -> v2.20 for this feature.
+
+## A durable player id — prep for a future server-backed Coliseum (v2.20 -> v2.21)
+
+Ian's actual Coliseum vision (asked about, then scoped down): parties
+synced server-side automatically, fetched when a player clicks an
+opponent in a coliseum, Elo-style points gained/lost relative to the
+opponent's power level, and rank-based rewards — server-authoritative,
+so a player can't edit their own state. That needs real infrastructure
+(hosting, a database, auth) Farroad doesn't have today, and Ian
+explicitly tabled those decisions until there's an actual player base.
+He asked one narrower question instead: is there anything worth
+changing NOW to prepare for that later?
+
+Answer, after tracing what the current architecture already gives for
+free: almost nothing. `farroad-core.js`'s battle engine is already
+pure and headless by construction (no DOM, no localStorage — built
+that way specifically so combat can run away from the main loop for
+idle quests) — a future Node backend could `require()` this exact file
+and deterministically re-resolve a submitted battle itself, which is
+the strongest possible foundation for "players can't edit their own
+state" on the battle-outcome side, and it already exists.
+`P.powerLevel(g)` already computes the single account-wide power
+number a future rating formula would key off of. The freeze/replay
+pattern (`bakeEnemySnapshot`/`unitsFromSnapshots`) is already the
+shape a synced-party payload would take. Deliberately NOT built now:
+the actual "resolved party snapshot" export/encode logic (the
+technical core of an earlier, shelved ghost-battle design for this
+same ask) — it would have no caller until there's a real sync target,
+and its exact shape should be decided alongside the backend/auth
+choice, not guessed at now and likely redone later.
+
+**The one real gap**: nothing today distinguishes "this browser" from
+any other. Ian's own answer for identity — anonymous device ID first,
+with an optional sign-in later to link it across devices — has a hard
+requirement that can't be retrofitted for free: every device needs a
+stable id BEFORE any sign-in/linking flow can be designed, or every
+save between now and then starts identity-less and a future migration
+has to handle that case regardless. Cheap to do now, so it's done now.
+
+New `getOrCreatePlayerId()` (`farroad-ui.js`, near `SAVE_KEY`): reads
+a NEW, separate localStorage key (`'farroad-player-id'`) and generates
+a UUID (`crypto.randomUUID()`, with a manual RFC4122-v4 fallback for
+the rare environment without it — this id needs real GLOBAL
+uniqueness, unlike the timestamp+random scheme `dgn.../sbq...` object
+ids use for merely local-to-one-save uniqueness) if the key is empty,
+persisting it back. Deliberately its own key, NOT a `farroad-save.js`
+`FIELDS` entry, for two reasons that both fall out of treating device
+identity and game progress as different concepts: it must survive
+"Reset run" (`$('#btnReset')` only clears `SAVE_KEY`), and it must NOT
+travel if a save blob is ever shared between two people (from the
+"share progress without overwriting theirs" question earlier in this
+project) — a shared save should never make the receiving device
+silently adopt the sender's identity. Called once at the true
+top-level boot decision (`if(tryResumeSave()){...}else showMcCreate();`)
+before either branch runs, and again inside both `boot()` and
+`tryResumeSave()` (idempotent — the second and third calls just return
+the already-persisted value) so `G.playerId` is populated identically
+regardless of which path produced the live `G`. No UI surface yet;
+nothing reads `G.playerId` yet.
+
+**Verified**: `node build.js` + `node farroadsmoke.js` — 236/236,
+unchanged (this function is UI-layer-only, unreachable by the
+headless suite, same as every other `farroad-ui.js`-only piece this
+project verifies live instead). Live pass via a temporary
+`window.__debug` hook (added and fully removed before shipping):
+confirmed `G.playerId` populates correctly through both the
+fresh-character-creation path and would populate identically through
+a resumed-save path (same call site, same idempotent getter); in the
+Browser-pane preview sandbox, where `localStorage` throws
+("Storage is disabled inside 'data:' URLs" — the exact same limitation
+the game's own autosave already tolerates in that same sandbox),
+confirmed the try/catch fallback degrades gracefully to a session-only
+UUID with no console errors and no broken boot, rather than crashing.
+True cross-reload persistence relies on `localStorage.getItem`/
+`setItem` behaving the way `SAVE_KEY`'s own already-proven get/set
+calls in this same file already do in a real browsing context (the
+game's entire save/resume system depends on exactly that) — the
+sandboxed preview and the available browser-automation tooling in this
+session couldn't open a real `file://` context to exercise that
+directly, so this last mile rests on that structural parallel rather
+than an end-to-end observed reload.
+
+`build.js`'s VERSION bumped v2.20 -> v2.21 for this change.
