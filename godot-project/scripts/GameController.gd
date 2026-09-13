@@ -10,9 +10,11 @@ extends Node2D
 ##
 ## No `mc` yet (character creation is Step 3j) -- a fresh game runs with
 ## `g["mc"] = null`, exactly like a fresh JS save before creation exists,
-## which uses the hardcoded Kesh default. Step 3c adds the GAMBITS tab
-## (loadout editor + party bench/field, see GambitsPanel.gd). No AETHER/
-## LORE/EQUIPMENT/MARKS/EXPEDITION/QUESTS tabs yet (Steps 3d-3j).
+## which uses the hardcoded Kesh default. Step 3c added the GAMBITS tab
+## (loadout editor + party bench/field, see GambitsPanel.gd); Step 3d
+## added AETHER (leveling/Recovery/Evade-Crit/Affinity investment, see
+## AetherPanel.gd). No LORE/EQUIPMENT/MARKS/EXPEDITION/QUESTS tabs yet
+## (Steps 3e-3j).
 
 const SAVE_PATH := "user://save.json"
 
@@ -20,6 +22,7 @@ var g: Dictionary
 var _vp: Vector2
 var current_presenter: Node = null
 var gambits_panel: Node
+var aether_panel: Node
 
 var wave_label: Label
 var currency_label: Label
@@ -38,7 +41,36 @@ func _ready() -> void:
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
 	gambits_panel.setup(g, _vp, self)
+	aether_panel = load("res://scripts/AetherPanel.gd").new()
+	add_child(aether_panel)
+	aether_panel.setup(g, _vp, self)
+	get_viewport().size_changed.connect(_on_viewport_resized)
 	_begin_next_fight()
+
+## A window resize (or, on a real device, a size Godot didn't report until
+## just now) changes what get_viewport_rect().size actually is -- everything
+## in this project is laid out as a FRACTION of that, computed once at
+## build time, so without this every fraction-based position would stay
+## wrong (sized for the old viewport) for the rest of the session. Repositions
+## this controller's own static HUD directly, and asks BattlePresenter/
+## GambitsPanel/AetherPanel to do the same for their own chrome. Currently-
+## live battle UNITS are deliberately left alone here -- see
+## BattlePresenter.reflow()'s own comment for why that's safe, not an
+## oversight.
+func _on_viewport_resized() -> void:
+	_vp = get_viewport_rect().size
+	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
+	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
+	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	outcome_label.position = Vector2(_vp.x * 0.30, _vp.y * 0.025)
+	outcome_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
+	# wave_popup itself needs no repositioning here -- _show_wave_popup()
+	# already computes its center fresh from _vp every time it's shown.
+	if current_presenter != null:
+		current_presenter.reflow(_vp)
+	gambits_panel.reflow(_vp)
+	aether_panel.reflow(_vp)
 
 ## Resumes user://save.json if one exists and parses cleanly; otherwise
 ## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
@@ -155,6 +187,15 @@ func _on_battle_finished(outcome: String) -> void:
 ## buttons + turn-order strip below.
 func _show_wave_popup(w: int) -> void:
 	wave_popup_label.text = "Wave %d" % w
+	# wave_popup is a plain PanelContainer (a CanvasItem sibling of
+	# GameController's other children), not a real overlay window -- its
+	# draw order follows its position in the children list. Each new
+	# BattlePresenter (and its units) gets added AFTER wave_popup was first
+	# built in _build_hud(), so without this it silently ends up drawn on
+	# TOP of the popup from the second wave onward. Move it to the very end
+	# of the children list -- drawn last, i.e. on top -- every time it's
+	# about to show.
+	move_child(wave_popup, get_child_count() - 1)
 	wave_popup.show()
 	await get_tree().process_frame   # let the container size itself to the new text
 	var combat_center := Vector2(_vp.x / 2.0, _vp.y * (0.11 + 0.58) / 2.0)

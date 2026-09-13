@@ -708,6 +708,92 @@ if (mode === 'progression') {
   out.gambits.partyAfterField = g2.party.slice();
   out.gambits.fieldUnowned = fieldUnit(g2, 'vey');
 
+  // Step 3d: AETHER -- leveling + Recovery + Evade/Crit + Affinity
+  // purchases, hand-transcribed from the real 4 purchase handlers
+  // (farroad-ui.js:1899-1938) the same way everything else above was.
+  function levelOfG(gg, uid) { return (gg.lvl && gg.lvl[uid]) || 1; }
+  function ratchetRG(gg) { return gg.maxLevelEver || 1; }
+  function rarityCostMulG(uid) {
+    var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+    return C.RARITY_COST_MUL[(def && def.rarity) || 'common'] || 1;
+  }
+  function costNextG(gg, uid) { return Math.round(P.costToNext(levelOfG(gg, uid), ratchetRG(gg)) * rarityCostMulG(uid)); }
+  function feedUnitG(gg, uid, amount) {
+    gg.bank = gg.bank || {}; gg.lvl = gg.lvl || {};
+    gg.bank[uid] = (gg.bank[uid] || 0) + amount;
+    var guard = 0, mul = rarityCostMulG(uid);
+    while (guard++ < 100000) {
+      var c = Math.round(P.costToNext(levelOfG(gg, uid), ratchetRG(gg)) * mul);
+      if (gg.bank[uid] < c) break;
+      gg.bank[uid] -= c; gg.lvl[uid] = levelOfG(gg, uid) + 1;
+      if (gg.lvl[uid] > (gg.maxLevelEver || 1)) gg.maxLevelEver = gg.lvl[uid];
+    }
+  }
+  function recoveryOfG(gg, uid) {
+    var steps = (gg.recovery && gg.recovery[uid]) || 0;
+    return Math.min(P.REST_CAP, P.REST + P.REST_STEP * steps);
+  }
+  function recoveryCostG(gg, uid) { return Math.round(10 * Math.pow(1.45, (gg.recovery && gg.recovery[uid]) || 0)); }
+  function recoveryMaxedG(gg, uid) { return recoveryOfG(gg, uid) >= P.REST_CAP - 1e-9; }
+  function affinityBaselineG(uid) {
+    var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+    return (def && def.affinity) || {};
+  }
+  function affinityPurchasedG(gg, uid) { return (gg.affinities && gg.affinities[uid]) || {}; }
+  function affinityRawG(gg, uid, axis) { return (affinityBaselineG(uid)[axis] || 0) + (affinityPurchasedG(gg, uid)[axis] || 0); }
+  function affinityMaxedG(gg, uid, axis) { return affinityRawG(gg, uid, axis) >= C.AFFINITY_CAP; }
+  function pctStatBaselineG(uid, stat) {
+    var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+    return (def && def.stats && def.stats[stat]) || 0;
+  }
+  function pctStatPurchasedG(gg, uid, stat) { return ((gg.statInvest && gg.statInvest[uid] && gg.statInvest[uid][stat]) || 0); }
+  function spendFeed(gg, uid, amount) {
+    if (gg.aether < amount) return false;
+    gg.aether -= amount; feedUnitG(gg, uid, amount); return true;
+  }
+  function spendRecovery(gg, uid) {
+    var c = recoveryCostG(gg, uid);
+    if (gg.aether < c || recoveryMaxedG(gg, uid)) return false;
+    gg.aether -= c; gg.recovery = gg.recovery || {}; gg.recovery[uid] = (gg.recovery[uid] || 0) + 1;
+    return true;
+  }
+  function spendAffinity(gg, uid, axis) {
+    var c = P.affinityCostToNext(affinityPurchasedG(gg, uid)[axis] || 0);
+    if (gg.aether < c || affinityMaxedG(gg, uid, axis)) return false;
+    gg.aether -= c; gg.affinities = gg.affinities || {}; gg.affinities[uid] = gg.affinities[uid] || {};
+    gg.affinities[uid][axis] = (gg.affinities[uid][axis] || 0) + 1;
+    return true;
+  }
+  function spendPctStat(gg, uid, stat) {
+    var c = P.pctStatCost(stat, pctStatPurchasedG(gg, uid, stat));
+    if (gg.aether < c || P.pctStatMaxed(pctStatBaselineG(uid, stat), stat, pctStatPurchasedG(gg, uid, stat))) return false;
+    gg.aether -= c; gg.statInvest = gg.statInvest || {}; gg.statInvest[uid] = gg.statInvest[uid] || {};
+    gg.statInvest[uid][stat] = (gg.statInvest[uid][stat] || 0) + 1;
+    return true;
+  }
+
+  var g3 = newGame(7, null);
+  startWave(g3, 1);
+  g3.aether = 100000;
+  var aether3 = { costNextL1: costNextG(g3, 'kesh') };
+  aether3.feed250 = spendFeed(g3, 'kesh', 250);
+  aether3.levelAfterFeed = levelOfG(g3, 'kesh');
+  aether3.aetherAfterFeed = g3.aether;
+  aether3.recoveryBefore = recoveryOfG(g3, 'kesh');
+  spendRecovery(g3, 'kesh');
+  aether3.recoveryAfter = recoveryOfG(g3, 'kesh');
+  aether3.fireBefore = affinityRawG(g3, 'kesh', 'fire');
+  spendAffinity(g3, 'kesh', 'fire');
+  aether3.fireAfter = affinityRawG(g3, 'kesh', 'fire');
+  aether3.evadeBefore = P.pctStatValue(pctStatBaselineG('kesh', 'evade'), 'evade', pctStatPurchasedG(g3, 'kesh', 'evade'));
+  spendPctStat(g3, 'kesh', 'evade');
+  aether3.evadeAfter = P.pctStatValue(pctStatBaselineG('kesh', 'evade'), 'evade', pctStatPurchasedG(g3, 'kesh', 'evade'));
+  g3.aether = 0;
+  var aetherBefore3 = g3.aether;
+  aether3.refusedFeed = spendFeed(g3, 'kesh', 50);
+  aether3.aetherUnchanged = (g3.aether === aetherBefore3);
+  out.aether = aether3;
+
   console.log(JSON.stringify(out));
 }
 

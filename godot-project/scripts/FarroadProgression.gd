@@ -175,6 +175,14 @@ static func recovery_of(g: Dictionary, uid: String) -> float:
 	var steps: int = g.get("recovery", {}).get(uid, 0)
 	return minf(REST_CAP, REST + REST_STEP * steps)
 
+## Mirrors recoveryCost (farroad-ui.js:195).
+static func recovery_cost(g: Dictionary, uid: String) -> int:
+	var steps: int = g.get("recovery", {}).get(uid, 0)
+	return int(round(10.0 * pow(1.45, steps)))
+
+static func recovery_maxed(g: Dictionary, uid: String) -> bool:
+	return recovery_of(g, uid) >= REST_CAP - 1e-9
+
 ## ===== curated onboarding =====
 
 const STARTER_ACTIONS: Array[String] = ["strike", "ember"]
@@ -346,6 +354,10 @@ static func rarity_cost_mul(uid: String) -> float:
 static func level_of(g: Dictionary, uid: String) -> int:
 	return g.get("lvl", {}).get(uid, 1)
 
+## Mirrors expOf (farroad-ui.js:199) -- unspent Aether sitting in a unit's bank.
+static func exp_of(g: Dictionary, uid: String) -> float:
+	return g.get("bank", {}).get(uid, 0)
+
 static func ratchet_r(g: Dictionary) -> int:
 	return g.get("maxLevelEver", 1)
 
@@ -369,6 +381,51 @@ static func feed_unit(g: Dictionary, uid: String, amount: int) -> int:
 		if g["lvl"][uid] > g.get("maxLevelEver", 1):
 			g["maxLevelEver"] = g["lvl"][uid]
 	return gained
+
+## ===== AETHER tab purchases (Step 3d) -- each mirrors one of
+## renderAether()'s 4 purchase handlers (farroad-ui.js:1899-1938) exactly:
+## refuse if unaffordable or already maxed, else deduct g["aether"] and
+## mutate. NOT ported: refreshLiveStats()'s push onto a unit's LIVE
+## mid-fight stats -- a purchase still fully applies, just starting next
+## wave's build_party() (which already recomputes every one of these from
+## g["lvl"]/g["statInvest"]/g["affinities"] fresh every time) rather than
+## instantly mid-fight. Flagged, not silently skipped -- same class of
+## deliberate trim as GAMBITS' deferred conflict modal. =====
+
+static func spend_feed(g: Dictionary, uid: String, amount: int) -> bool:
+	if g.get("aether", 0) < amount:
+		return false
+	g["aether"] -= amount
+	feed_unit(g, uid, amount)
+	return true
+
+static func spend_recovery(g: Dictionary, uid: String) -> bool:
+	var c := recovery_cost(g, uid)
+	if g.get("aether", 0) < c or recovery_maxed(g, uid):
+		return false
+	g["aether"] -= c
+	g["recovery"][uid] = g["recovery"].get(uid, 0) + 1
+	return true
+
+static func spend_affinity(g: Dictionary, uid: String, axis: String) -> bool:
+	var c := affinity_cost_to_next(affinity_purchased(g, uid).get(axis, 0))
+	if g.get("aether", 0) < c or affinity_maxed(g, uid, axis):
+		return false
+	g["aether"] -= c
+	if not g["affinities"].has(uid):
+		g["affinities"][uid] = {}
+	g["affinities"][uid][axis] = g["affinities"][uid].get(axis, 0) + 1
+	return true
+
+static func spend_pct_stat(g: Dictionary, uid: String, stat: String) -> bool:
+	var c := pct_stat_cost(stat, pct_stat_purchased(g, uid, stat))
+	if g.get("aether", 0) < c or pct_stat_maxed(g, uid, stat):
+		return false
+	g["aether"] -= c
+	if not g["statInvest"].has(uid):
+		g["statInvest"][uid] = {}
+	g["statInvest"][uid][stat] = g["statInvest"][uid].get(stat, 0) + 1
+	return true
 
 ## ===== elemental affinity (baseline + purchased points + equipped gear) =====
 
@@ -403,6 +460,23 @@ static func effective_affinity(g: Dictionary, uid: String) -> Dictionary:
 		out[ax] = base.get(ax, 0.0) + purchased.get(ax, 0.0) + equip[ax]
 	return out
 
+## Mirrors affinityRaw (farroad-ui.js:261) -- baseline + purchased only,
+## no equipment (equipment isn't a purchase, doesn't count toward "how much
+## has the player actually bought").
+static func affinity_raw(g: Dictionary, uid: String, axis: String) -> float:
+	return affinity_baseline(uid).get(axis, 0.0) + affinity_purchased(g, uid).get(axis, 0.0)
+
+static func affinity_maxed(g: Dictionary, uid: String, axis: String) -> bool:
+	return affinity_raw(g, uid, axis) >= FarroadCore.AFFINITY_CAP
+
+## Mirrors P.AFFINITY_COST_BASE/affinityCostToNext (farroad-progression.js) --
+## linear escalation, the Nth point bought on one axis on one unit costs
+## N*AFFINITY_COST_BASE.
+const AFFINITY_COST_BASE := 4.0976
+
+static func affinity_cost_to_next(invested_points: int) -> int:
+	return int(round(AFFINITY_COST_BASE * (invested_points + 1)))
+
 ## ===== evade/crit investment (Aether-purchased steps on top of baseline) =====
 
 const PCT_STAT := {
@@ -423,6 +497,14 @@ static func pct_stat_value(g: Dictionary, uid: String, stat: String) -> float:
 	var baseline := pct_stat_baseline(uid, stat)
 	var steps := pct_stat_purchased(g, uid, stat)
 	return minf(s["cap"], baseline + steps * s["step"])
+
+## Mirrors P.pctStatCost (farroad-progression.js) -- geometric escalation.
+static func pct_stat_cost(stat: String, steps: int) -> int:
+	var s: Dictionary = PCT_STAT[stat]
+	return int(round(s["cost_base"] * pow(s["cost_growth"], steps)))
+
+static func pct_stat_maxed(g: Dictionary, uid: String, stat: String) -> bool:
+	return pct_stat_value(g, uid, stat) >= PCT_STAT[stat]["cap"] - 1e-9
 
 static func apply_pct_stat_investment(g: Dictionary, uid: String, st: Dictionary) -> Dictionary:
 	for stat in PCT_STAT_KEYS:

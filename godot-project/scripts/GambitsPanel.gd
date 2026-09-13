@@ -16,6 +16,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
+var _parent: Node
 var selected_uid: String = ""
 
 var toggle_button: Button
@@ -27,15 +28,31 @@ var slots_container: VBoxContainer
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
 	_vp = vp
+	_parent = parent
 	_build_ui(parent)
 
+## Called by GameController on a viewport resize -- rebuilds just the
+## toggle icon at the new size/position. The popup's own inner content
+## isn't rebuilt (same limitation BattlePresenter's Status/Log popups have)
+## -- only its OUTER size (set fresh from _vp each time it's opened via
+## popup_centered) tracks the new viewport; reopening after a resize is
+## still correct, just not pixel-perfect on inner padding until reopened.
+func reflow(new_vp: Vector2) -> void:
+	_vp = new_vp
+	if toggle_button:
+		toggle_button.queue_free()
+	var icon_size: float = _vp.x * 0.12
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.18, _vp.y * 0.905), icon_size, "Gambits", _on_toggle_pressed)
+
 func _build_ui(parent: Node) -> void:
-	toggle_button = Button.new()
-	toggle_button.text = "Gambits"
-	toggle_button.position = Vector2(_vp.x * 0.82, _vp.y * 0.015)
-	toggle_button.custom_minimum_size = Vector2(_vp.x * 0.16, _vp.y * 0.07)
-	toggle_button.pressed.connect(_on_toggle_pressed)
-	parent.add_child(toggle_button)
+	# A blank square placeholder (real art comes later) with a caption below
+	# it, left slot of the bottom icon row -- AetherPanel's Aether icon
+	# takes the right slot at the same fractions, duplicated there since
+	# these are two different scripts with no shared base. Sits BELOW the
+	# turn-order strip (cards now end at 0.90 -- see BattlePresenter's
+	# reduced card_h) with real clearance, not overlapping it.
+	var icon_size: float = _vp.x * 0.12
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.18, _vp.y * 0.905), icon_size, "Gambits", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -81,6 +98,31 @@ func _style_popup(p: PopupPanel) -> void:
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
+
+## Same icon-square style BattlePresenter's own _build_icon_tab uses --
+## duplicated here (different script, no shared base). Label lives ON the
+## button (`btn.text`) rather than a caption below it, for now -- a caption
+## below a corner-anchored square can land outside the visible window on a
+## resize (confirmed live); text inside the button's own bounded rect
+## can't drift off independently. See BattlePresenter's own copy for the
+## fuller comment.
+func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = label_text
+	btn.position = pos
+	btn.custom_minimum_size = Vector2(size, size)
+	btn.clip_text = true
+	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
+	var normal_style := StyleBoxFlat.new()
+	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	btn.add_theme_stylebox_override("normal", normal_style)
+	btn.add_theme_stylebox_override("hover", hover_style)
+	btn.add_theme_stylebox_override("pressed", hover_style)
+	btn.pressed.connect(callback)
+	parent.add_child(btn)
+	return btn
 
 func _on_toggle_pressed() -> void:
 	_refresh()

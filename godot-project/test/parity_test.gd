@@ -357,6 +357,30 @@ func _run_progression_suite() -> void:
 	gambits["fieldUnowned"] = FarroadProgression.field_unit(g2, "vey")
 	out["gambits"] = gambits
 
+	# Step 3d: AETHER -- leveling + Recovery + Evade/Crit + Affinity
+	# purchases, mirrors parity-reference.js's own 'aether' section exactly.
+	var g3 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g3, 1)
+	g3["aether"] = 100000
+	var aether := {"costNextL1": FarroadProgression.cost_next(g3, "kesh")}
+	aether["feed250"] = FarroadProgression.spend_feed(g3, "kesh", 250)
+	aether["levelAfterFeed"] = FarroadProgression.level_of(g3, "kesh")
+	aether["aetherAfterFeed"] = g3["aether"]
+	aether["recoveryBefore"] = FarroadProgression.recovery_of(g3, "kesh")
+	FarroadProgression.spend_recovery(g3, "kesh")
+	aether["recoveryAfter"] = FarroadProgression.recovery_of(g3, "kesh")
+	aether["fireBefore"] = FarroadProgression.affinity_raw(g3, "kesh", "fire")
+	FarroadProgression.spend_affinity(g3, "kesh", "fire")
+	aether["fireAfter"] = FarroadProgression.affinity_raw(g3, "kesh", "fire")
+	aether["evadeBefore"] = FarroadProgression.pct_stat_value(g3, "kesh", "evade")
+	FarroadProgression.spend_pct_stat(g3, "kesh", "evade")
+	aether["evadeAfter"] = FarroadProgression.pct_stat_value(g3, "kesh", "evade")
+	g3["aether"] = 0
+	var aether_before_refuse = g3["aether"]
+	aether["refusedFeed"] = FarroadProgression.spend_feed(g3, "kesh", 50)
+	aether["aetherUnchanged"] = (g3["aether"] == aether_before_refuse)
+	out["aether"] = aether
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode

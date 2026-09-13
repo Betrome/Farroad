@@ -20,6 +20,14 @@ extends Node2D
 signal battle_finished(outcome)
 
 const TURN_ORDER_COUNT := 5
+# Status/Log now sit just to the right of the enrage gauge (x 0.016-0.316)
+# as small square icon buttons -- placeholder squares (see _build_icon_tab)
+# until real art replaces them, a caption below each rather than text
+# inside. Sized as a fraction of vp.x (not vp.y) so the square stays a true
+# square regardless of aspect ratio and so two of them plus the enrage bar
+# reliably fit side by side even on a narrow portrait screen.
+const ICON_SIZE_FRAC := 0.09          # of viewport width
+const ICON_ROW_Y := 0.70              # of viewport height -- icon top
 const HOP_HEIGHT_FRAC := 0.099      # of viewport height (doubled from round 4's 0.0495)
 # The ~1s/beat pacing comes entirely from the motion itself, not a trailing
 # static pause -- BEAT_PAUSE is just enough to let a spawned damage
@@ -42,6 +50,9 @@ var log_lines: Array = []   # each entry: {head_bbcode, dmg_text, via_bbcode, no
 var log_popup: PopupPanel
 var log_container: VBoxContainer
 var turn_cards: Array = []
+var status_icon_btn: Button
+var log_icon_btn: Button
+var turn_order_header: Label
 
 # Layout fractions of the viewport, resolved to pixels in _ready(). Front
 # rows sit closer to center (a visibly smaller gap than the first pass) so
@@ -54,15 +65,20 @@ var party_front_x: float
 var enemy_front_x: float
 var enemy_back_x: float
 
-func _ready() -> void:
-	_vp = get_viewport_rect().size
+func _recompute_field_fractions() -> void:
 	field_top = _vp.y * 0.11
 	field_bottom = _vp.y * 0.58
-	party_back_x = _vp.x * 0.14
-	party_front_x = _vp.x * 0.33
-	enemy_front_x = _vp.x * 0.62
-	enemy_back_x = _vp.x * 0.81
+	# Back rows pushed out toward the screen edges, front rows given a
+	# bigger gap from their own back row than before -- both wider apart
+	# overall than the original desktop-tuned spacing.
+	party_back_x = _vp.x * 0.06
+	party_front_x = _vp.x * 0.30
+	enemy_front_x = _vp.x * 0.70
+	enemy_back_x = _vp.x * 0.94
 
+func _ready() -> void:
+	_vp = get_viewport_rect().size
+	_recompute_field_fractions()
 	_build_log_ui()
 	_build_status_ui()
 	_build_enrage_ui()
@@ -79,8 +95,66 @@ func start_battle(new_battle: Dictionary, units: Array) -> void:
 	_refresh_enrage()
 	_run_battle_loop()
 
+## Called by GameController when the viewport's real size changes (window
+## resize, or a device with a different aspect ratio than assumed at
+## startup) -- rebuilds the STATIC chrome (enrage bar, Status/Log icons,
+## turn-order cards) fresh against the new size, AND repositions the
+## currently-live UnitViews (see _reposition_units) -- confirmed live that
+## leaving them alone was a real bug, not just a cosmetic one-beat delay:
+## dragging the window mid-fight could leave a unit rendered fully outside
+## the new visible area until the next wave, not just slightly offset.
+func reflow(new_vp: Vector2) -> void:
+	_vp = new_vp
+	_recompute_field_fractions()
+
+	if enrage_bg: enrage_bg.queue_free()
+	if enrage_fg: enrage_fg.queue_free()
+	if enrage_label: enrage_label.queue_free()
+	if status_icon_btn: status_icon_btn.queue_free()
+	if log_icon_btn: log_icon_btn.queue_free()
+	if turn_order_header: turn_order_header.queue_free()
+	for card in turn_cards:
+		if card["panel"]: card["panel"].queue_free()
+	turn_cards.clear()
+
+	# Icons only, NOT _build_status_ui()/_build_log_ui() -- those also build
+	# status_popup/log_popup, which are built exactly once and must not be
+	# duplicated/orphaned by a reflow.
+	_build_enrage_ui()
+	_build_status_icon()
+	_build_log_icon()
+	_build_turn_order_ui()
+	_reposition_units()
+	_refresh_turn_order()
+	_refresh_enrage()
+	_refresh_charge_bars()
+
+## Re-runs _layout_units()'s own front/back grouping and _place_side()
+## placement against the EXISTING UnitViews (not creating new ones) so a
+## live fight's units snap to the new field bounds instead of staying at
+## their old (now possibly offscreen) positions. This overwrites .position
+## directly even if a Tween is mid-hop -- a resize is rare enough, and
+## "unit stuck offscreen until next wave" bad enough, that a possible
+## one-frame visual snap during the hop is the right tradeoff.
+func _reposition_units() -> void:
+	var party_front := []
+	var party_back := []
+	var enemy_front := []
+	var enemy_back := []
+	for view in unit_views_by_id.values():
+		var u: Dictionary = view.unit
+		if u["isParty"]:
+			(party_front if u.get("row") == "front" else party_back).append(view)
+		else:
+			(enemy_front if u.get("row") == "front" else enemy_back).append(view)
+	_place_side(party_front, party_back, party_front_x, party_back_x)
+	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x)
+
 func _layout_units(units: Array) -> void:
-	var unit_size: float = _vp.y * 0.075
+	# Smaller than the original desktop-tuned size -- a full party/enemy
+	# roster (up to 5 + 10) needs to fit comfortably, not just this demo's
+	# 1v1/2v2.
+	var unit_size: float = _vp.y * 0.05
 	var party_front := []
 	var party_back := []
 	var enemy_front := []
@@ -159,13 +233,47 @@ func _style_popup(popup: PopupPanel) -> void:
 	style.set_content_margin_all(10)
 	popup.add_theme_stylebox_override("panel", style)
 
-func _build_status_ui() -> void:
+## A tab square -- eventually a blank placeholder standing in for real art
+## (same "placeholder shape until sprites exist" convention UnitView's own
+## Polygon2D shapes already use), but FOR NOW showing its label directly ON
+## the button (`btn.text`) rather than a separate caption Label below it --
+## a caption positioned below a small, corner-anchored square is exactly
+## the kind of element that can land partly or fully outside the visible
+## window when the screen is resized smaller (confirmed live: "the text
+## under the buttons will also fall off screen"), whereas text INSIDE the
+## button's own already-correctly-bounded rect can't independently drift
+## off it. `size` is in PIXELS (already resolved from a viewport fraction
+## by the caller) and applied to both dimensions so it's always a true
+## square regardless of the screen's aspect ratio.
+func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
 	var btn := Button.new()
-	btn.text = "Status"
-	btn.position = Vector2(_vp.x * 0.74, _vp.y * 0.835)
-	btn.custom_minimum_size = Vector2(_vp.x * 0.10, _vp.y * 0.07)
-	btn.pressed.connect(_on_status_pressed)
+	btn.text = label_text
+	btn.position = pos
+	btn.custom_minimum_size = Vector2(size, size)
+	btn.clip_text = true
+	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
+	var normal_style := StyleBoxFlat.new()
+	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	btn.add_theme_stylebox_override("normal", normal_style)
+	btn.add_theme_stylebox_override("hover", hover_style)
+	btn.add_theme_stylebox_override("pressed", hover_style)
+	btn.pressed.connect(callback)
 	add_child(btn)
+	return btn
+
+## Split from the popup itself (below) so reflow() can rebuild just the
+## icon at a new size/position without also rebuilding (and thereby
+## orphaning/duplicating) the popup, which is built exactly once.
+func _build_status_icon() -> void:
+	# Just to the right of the enrage gauge (bar spans x 0.016-0.316) --
+	# see _build_icon_tab for the square-with-caption-below style.
+	var icon_size: float = _vp.x * ICON_SIZE_FRAC
+	status_icon_btn = _build_icon_tab(Vector2(_vp.x * 0.336, _vp.y * ICON_ROW_Y), icon_size, "Status", _on_status_pressed)
+
+func _build_status_ui() -> void:
+	_build_status_icon()
 
 	status_popup = PopupPanel.new()
 	_style_popup(status_popup)
@@ -325,13 +433,17 @@ func _def_res_hint(u: Dictionary) -> Dictionary:
 	return {"def": d, "res": r, "flag_d": flag_d, "flag_r": flag_r,
 		"hint": ("physical lands harder" if flag_d else ("magic lands harder" if flag_r else ""))}
 
+## Split from the popup itself (below) for the same reason
+## _build_status_icon() is split from _build_status_ui() -- see its comment.
+func _build_log_icon() -> void:
+	# Right next to the Status icon -- same row, just to the right of the
+	# enrage gauge.
+	var icon_size: float = _vp.x * ICON_SIZE_FRAC
+	var log_x: float = 0.336 + ICON_SIZE_FRAC + 0.02
+	log_icon_btn = _build_icon_tab(Vector2(_vp.x * log_x, _vp.y * ICON_ROW_Y), icon_size, "Log", _on_log_pressed)
+
 func _build_log_ui() -> void:
-	var btn := Button.new()
-	btn.text = "Log"
-	btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.835)
-	btn.custom_minimum_size = Vector2(_vp.x * 0.10, _vp.y * 0.07)
-	btn.pressed.connect(_on_log_pressed)
-	add_child(btn)
+	_build_log_icon()
 
 	log_popup = PopupPanel.new()
 	_style_popup(log_popup)
@@ -487,20 +599,27 @@ func _refresh_enrage() -> void:
 ## separate Log button/popup above). Always visible, fixed height, no
 ## scrolling needed since it only ever shows TURN_ORDER_COUNT cards.
 func _build_turn_order_ui() -> void:
-	var header := Label.new()
-	header.text = "TURN ORDER →"
-	header.position = Vector2(_vp.x * 0.016, _vp.y * 0.785)
-	header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	header.modulate = Color(0.6, 0.65, 0.75)
-	add_child(header)
+	turn_order_header = Label.new()
+	turn_order_header.text = "TURN ORDER →"
+	turn_order_header.position = Vector2(_vp.x * 0.016, _vp.y * 0.785)
+	turn_order_header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	turn_order_header.modulate = Color(0.6, 0.65, 0.75)
+	add_child(turn_order_header)
 
-	var card_w: float = _vp.x * 0.125
-	var card_h: float = _vp.y * 0.10
+	# Spans the full screen width (minus small edge margins) -- card_w is
+	# SOLVED FOR so TURN_ORDER_COUNT cards + the gaps between them exactly
+	# fill margin..vp.x-margin, rather than a fixed fraction that only used
+	# part of the width.
+	var margin: float = _vp.x * 0.016
 	var gap: float = _vp.x * 0.01
+	var card_w: float = (_vp.x - margin * 2.0 - gap * (TURN_ORDER_COUNT - 1)) / float(TURN_ORDER_COUNT)
+	# Shorter than before -- frees room below for the bottom icon row
+	# (Gambits/Aether/...), which used to run straight into these cards.
+	var card_h: float = _vp.y * 0.08
 	var top: float = _vp.y * 0.82
 	for i in range(TURN_ORDER_COUNT):
 		var panel := PanelContainer.new()
-		panel.position = Vector2(_vp.x * 0.016 + i * (card_w + gap), top)
+		panel.position = Vector2(margin + i * (card_w + gap), top)
 		panel.custom_minimum_size = Vector2(card_w, card_h)
 		if i == 0:
 			# Slot 0 always shows whoever's beat is currently resolving --

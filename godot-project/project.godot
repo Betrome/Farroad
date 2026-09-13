@@ -19,16 +19,21 @@ run/main_scene="res://scenes/Game.tscn"
 
 [display]
 
-; 1280x720 is the DESIGN resolution, not a fixed output size -- meant to run
+; 360x800 is the DESIGN resolution, not a fixed output size -- meant to run
 ; on phones, which come in wildly different aspect ratios. stretch/mode
 ; canvas_items keeps 2D crisp while scaling; aspect=expand means a device
-; whose aspect ratio differs from 16:9 gets MORE visible content on the
+; whose aspect ratio differs from this gets MORE visible content on the
 ; wider/taller axis rather than letterboxing, so get_viewport_rect().size
 ; (what BattlePresenter.gd's layout is computed from, as fractions -- never
 ; a fixed pixel constant) reflects the real per-device canvas, not always
-; exactly 1280x720.
-window/size/viewport_width=1280
-window/size/viewport_height=720
+; exactly 360x800.
+; 360x800 (~1:2.22, portrait) -- Ian's call: default to a phone held in
+; PORTRAIT, not landscape. Swapped from the prior 800x360 landscape pair
+; (same aspect ratio, just rotated) and window/handheld/orientation flipped
+; to match, so the desktop window now opens tall-and-narrow like a phone
+; actually held upright, rather than sideways.
+window/size/viewport_width=360
+window/size/viewport_height=800
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation="landscape"
+window/handheld/orientation="portrait"
