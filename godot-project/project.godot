@@ -1,0 +1,13 @@
+; Engine configuration file.
+; Minimal project for the Farroad combat-engine port (Milestone 1).
+; No scenes/UI yet -- everything here runs headless via `godot --headless
+; --script res://test/parity_test.gd`, the same command-line automation
+; Godot ships for CI, mirroring how `node farroadsmoke.js` is run for the
+; JS side of this project.
+
+config_version=5
+
+[application]
+
+config/name="Farroad"
+config/features=PackedStringArray("4.7")
