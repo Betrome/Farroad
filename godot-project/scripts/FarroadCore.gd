@@ -113,6 +113,92 @@ static func cost_of_charge(act) -> float:
 		return act["chargeCost"]
 	return CHARGE_FULL
 
+## ===== Step 1e: real-content wiring (mirrors farroad-core.js:299-320,
+## 284-294) =====
+## ATK_CAMP+MAG_CAMP (-> EQUIPPABLE) and CHARGE_ACTIONS are hardcoded
+## whitelists in the real engine, not CSV-generated -- ported here verbatim
+## rather than exported alongside the CSV content, since they're genuinely
+## part of core.js's own source.
+const ATK_CAMP: Array[String] = ["strike", "pierce", "cleave", "flurry", "execute", "guardbreak",
+	"daunt", "cripple", "brace", "vengeance", "onslaught", "rally",
+	"cinderstrike", "riptideblow", "stoneshatter", "squallstrike", "radiantblow", "shadowrend"]
+const MAG_CAMP: Array[String] = ["ember", "gale", "sear", "hex", "smother", "dazzle", "siphon",
+	"mend", "renew", "recall", "bulwark", "blur", "quicken",
+	"firebrand", "tidalsurge", "quakebolt", "zephyrbolt", "solarflare", "umbralbolt"]
+const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowofstone", "ashfall",
+	"bloodfury", "spellbrand", "wardcurse", "aegisstep", "quicksilver",
+	"heavystrike", "wildfire", "greatheal",
+	"tideturn", "lastlight", "sunder", "gravewind", "reckoning", "bulwarkoath", "emberglut", "hollowtoll",
+	"atk_reckless", "mag_lance", "def_slam", "res_strike", "spd_flurry",
+	"atk_cry", "mag_font", "def_bulwark", "res_ward", "spd_fleet",
+	"colossusslam", "reapersharvest"]
+
+static func equippable() -> Array:
+	return ATK_CAMP + MAG_CAMP
+
+## Mirrors ACTION_DYNAMIC (farroad-core.js:284-292). powerFn/critFn are
+## closures in JS; GDScript can't hold those in a plain-data Dictionary the
+## same way, so each gets a string marker instead, dispatched by
+## eval_power_fn/eval_crit_fn below. ninefold's randomPerHit is already a
+## plain flag -- no marker needed, register_actions()/a_defaults() pass it
+## through as-is.
+static func merge_action_dynamic() -> void:
+	if ACTIONS.has("execute"): ACTIONS["execute"]["critFnId"] = "execute"
+	if ACTIONS.has("vengeance"): ACTIONS["vengeance"]["powerFnId"] = "vengeance"
+	if ACTIONS.has("onslaught"): ACTIONS["onslaught"]["powerFnId"] = "onslaught"
+	if ACTIONS.has("reckoning"): ACTIONS["reckoning"]["powerFnId"] = "reckoning"
+	if ACTIONS.has("ninefold"): ACTIONS["ninefold"]["randomPerHit"] = true
+
+## Mirrors ACTION_DYNAMIC.vengeance/onslaught/reckoning's powerFn closures.
+static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
+	match action.get("powerFnId"):
+		"vengeance": return 0.55 + 1.55 * (1 - float(src["hp"]) / float(src["maxHp"]))
+		"onslaught": return 2.20 if src["turnsTaken"] == 0 else 0.65
+		"reckoning": return (3.1 + 6.975 * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else 3.1
+	return action["power"]
+
+## Mirrors ACTION_DYNAMIC.execute's critFn closure.
+static func eval_crit_fn(action: Dictionary, tgt) -> float:
+	if action.get("critFnId") == "execute":
+		return 0.65 if (tgt != null and float(tgt["hp"]) / float(tgt["maxHp"]) <= 0.30) else -1.0
+	return 0.0
+
+## Real ROSTER/ARCH/EQUIPMENT storage -- core.js itself only passes these
+## through (nothing in the combat loop reads them directly; that's
+## buildParty/buildEnemies, farroad-ui.js, a later milestone), but a parity
+## test needs them to build units from genuine content instead of inventing
+## stat blocks.
+static var ROSTER: Array = []
+static var ARCH: Dictionary = {}
+static var EQUIPMENT: Dictionary = {}
+
+## Loads godot-project/data/content.json (export-content.js's output) --
+## the Godot-side counterpart to core.js reading window.FarroadContent.
+static func load_real_content(path: String = "res://data/content.json") -> bool:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return false
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	if parsed == null:
+		return false
+	register_actions(parsed.get("ACTIONS", {}))
+	merge_action_dynamic()
+	ARCH = parsed.get("ARCH", {})
+	ROSTER = parsed.get("ROSTER", [])
+	EQUIPMENT = parsed.get("EQUIPMENT", {})
+	register_bonus_eligible(equippable() + CHARGE_ACTIONS)
+	return true
+
+## Finds a ROSTER entry by id -- mirrors the small inline
+## `C.ROSTER.forEach(function(r){if(r.id===uid)def=r;})` lookup pattern used
+## throughout farroad-ui.js.
+static func roster_by_id(id: String) -> Variant:
+	for r in ROSTER:
+		if r["id"] == id:
+			return r
+	return null
+
 ## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
 ## 321-519) =====
 const RARITY_POWER_MUL := {"common": 1.00, "rare": 1.25, "legendary": 1.55}
@@ -796,7 +882,7 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 		o["evaded"] = true
 		o["damage"] = 0
 		return o
-	var cb: float = act.get("critBonus", 0.0)
+	var cb: float = act.get("critBonus", 0.0) + (eval_crit_fn(act, tgt) if act.get("critFnId") else 0.0)
 	o["critChance"] = clamp_f((src["base"]["atkCrit"] if is_phys else src["base"]["magCrit"]) + cb, 0, CAP_CRIT)
 	o["critRoll"] = 1.0 if det else rng.next()
 	o["crit"] = o["critRoll"] < o["critChance"]
@@ -911,7 +997,7 @@ static func step(b: Dictionary) -> Variant:
 	if primary == null and act.get("tk") != "self":
 		e["notes"].append("no legal target")
 	else:
-		var pv: float = act["power"]
+		var pv: float = eval_power_fn(act, u, primary) if act.get("powerFnId") else act["power"]
 		var targets: Array = []
 		if act.get("tk") == "allFoes": targets = foes(b, u)
 		elif act.get("tk") == "allAllies": targets = allies(b, u)

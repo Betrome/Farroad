@@ -13,6 +13,8 @@ func _initialize():
 		_run_battle_suite()
 	elif mode == "bonuses":
 		_run_bonuses_suite()
+	elif mode == "content":
+		_run_content_suite()
 	quit()
 
 ## Step 1b: hand-authored test content -- kept identical, by hand, to
@@ -223,3 +225,44 @@ func _dmg_against_high_res(pierced: bool):
 			e = ev
 	FarroadCore.apply_bonuses({})
 	return e["hits"][0]["damage"] if e != null else null
+
+## Step 1e: mirrors the 'content' mode in parity-reference.js exactly.
+## No _register_test_actions() here -- load_real_content() populates the
+## genuine CSV-compiled ACTIONS/ARCH/ROSTER/EQUIPMENT tables directly.
+func _run_content_suite() -> void:
+	if not FarroadCore.load_real_content():
+		print(JSON.stringify({"error": "failed to load content.json"}))
+		return
+	var out := {}
+	out["counts"] = {
+		"actions": FarroadCore.ACTIONS.size(),
+		"arch": FarroadCore.ARCH.size(),
+		"roster": FarroadCore.ROSTER.size(),
+		"equipment": FarroadCore.EQUIPMENT.size()
+	}
+	out["spotCheck"] = {
+		"strikePower": FarroadCore.ACTIONS["strike"]["power"],
+		"keshHp": FarroadCore.roster_by_id("kesh")["hp"],
+		"wolfAtk": FarroadCore.ARCH["wolf"]["atk"]
+	}
+
+	FarroadCore.set_wave(1)
+	out["executeProof"] = _run_battle(2222, [
+		FarroadCore.make_unit({"id": "kesh", "name": "Kesh", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 430, "atk": 26, "mag": 18, "def": 20, "res": 16, "spd": 100, "atkCrit": 0.05, "magCrit": 0.05},
+			"affinity": {"body": 3}, "slots": [{"cond": "none", "action": "execute"}]}),
+		FarroadCore.make_unit({"id": "wolf", "name": "Roadwolf", "isParty": false, "level": 1, "slotIndex": 10, "arch": "wolf", "row": "front",
+			"stats": {"hp": 200, "atk": 21, "mag": 8, "def": 12, "res": 8, "spd": 92, "atkCrit": 0.04, "magCrit": 0.04, "evade": 0.05},
+			"slots": [{"cond": "none", "action": "strike"}]})
+	])
+
+	out["vengeanceProof"] = _run_battle(4444, [
+		FarroadCore.make_unit({"id": "kesh", "name": "Kesh", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 150, "atk": 26, "mag": 18, "def": 12, "res": 16, "spd": 100, "atkCrit": 0.05, "magCrit": 0.05},
+			"affinity": {"body": 3}, "slots": [{"cond": "none", "action": "vengeance"}]}),
+		FarroadCore.make_unit({"id": "wolf", "name": "Roadwolf", "isParty": false, "level": 1, "slotIndex": 10, "arch": "wolf", "row": "front",
+			"stats": {"hp": 260, "atk": 14, "mag": 8, "def": 12, "res": 8, "spd": 88, "atkCrit": 0.04, "magCrit": 0.04, "evade": 0.05},
+			"slots": [{"cond": "none", "action": "strike"}]})
+	])
+
+	print(JSON.stringify(out))

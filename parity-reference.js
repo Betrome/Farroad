@@ -274,3 +274,48 @@ if (mode === 'bonuses') {
 
   console.log(JSON.stringify(out));
 }
+
+if (mode === 'content') {
+  // NOTE: no registerTestActions() here -- C.ACTIONS/ARCH/ROSTER/EQUIPMENT
+  // are already the genuine CSV-compiled tables (this is how core.js always
+  // initializes), so this mode proves the export/load round-trip rather
+  // than proving anything about hand-authored test content.
+  const out = {};
+  out.counts = {
+    actions: Object.keys(C.ACTIONS).length,
+    arch: Object.keys(C.ARCH).length,
+    roster: C.ROSTER.length,
+    equipment: Object.keys(C.EQUIPMENT).length
+  };
+  out.spotCheck = {
+    strikePower: C.ACTIONS.strike.power,
+    keshHp: C.ROSTER.find(r => r.id === 'kesh').hp,
+    wolfAtk: C.ARCH.wolf.atk
+  };
+
+  // Real battle 1: Execute's crit-bonus dynamic (0.65 under 30% target HP,
+  // else -1 -- effectively never crits until the target is nearly dead).
+  C.setWave(1);
+  out.executeProof = runBattle(2222, [
+    C.makeUnit({ id: 'kesh', name: 'Kesh', isParty: true, level: 1, slotIndex: 0,
+      stats: { hp: 430, atk: 26, mag: 18, def: 20, res: 16, spd: 100, atkCrit: 0.05, magCrit: 0.05 },
+      affinity: { body: 3 }, slots: [{ cond: 'none', action: 'execute' }] }),
+    C.makeUnit({ id: 'wolf', name: 'Roadwolf', isParty: false, level: 1, slotIndex: 10, arch: 'wolf', row: 'front',
+      stats: { hp: 200, atk: 21, mag: 8, def: 12, res: 8, spd: 92, atkCrit: 0.04, magCrit: 0.04, evade: 0.05 },
+      slots: [{ cond: 'none', action: 'strike' }] })
+  ]);
+
+  // Real battle 2: Vengeance's self-HP-scaled powerFn (0.55 at full HP,
+  // ramping up to 2.10 near death) -- a low-HP party unit should hit
+  // progressively harder as the fight goes on.
+  out.vengeanceProof = runBattle(4444, [
+    C.makeUnit({ id: 'kesh', name: 'Kesh', isParty: true, level: 1, slotIndex: 0,
+      stats: { hp: 150, atk: 26, mag: 18, def: 12, res: 16, spd: 100, atkCrit: 0.05, magCrit: 0.05 },
+      affinity: { body: 3 }, slots: [{ cond: 'none', action: 'vengeance' }] }),
+    C.makeUnit({ id: 'wolf', name: 'Roadwolf', isParty: false, level: 1, slotIndex: 10, arch: 'wolf', row: 'front',
+      stats: { hp: 260, atk: 14, mag: 8, def: 12, res: 8, spd: 88, atkCrit: 0.04, magCrit: 0.04, evade: 0.05 },
+      slots: [{ cond: 'none', action: 'strike' }] })
+  ]);
+
+  console.log(JSON.stringify(out));
+}
