@@ -78,7 +78,14 @@ func update_hp() -> void:
 	var bar_h: float = _hp_bg.size.y
 	_hp_fg.size = Vector2(size * frac, bar_h)
 	_hp_fg.color = Color(0.25, 0.85, 0.30) if frac > 0.3 else Color(0.90, 0.70, 0.15) if frac > 0.0 else Color(0.5, 0.1, 0.1)
-	modulate.a = 1.0 if frac > 0.0 else 0.35
+	# A dead enemy disappears outright (there's no reviving one mid-fight, so
+	# nothing is lost by removing it from view). A dead PARTY member stays
+	# visible, just dimmed -- a fallen ally isn't gone the way a kill is, and
+	# a vanishing party sprite would read as a bug, not a death.
+	if frac <= 0.0 and not unit["isParty"]:
+		visible = false
+	else:
+		modulate.a = 1.0 if frac > 0.0 else 0.35
 
 ## Re-reads unit["charge"] against its own chargeAction's costOfCharge (or
 ## the generic CHARGE_FULL fallback for a unit with none) -- same "live

@@ -3,8 +3,11 @@
 ; headless via `godot --headless --script res://test/parity_test.gd`, the
 ; same command-line automation Godot ships for CI, mirroring how
 ; `node farroadsmoke.js` runs for the JS side of this project.
-; Milestone 2 (UI/sprites) adds a real main scene -- run/main_scene below --
-; so opening the project normally (no --headless) shows the battle view.
+; Milestone 2 (UI/sprites) added a real main scene showing one hardcoded
+; demo battle. Milestone 3 (the game loop) replaces it with Game.tscn --
+; GameController.gd owns real game state and drives BattlePresenter wave
+; after wave, so opening the project normally (no --headless) now plays an
+; actual continuing, persistent game rather than one fixed fight.
 
 config_version=5
 
@@ -12,7 +15,7 @@ config_version=5
 
 config/name="Farroad"
 config/features=PackedStringArray("4.7")
-run/main_scene="res://scenes/Battle.tscn"
+run/main_scene="res://scenes/Game.tscn"
 
 [display]
 

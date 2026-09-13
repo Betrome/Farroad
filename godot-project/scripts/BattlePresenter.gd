@@ -8,6 +8,16 @@ extends Node2D
 ## not fixed pixel constants -- this is meant to run on phones, and Godot's
 ## stretch/aspect="expand" (project.godot) means the actual visible viewport
 ## size varies by device aspect ratio, not just the 1280x720 design size.
+##
+## Milestone 3, Step 3b: no longer self-contained -- GameController.gd owns
+## the real game-state Dictionary and the real battle it's fighting.
+## `_ready()` only builds the reusable UI chrome (log/status/enrage/turn
+## order); `start_battle()` is the new entry point a caller uses to actually
+## begin animating a real, externally-built battle. A fresh instance is
+## created per wave (see GameController._begin_next_fight) rather than
+## reused, so there's no reset-state path to get wrong between fights.
+
+signal battle_finished(outcome)
 
 const TURN_ORDER_COUNT := 5
 const HOP_HEIGHT_FRAC := 0.099      # of viewport height (doubled from round 4's 0.0495)
@@ -53,53 +63,21 @@ func _ready() -> void:
 	enemy_front_x = _vp.x * 0.62
 	enemy_back_x = _vp.x * 0.81
 
-	if not FarroadCore.load_real_content():
-		push_error("BattlePresenter: failed to load res://data/content.json")
-		return
-	FarroadCore.set_wave(1)
-	var units := _build_scenario()
-	battle = FarroadCore.make_battle(units, {"rng": FarroadCore.make_rng(2222), "enrage": true})
-	_layout_units(units)
 	_build_log_ui()
 	_build_status_ui()
 	_build_enrage_ui()
 	_build_turn_order_ui()
-	_refresh_turn_order()
-	_run_battle_loop()
 
-## A real, hand-picked battle from the genuine exported content (Kesh +
-## one more roster unit vs 2 real archetypes, split across both rows on
-## both sides so the layout actually exercises front/back on each side).
-func _build_scenario() -> Array:
-	var kesh_def = FarroadCore.roster_by_id("kesh")
-	var mirel_def = FarroadCore.roster_by_id("mirel")
-	var party := [
-		FarroadCore.make_unit({"id": "kesh", "name": "Kesh", "isParty": true, "level": 1, "slotIndex": 0,
-			"row": "front", "arch": null,
-			"stats": kesh_def["stats"].duplicate(), "maxHp": kesh_def["hp"], "hp": kesh_def["hp"],
-			"affinity": kesh_def["affinity"], "chargeAction": kesh_def["chargeAction"],
-			"slots": [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "ember"}]}),
-		FarroadCore.make_unit({"id": "mirel", "name": "Mirel", "isParty": true, "level": 1, "slotIndex": 1,
-			"row": "back",
-			"stats": mirel_def["stats"].duplicate(), "maxHp": mirel_def["hp"], "hp": mirel_def["hp"],
-			"affinity": mirel_def["affinity"], "chargeAction": mirel_def["chargeAction"],
-			"slots": [{"cond": "ally_hp_lte_80", "action": "mend"}, {"cond": "none", "action": "ember"}]})
-	]
-	var wolf = FarroadCore.ARCH["wolf"]
-	var hound = FarroadCore.ARCH["hound"]
-	var enemies := [
-		FarroadCore.make_unit({"id": "e1", "name": "Roadwolf", "isParty": false, "level": 1, "slotIndex": 10,
-			"arch": "wolf", "row": "front", "chargeAction": wolf.get("chargeAction"),
-			"stats": {"hp": 180, "atk": wolf["atk"], "mag": wolf["mag"], "def": wolf["def"], "res": wolf["res"],
-				"spd": wolf["spd"], "atkCrit": wolf["atkCrit"], "magCrit": wolf["magCrit"], "evade": wolf["evade"]},
-			"maxHp": 180, "hp": 180, "slots": wolf["slots"]}),
-		FarroadCore.make_unit({"id": "e2", "name": "Roadhound", "isParty": false, "level": 1, "slotIndex": 11,
-			"arch": "hound", "row": "back", "chargeAction": hound.get("chargeAction"),
-			"stats": {"hp": 140, "atk": hound["atk"], "mag": hound["mag"], "def": hound["def"], "res": hound["res"],
-				"spd": hound["spd"], "atkCrit": hound["atkCrit"], "magCrit": hound["magCrit"], "evade": hound["evade"]},
-			"maxHp": 140, "hp": 140, "slots": hound["slots"]})
-	]
-	return party + enemies
+## Entry point for a caller (GameController) that already built a real
+## battle via FarroadProgression -- content is assumed already loaded and
+## FarroadCore.set_wave() already called by build_enemies() itself, neither
+## of which is this presenter's job anymore.
+func start_battle(new_battle: Dictionary, units: Array) -> void:
+	battle = new_battle
+	_layout_units(units)
+	_refresh_turn_order()
+	_refresh_enrage()
+	_run_battle_loop()
 
 func _layout_units(units: Array) -> void:
 	var unit_size: float = _vp.y * 0.075
@@ -460,13 +438,19 @@ var enrage_label: Label
 
 ## Red bar tracking the battle-wide ENRAGE_AFTER gate (farroad-core.js's
 ## step(), ported as-is in FarroadCore.gd) -- fills as b.beat climbs toward
-## ENRAGE_AFTER (20). Past that point enrage is open-ended (each enemy stacks
-## +5% ATK/MAG per turn it takes, unbounded, never "complete"), so once the
-## gate opens the bar just shows full/red and a label takes over showing the
-## CURRENT worst-case (highest-stacked living enemy's) damage increase.
+## ENRAGE_AFTER (20). A single label ABOVE the bar carries both states of
+## the same story: "Enrage in N turns" while the gate is still closed, then
+## (once it opens) the CURRENT worst-case damage-bonus text takes over that
+## exact spot -- one line that changes meaning, not two separate texts.
 func _build_enrage_ui() -> void:
 	var y: float = _vp.y * 0.755
 	var w: float = _vp.x * 0.30
+	enrage_label = Label.new()
+	enrage_label.position = Vector2(_vp.x * 0.016, y - _vp.y * 0.026)
+	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	enrage_label.modulate = Color(1.0, 0.45, 0.45)
+	add_child(enrage_label)
+
 	enrage_bg = ColorRect.new()
 	enrage_bg.position = Vector2(_vp.x * 0.016, y)
 	enrage_bg.size = Vector2(w, _vp.y * 0.012)
@@ -478,13 +462,6 @@ func _build_enrage_ui() -> void:
 	enrage_fg.size = Vector2(0, enrage_bg.size.y)
 	enrage_fg.color = Color(0.85, 0.2, 0.2)
 	add_child(enrage_fg)
-
-	enrage_label = Label.new()
-	enrage_label.position = enrage_bg.position + Vector2(w + _vp.x * 0.012, -_vp.y * 0.006)
-	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
-	enrage_label.modulate = Color(1.0, 0.45, 0.45)
-	add_child(enrage_label)
-	_refresh_enrage()
 
 func _refresh_enrage() -> void:
 	var beat: int = battle["beat"]
@@ -502,7 +479,8 @@ func _refresh_enrage() -> void:
 		var pct := roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, max_stacks) - 1.0) * 100.0)
 		enrage_label.text = ("ENRAGED +%d%% dmg" % pct) if max_stacks > 0 else "ENRAGED"
 	else:
-		enrage_label.text = ""
+		var turns_left: int = gate - beat + 1
+		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]
 
 ## "TURN ORDER ->" strip -- mirrors the JS version's preview()-powered strip
 ## (a fixed row of upcoming-turn cards, not the history log; that's the
@@ -669,6 +647,7 @@ func _run_battle_loop() -> void:
 			_refresh_status_popup()
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
+	battle_finished.emit(battle["over"])
 
 ## Charge accumulates/spends for whichever unit just acted (and enrage can
 ## touch others) -- cheapest correct approach is refreshing everyone each

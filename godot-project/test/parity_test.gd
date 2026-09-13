@@ -15,6 +15,10 @@ func _initialize():
 		_run_bonuses_suite()
 	elif mode == "content":
 		_run_content_suite()
+	elif mode == "progression":
+		_run_progression_suite()
+	elif mode == "save":
+		_run_save_suite()
 	quit()
 
 ## Step 1b: hand-authored test content -- kept identical, by hand, to
@@ -264,5 +268,150 @@ func _run_content_suite() -> void:
 			"stats": {"hp": 260, "atk": 14, "mag": 8, "def": 12, "res": 8, "spd": 88, "atkCrit": 0.04, "magCrit": 0.04, "evade": 0.05},
 			"slots": [{"cond": "none", "action": "strike"}]})
 	])
+
+	print(JSON.stringify(out))
+
+## Step 3a: FarroadProgression.gd -- mirrors parity-reference.js's
+## 'progression' mode exactly, same math spot-checks plus a full simulated
+## playthrough (buildParty/buildEnemies/grantDrops/afterWaveCleared/onWipe)
+## with the same seed and win/lose loop, for a bit-exact diff.
+func _run_progression_suite() -> void:
+	if not FarroadCore.load_real_content():
+		print(JSON.stringify({"error": "failed to load content.json"}))
+		return
+	var out := {}
+
+	var waves := [1, 5, 20, 21, 40, 41, 100, 101, 227, 500, 800, 1000, 3000]
+	var math_out := []
+	for w in waves:
+		math_out.append({
+			"w": w, "isBoss": FarroadProgression.is_boss_wave(w), "nextBoss": FarroadProgression.next_boss_wave(w),
+			"hardMul": FarroadProgression.hard_mul(w), "bossSpdMul": FarroadProgression.boss_spd_mul(w),
+			"killReward": FarroadProgression.kill_reward(w, 3), "bossAether": FarroadProgression.boss_aether(w),
+			"dupUnitAether": FarroadProgression.dup_unit_aether(w), "idlePerSec": FarroadProgression.idle_per_sec(w),
+			"enemyCount": FarroadProgression.enemy_count(w)})
+	out["math"] = math_out
+
+	var checkpoints := []
+	for n in [0, 1, 2, 3, 5]:
+		checkpoints.append(FarroadProgression.checkpoint(n))
+	out["checkpoints"] = checkpoints
+
+	var slots := []
+	for l in [1, 9, 10, 99, 100, 499, 500, 999, 1000, 1500]:
+		slots.append({"l": l, "slots": FarroadProgression.slots_at(l), "next": FarroadProgression.next_slot_at(l)})
+	out["slots"] = slots
+
+	var leveling := []
+	for pair in [[1, 1], [10, 1], [10, 50], [100, 100], [1000, 1000]]:
+		leveling.append({"l": pair[0], "r": pair[1], "cost": FarroadProgression.cost_to_next(pair[0], pair[1])})
+	out["leveling"] = leveling
+
+	var g := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g, 1)
+	var trace := []
+	for i in range(60):
+		var guard := 0
+		while g["battle"]["over"] == null and guard < 1000:
+			guard += 1
+			var e = FarroadCore.step(g["battle"])
+			if e == null:
+				break
+		var w: int = g["wave"]
+		var entry := {"wave": w, "outcome": g["battle"]["over"]}
+		if g["battle"]["over"] == "party":
+			entry["events"] = FarroadProgression.after_wave_cleared(g)
+			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["lore"] = g["lore"]
+			entry["party"] = g["party"].duplicate(); entry["actions"] = g["actions"].duplicate()
+			entry["conditions"] = g["conditions"].duplicate()
+			trace.append(entry)
+			FarroadProgression.start_wave(g, w + 1)
+		else:
+			entry["events"] = FarroadProgression.on_wipe(g)
+			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["lore"] = g["lore"]
+			trace.append(entry)
+	out["trace"] = trace
+
+	# Step 3c: GAMBITS -- loadout sync + party bench/field, mirrors
+	# parity-reference.js's own 'gambits' section exactly (same scenario).
+	var g2 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g2, 1)
+	FarroadProgression.join_companion(g2, "ansa")
+	g2["actions"].append("sear")
+	g2["loadout"]["kesh"] = [{"cond": "none", "action": "sear"}, {"cond": "none", "action": "strike"}]
+	FarroadProgression.sync_loadout(g2, "kesh")
+	var gambits := {
+		"keshLiveSlot0": g2["units"][0]["slots"][0],
+		"holderExcludeNone": FarroadProgression.action_holder_in_party(g2, "sear", ""),
+		"holderExcludeAnsa": FarroadProgression.action_holder_in_party(g2, "sear", "ansa"),
+		"holderExcludeKesh": FarroadProgression.action_holder_in_party(g2, "sear", "kesh"),
+		"holderStarter": FarroadProgression.action_holder_in_party(g2, "strike", ""),
+		"availableFielded": FarroadProgression.available_for_party(g2)}
+	gambits["benchAnsa"] = FarroadProgression.bench_unit(g2, "ansa")
+	gambits["partyAfterBench"] = g2["party"].duplicate()
+	gambits["availableBenched"] = FarroadProgression.available_for_party(g2)
+	gambits["benchKeshRefused"] = FarroadProgression.bench_unit(g2, "kesh")
+	gambits["partyAfterRefusedBench"] = g2["party"].duplicate()
+	gambits["fieldAnsa"] = FarroadProgression.field_unit(g2, "ansa")
+	gambits["partyAfterField"] = g2["party"].duplicate()
+	gambits["fieldUnowned"] = FarroadProgression.field_unit(g2, "vey")
+	out["gambits"] = gambits
+
+	print(JSON.stringify(out))
+
+## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode
+## exactly: the same hand-built G, the same 17 RNG draws before serializing,
+## the same post-restore RNG-position proof, and the same sparse/migration
+## snapshot.
+func _run_save_suite() -> void:
+	if not FarroadCore.load_real_content():
+		print(JSON.stringify({"error": "failed to load content.json"}))
+		return
+	var g := {
+		"seed": 999, "rng": FarroadCore.make_rng(999), "wave": 5, "farthest": 5, "bossesCleared": 0,
+		"aether": 42.5, "lore": 3, "marks": 7.25, "wipes": 1,
+		"party": ["kesh", "ansa"], "actions": ["strike", "ember", "sear"], "conditions": ["none", "foe_lowest_hp"],
+		"actionCounts": {"sear": 1}, "condCounts": {"foe_lowest_hp": 1}, "bonuses": {"strike": {"potent": 2}},
+		"recovery": {"kesh": 3}, "loadout": {"kesh": [{"cond": "none", "action": "strike"}]},
+		"hpCarry": {"kesh": 0.8}, "touched": {"kesh": true}, "clearedWaves": {1: 1, 2: 1, 3: 1, 4: 1},
+		"dropsGranted": {1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
+		"lvl": {"kesh": 3, "ansa": 1}, "bank": {"kesh": 12, "ansa": 0}, "maxLevelEver": 3, "owned": {"kesh": 1, "ansa": 1},
+		"enrage": true, "idleAcc": 1.5, "dropQueue": [{"name": "Sear"}], "dropHistory": [{"name": "Sear"}],
+		"pullsSinceUnit": 4, "dropGains": {"lore": 2, "aether": 10},
+		"mc": null, "expeditions": [], "dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
+		"directions": {"west": {"maxDepth": 3, "dungeonsUnlocked": 1}},
+		"affinities": {"kesh": {"fire": 2}, "ansa": {}}, "statInvest": {"kesh": {"evade": 1}, "ansa": {}},
+		"equipInv": {"emberwardencrown": 1}, "equipped": {"kesh": {"head": "emberwardencrown"}, "ansa": {}},
+		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {}}
+	for i in range(17):
+		g["rng"].next()
+
+	var out := {}
+	var snap := FarroadSave.serialize(g, 1234567890)
+	out["snapRngCalls"] = snap["rngCalls"]
+	var restored := FarroadSave.deserialize(snap)
+	out["restoredWave"] = restored["wave"]
+	out["restoredParty"] = restored["party"]
+	out["restoredAffinities"] = restored["affinities"]
+	out["restoredEquipped"] = restored["equipped"]
+	var orig_next := []
+	var restored_next := []
+	for j in range(10):
+		orig_next.append(g["rng"].next())
+	for j in range(10):
+		restored_next.append(restored["rng"].next())
+	out["rngMatch"] = (orig_next == restored_next)
+	out["origNext"] = orig_next
+	out["restoredNext"] = restored_next
+
+	var sparse := {"v": 1, "savedAt": 1, "seed": 5, "rngCalls": 0, "wave": 3, "farthest": 3, "party": ["kesh"],
+		"clearedWaves": {1: 1, 2: 1}}
+	var migrated := FarroadSave.deserialize(sparse)
+	out["migrated"] = {
+		"dropsGranted": migrated["dropsGranted"], "owned": migrated["owned"], "lvl": migrated["lvl"],
+		"bank": migrated["bank"], "affinities": migrated["affinities"], "statInvest": migrated["statInvest"],
+		"equipped": migrated["equipped"], "directions": migrated["directions"], "quests": migrated["quests"],
+		"expeditions": migrated["expeditions"], "enrage": migrated["enrage"], "actions": migrated["actions"],
+		"conditions": migrated["conditions"]}
 
 	print(JSON.stringify(out))

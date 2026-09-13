@@ -199,6 +199,50 @@ static func roster_by_id(id: String) -> Variant:
 			return r
 	return null
 
+## ===== Milestone 3 prep: a handful of small farroad-core.js pieces Milestone 1
+## never needed (combat-resolution didn't touch enemy-building/equipment) but
+## FarroadProgression.gd's build_enemies/build_party (mirroring buildEnemies/
+## buildParty, farroad-ui.js) do. =====
+
+## Post-wave-19 enemy archetype rotation (farroad-core.js:878, `var ROT=...`).
+const ROT: Array[String] = ["wolf", "knight", "hound", "ox", "priest", "shrike"]
+
+## Mirrors dmgTakenMul (farroad-core.js:887-888) -- the DEF/evade-vs-reference
+## multiplier buildEnemies sizes a body's HP pool against.
+static func dmg_taken_mul(a: Dictionary) -> float:
+	var k := 25.0
+	var ref_def := 12.0
+	var ref_evade := 0.05
+	return ((k / (k + a["def"])) / (k / (k + ref_def))) * ((1.0 - a["evade"]) / (1.0 - ref_evade))
+
+## Mirrors EQUIPMENT_SLOTS/EQUIP_SPD_PENALTY_BASE (farroad-core.js:54,65).
+const EQUIPMENT_SLOTS: Array[String] = ["head", "body", "legs", "hand1", "hand2"]
+const EQUIP_SPD_PENALTY_BASE := 1.5
+
+## The full 79-id gambit condition catalog (Step 1c already ported every
+## resolve_condition/cond_label case; this is just the enumerable id LIST
+## mirroring C.CONDITIONS.map(c=>c.id), needed by FarroadProgression's
+## random-drop pool -- extracted programmatically from the real
+## farroad-core.js's own CONDITIONS array, not hand-typed, to guarantee it
+## matches exactly). "none" excluded from drop pools by callers, same as
+## the real JS's own `CONDITIONS.filter(c=>c.id!=='none')`.
+const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "foe_highest_hp",
+	"foe_hp_gte_70", "foe_hp_lte_30", "foe_armoured", "foe_warded", "foe_fast", "foe_3plus",
+	"foe_charging", "foe_softest_def", "foe_softest_res", "foe_most_dangerous", "foe_acts_next",
+	"foe_healer_present", "foe_pack_hurt", "foe_pack_healthy", "foe_mostly_weakened",
+	"foe_isolated", "foe_2plus", "foe_lacks_debuff", "foe_not_weakened", "ally_hp_lte_60",
+	"ally_hp_lte_30", "ally_lowest_hp", "ally_is_dead", "ally_lacks_buff", "self_hp_lte_50",
+	"self_first_turn", "foe_hp_gte_10", "foe_hp_lte_10", "ally_hp_gte_10", "ally_hp_lte_10",
+	"self_hp_gte_10", "self_hp_lte_10", "foe_hp_gte_20", "foe_hp_lte_20", "ally_hp_gte_20",
+	"ally_hp_lte_20", "self_hp_gte_20", "self_hp_lte_20", "foe_hp_gte_30", "ally_hp_gte_30",
+	"self_hp_gte_30", "self_hp_lte_30", "foe_hp_gte_40", "foe_hp_lte_40", "ally_hp_gte_40",
+	"ally_hp_lte_40", "self_hp_gte_40", "self_hp_lte_40", "foe_hp_gte_50", "foe_hp_lte_50",
+	"ally_hp_gte_50", "ally_hp_lte_50", "self_hp_gte_50", "foe_hp_gte_60", "foe_hp_lte_60",
+	"ally_hp_gte_60", "self_hp_gte_60", "self_hp_lte_60", "foe_hp_lte_70", "ally_hp_gte_70",
+	"ally_hp_lte_70", "self_hp_gte_70", "self_hp_lte_70", "foe_hp_gte_80", "foe_hp_lte_80",
+	"ally_hp_gte_80", "ally_hp_lte_80", "self_hp_gte_80", "self_hp_lte_80", "foe_hp_gte_90",
+	"foe_hp_lte_90", "ally_hp_gte_90", "ally_hp_lte_90", "self_hp_gte_90", "self_hp_lte_90"]
+
 ## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
 ## 321-519) =====
 const RARITY_POWER_MUL := {"common": 1.00, "rare": 1.25, "legendary": 1.55}
