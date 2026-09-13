@@ -1,9 +1,10 @@
 ; Engine configuration file.
-; Minimal project for the Farroad combat-engine port (Milestone 1).
-; No scenes/UI yet -- everything here runs headless via `godot --headless
-; --script res://test/parity_test.gd`, the same command-line automation
-; Godot ships for CI, mirroring how `node farroadsmoke.js` is run for the
-; JS side of this project.
+; Farroad Godot port. Milestone 1 (the combat engine, FarroadCore.gd) runs
+; headless via `godot --headless --script res://test/parity_test.gd`, the
+; same command-line automation Godot ships for CI, mirroring how
+; `node farroadsmoke.js` runs for the JS side of this project.
+; Milestone 2 (UI/sprites) adds a real main scene -- run/main_scene below --
+; so opening the project normally (no --headless) shows the battle view.
 
 config_version=5
 
@@ -11,3 +12,20 @@ config_version=5
 
 config/name="Farroad"
 config/features=PackedStringArray("4.7")
+run/main_scene="res://scenes/Battle.tscn"
+
+[display]
+
+; 1280x720 is the DESIGN resolution, not a fixed output size -- meant to run
+; on phones, which come in wildly different aspect ratios. stretch/mode
+; canvas_items keeps 2D crisp while scaling; aspect=expand means a device
+; whose aspect ratio differs from 16:9 gets MORE visible content on the
+; wider/taller axis rather than letterboxing, so get_viewport_rect().size
+; (what BattlePresenter.gd's layout is computed from, as fractions -- never
+; a fixed pixel constant) reflects the real per-device canvas, not always
+; exactly 1280x720.
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation="landscape"

@@ -1067,3 +1067,50 @@ static func step(b: Dictionary) -> Variant:
 	b["log"].append(e)
 	check_end(b)
 	return e
+
+## ===== turn-order preview (mirrors preview(), farroad-core.js:843-859) =====
+## A non-mutating simulation of the next `count` turns -- clones each living
+## unit's {at,charge,alternateFlag} into `sim` and advances those COPIES via
+## choose_from()/tc_of(), never touching the real unit dicts (chooseFrom
+## itself never mutates a unit, only decides an action). Safe to call every
+## beat purely for display.
+static func preview(b: Dictionary, count: int = 6) -> Array:
+	var sim := []
+	for u in b["units"]:
+		if u["hp"] <= 0:
+			continue
+		sim.append({"u": u, "at": u["nextActAt"], "charge": u["charge"], "alternateFlag": u["alternateFlag"]})
+	var out := []
+	for n in range(count):
+		if sim.is_empty():
+			break
+		var best_idx := 0
+		for j in range(1, sim.size()):
+			var s = sim[j]
+			var best = sim[best_idx]
+			if s["at"] < best["at"]:
+				best_idx = j; continue
+			if s["at"] > best["at"]:
+				continue
+			if s["u"]["isParty"] != best["u"]["isParty"]:
+				if s["u"]["isParty"]: best_idx = j
+				continue
+			if s["u"]["base"]["spd"] != best["u"]["base"]["spd"]:
+				if s["u"]["base"]["spd"] > best["u"]["base"]["spd"]: best_idx = j
+				continue
+			if s["u"]["slotIndex"] < best["u"]["slotIndex"]:
+				best_idx = j
+		var best = sim[best_idx]
+		var st := {"charge": best["charge"], "alternateFlag": best["alternateFlag"]}
+		var ch := choose_from(best["u"], b, st)
+		var act = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
+		out.append({"unitName": best["u"]["name"], "isParty": best["u"]["isParty"], "at": best["at"],
+			"actionName": act["name"], "actionId": act["id"], "rank": act["rank"],
+			"isCharge": bool(act.get("isCharge", false)), "cost": tc_of(best["u"], act["rank"])})
+		best["at"] += tc_of(best["u"], act["rank"])
+		best["alternateFlag"] = st["alternateFlag"]
+		if act.get("isCharge"):
+			best["charge"] -= cost_of_charge(act)
+		else:
+			best["charge"] += act["charge"] * eff_charge_rate(best["u"])
+	return out
