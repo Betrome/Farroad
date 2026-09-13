@@ -1,7 +1,9 @@
 class_name DamageNumber
-## Floating combat text -- a damage number, an "Evade", or a heal amount.
-## Spawned on demand via spawn() rather than a hand-authored .tscn (it's a
-## single Label with no fixed structure worth a sub-scene for).
+## Floating combat text -- a damage number, an "Evade", a heal amount, or a
+## status name (e.g. "Bracing") when a unit applies/refreshes a stat-
+## affecting status. Spawned on demand via spawn() rather than a
+## hand-authored .tscn (it's a single Label with no fixed structure worth a
+## sub-scene for).
 
 static func spawn(parent: Node2D, pos: Vector2, text: String, color: Color) -> void:
 	var label := Label.new()

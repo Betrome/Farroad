@@ -27,13 +27,13 @@ run/main_scene="res://scenes/Game.tscn"
 ; (what BattlePresenter.gd's layout is computed from, as fractions -- never
 ; a fixed pixel constant) reflects the real per-device canvas, not always
 ; exactly 360x800.
-; 360x800 (~1:2.22, portrait) -- Ian's call: default to a phone held in
-; PORTRAIT, not landscape. Swapped from the prior 800x360 landscape pair
-; (same aspect ratio, just rotated) and window/handheld/orientation flipped
-; to match, so the desktop window now opens tall-and-narrow like a phone
-; actually held upright, rather than sideways.
-window/size/viewport_width=360
-window/size/viewport_height=800
+; 412x915 (~1:2.22, portrait) -- Ian's call: default to a real device, the
+; Google Pixel 7 (1080x2400 physical px at a ~2.625x device pixel ratio,
+; i.e. 412x915 logical px -- the same figure Chrome DevTools' own "Pixel 7"
+; device preset uses). Same aspect ratio as the prior 360x800 placeholder
+; phone size, just the real Pixel 7 figure instead of a round number.
+window/size/viewport_width=412
+window/size/viewport_height=915
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation="portrait"

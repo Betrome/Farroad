@@ -15,7 +15,7 @@ var unit: Dictionary
 var rest_position: Vector2
 var size: float
 
-var _shape: Polygon2D
+var shape: Polygon2D   # public -- BattlePresenter animates ONLY this during a hop/shake, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position
 var _hp_bg: ColorRect
 var _hp_fg: ColorRect
 var _charge_bg: ColorRect
@@ -28,11 +28,11 @@ func setup(u: Dictionary, unit_size: float) -> void:
 	var bar_h: float = max(4.0, size * 0.12)
 	var charge_h: float = max(2.0, bar_h * 0.5)
 
-	_shape = Polygon2D.new()
-	_shape.polygon = PackedVector2Array([
+	shape = Polygon2D.new()
+	shape.polygon = PackedVector2Array([
 		Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half)])
-	_shape.color = Color(0.30, 0.55, 0.95) if u["isParty"] else Color(0.85, 0.30, 0.28)
-	add_child(_shape)
+	shape.color = Color(0.30, 0.55, 0.95) if u["isParty"] else Color(0.85, 0.30, 0.28)
+	add_child(shape)
 
 	var name_label := Label.new()
 	name_label.text = u["name"]
@@ -101,14 +101,16 @@ func damage_spawn_position() -> Vector2:
 	return global_position + Vector2(0, -size / 2.0 - size * 0.18)
 
 ## A quick decaying left-right shake -- played when this unit takes a
-## non-evaded hit. Safe to fire without awaiting: targets never move during
-## the ATTACKER's own hop/projectile animation, so this never fights another
-## tween over `position`.
+## non-evaded hit. Shakes only `shape` (the colored square), not the whole
+## UnitView, so the name/HP/charge bars stay put instead of shaking along
+## with it. Safe to fire without awaiting: targets never move during the
+## ATTACKER's own hop/projectile animation, so this never fights another
+## tween over `shape.position`.
 func shake() -> void:
-	var base := position
+	var base := shape.position
 	var amt: float = size * 0.14
 	var tw := create_tween()
-	tw.tween_property(self, "position", base + Vector2(amt, 0), 0.035)
-	tw.tween_property(self, "position", base + Vector2(-amt, 0), 0.06)
-	tw.tween_property(self, "position", base + Vector2(amt * 0.4, 0), 0.06)
-	tw.tween_property(self, "position", base, 0.05)
+	tw.tween_property(shape, "position", base + Vector2(amt, 0), 0.035)
+	tw.tween_property(shape, "position", base + Vector2(-amt, 0), 0.06)
+	tw.tween_property(shape, "position", base + Vector2(amt * 0.4, 0), 0.06)
+	tw.tween_property(shape, "position", base, 0.05)

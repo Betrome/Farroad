@@ -27,6 +27,10 @@ var card_container: VBoxContainer
 const AFFINITY_AXIS_LABELS := {"fire": "Fire", "water": "Water", "earth": "Earth", "air": "Air",
 	"light": "Light", "dark": "Dark", "body": "Body", "spirit": "Spirit"}
 const PCT_STAT_LABELS := {"evade": "Evade", "atkCrit": "ATK Crit", "magCrit": "MAG Crit"}
+# Every purchase button (Recovery/Level/Evade-Crit/Affinity) shares this
+# width so they all visually line up regardless of section -- see
+# _style_purchase_button.
+const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -40,16 +44,16 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.62, _vp.y * 0.905), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.62, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# A blank square placeholder (real art comes later) with a caption below
-	# it, right slot of the bottom icon row next to GambitsPanel's own icon
-	# at the same fractions (duplicated there too -- different script, no
-	# shared base). Sits BELOW the turn-order strip (cards now end at 0.90)
-	# with real clearance, not overlapping it.
+	# A blank square placeholder (real art comes later) with its label on the
+	# button itself, right slot of the bottom icon row next to GambitsPanel's
+	# own icon at the same fractions (duplicated there too -- different
+	# script, no shared base). Sits BELOW the turn-order strip's frame
+	# (frame bottom ~0.91) with real clearance, not overlapping it.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.62, _vp.y * 0.905), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.62, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -157,24 +161,122 @@ func _section_label(text: String) -> Label:
 	lbl.modulate = Color(0.6, 0.75, 1.0)
 	return lbl
 
-## One purchase row: a description label immediately followed by its buy
-## Button (NOT pushed to the far edge -- sits right next to the stat it
-## affects), colored to read as available/unavailable at a glance rather
-## than relying on the default theme's flat grey for both states.
-func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
+## Same small BBCode-label helper BattlePresenter._rich_line already
+## established -- duplicated here (different script, no shared base) for the
+## bold current-stat value below.
+func _rich_line(bbcode: String) -> RichTextLabel:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.fit_content = true
+	r.scroll_active = false
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r.text = bbcode
+	return r
+
+## One cell of the stats grid: the stat's bold current value with its
+## per-level growth stacked directly below it (smaller, dimmed), wrapped in
+## its own VBoxContainer so the pair adds as ONE child of the GridContainer
+## -- two direct children (as _add_purchase_cells uses) would instead put
+## the growth text in the NEXT column, beside the stat rather than under it.
+## cell_width, when >0, gives the cell a width floor -- a GridContainer sizes
+## each column to its widest cell's own NATURAL (unconstrained) width and
+## nothing more, so without this the whole grid only ever claims as much
+## width as its content strictly needs and left-aligns, leaving the rest of
+## the popup's width empty rather than actually spanning it.
+func _add_stat_cell(grid: GridContainer, label: String, value, growth, cell_width: float = 0.0) -> void:
+	var cell := VBoxContainer.new()
+	cell.add_theme_constant_override("separation", 0)
+	if cell_width > 0.0:
+		cell.custom_minimum_size.x = cell_width
+	var val_lbl := _rich_line("[b]%s %s[/b]" % [label, value])
+	cell.add_child(val_lbl)
+	var growth_lbl := Label.new()
+	growth_lbl.text = "+%s/lvl" % growth
+	growth_lbl.add_theme_font_size_override("font_size", 10)
+	growth_lbl.modulate = Color(0.6, 0.6, 0.6)
+	cell.add_child(growth_lbl)
+	grid.add_child(cell)
+
+## Adds one description Label + buy Button pair as two direct children of a
+## GridContainer -- a GridContainer sizes each COLUMN to its widest cell,
+## which is what actually lines several rows' buttons up at the same x
+## regardless of how long any one row's own label text happens to be (a
+## fixed button width alone doesn't accomplish that when labels vary in
+## length). Every purchase button shares btn_width_frac (so they read as the
+## same size at a glance) EXCEPT the two-column Affinities grid, which passes
+## a smaller one -- there isn't room on a real phone-width screen for two
+## side-by-side columns of the same wide buttons Level/Recovery/Evade-Crit
+## use; flagging this one deliberate exception rather than silently
+## special-casing it. desc_lbl gets a matching width floor (autowrap
+## catching anything longer, so a long description wraps to a 2nd line
+## instead of pushing the row wider than the popup). font_size, when >0,
+## overrides both cells' font size -- used by the Affinities grid to stay
+## compact enough for two columns; every other section leaves it default.
+func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
+		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, desc_width_frac: float = 0.42) -> void:
 	var desc_lbl := Label.new()
 	desc_lbl.text = desc
-	row.add_child(desc_lbl)
+	desc_lbl.custom_minimum_size.x = _vp.x * desc_width_frac
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if font_size > 0:
+		desc_lbl.add_theme_font_size_override("font_size", font_size)
+	grid.add_child(desc_lbl)
+	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac))
+
+## Same idea as _add_purchase_cells, but splits the description into a
+## separate LABEL cell and VALUE cell (three direct children total: label,
+## value, button) instead of one combined string -- a GridContainer sizes
+## each column to its widest cell, so the current value itself lines up in
+## its own column across rows, not just wherever it happens to land after a
+## label of varying length (e.g. "Evade" vs "ATK Crit"). label_width_frac/
+## value_width_frac, when >0, give those cells a width floor the same way
+## _add_purchase_cells' desc_width_frac does -- only the compact two-column
+## Affinities grid needs this; Evade/Crit's own natural auto-sizing already
+## fits comfortably.
+func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
+		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, label_width_frac: float = 0.0, value_width_frac: float = 0.0) -> void:
+	var label_lbl := Label.new()
+	label_lbl.text = label
+	if label_width_frac > 0.0:
+		label_lbl.custom_minimum_size.x = _vp.x * label_width_frac
+		label_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if font_size > 0:
+		label_lbl.add_theme_font_size_override("font_size", font_size)
+	grid.add_child(label_lbl)
+	var value_lbl := Label.new()
+	value_lbl.text = value
+	if value_width_frac > 0.0:
+		value_lbl.custom_minimum_size.x = _vp.x * value_width_frac
+	if font_size > 0:
+		value_lbl.add_theme_font_size_override("font_size", font_size)
+	grid.add_child(value_lbl)
+	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac))
+
+func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: Callable, font_size: int, btn_width_frac: float) -> Button:
 	var btn := Button.new()
 	btn.text = "MAXED" if maxed else "%s (%d)" % [buy_text, cost]
 	var available: bool = not maxed and g.get("aether", 0) >= cost
 	btn.disabled = not available
 	btn.pressed.connect(callback)
 	_style_purchase_button(btn, available)
-	row.add_child(btn)
-	return row
+	btn.custom_minimum_size.x = _vp.x * btn_width_frac
+	btn.clip_text = true
+	btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if font_size > 0:
+		btn.add_theme_font_size_override("font_size", font_size)
+	return btn
+
+## A single desc+button pair, standalone rather than part of a larger grid --
+## built as its own one-row, 2-column GridContainer so it shares the exact
+## same cell-building logic (and therefore styling/width) as the grid-based
+## sections below, colored to read as available/unavailable at a glance
+## rather than relying on the default theme's flat grey for both states.
+func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable) -> Control:
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	_add_purchase_cells(grid, desc, buy_text, cost, maxed, callback)
+	return grid
 
 ## Available: warm gold (matches the real UI's own --aether color theme),
 ## clearly readable as "you can afford this". Unavailable (unaffordable OR
@@ -226,14 +328,32 @@ func _refresh_card() -> void:
 	xp_lbl.modulate = Color(0.7, 0.7, 0.7)
 	card_container.add_child(xp_lbl)
 
-	# Stats + per-level growth.
+	# Stats + per-level growth -- a real 3-column, 2-row grid (not a single
+	# long line of text left to wrap on its own) so it can't bleed a stat's
+	# value onto the next line or off the popup's edge the way free-flowing
+	# text did; each cell stacks its growth directly below its own stat,
+	# bold value on top, growth noticeably smaller and dimmed underneath.
 	var st: Dictionary = FarroadProgression.stats_at(uid, def["stats"], def["hp"], level)
 	var growth: Dictionary = FarroadProgression.GROWTH.get(uid, FarroadProgression.GROWTH["kesh"])
-	var stat_lbl := Label.new()
-	stat_lbl.text = "HP %d (+%s/lvl)  ATK %d (+%s/lvl)  MAG %d (+%s/lvl)\nDEF %d (+%s/lvl)  RES %d (+%s/lvl)  SPD %d (+%s/lvl)" % [
-		st["hp"], growth["hp"], st["atk"], growth["atk"], st["mag"], growth["mag"],
-		st["def"], growth["def"], st["res"], growth["res"], st["spd"], growth["spd"]]
-	card_container.add_child(stat_lbl)
+	var stat_grid := GridContainer.new()
+	stat_grid.columns = 3
+	var stat_h_sep: float = 16.0
+	stat_grid.add_theme_constant_override("h_separation", int(stat_h_sep))
+	stat_grid.add_theme_constant_override("v_separation", 4)
+	# Divide the popup's own real inner width evenly across the 3 columns --
+	# a GridContainer only ever claims as much width as its widest cells
+	# actually need and left-aligns, so without an explicit width floor per
+	# cell the grid would sit bunched on the left with empty space to its
+	# right instead of actually spanning the popup.
+	var popup_inner_w: float = _vp.x * 0.85 - 40.0
+	var stat_cell_w: float = (popup_inner_w - stat_h_sep * 2.0) / 3.0
+	_add_stat_cell(stat_grid, "HP", st["hp"], growth["hp"], stat_cell_w)
+	_add_stat_cell(stat_grid, "ATK", st["atk"], growth["atk"], stat_cell_w)
+	_add_stat_cell(stat_grid, "MAG", st["mag"], growth["mag"], stat_cell_w)
+	_add_stat_cell(stat_grid, "DEF", st["def"], growth["def"], stat_cell_w)
+	_add_stat_cell(stat_grid, "RES", st["res"], growth["res"], stat_cell_w)
+	_add_stat_cell(stat_grid, "SPD", st["spd"], growth["spd"], stat_cell_w)
+	card_container.add_child(stat_grid)
 
 	var slots_lbl := Label.new()
 	var next_slot = FarroadProgression.next_slot_at(level)
@@ -242,61 +362,90 @@ func _refresh_card() -> void:
 	slots_lbl.modulate = Color(0.65, 0.7, 0.65)
 	card_container.add_child(slots_lbl)
 
-	# Recovery.
+	# Feed / leveling -- moved above Recovery per direct request. Only the
+	# exact-cost-to-next-level button remains; the flat +50/+250 feed
+	# buttons were dropped, also per direct request.
+	var exact := maxi(0, int(ceil(need - have)))
+	card_container.add_child(_section_label("LEVEL"))
+	card_container.add_child(_purchase_row(
+		"Level up", "→ LV %d" % (level + 1), exact, false, _on_feed_pressed.bind(uid, exact)))
+
+	# Recovery/Evade/Crit share the SAME label/value/button column widths
+	# (explicit floors, not auto-sized) even though Recovery has its own
+	# GridContainer separate from Evade/Crit's -- that's what actually puts
+	# all 4 buttons at the identical x position down the page, not just
+	# giving them the same WIDTH (which alone doesn't align them if the
+	# columns before the button differ between the two grids). Narrower than
+	# every other section's own defaults specifically so label+value+button+
+	# separations comfortably fit within the popup's real width with no
+	# horizontal scroll -- a real overflow this popup previously had once
+	# the value column was added, caught from a real screenshot, not
+	# something the earlier per-cell-only width check had actually verified
+	# against the TOTAL row width.
+	var label_col_frac: float = 0.28
+	var value_col_frac: float = 0.11
+	var btn_col_frac: float = 0.20
+
+	# Recovery -- now second, after Level.
 	card_container.add_child(_section_label("RECOVERY — %d%% (cap %d%%)" % [
 		roundi(FarroadProgression.recovery_of(g, uid) * 100), roundi(FarroadProgression.REST_CAP * 100)]))
-	card_container.add_child(_purchase_row(
-		"Between-wave HP carried over", "+%d%%" % roundi(FarroadProgression.REST_STEP * 100),
+	var recovery_grid := GridContainer.new()
+	recovery_grid.columns = 3
+	recovery_grid.add_theme_constant_override("h_separation", 10)
+	_add_labeled_purchase_cells(recovery_grid, "Post-combat Recovery",
+		"%d%%" % roundi(FarroadProgression.recovery_of(g, uid) * 100),
+		"+%d%%" % roundi(FarroadProgression.REST_STEP * 100),
 		FarroadProgression.recovery_cost(g, uid), FarroadProgression.recovery_maxed(g, uid),
-		_on_recovery_pressed.bind(uid)))
+		_on_recovery_pressed.bind(uid), 0, btn_col_frac, label_col_frac, value_col_frac)
+	card_container.add_child(recovery_grid)
 
-	# Feed / leveling.
-	card_container.add_child(_section_label("LEVEL"))
-	var level_desc := Label.new()
-	level_desc.text = "Level up"
-	card_container.add_child(level_desc)
-	var feed_row := HBoxContainer.new()
-	feed_row.add_theme_constant_override("separation", 10)
-	for amt in [50, 250]:
-		var btn := Button.new()
-		btn.text = "+%d" % amt
-		var available: bool = g.get("aether", 0) >= amt
-		btn.disabled = not available
-		btn.pressed.connect(_on_feed_pressed.bind(uid, amt))
-		_style_purchase_button(btn, available)
-		feed_row.add_child(btn)
-	var exact := maxi(0, int(ceil(need - have)))
-	var next_btn := Button.new()
-	next_btn.text = "→ LV %d (%d)" % [level + 1, exact]
-	var next_available: bool = g.get("aether", 0) >= exact
-	next_btn.disabled = not next_available
-	next_btn.pressed.connect(_on_feed_pressed.bind(uid, exact))
-	_style_purchase_button(next_btn, next_available)
-	feed_row.add_child(next_btn)
-	card_container.add_child(feed_row)
-
-	# Evade / ATK-Crit / MAG-Crit.
+	# Evade / ATK-Crit / MAG-Crit -- one GridContainer, not 3 separate rows,
+	# so every button lines up at the same x regardless of how long its own
+	# row's label happens to be. Label and current value are separate cells
+	# (not one combined string) so the values themselves line up in their
+	# own column too, not wherever they land after a label of varying length.
 	card_container.add_child(_section_label("EVADE / CRIT"))
+	var pct_grid := GridContainer.new()
+	pct_grid.columns = 3
+	pct_grid.add_theme_constant_override("h_separation", 10)
+	pct_grid.add_theme_constant_override("v_separation", 6)
 	for stat in FarroadProgression.PCT_STAT_KEYS:
 		var steps: int = FarroadProgression.pct_stat_purchased(g, uid, stat)
 		var cur := FarroadProgression.pct_stat_value(g, uid, stat)
 		var cost := FarroadProgression.pct_stat_cost(stat, steps)
 		var maxed := FarroadProgression.pct_stat_maxed(g, uid, stat)
-		card_container.add_child(_purchase_row(
-			"%s — %s%%" % [PCT_STAT_LABELS[stat], snapped(cur * 100.0, 0.1)],
+		_add_labeled_purchase_cells(pct_grid, PCT_STAT_LABELS[stat], "%s%%" % snapped(cur * 100.0, 0.1),
 			"+%s%%" % snapped(FarroadProgression.PCT_STAT[stat]["step"] * 100.0, 0.1),
-			cost, maxed, _on_pct_stat_pressed.bind(uid, stat)))
+			cost, maxed, _on_pct_stat_pressed.bind(uid, stat), 0, btn_col_frac,
+			label_col_frac, value_col_frac)
+	card_container.add_child(pct_grid)
 
-	# Affinities.
+	# Affinities -- two columns (left: fire/water/earth/air, right:
+	# light/dark/body/spirit), same GridContainer column-alignment trick as
+	# above but with 6 columns (label,value,btn,label,value,btn) so both
+	# button AND value columns line up independently on each side. Shows the
+	# actual total combat effect (the affinity_mul-derived %, rounded to a
+	# whole percent) instead of the old raw point value + a confusingly-named
+	# "×" figure that was actually a bonus FRACTION, not a real multiplier --
+	# whole-percent both because that's plenty of precision for this display
+	# and because it keeps these two-column rows narrow enough to fit side by
+	# side; a smaller font here for the same reason (every other section
+	# keeps the default size).
 	card_container.add_child(_section_label("AFFINITIES"))
-	for axis in FarroadProgression.AFFINITY_AXES:
-		var raw := FarroadProgression.affinity_raw(g, uid, axis)
-		var mul := FarroadCore.affinity_mul(raw)
-		var cost := FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g, uid).get(axis, 0))
-		var maxed := FarroadProgression.affinity_maxed(g, uid, axis)
-		card_container.add_child(_purchase_row(
-			"%s — %s (×%s)" % [AFFINITY_AXIS_LABELS[axis], snapped(raw, 0.1), snapped(mul, 0.01)],
-			"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis)))
+	var aff_grid := GridContainer.new()
+	aff_grid.columns = 6
+	aff_grid.add_theme_constant_override("h_separation", 4)
+	aff_grid.add_theme_constant_override("v_separation", 6)
+	for i in range(4):
+		for col in range(2):
+			var axis: String = FarroadProgression.AFFINITY_AXES[i + col * 4]
+			var raw := FarroadProgression.affinity_raw(g, uid, axis)
+			var pct: float = FarroadCore.affinity_mul(raw) * 100.0
+			var cost := FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g, uid).get(axis, 0))
+			var maxed := FarroadProgression.affinity_maxed(g, uid, axis)
+			_add_labeled_purchase_cells(aff_grid, AFFINITY_AXIS_LABELS[axis], "%+.0f%%" % pct,
+				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08)
+	card_container.add_child(aff_grid)
 
 func _on_recovery_pressed(uid: String) -> void:
 	FarroadProgression.spend_recovery(g, uid)

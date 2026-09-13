@@ -26,9 +26,17 @@ const TURN_ORDER_COUNT := 5
 # inside. Sized as a fraction of vp.x (not vp.y) so the square stays a true
 # square regardless of aspect ratio and so two of them plus the enrage bar
 # reliably fit side by side even on a narrow portrait screen.
-const ICON_SIZE_FRAC := 0.09          # of viewport width
-const ICON_ROW_Y := 0.70              # of viewport height -- icon top
+const STATUS_LOG_ICON_FRAC := 0.08    # of viewport width -- Status/Log icon size
+# Turn-order frame's own top, as a shared constant -- both _build_turn_order_ui
+# (which builds the frame itself) and the Status/Log icon row (which sits
+# right above it, right-aligned) need the SAME number, so it's a named
+# constant rather than a value hardcoded independently in two places.
+const TURN_ORDER_FRAME_TOP_FRAC := 0.775   # of viewport height
 const HOP_HEIGHT_FRAC := 0.099      # of viewport height (doubled from round 4's 0.0495)
+# How far short of the target's rest position a physical attacker's hop
+# stops -- 0.05 originally drew the two shapes nearly on top of each other
+# at the peak of the hop; 50% farther back than that.
+const HOP_STOP_SHORT := 0.075       # of viewport width
 # The ~1s/beat pacing comes entirely from the motion itself, not a trailing
 # static pause -- BEAT_PAUSE is just enough to let a spawned damage
 # number/HP-bar update register on screen before the next beat starts.
@@ -53,6 +61,8 @@ var turn_cards: Array = []
 var status_icon_btn: Button
 var log_icon_btn: Button
 var turn_order_header: Label
+var turn_order_frame: Panel
+var _turn_card_w: float = 0.0   # inner width available to each turn-order card's labels
 
 # Layout fractions of the viewport, resolved to pixels in _ready(). Front
 # rows sit closer to center (a visibly smaller gap than the first pass) so
@@ -113,6 +123,7 @@ func reflow(new_vp: Vector2) -> void:
 	if status_icon_btn: status_icon_btn.queue_free()
 	if log_icon_btn: log_icon_btn.queue_free()
 	if turn_order_header: turn_order_header.queue_free()
+	if turn_order_frame: turn_order_frame.queue_free()
 	for card in turn_cards:
 		if card["panel"]: card["panel"].queue_free()
 	turn_cards.clear()
@@ -204,6 +215,21 @@ const CRIT_COLOR := "ffb347"
 const DIM_COLOR := "888888"
 const NOTE_COLOR := "a8a0e0"
 
+## Display names/glyphs for FarroadCore.ST's 14 status ids -- purely
+## presentation, mirrors nothing in the engine (FarroadCore.gd has no
+## display-name table for these, same reasoning as PREF_TEXT above).
+const STATUS_NAMES := {
+	"sundered": "Sundered", "frail": "Frail", "enfeebled": "Enfeebled",
+	"dulled": "Dulled", "slowed": "Slowed", "blinded": "Blinded",
+	"burning": "Burning", "hasted": "Hasted", "warded": "Warded",
+	"taunted": "Taunted", "surging": "Surging", "bracing": "Bracing",
+	"regen": "Regen", "blurred": "Blurred"}
+const STATUS_GLYPH := {
+	"sundered": "🛡", "frail": "🛡", "enfeebled": "💪", "dulled": "🔮",
+	"slowed": "🐌", "blinded": "👁", "burning": "🔥", "hasted": "💨",
+	"warded": "🛡", "taunted": "⚠", "surging": "⚡", "bracing": "🛡",
+	"regen": "✚", "blurred": "💨"}
+
 ## Flavor text for a non-party unit's row tag -- mirrors PREF_TEXT
 ## (farroad-core.js:531-533), which this port only kept as numeric weights
 ## (pref_weight) since nothing needed the display strings until now.
@@ -216,8 +242,9 @@ var status_container: VBoxContainer
 
 ## "Unit status screens like the original implementation" -- mirrors
 ## renderUnits()'s per-unit card (farroad-ui.js:1683-1729) structurally:
-## name+level+row tag, HP text+bar, charge action name+bar, ATK/MAG/SPD,
-## DEF/RES with the "X lands harder" hint, a weakness line, and (party only)
+## name+level+row tag, HP text+bar, charge action name+bar, one combined
+## ATK/MAG/SPD/DEF/RES line (DEF/RES colored to flag the lower of the two,
+## no separate hint sentence), a weakness line, and (party only)
 ## a RECOVERY line. Rebuilt fresh each time the popup opens, reading live
 ## unit data at that moment, rather than kept continuously in sync while
 ## hidden.
@@ -266,11 +293,26 @@ func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Ca
 ## Split from the popup itself (below) so reflow() can rebuild just the
 ## icon at a new size/position without also rebuilding (and thereby
 ## orphaning/duplicating) the popup, which is built exactly once.
+## Shared row/position math for the Status/Log icons -- right-aligned,
+## sitting just above the turn-order frame's own top edge
+## (TURN_ORDER_FRAME_TOP_FRAC) rather than beside the enrage gauge, which
+## used to cap how wide that gauge could be. slot 0 = Status (left of the
+## pair), slot 1 = Log (right of the pair, flush with the right margin).
+## Computed from the FRACTION, not the live turn_order_frame node, so build
+## order between the icons and the frame itself doesn't matter.
+func _status_log_row_pos(slot: int) -> Vector2:
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	var margin: float = _vp.x * 0.016
+	var gap: float = _vp.x * 0.02
+	var row_gap: float = _vp.y * 0.01
+	var row_y: float = _vp.y * TURN_ORDER_FRAME_TOP_FRAC - icon_size - row_gap
+	var log_x: float = _vp.x - margin - icon_size
+	var status_x: float = log_x - gap - icon_size
+	return Vector2(status_x if slot == 0 else log_x, row_y)
+
 func _build_status_icon() -> void:
-	# Just to the right of the enrage gauge (bar spans x 0.016-0.316) --
-	# see _build_icon_tab for the square-with-caption-below style.
-	var icon_size: float = _vp.x * ICON_SIZE_FRAC
-	status_icon_btn = _build_icon_tab(Vector2(_vp.x * 0.336, _vp.y * ICON_ROW_Y), icon_size, "Status", _on_status_pressed)
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	status_icon_btn = _build_icon_tab(_status_log_row_pos(0), icon_size, "Status", _on_status_pressed)
 
 func _build_status_ui() -> void:
 	_build_status_icon()
@@ -279,7 +321,7 @@ func _build_status_ui() -> void:
 	_style_popup(status_popup)
 	add_child(status_popup)
 
-	var popup_size := Vector2(_vp.x * 0.6, _vp.y * 0.85)
+	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	status_popup.add_child(scroll)
@@ -291,7 +333,7 @@ func _build_status_ui() -> void:
 
 func _on_status_pressed() -> void:
 	_refresh_status_popup()
-	status_popup.popup_centered(Vector2(_vp.x * 0.6, _vp.y * 0.85))
+	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 
 ## Rebuilds every card from LIVE battle data -- called on open, and then
 ## every beat for as long as it stays open (see _run_battle_loop), so HP/
@@ -381,17 +423,30 @@ func _build_status_card(u: Dictionary) -> Control:
 		ch_fg.color = Color(0.85, 0.7, 0.15) if u["isParty"] else Color(0.85, 0.25, 0.25)
 		ch_bg.add_child(ch_fg)
 
-	box.add_child(_rich_line("[font_size=13]ATK %d MAG %d SPD %d[/font_size]" % [
-		roundi(FarroadCore.eff_atk(u)), roundi(FarroadCore.eff_mag(u)), roundi(u["base"]["spd"])]))
-
+	# ATK/MAG/SPD and DEF/RES on one combined line -- DEF/RES still color the
+	# lower of the two via _def_res_hint (unchanged), just without the
+	# trailing "X lands harder" sentence that used to follow it on its own
+	# line.
 	var dr := _def_res_hint(u)
-	var dr_text := "[font_size=13][color=#%s]DEF %d[/color] / [color=#%s]RES %d[/color]" % [
-		(CRIT_COLOR if dr["flag_d"] else "cccccc"), roundi(dr["def"]),
-		(CRIT_COLOR if dr["flag_r"] else "cccccc"), roundi(dr["res"])]
-	if dr["hint"] != "":
-		dr_text += "  [i][color=#%s]%s[/color][/i]" % [DIM_COLOR, dr["hint"]]
-	dr_text += "[/font_size]"
-	box.add_child(_rich_line(dr_text))
+	box.add_child(_rich_line(
+		"[font_size=13]ATK %d MAG %d SPD %d [color=#%s]DEF %d[/color] [color=#%s]RES %d[/color][/font_size]" % [
+			roundi(FarroadCore.eff_atk(u)), roundi(FarroadCore.eff_mag(u)), roundi(u["base"]["spd"]),
+			(CRIT_COLOR if dr["flag_d"] else "cccccc"), roundi(dr["def"]),
+			(CRIT_COLOR if dr["flag_r"] else "cccccc"), roundi(dr["res"])]))
+
+	# Active status effects (burning, bracing, enfeebled, etc.) -- one line
+	# per currently-active id (turns remaining > 0), reusing the same
+	# buff/debuff color split _apply_status_notes' on-field popups already
+	# use, so a unit's status page and its floating "Bracing"/"Frail" popups
+	# read consistently.
+	for id in FarroadCore.ST:
+		if FarroadCore.has(u, id):
+			var is_buff: bool = FarroadCore.is_buff_status(id)
+			var status_color := "80d9ff" if is_buff else "d980ff"
+			var turns: int = int(u["st"][id])
+			box.add_child(_rich_line("[font_size=12][color=#%s]%s %s[/color] [color=#%s]— %s%s[/color][/font_size]" % [
+				status_color, STATUS_GLYPH.get(id, "●"), STATUS_NAMES.get(id, id.capitalize()),
+				DIM_COLOR, _status_effect_text(u, id), "" if turns <= 0 else " (%d turn%s)" % [turns, "" if turns == 1 else "s"]]))
 
 	var weak := []
 	for ax in ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]:
@@ -430,17 +485,58 @@ func _def_res_hint(u: Dictionary) -> Dictionary:
 	var gap: float = (hi - lo) / hi if hi > 0 else 0.0
 	var flag_d: bool = gap >= 0.15 and d < r
 	var flag_r: bool = gap >= 0.15 and r < d
-	return {"def": d, "res": r, "flag_d": flag_d, "flag_r": flag_r,
-		"hint": ("physical lands harder" if flag_d else ("magic lands harder" if flag_r else ""))}
+	return {"def": d, "res": r, "flag_d": flag_d, "flag_r": flag_r}
+
+## A short, real-mechanic-accurate effect summary for one of FarroadCore.ST's
+## 14 statuses, read off the unit's OWN live magnitude (FarroadCore.mag_of --
+## already correctly reflects any per-cast stMag override from the caster's
+## Spirit affinity, not just the flat STATUS_BASE_MAG constant). Matches each
+## status's REAL mechanic exactly as read from FarroadCore.gd (eff_atk/
+## eff_mag/eff_def/eff_res/eff_evade/eff_charge_rate/tc_of/incoming_mul/
+## threat_of/resolve_hit), not a guessed description:
+## - burning/regen are stored as a POSITIVE magnitude representing the DOT/
+##   HOT %-of-maxHp amount (see step()'s own e["dot"]/e["regen"] math) --
+##   burning is flipped negative here since it's harmful, regen shown positive.
+## - blinded's +30% enemy-evade-chance and taunted's threat multiplier are
+##   flat literals in resolve_hit()/threat_of(), never stored in
+##   STATUS_BASE_MAG, so they're not derived from mag_of() at all.
+func _status_effect_text(u: Dictionary, id: String) -> String:
+	var mag: float = FarroadCore.mag_of(u, id)
+	var pct: float = mag * 100.0
+	match id:
+		"sundered", "bracing":
+			return "DEF %+.0f%%" % pct
+		"frail":
+			return "RES %+.0f%%" % pct
+		"enfeebled":
+			return "ATK %+.0f%%" % pct
+		"dulled":
+			return "MAG %+.0f%%" % pct
+		"slowed", "hasted":
+			return "%+.0f%% turn cost" % pct
+		"warded":
+			return "%+.0f%% dmg taken" % pct
+		"surging":
+			return "%+.0f%% charge rate" % pct
+		"blurred":
+			return "%+.0f%% evade" % pct
+		"burning":
+			return "-%.0f%% max HP/turn" % pct
+		"regen":
+			return "+%.0f%% max HP/turn" % pct
+		"blinded":
+			return "attacks 30% more likely to miss"
+		"taunted":
+			return "draws enemy focus"
+		_:
+			return ""
 
 ## Split from the popup itself (below) for the same reason
 ## _build_status_icon() is split from _build_status_ui() -- see its comment.
 func _build_log_icon() -> void:
-	# Right next to the Status icon -- same row, just to the right of the
-	# enrage gauge.
-	var icon_size: float = _vp.x * ICON_SIZE_FRAC
-	var log_x: float = 0.336 + ICON_SIZE_FRAC + 0.02
-	log_icon_btn = _build_icon_tab(Vector2(_vp.x * log_x, _vp.y * ICON_ROW_Y), icon_size, "Log", _on_log_pressed)
+	# Right of the Status icon, same row -- see _status_log_row_pos().
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	log_icon_btn = _build_icon_tab(_status_log_row_pos(1), icon_size, "Log", _on_log_pressed)
 
 func _build_log_ui() -> void:
 	_build_log_icon()
@@ -449,7 +545,7 @@ func _build_log_ui() -> void:
 	_style_popup(log_popup)
 	add_child(log_popup)
 
-	var popup_size := Vector2(_vp.x * 0.75, _vp.y * 0.75)
+	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.75)
 	var vbox := VBoxContainer.new()
 	vbox.custom_minimum_size = popup_size - Vector2(20, 20)
 	log_popup.add_child(vbox)
@@ -477,7 +573,7 @@ func _build_log_ui() -> void:
 	scroll.add_child(log_container)
 
 func _on_log_pressed() -> void:
-	log_popup.popup_centered(Vector2(_vp.x * 0.75, _vp.y * 0.75))
+	log_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.75))
 
 func _on_clear_pressed() -> void:
 	log_lines.clear()
@@ -555,17 +651,25 @@ var enrage_label: Label
 ## (once it opens) the CURRENT worst-case damage-bonus text takes over that
 ## exact spot -- one line that changes meaning, not two separate texts.
 func _build_enrage_ui() -> void:
-	var y: float = _vp.y * 0.755
-	var w: float = _vp.x * 0.30
+	# Same row as the Status/Log icons, to their left -- vertically centered
+	# against the icons' own height, and ending just short of Status rather
+	# than running underneath/into the icons.
+	var status_pos: Vector2 = _status_log_row_pos(0)
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	var margin: float = _vp.x * 0.016
+	var end_gap: float = _vp.x * 0.03
+	var bar_h: float = _vp.y * 0.012
+	var y: float = status_pos.y + (icon_size - bar_h) / 2.0
+	var w: float = status_pos.x - end_gap - margin
 	enrage_label = Label.new()
-	enrage_label.position = Vector2(_vp.x * 0.016, y - _vp.y * 0.026)
+	enrage_label.position = Vector2(margin, y - _vp.y * 0.026)
 	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	enrage_label.modulate = Color(1.0, 0.45, 0.45)
 	add_child(enrage_label)
 
 	enrage_bg = ColorRect.new()
-	enrage_bg.position = Vector2(_vp.x * 0.016, y)
-	enrage_bg.size = Vector2(w, _vp.y * 0.012)
+	enrage_bg.position = Vector2(margin, y)
+	enrage_bg.size = Vector2(w, bar_h)
 	enrage_bg.color = Color(0.16, 0.08, 0.08)
 	add_child(enrage_bg)
 
@@ -599,13 +703,6 @@ func _refresh_enrage() -> void:
 ## separate Log button/popup above). Always visible, fixed height, no
 ## scrolling needed since it only ever shows TURN_ORDER_COUNT cards.
 func _build_turn_order_ui() -> void:
-	turn_order_header = Label.new()
-	turn_order_header.text = "TURN ORDER →"
-	turn_order_header.position = Vector2(_vp.x * 0.016, _vp.y * 0.785)
-	turn_order_header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	turn_order_header.modulate = Color(0.6, 0.65, 0.75)
-	add_child(turn_order_header)
-
 	# Spans the full screen width (minus small edge margins) -- card_w is
 	# SOLVED FOR so TURN_ORDER_COUNT cards + the gaps between them exactly
 	# fill margin..vp.x-margin, rather than a fixed fraction that only used
@@ -613,10 +710,37 @@ func _build_turn_order_ui() -> void:
 	var margin: float = _vp.x * 0.016
 	var gap: float = _vp.x * 0.01
 	var card_w: float = (_vp.x - margin * 2.0 - gap * (TURN_ORDER_COUNT - 1)) / float(TURN_ORDER_COUNT)
-	# Shorter than before -- frees room below for the bottom icon row
-	# (Gambits/Aether/...), which used to run straight into these cards.
-	var card_h: float = _vp.y * 0.08
+	# Shorter than before, per direct request (also frees a little more room
+	# below for the bottom icon row).
+	var card_h: float = _vp.y * 0.06
 	var top: float = _vp.y * 0.82
+	_turn_card_w = card_w
+
+	# A background frame behind the header+cards, added FIRST so it draws
+	# behind them (later-added siblings draw on top) -- gives the turn-order
+	# strip a visible boundary of its own instead of sitting bare against the
+	# battlefield/icon row it's sandwiched between.
+	var frame_pad: float = _vp.x * 0.008
+	var frame_top: float = _vp.y * TURN_ORDER_FRAME_TOP_FRAC
+	var frame_bottom: float = top + card_h + _vp.y * 0.01
+	turn_order_frame = Panel.new()
+	var frame_style := StyleBoxFlat.new()
+	frame_style.bg_color = Color(1.0, 1.0, 1.0, 0.03)
+	frame_style.border_color = Color(0.4, 0.43, 0.5)
+	frame_style.set_border_width_all(1)
+	turn_order_frame.add_theme_stylebox_override("panel", frame_style)
+	turn_order_frame.position = Vector2(margin - frame_pad, frame_top)
+	turn_order_frame.custom_minimum_size = Vector2(
+		_vp.x - (margin - frame_pad) * 2.0, frame_bottom - frame_top)
+	add_child(turn_order_frame)
+
+	turn_order_header = Label.new()
+	turn_order_header.text = "TURN ORDER →"
+	turn_order_header.position = Vector2(_vp.x * 0.016, _vp.y * (TURN_ORDER_FRAME_TOP_FRAC + 0.01))
+	turn_order_header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	turn_order_header.modulate = Color(0.6, 0.65, 0.75)
+	add_child(turn_order_header)
+
 	for i in range(TURN_ORDER_COUNT):
 		var panel := PanelContainer.new()
 		panel.position = Vector2(margin + i * (card_w + gap), top)
@@ -639,24 +763,22 @@ func _build_turn_order_ui() -> void:
 		panel.add_child(vbox)
 
 		var name_lbl := Label.new()
-		name_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.02))
+		name_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
 		vbox.add_child(name_lbl)
 
 		var action_lbl := Label.new()
-		action_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+		action_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.014))
 		vbox.add_child(action_lbl)
 
-		var speed_lbl := Label.new()
-		speed_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
-		speed_lbl.modulate = Color(0.65, 0.7, 0.65)
-		vbox.add_child(speed_lbl)
-
-		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl, "speed": speed_lbl})
+		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl})
 
 ## Recomputes FarroadCore.preview() (a pure simulation, mutates nothing) and
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
 	var upcoming: Array = [] if battle["over"] != null else FarroadCore.preview(battle, TURN_ORDER_COUNT)
+	# A small inset off the card's own width -- the true content width after
+	# the PanelContainer's own border/margins, not the full slot fraction.
+	var max_w: float = _turn_card_w - _vp.x * 0.02
 	for i in range(turn_cards.size()):
 		var card = turn_cards[i]
 		if i >= upcoming.size():
@@ -664,11 +786,32 @@ func _refresh_turn_order() -> void:
 			continue
 		card["panel"].visible = true
 		var p = upcoming[i]
-		card["name"].text = p["unitName"]
+		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.016), max_w)
 		card["name"].modulate = Color(0.45, 0.7, 1.0) if p["isParty"] else Color(1.0, 0.55, 0.4)
-		var act = FarroadCore.ACTIONS.get(p["actionId"])
-		card["action"].text = _action_glyph(act) + p["actionName"]
-		card["speed"].text = "×%d" % roundi(100.0 / p["rank"])
+		# No camp/element glyph prefix and no speed (×N) line -- just who's
+		# acting and what the action is, per direct request. _action_glyph
+		# is still used by the Log popup's own per-beat entries, unchanged.
+		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.014), max_w)
+
+## A long action/unit name (e.g. "Wayfarer's Oath") could otherwise draw past
+## a turn-order card's own edge into its neighbor -- there's no Godot Label
+## feature that auto-shrinks font size to fit, so this measures the text's
+## real natural width at the base size and scales the font down (never below
+## min_font_size) until it fits max_width instead. clip_text stays on as a
+## last-resort safety net for the rare case even the floor size overflows.
+func _fit_label_text(lbl: Label, text: String, base_font_size: int, max_width: float, min_font_size: int = 8) -> void:
+	# clip_text must be set AFTER measuring, not before -- a Label with
+	# clip_text already true stops reporting its true unclipped text width
+	# from get_minimum_size() (it reports a small "I don't need room, I'll
+	# clip" size instead), which would silently defeat this exact check.
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", base_font_size)
+	var natural_w: float = lbl.get_minimum_size().x
+	if natural_w > max_width and natural_w > 0.0:
+		var scaled: int = maxi(min_font_size, int(floor(base_font_size * (max_width / natural_w))))
+		lbl.add_theme_font_size_override("font_size", scaled)
+	lbl.clip_text = true
+	lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
 ## Mirrors actionGlyphText (farroad-ui.js:501-505) -- camp icon + element icon.
 func _action_glyph(act) -> String:
@@ -796,10 +939,15 @@ func _animate_beat(e: Dictionary) -> void:
 		return
 
 	if is_phys:
-		var approach: Vector2 = target_view.rest_position + (actor_view.rest_position - target_view.rest_position).normalized() * (_vp.x * 0.05)
-		await _hop(actor_view, actor_view.position, approach)
+		# A LOCAL offset from the actor's own rest position (its shape
+		# animates relative to itself -- see _hop's own comment), stopping
+		# HOP_STOP_SHORT of the target's rest position rather than closing
+		# the full gap.
+		var full_delta: Vector2 = target_view.rest_position - actor_view.rest_position
+		var approach_offset: Vector2 = full_delta - full_delta.normalized() * (_vp.x * HOP_STOP_SHORT)
+		await _hop(actor_view, Vector2.ZERO, approach_offset)
 		_apply_hit_effects(e)
-		await _hop(actor_view, actor_view.position, actor_view.rest_position)
+		await _hop(actor_view, actor_view.shape.position, Vector2.ZERO)
 	else:
 		await _animate_projectile(actor_view, target_view)
 		_apply_hit_effects(e)
@@ -824,11 +972,47 @@ func _apply_hit_effects(e: Dictionary) -> void:
 			continue
 		tv.update_hp()
 		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5))
+	_apply_status_notes(e)
 
+## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/
+## dulled/frail/sundered/blurred/etc. -- anything with an "applies" field)
+## only ever showed up as a text line in the Log popup, not on the field
+## itself, unlike damage/heals which both get a floating number. Parses the
+## exact note strings FarroadCore.gd already appends for this
+## ("applied X on Y" / "refreshed X on Y", farroad-core.js's own status-apply
+## branch) rather than duplicating that logic or touching the engine layer --
+## presentation-only, same as everything else in this file. Excludes
+## "enraged x%d" (its own dedicated enrage bar/label already covers that,
+## every beat once enrage is open would be popup spam) and "taunting"/
+## "thorns -%d" (self-effects with no stat change to call out this way).
+func _apply_status_notes(e: Dictionary) -> void:
+	for note in e["notes"]:
+		var applied: bool = note.begins_with("applied ")
+		var refreshed: bool = note.begins_with("refreshed ")
+		if not applied and not refreshed:
+			continue
+		var rest: String = note.trim_prefix("applied " if applied else "refreshed ")
+		var sep := rest.find(" on ")
+		if sep == -1:
+			continue
+		var status_id: String = rest.substr(0, sep)
+		var target_name: String = rest.substr(sep + 4)
+		var tv: UnitView = unit_views_by_name.get(target_name)
+		if tv == null:
+			continue
+		var color := Color(0.5, 0.85, 1.0) if FarroadCore.is_buff_status(status_id) else Color(0.85, 0.5, 1.0)
+		DamageNumber.spawn(self, tv.damage_spawn_position(), status_id.capitalize(), color)
+
+## Animates ONLY the actor's shape -- `from`/`to` are LOCAL offsets from the
+## unit's own rest position (Vector2.ZERO = at rest), not world-space points.
+## The UnitView itself (and therefore its name/HP/charge bars, siblings of
+## the shape, positioned relative to the UnitView's own origin) never moves,
+## so they stay anchored at the unit's normal spot on the field throughout
+## the hop instead of jumping toward the target along with the shape.
 func _hop(actor: UnitView, from: Vector2, to: Vector2) -> void:
 	var height: float = _vp.y * HOP_HEIGHT_FRAC
 	var tw := create_tween()
-	tw.tween_method(func(t: float): actor.position = from.lerp(to, t) + Vector2(0, -height * sin(t * PI)),
+	tw.tween_method(func(t: float): actor.shape.position = from.lerp(to, t) + Vector2(0, -height * sin(t * PI)),
 		0.0, 1.0, HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
 
