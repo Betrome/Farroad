@@ -11,6 +11,8 @@ func _initialize():
 		_run_rng()
 	elif mode == "battle":
 		_run_battle_suite()
+	elif mode == "bonuses":
+		_run_bonuses_suite()
 	quit()
 
 ## Step 1b: hand-authored test content -- kept identical, by hand, to
@@ -136,3 +138,88 @@ func _run_rng() -> void:
 			next_ints.append(rng2.next_int(37))
 		out[str(seed)] = {"next": nexts, "nextInt": next_ints}
 	print(JSON.stringify(out))
+
+## Step 1d: mirrors the 'bonuses' mode in parity-reference.js exactly.
+func _run_bonuses_suite() -> void:
+	_register_test_actions()
+	FarroadCore.ACTIONS["heavystrike"] = FarroadCore.a_defaults({"id": "heavystrike", "name": "Heavy Strike",
+		"camp": "atk", "tk": "foe", "power": 3.0, "rank": 1.4, "isCharge": true})
+	FarroadCore.register_bonus_eligible(["strike", "mend", "ember", "heavystrike"])
+	var out := {}
+
+	out["bonusPrice"] = []
+	for rarity in ["common", "rare", "legendary"]:
+		for total in range(4):
+			out["bonusPrice"].append({"rarity": rarity, "bid": "swift", "total": total,
+				"price": FarroadCore.bonus_price({"rarity": rarity}, "swift", total)})
+		out["bonusPrice"].append({"rarity": rarity, "bid": "broad",
+			"price": FarroadCore.bonus_price({"rarity": rarity}, "broad", 0)})
+
+	var shapes := {
+		"atkDamage": {"power": 1.0, "camp": "atk", "tk": "foe"},
+		"heal": {"power": 1.0, "heal": true, "tk": "ally"},
+		"charge": {"power": 2.0, "isCharge": true, "tk": "foe"},
+		"appliesDebuff": {"power": 1.0, "applies": "burning", "tk": "foe"},
+		"appliesBuff": {"power": 0, "applies": "hasted", "tk": "self"}
+	}
+	var bonus_ids := ["swift", "potent", "lasting", "deepening", "surge", "piercing", "broad", "cleansing", "thrifty"]
+	out["bonusApplies"] = {}
+	for shape in shapes.keys():
+		out["bonusApplies"][shape] = {}
+		for bid in bonus_ids:
+			out["bonusApplies"][shape][bid] = FarroadCore.bonus_applies(shapes[shape], bid)
+
+	out["actionBonusTotal"] = [
+		FarroadCore.action_bonus_total({"swift": 2, "piercing": 1}),
+		FarroadCore.action_bonus_total({"broad": 1}),
+		FarroadCore.action_bonus_total({"swift": 3, "broad": 1, "potent": 2}),
+		FarroadCore.action_bonus_total({})
+	]
+
+	out["bonusSpend"] = [
+		FarroadCore.bonus_spend({"strike": {"swift": 2, "piercing": 1}}),
+		FarroadCore.bonus_spend({"strike": {"swift": 2, "piercing": 1}, "mend": {"potent": 1, "broad": 1}}),
+		FarroadCore.bonus_spend({})
+	]
+
+	FarroadCore.apply_bonuses({
+		"strike": {"swift": 2, "piercing": 3},
+		"mend": {"potent": 1, "cleansing": 2},
+		"heavystrike": {"surge": 1, "thrifty": 1}
+	})
+	out["afterApply"] = {
+		"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"],
+		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"],
+		"heavystrikeChargeCost": FarroadCore.ACTIONS["heavystrike"]["chargeCost"]
+	}
+	FarroadCore.apply_bonuses({})
+	out["afterReset"] = {
+		"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"],
+		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"],
+		"heavystrikeChargeCost": FarroadCore.ACTIONS["heavystrike"]["chargeCost"]
+	}
+	FarroadCore.apply_bonuses({"strike": {"swift": 5}})
+	out["afterReapply"] = {"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"]}
+	FarroadCore.apply_bonuses({})
+
+	out["piercingProof"] = {"unpierced": _dmg_against_high_res(false), "pierced": _dmg_against_high_res(true)}
+
+	print(JSON.stringify(out))
+
+func _dmg_against_high_res(pierced: bool):
+	FarroadCore.apply_bonuses({"ember": {"piercing": 2}} if pierced else {})
+	var src := FarroadCore.make_unit({"id": "s", "name": "Src", "isParty": true, "level": 1, "slotIndex": 0,
+		"stats": {"atk": 15, "mag": 40, "def": 15, "res": 15, "spd": 100}, "slots": [{"cond": "none", "action": "ember"}]})
+	var tgt := FarroadCore.make_unit({"id": "t", "name": "Tgt", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 80, "spd": 90}, "maxHp": 100000, "hp": 100000,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var b := FarroadCore.make_battle([src, tgt], {"rng": FarroadCore.make_rng(1), "deterministic": true})
+	var e = null
+	var guard := 0
+	while e == null and guard < 10:
+		guard += 1
+		var ev = FarroadCore.step(b)
+		if ev != null and ev["actorId"] == "s" and not ev["hits"].is_empty():
+			e = ev
+	FarroadCore.apply_bonuses({})
+	return e["hits"][0]["damage"] if e != null else null

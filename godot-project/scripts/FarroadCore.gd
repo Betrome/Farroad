@@ -113,6 +113,145 @@ static func cost_of_charge(act) -> float:
 		return act["chargeCost"]
 	return CHARGE_FULL
 
+## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
+## 321-519) =====
+const RARITY_POWER_MUL := {"common": 1.00, "rare": 1.25, "legendary": 1.55}
+const RARITY_COST_MUL := {"common": 1.00, "rare": 1.60, "legendary": 2.40}
+const SWIFT_CEIL := 3.0
+const SWIFT_DECAY := 0.88
+const BONUS_COST_BROAD := 50
+const CHARGE_UP_COST := 12
+const CHARGE_THRIFT := 15
+const CHARGE_COST_MIN := 40
+const CHARGE_COST_MAX := 400
+const BUFFS: Array[String] = ["hasted", "warded", "taunted", "surging", "bracing", "regen", "blurred"]
+
+static func is_buff_status(s) -> bool:
+	return BUFFS.has(s)
+
+## Mirrors actionBonusTotal (farroad-core.js:341-343).
+static func action_bonus_total(b: Dictionary) -> int:
+	var t := 0
+	for bid in b.keys():
+		if bid != "broad":
+			t += int(b.get(bid, 0))
+	return t
+
+static func _rarity_of(a) -> String:
+	var r = a.get("rarity") if a != null else null
+	return r if r != null else "common"
+
+## Mirrors bonusPrice (farroad-core.js:356-359).
+static func bonus_price(a, bid: String, total_on_action: int) -> int:
+	var mul: float = RARITY_COST_MUL.get(_rarity_of(a), 1.0)
+	if bid == "broad":
+		return roundi(BONUS_COST_BROAD * mul)
+	return roundi((total_on_action + 1) * mul)
+
+## Mirrors bonusApplies (farroad-core.js:423-451).
+static func bonus_applies(a, bid: String) -> bool:
+	if a == null:
+		return false
+	# NOTE: GDScript's bool(x) constructor throws on x == null (a real
+	# runtime gap vs JS's !!x, which is always safe) -- "x else false"
+	# below relies on `if`'s native truthy/falsy coercion instead, which
+	# handles null (and 0/""/empty) the same way JS's falsy values do.
+	match bid:
+		"swift": return true
+		"potent": return true if a.get("power") else false
+		"lasting": return true if a.get("applies") else false
+		"deepening": return (true if a.get("applies") else false) and not is_buff_status(a.get("applies"))
+		"surge": return false if a.get("isCharge") else true
+		"piercing": return (true if a.get("power") else false) and not (true if a.get("heal") else false)
+		"broad": return a.get("tk") == "foe" or a.get("tk") == "ally"
+		"cleansing": return true if a.get("heal") else false
+		"thrifty": return true if a.get("isCharge") else false
+	return false
+
+## PRISTINE/snapshot (farroad-core.js:454-457) is normally keyed off the
+## hardcoded EQUIPPABLE.concat(CHARGE_ACTIONS) whitelist -- that whitelist
+## isn't ported yet (it comes from the real CSV roster, deferred per the
+## plan), so register_bonus_eligible() stands in for it: the test harness
+## explicitly names which registered ids are Lore-eligible, the same role
+## the whitelist plays for real content later.
+static var PRISTINE = null
+static var BONUS_ELIGIBLE: Array = []
+
+static func register_bonus_eligible(ids: Array) -> void:
+	BONUS_ELIGIBLE = ids.duplicate()
+	PRISTINE = null
+
+static func snapshot() -> void:
+	if PRISTINE != null:
+		return
+	PRISTINE = {}
+	for id in BONUS_ELIGIBLE:
+		if ACTIONS.has(id):
+			var a = ACTIONS[id]
+			PRISTINE[id] = {"power": a.get("power"), "rank": a.get("rank"), "charge": a.get("charge"),
+				"defPierce": a.get("defPierce"), "critBonus": a.get("critBonus"),
+				"turns": a.get("turns"), "chargeCost": a.get("chargeCost")}
+
+static func pristine_of(id: String):
+	snapshot()
+	return PRISTINE.get(id)
+
+## Mirrors applyBonuses (farroad-core.js:458-496) -- resets every eligible
+## action to PRISTINE, then re-applies `map` on top, exactly like the JS:
+## a full replay from baseline every call, never a compounding mutation.
+static func apply_bonuses(map: Dictionary) -> void:
+	snapshot()
+	for id in PRISTINE.keys():
+		var a = ACTIONS[id]
+		var p = PRISTINE[id]
+		for k in p.keys():
+			a[k] = p[k]
+	for aid in map.keys():
+		var b = map[aid]
+		var a = ACTIONS.get(aid)
+		if a == null or b == null:
+			continue
+		if b.get("swift"):
+			var ini: float = 1.0 / a["rank"]
+			ini = SWIFT_CEIL - (SWIFT_CEIL - ini) * pow(SWIFT_DECAY, b["swift"])
+			a["rank"] = 1.0 / ini
+		if b.get("weighty"):
+			a["power"] = a["power"] * (1 + 0.12 * b["weighty"])
+		if b.get("piercing"):
+			a["defPierce"] = min(0.85, a.get("defPierce", 0.0) + 0.15 * b["piercing"])
+		if b.get("surge") and not a.get("isCharge"):
+			a["charge"] = a.get("charge", 0.0) + 10 * b["surge"]
+		if b.get("lasting") and a.get("applies"):
+			a["turns"] = a.get("turns", 3) + b["lasting"]
+		if b.get("potent") and a.get("power"):
+			a["power"] = a["power"] * (1 + 0.15 * b["potent"])
+		if b.get("cleansing") and a.get("heal"):
+			a["cleanse"] = a.get("cleanse", 0) + b["cleansing"]
+		if b.get("broad"):
+			if a.get("tk") == "ally": a["tk"] = "allAllies"
+			elif a.get("tk") == "foe": a["tk"] = "allFoes"
+		if b.get("deepening") and a.get("applies") and not is_buff_status(a.get("applies")):
+			a["deepen"] = a.get("deepen", 0.0) + 0.25 * b["deepening"]
+		if a.get("isCharge"):
+			var ups := 0
+			for k in b.keys():
+				if k != "thrifty":
+					ups += int(b[k])
+			var computed: int = CHARGE_FULL + CHARGE_UP_COST * ups - CHARGE_THRIFT * int(b.get("thrifty", 0))
+			a["chargeCost"] = max(CHARGE_COST_MIN, min(CHARGE_COST_MAX, computed))
+
+## Mirrors bonusSpend (farroad-core.js:513-519).
+static func bonus_spend(map: Dictionary) -> int:
+	var n := 0
+	for aid in map.keys():
+		var b = map[aid]
+		var total := action_bonus_total(b)
+		var mul: float = RARITY_COST_MUL.get(_rarity_of(ACTIONS.get(aid)), 1.0)
+		for k in range(1, total + 1):
+			n += roundi(k * mul)
+		n += int(b.get("broad", 0)) * roundi(BONUS_COST_BROAD * mul)
+	return n
+
 ## ===== affinity system (mirrors farroad-core.js:88-139) =====
 static func affinity_mul(raw: float) -> float:
 	var s: float = -1.0 if raw < 0 else 1.0

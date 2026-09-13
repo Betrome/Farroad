@@ -55,8 +55,24 @@ const TEST_ACTIONS = {
   ember:  { id: 'ember',  name: 'Ember',  camp: 'mag', tk: 'foe', power: 1.05, rank: 1.05, charge: 21, applies: 'burning', turns: 3 }
 };
 
+/* Mirrors A() (farroad-core.js:271-272), which isn't exported on F -- the
+   real content pipeline always runs every action through it before combat
+   ever sees it, so test content must too, or fields it defaults (defPierce,
+   critBonus, chargeCost) come back `undefined` here instead of the real 0/
+   CHARGE_FULL a CSV-compiled action would always have. This bit Step 1d
+   specifically: reading .defPierce/.chargeCost directly (not through a
+   defensive `||0`) after a reset exposed the gap between this harness's raw
+   `C.ACTIONS[id]=...` assignment and the GDScript side's register_actions(),
+   which already runs everything through the ported a_defaults(). */
+function applyDefaults(o) {
+  o.rank = o.rank || 1; o.charge = o.charge || 0; o.hits = o.hits || 1;
+  o.defPierce = o.defPierce || 0; o.critBonus = o.critBonus || 0; o.power = o.power || 0;
+  if (o.isCharge) o.chargeCost = o.chargeCost || 100;
+  return o;
+}
+
 function registerTestActions() {
-  Object.keys(TEST_ACTIONS).forEach(id => { C.ACTIONS[id] = TEST_ACTIONS[id]; });
+  Object.keys(TEST_ACTIONS).forEach(id => { C.ACTIONS[id] = applyDefaults(TEST_ACTIONS[id]); });
 }
 
 function runBattle(seed, units, enrage) {
@@ -163,6 +179,98 @@ if (mode === 'battle') {
     C.makeUnit({ id: 'e2', name: 'Priest', isParty: false, level: 1, slotIndex: 11, arch: 'priest', row: 'back',
       stats: { hp: 130, atk: 8, mag: 12, def: 7, res: 10, spd: 88 }, slots: [{ cond: 'none', action: 'mend' }] })
   ]);
+
+  console.log(JSON.stringify(out));
+}
+
+if (mode === 'bonuses') {
+  registerTestActions();
+  // 'heavystrike' is a real CHARGE_ACTIONS id -- overwritten here the same
+  // way registerTestActions() overwrites strike/mend/ember (real EQUIPPABLE
+  // ids), so it's still whitelist-eligible for snapshot() below.
+  C.ACTIONS.heavystrike = applyDefaults({ id: 'heavystrike', name: 'Heavy Strike', camp: 'atk', tk: 'foe', power: 3.0, rank: 1.4, isCharge: true });
+  const out = {};
+
+  // bonusPrice: 3 rarities x totals 0-3, for 'swift' (linear) and 'broad' (flat).
+  out.bonusPrice = [];
+  ['common', 'rare', 'legendary'].forEach(rarity => {
+    for (let total = 0; total <= 3; total++) {
+      out.bonusPrice.push({ rarity, bid: 'swift', total, price: C.bonusPrice({ rarity }, 'swift', total) });
+    }
+    out.bonusPrice.push({ rarity, bid: 'broad', price: C.bonusPrice({ rarity }, 'broad', 0) });
+  });
+
+  // bonusApplies: all 9 bonus ids x 5 representative action shapes.
+  const SHAPES = {
+    atkDamage: { power: 1.0, camp: 'atk', tk: 'foe' },
+    heal: { power: 1.0, heal: true, tk: 'ally' },
+    charge: { power: 2.0, isCharge: true, tk: 'foe' },
+    appliesDebuff: { power: 1.0, applies: 'burning', tk: 'foe' },
+    appliesBuff: { power: 0, applies: 'hasted', tk: 'self' }
+  };
+  const BONUS_IDS = ['swift', 'potent', 'lasting', 'deepening', 'surge', 'piercing', 'broad', 'cleansing', 'thrifty'];
+  out.bonusApplies = {};
+  Object.keys(SHAPES).forEach(shape => {
+    out.bonusApplies[shape] = {};
+    BONUS_IDS.forEach(bid => { out.bonusApplies[shape][bid] = C.bonusApplies(SHAPES[shape], bid); });
+  });
+
+  // actionBonusTotal
+  out.actionBonusTotal = [
+    C.actionBonusTotal({ swift: 2, piercing: 1 }),
+    C.actionBonusTotal({ broad: 1 }),
+    C.actionBonusTotal({ swift: 3, broad: 1, potent: 2 }),
+    C.actionBonusTotal({})
+  ];
+
+  // bonusSpend
+  out.bonusSpend = [
+    C.bonusSpend({ strike: { swift: 2, piercing: 1 } }),
+    C.bonusSpend({ strike: { swift: 2, piercing: 1 }, mend: { potent: 1, broad: 1 } }),
+    C.bonusSpend({})
+  ];
+
+  // applyBonuses mutation correctness -- register, apply, read back, reset,
+  // reapply differently (proves the reset-to-PRISTINE replay, not a
+  // compounding mutation).
+  C.applyBonuses({
+    strike: { swift: 2, piercing: 3 },
+    mend: { potent: 1, cleansing: 2 },
+    heavystrike: { surge: 1, thrifty: 1 }
+  });
+  out.afterApply = {
+    strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce,
+    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse,
+    heavystrikeChargeCost: C.ACTIONS.heavystrike.chargeCost
+  };
+  C.applyBonuses({});
+  out.afterReset = {
+    strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce,
+    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse,
+    heavystrikeChargeCost: C.ACTIONS.heavystrike.chargeCost
+  };
+  C.applyBonuses({ strike: { swift: 5 } });
+  out.afterReapply = { strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce };
+  C.applyBonuses({});
+
+  // Real battle proof (mirrors the existing farroadsmoke.js Piercing test):
+  // a magic action with Piercing must deal MORE damage to a high-RES target
+  // than the same action unpierced -- proves the bonus-adjusted number
+  // actually changes combat, not just that a flag got set.
+  function dmgAgainstHighRes(pierced) {
+    C.applyBonuses(pierced ? { ember: { piercing: 2 } } : {});
+    const src = C.makeUnit({ id: 's', name: 'Src', isParty: true, level: 1, slotIndex: 0,
+      stats: { atk: 15, mag: 40, def: 15, res: 15, spd: 100 }, slots: [{ cond: 'none', action: 'ember' }] });
+    const tgt = C.makeUnit({ id: 't', name: 'Tgt', isParty: false, level: 1, slotIndex: 10,
+      stats: { atk: 10, mag: 10, def: 10, res: 80, spd: 90 }, maxHp: 100000, hp: 100000,
+      slots: [{ cond: 'none', action: 'strike' }] });
+    const b = C.makeBattle([src, tgt], { rng: C.makeRNG(1), deterministic: true });
+    let e = null, guard = 0;
+    while (!e && guard++ < 10) { const ev = C.step(b); if (ev && ev.actorId === 's' && ev.hits.length) e = ev; }
+    C.applyBonuses({});
+    return e ? e.hits[0].damage : null;
+  }
+  out.piercingProof = { unpierced: dmgAgainstHighRes(false), pierced: dmgAgainstHighRes(true) };
 
   console.log(JSON.stringify(out));
 }
