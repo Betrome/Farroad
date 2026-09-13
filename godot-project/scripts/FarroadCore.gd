@@ -378,6 +378,236 @@ static func action_held_by_earlier_fielded(b: Dictionary, u: Dictionary, action_
 				return true
 	return false
 
+## ===== Step 1c: gambit conditions (mirrors CONDITIONS/condById,
+## farroad-core.js:546-658) =====
+## 30 explicit conditions + a generated 10%-ladder (10-90, both directions,
+## for foe/ally/self) = 79 total. 5 of the 30 explicit ones (foe_hp_gte_70,
+## foe_hp_lte_30, ally_hp_lte_60/30, self_hp_lte_50) are IDENTICALLY SHAPED
+## to what the generated ladder would produce for the same group/cmp/pct
+## (confirmed against the JS source -- the ladder generator's own
+## existing-id guard exists specifically because they'd be exact
+## duplicates otherwise), so this port handles all 54 percentile-shaped
+## ids (5 legacy + 49 generated) through ONE generic path instead of
+## hand-duplicating them, and only the 25 genuinely bespoke ids get their
+## own match branch -- the same DRY structure the JS source itself uses.
+static func any_debuff(u: Dictionary) -> bool:
+	for d in DEBUFFS:
+		if has(u, d):
+			return true
+	return false
+
+## Parses e.g. "foe_hp_gte_70" -> {matched:true, group:"foe", cmp:"gte", pct:70}.
+## String-parsed rather than regex -- simpler and just as robust for this
+## fixed, small set of prefixes.
+static func _parse_pct_condition(cond_id: String) -> Dictionary:
+	for group in ["foe", "ally", "self"]:
+		for cmp in ["gte", "lte"]:
+			var prefix: String = group + "_hp_" + cmp + "_"
+			if cond_id.begins_with(prefix):
+				var suffix: String = cond_id.substr(prefix.length())
+				if suffix.is_valid_int():
+					return {"matched": true, "group": group, "cmp": cmp, "pct": suffix.to_int()}
+	return {"matched": false}
+
+static func _pct_cmp(x: float, cmp: String, v: float) -> bool:
+	return x >= v if cmp == "gte" else x <= v
+
+## Mirrors foeTest (farroad-core.js:642-644).
+static func cond_foe_pct(b: Dictionary, u: Dictionary, cmp: String, v: float) -> Dictionary:
+	for x in foes(b, u):
+		if _pct_cmp(hp_pct(x), cmp, v):
+			return {"ok": true, "target": x}
+	return {"ok": false, "target": null}
+## Mirrors allyTest (farroad-core.js:645-647).
+static func cond_ally_pct(b: Dictionary, u: Dictionary, cmp: String, v: float) -> Dictionary:
+	var c := []
+	for x in allies(b, u):
+		if _pct_cmp(hp_pct(x), cmp, v):
+			c.append(x)
+	var t = by_lowest_hp(c)
+	return {"ok": t != null, "target": t}
+## Mirrors selfTest (farroad-core.js:648).
+static func cond_self_pct(u: Dictionary, cmp: String, v: float) -> Dictionary:
+	return {"ok": _pct_cmp(hp_pct(u), cmp, v), "target": u}
+
+## Mirrors condById(id).resolve(u,b,act) -- the unknown-id fallback matches
+## condById's own fallback (CONDITIONS[0], i.e. 'none': always true, no
+## target).
+static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act) -> Dictionary:
+	if cond_id == "none":
+		return {"ok": true, "target": null}
+	var pct := _parse_pct_condition(cond_id)
+	if pct["matched"]:
+		var v: float = float(pct["pct"]) / 100.0
+		match pct["group"]:
+			"foe": return cond_foe_pct(b, u, pct["cmp"], v)
+			"ally": return cond_ally_pct(b, u, pct["cmp"], v)
+			"self": return cond_self_pct(u, pct["cmp"], v)
+	match cond_id:
+		"foe_any":
+			var t = def_foe(b, u)
+			return {"ok": t != null, "target": t}
+		"foe_lowest_hp":
+			var t = by_lowest_hp(foes(b, u))
+			return {"ok": t != null, "target": t}
+		"foe_highest_hp":
+			var t = by_highest_hp(foes(b, u))
+			return {"ok": t != null, "target": t}
+		"foe_armoured":
+			for x in foes(b, u):
+				if eff_def(x) > 1.4 * eff_def(u):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_warded":
+			for x in foes(b, u):
+				if eff_res(x) > 1.4 * eff_res(u):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_fast":
+			for x in foes(b, u):
+				if x["base"]["spd"] > u["base"]["spd"]:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_3plus":
+			var f := foes(b, u)
+			return {"ok": f.size() >= 3, "target": def_foe(b, u)}
+		"foe_charging":
+			for x in foes(b, u):
+				if x.get("chargeAction") and x["charge"] >= 70:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_softest_def":
+			var f := foes(b, u)
+			if f.size() < 2: return {"ok": false, "target": null}
+			var t = f[0]
+			for i in range(1, f.size()):
+				if eff_def(f[i]) < eff_def(t): t = f[i]
+			return {"ok": true, "target": t}
+		"foe_softest_res":
+			var f := foes(b, u)
+			if f.size() < 2: return {"ok": false, "target": null}
+			var t = f[0]
+			for i in range(1, f.size()):
+				if eff_res(f[i]) < eff_res(t): t = f[i]
+			return {"ok": true, "target": t}
+		"foe_most_dangerous":
+			var f := foes(b, u)
+			if f.is_empty(): return {"ok": false, "target": null}
+			var t = f[0]
+			for i in range(1, f.size()):
+				if eff_atk(f[i]) > eff_atk(t): t = f[i]
+			return {"ok": true, "target": t}
+		"foe_acts_next":
+			var f := foes(b, u)
+			if f.is_empty(): return {"ok": false, "target": null}
+			var t = f[0]
+			for i in range(1, f.size()):
+				if f[i]["nextActAt"] < t["nextActAt"]: t = f[i]
+			return {"ok": true, "target": t}
+		"foe_healer_present":
+			for x in foes(b, u):
+				for slot in x.get("slots", []):
+					var a = ACTIONS.get(slot["action"])
+					if a != null and a.get("heal"):
+						return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_pack_hurt":
+			var f := foes(b, u)
+			if f.size() < 2: return {"ok": false, "target": null}
+			for x in f:
+				if hp_pct(x) >= 0.50: return {"ok": false, "target": null}
+			return {"ok": true, "target": by_lowest_hp(f)}
+		"foe_pack_healthy":
+			var f := foes(b, u)
+			if f.size() < 2: return {"ok": false, "target": null}
+			for x in f:
+				if hp_pct(x) < 0.70: return {"ok": false, "target": null}
+			return {"ok": true, "target": by_highest_hp(f)}
+		"foe_mostly_weakened":
+			var f := foes(b, u)
+			if f.size() < 2: return {"ok": false, "target": null}
+			var n := 0
+			for x in f:
+				if any_debuff(x): n += 1
+			if n * 2 <= f.size(): return {"ok": false, "target": null}
+			for x in f:
+				if not any_debuff(x): return {"ok": true, "target": x}
+			return {"ok": true, "target": def_foe(b, u)}
+		"foe_isolated":
+			var f := foes(b, u)
+			return {"ok": f.size() == 1, "target": (f[0] if not f.is_empty() else null)}
+		"foe_2plus":
+			var f := foes(b, u)
+			return {"ok": f.size() >= 2, "target": def_foe(b, u)}
+		"foe_lacks_debuff":
+			var f := foes(b, u)
+			if act == null or not act.get("applies"):
+				var t = def_foe(b, u)
+				return {"ok": t != null, "target": t}
+			for x in f:
+				if not has(x, act["applies"]):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_not_weakened":
+			for x in foes(b, u):
+				if not any_debuff(x):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"ally_lowest_hp":
+			var t = by_lowest_hp(allies(b, u))
+			return {"ok": t != null, "target": t}
+		"ally_is_dead":
+			var d := dead_allies(b, u)
+			return {"ok": not d.is_empty(), "target": (d[0] if not d.is_empty() else null)}
+		"ally_lacks_buff":
+			var a := allies(b, u)
+			if act == null or not act.get("applies"):
+				var t = by_lowest_hp(a)
+				return {"ok": t != null, "target": t}
+			for x in a:
+				if not has(x, act["applies"]):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"self_first_turn":
+			return {"ok": u["turnsTaken"] == 0, "target": u}
+	# Unknown id -- mirror condById's fallback to CONDITIONS[0] ('none').
+	return {"ok": true, "target": null}
+
+## Mirrors each C(id,label,...)'s label text, for the 'via' log string.
+static func cond_label(cond_id: String) -> String:
+	var pct := _parse_pct_condition(cond_id)
+	if pct["matched"]:
+		var group_display: String = {"foe": "Foe", "ally": "Ally", "self": "Self"}[pct["group"]]
+		var symbol: String = "≥" if pct["cmp"] == "gte" else "≤"
+		return "%s: HP %s %d%%" % [group_display, symbol, pct["pct"]]
+	match cond_id:
+		"none": return "— always —"
+		"foe_any": return "Foe: any"
+		"foe_lowest_hp": return "Foe: lowest HP"
+		"foe_highest_hp": return "Foe: highest HP"
+		"foe_armoured": return "Foe: armoured (DEF > 1.4× yours)"
+		"foe_warded": return "Foe: resistant (RES > 1.4× yours)"
+		"foe_fast": return "Foe: faster than you"
+		"foe_3plus": return "Foe: 3+ present"
+		"foe_charging": return "Foe: charge ≥ 70%"
+		"foe_softest_def": return "Foe: softest DEF of the group"
+		"foe_softest_res": return "Foe: softest RES of the group"
+		"foe_most_dangerous": return "Foe: hardest hitter"
+		"foe_acts_next": return "Foe: acts next"
+		"foe_healer_present": return "Foes: a healer among them"
+		"foe_pack_hurt": return "Foes: ALL below 50% HP"
+		"foe_pack_healthy": return "Foes: NONE below 70% HP"
+		"foe_mostly_weakened": return "Foes: most already weakened"
+		"foe_isolated": return "Foe: last one standing"
+		"foe_2plus": return "Foe: 2+ present"
+		"foe_lacks_debuff": return "Foe: lacks this debuff"
+		"foe_not_weakened": return "Foe: not weakened"
+		"ally_lowest_hp": return "Ally: lowest HP"
+		"ally_is_dead": return "Ally: is down"
+		"ally_lacks_buff": return "Ally: lacks this buff"
+		"self_first_turn": return "Self: first turn"
+	return "— always —"
+
 static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dictionary:
 	if u.get("chargeAction") and state["charge"] >= cost_of_charge(ACTIONS.get(u["chargeAction"])):
 		return {"actionId": u["chargeAction"], "target": null, "via": "charge full -> override"}
@@ -398,7 +628,14 @@ static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dict
 		if action_held_by_earlier_fielded(b, u, s[idx]["action"]):
 			return {"actionId": "strike", "target": null, "via": "alternate (shared with an earlier-fielded unit)"}
 		return {"actionId": s[idx]["action"], "target": null, "via": "alternate -> slot %d" % (idx + 1)}
-	# Non-'none' conditions: Step 1c. Falls through to Strike for now.
+	for i in range(n):
+		var act = ACTIONS.get(s[i]["action"])
+		if action_held_by_earlier_fielded(b, u, s[i]["action"]):
+			continue
+		var r := resolve_condition(s[i]["cond"], u, b, act)
+		if r["ok"]:
+			return {"actionId": s[i]["action"], "target": r["target"],
+				"via": "slot %d [%s] ✓" % [i + 1, cond_label(s[i]["cond"])]}
 	return {"actionId": "strike", "target": null, "via": "all false -> implicit Strike"}
 
 static func choose(u: Dictionary, b: Dictionary) -> Dictionary:
@@ -495,9 +732,18 @@ static func step(b: Dictionary) -> Variant:
 	b["beat"] += 1
 	var ms: int = beat_ms(b["beat"])
 	b["elapsedMs"] += ms
+	# NOTE: every field ever read off e must be pre-populated here, even if a
+	# later branch overwrites it -- unlike JS (a missing property just reads
+	# `undefined`), GDScript's Dictionary throws on `dict[missing_key]`. The
+	# "burned out" early-return below deliberately mirrors the JS original by
+	# NOT setting targetName/isCharge/tickCost/enrageStacks itself; the
+	# defaults here are what make that safe to read afterward.
 	var e := {"beat": b["beat"], "t": b["t"], "ms": ms, "actorId": u["id"], "actorName": u["name"],
 		"isParty": u["isParty"], "chargeBefore": u["charge"], "hits": [], "heals": [],
-		"totalDamage": 0, "notes": [], "dot": 0, "regen": 0, "thorns": 0}
+		"totalDamage": 0, "notes": [], "dot": 0, "regen": 0, "thorns": 0,
+		"actionId": null, "actionName": null, "via": null, "isCharge": false,
+		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
+		"enrageStacks": null}
 	if has(u, "burning"):
 		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
 		u["hp"] = max(0, u["hp"] - dot)

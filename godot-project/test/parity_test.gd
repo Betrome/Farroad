@@ -83,6 +83,43 @@ func _run_battle_suite() -> void:
 			"slots": [{"cond": "none", "action": "strike"}]})
 	], true)
 
+	out["D"] = _run_battle(555, [
+		FarroadCore.make_unit({"id": "p1", "name": "Paladin", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 240, "atk": 16, "mag": 14, "def": 11, "res": 11, "spd": 100},
+			"slots": [{"cond": "self_hp_lte_50", "action": "mend"}, {"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e1", "name": "Ox", "isParty": false, "level": 1, "slotIndex": 10, "arch": "ox", "row": "front",
+			"stats": {"hp": 220, "atk": 17, "mag": 4, "def": 10, "res": 9, "spd": 88},
+			"slots": [{"cond": "none", "action": "strike"}]})
+	])
+
+	out["E"] = _run_battle(777, [
+		FarroadCore.make_unit({"id": "p1", "name": "Sniper", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 200, "atk": 19, "mag": 5, "def": 9, "res": 9, "spd": 102},
+			"slots": [{"cond": "foe_lowest_hp", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "p2", "name": "Breaker", "isParty": true, "level": 1, "slotIndex": 1,
+			"stats": {"hp": 210, "atk": 15, "mag": 5, "def": 10, "res": 10, "spd": 97},
+			"slots": [{"cond": "foe_softest_def", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e1", "name": "Wolf", "isParty": false, "level": 1, "slotIndex": 10, "arch": "wolf", "row": "front",
+			"stats": {"hp": 120, "atk": 13, "mag": 4, "def": 11, "res": 8, "spd": 91}, "slots": [{"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e2", "name": "Hound", "isParty": false, "level": 1, "slotIndex": 11, "arch": "hound", "row": "back",
+			"stats": {"hp": 130, "atk": 12, "mag": 4, "def": 6, "res": 7, "spd": 108}, "slots": [{"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e3", "name": "Knight", "isParty": false, "level": 1, "slotIndex": 12, "arch": "knight", "row": "front",
+			"stats": {"hp": 150, "atk": 11, "mag": 4, "def": 9, "res": 10, "spd": 85}, "slots": [{"cond": "none", "action": "strike"}]})
+	])
+
+	out["F"] = _run_battle(333, [
+		FarroadCore.make_unit({"id": "p1", "name": "Pyromancer", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 210, "atk": 8, "mag": 20, "def": 9, "res": 11, "spd": 96},
+			"slots": [{"cond": "foe_lacks_debuff", "action": "ember"}]}),
+		FarroadCore.make_unit({"id": "p2", "name": "Watcher", "isParty": true, "level": 1, "slotIndex": 1,
+			"stats": {"hp": 190, "atk": 14, "mag": 6, "def": 9, "res": 9, "spd": 101},
+			"slots": [{"cond": "foe_healer_present", "action": "strike"}, {"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e1", "name": "Wolf", "isParty": false, "level": 1, "slotIndex": 10, "arch": "wolf", "row": "front",
+			"stats": {"hp": 140, "atk": 12, "mag": 4, "def": 8, "res": 8, "spd": 90}, "slots": [{"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e2", "name": "Priest", "isParty": false, "level": 1, "slotIndex": 11, "arch": "priest", "row": "back",
+			"stats": {"hp": 130, "atk": 8, "mag": 12, "def": 7, "res": 10, "spd": 88}, "slots": [{"cond": "none", "action": "mend"}]})
+	])
+
 	print(JSON.stringify(out))
 
 func _run_rng() -> void:
