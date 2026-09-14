@@ -16,9 +16,17 @@ extends Node2D
 ## AetherPanel.gd); Step 3e added LORE (per-action bonus purchase/refund,
 ## see LorePanel.gd); Step 3f added EQUIPMENT (per-unit gear management,
 ## see EquipmentPanel.gd); Step 3g added MARKS (gacha pulls, see
-## MarksPanel.gd). No EXPEDITION/QUESTS tabs yet (Steps 3h-3j).
+## MarksPanel.gd); Step 3h added EXPEDITION (real-time idle sending +
+## offline catch-up, see ExpeditionPanel.gd). No QUESTS tab yet (Steps
+## 3i-3j).
 
 const SAVE_PATH := "user://save.json"
+## How often expeditions get a chance to resolve while the game is
+## running (mirrors the real farroad-ui.js's own 15s setInterval poll --
+## see _on_expedition_tick()). Offline catch-up (a much bigger, one-shot
+## time gap) is handled separately, once, at boot -- see
+## _load_or_new_game().
+const EXPEDITION_POLL_SEC := 15.0
 
 var g: Dictionary
 var _vp: Vector2
@@ -29,12 +37,14 @@ var aether_panel: Node
 var lore_panel: Node
 var equipment_panel: Node
 var marks_panel: Node
+var expedition_panel: Node
+var expedition_timer: Timer
 
 var wave_label: Label
 var currency_label: Label
-var outcome_label: Label
 var wave_popup: PanelContainer
 var wave_popup_label: Label
+var fade_overlay: ColorRect
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
@@ -62,8 +72,28 @@ func _ready() -> void:
 	marks_panel = load("res://scripts/MarksPanel.gd").new()
 	add_child(marks_panel)
 	marks_panel.setup(g, _vp, self)
+	expedition_panel = load("res://scripts/ExpeditionPanel.gd").new()
+	add_child(expedition_panel)
+	expedition_panel.setup(g, _vp, self)
+	expedition_timer = Timer.new()
+	expedition_timer.wait_time = EXPEDITION_POLL_SEC
+	expedition_timer.autostart = true
+	expedition_timer.timeout.connect(_on_expedition_tick)
+	add_child(expedition_timer)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	_begin_next_fight()
+
+## The live equivalent of the offline catch-up below -- while the game
+## keeps running, an active expedition still needs a chance to resolve
+## progress without requiring a full app restart. Mirrors the real JS's
+## own periodic poll (setInterval, farroad-ui.js:3249-3251); Godot's Timer
+## node is the natural equivalent (nothing like this existed anywhere in
+## this port before this step). Only refreshes expedition_panel's own
+## popup if it's actually open -- no point rebuilding UI nobody can see.
+func _on_expedition_tick() -> void:
+	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system())
+	if expedition_panel.popup.visible:
+		expedition_panel.call("_refresh")
 
 ## A window resize (or, on a real device, a size Godot didn't report until
 ## just now) changes what get_viewport_rect().size actually is -- everything
@@ -81,8 +111,7 @@ func _on_viewport_resized() -> void:
 	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
 	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
 	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-	outcome_label.position = Vector2(_vp.x * 0.30, _vp.y * 0.025)
-	outcome_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
+	fade_overlay.size = _vp
 	# wave_popup itself needs no repositioning here -- _show_wave_popup()
 	# already computes its center fresh from _vp every time it's shown.
 	if current_presenter != null:
@@ -93,12 +122,14 @@ func _on_viewport_resized() -> void:
 	lore_panel.reflow(_vp)
 	equipment_panel.reflow(_vp)
 	marks_panel.reflow(_vp)
+	expedition_panel.reflow(_vp)
 
 ## Resumes user://save.json if one exists and parses cleanly; otherwise
 ## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
-## minus simulateOfflineProgress()/resolveAllExpeditions(), both out of
-## scope (idle/expedition catch-up, Step 3h) -- a resumed game picks up
-## exactly where it was left, with no time-away simulation yet.
+## startWave(...);simulateOfflineProgress(snap);resolveAllExpeditions();
+## same exact call order. `saved_at` comes from the save envelope's own
+## top-level "savedAt" field (sibling to the FIELDS-derived content
+## deserialize() reads), not from anything inside `g` itself.
 func _load_or_new_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f != null:
@@ -111,6 +142,9 @@ func _load_or_new_game() -> void:
 			# grant_drops(w) must not treat resuming it as a fresh visit --
 			# same reasoning as the real tryResumeSave()'s own call.
 			FarroadProgression.start_wave(g, resume_wave, true)
+			var now := Time.get_unix_time_from_system()
+			FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
+			FarroadProgression.resolve_all_expeditions(g, now)
 			return
 	g = FarroadProgression.new_game(int(Time.get_unix_time_from_system()) % 100000, null)
 	FarroadProgression.start_wave(g, 1)
@@ -141,11 +175,18 @@ func _build_hud() -> void:
 	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	add_child(currency_label)
 
-	outcome_label = Label.new()
-	outcome_label.position = Vector2(_vp.x * 0.30, _vp.y * 0.025)
-	outcome_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
-	outcome_label.hide()
-	add_child(outcome_label)
+	# A full-screen overlay for the wipe-transition fade (see
+	# _fade_out()/_fade_in()) -- starts fully transparent and hidden;
+	# mouse_filter=IGNORE so it never blocks input while invisible (during
+	# the fade itself it's the only thing meant to be interactable-looking
+	# anyway, and nothing needs to be clicked while the screen is black).
+	fade_overlay = ColorRect.new()
+	fade_overlay.color = Color(0, 0, 0, 0)
+	fade_overlay.position = Vector2.ZERO
+	fade_overlay.size = _vp
+	fade_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fade_overlay.hide()
+	add_child(fade_overlay)
 
 	wave_popup = PanelContainer.new()
 	var style := StyleBoxFlat.new()
@@ -187,7 +228,6 @@ func _sync_party_change() -> void:
 	current_presenter.call("sync_live_party", added)
 
 func _begin_next_fight() -> void:
-	outcome_label.hide()
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished)
 	add_child(presenter)
@@ -202,37 +242,31 @@ func _begin_next_fight() -> void:
 func _on_battle_finished(outcome: String) -> void:
 	if outcome == "party":
 		FarroadProgression.after_wave_cleared(g)
-		# Back to its normal top-strip spot -- a PRIOR wipe (see below) can
-		# have left it centered over the combat field instead.
-		outcome_label.custom_minimum_size = Vector2.ZERO
-		outcome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		outcome_label.position = Vector2(_vp.x * 0.30, _vp.y * 0.025)
-		outcome_label.text = "Wave %d cleared!" % g["wave"]
 		FarroadProgression.start_wave(g, g["wave"] + 1)
+		_refresh_hud()
+		_save_game()
+		# The finished battlefield (units, HP bars, log/status buttons) stays
+		# on screen behind the popup -- only freed once the NEXT fight is
+		# actually being built, not the moment this one ends.
+		await _show_wave_popup(g["wave"])
+		if current_presenter != null:
+			current_presenter.queue_free()
+			current_presenter = null
+		_begin_next_fight()
 	else:
-		var wave_lost: int = g["wave"]
 		FarroadProgression.on_wipe(g)
-		# Just above the "Wave N" popup that's about to show (_show_wave_popup,
-		# same combat-field vertical band) -- centered the same way the popup
-		# centers itself, so "here's why you're back here" and "here's what's
-		# next" read as one grouped announcement instead of two unrelated texts
-		# in different corners of the screen.
-		var combat_center_y: float = _vp.y * (0.11 + 0.58) / 2.0
-		outcome_label.custom_minimum_size = Vector2(_vp.x * 0.9, 0)
-		outcome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		outcome_label.position = Vector2(_vp.x * 0.05, combat_center_y - _vp.y * 0.12)
-		outcome_label.text = "Wiped at wave %d — back to wave %d" % [wave_lost, g["wave"]]
-	outcome_label.show()
-	_refresh_hud()
-	_save_game()
-	# The finished battlefield (units, HP bars, log/status buttons) stays on
-	# screen behind the popup -- only freed once the NEXT fight is actually
-	# being built, not the moment this one ends.
-	await _show_wave_popup(g["wave"])
-	if current_presenter != null:
-		current_presenter.queue_free()
-		current_presenter = null
-	_begin_next_fight()
+		_refresh_hud()
+		_save_game()
+		# A wipe hides the checkpoint jump behind a fade to black instead of
+		# announcing it with text -- the field swap happens while the screen
+		# is fully black, so the return to an earlier wave reads as a scene
+		# transition rather than a called-out event.
+		await _fade_out()
+		if current_presenter != null:
+			current_presenter.queue_free()
+			current_presenter = null
+		await _begin_next_fight()
+		await _fade_in()
 
 ## Announces the upcoming wave for a second, then dismisses itself --
 ## replaces the earlier "Next Wave" button with a fully automatic
@@ -258,3 +292,25 @@ func _show_wave_popup(w: int) -> void:
 	wave_popup.position = combat_center - wave_popup.size / 2.0
 	await get_tree().create_timer(1.0).timeout
 	wave_popup.hide()
+
+const FADE_HALF_SEC := 0.5
+
+## A ~1s fade to black and back, used on a wipe to hide the checkpoint jump
+## (the actual battlefield swap happens while the screen is fully black,
+## between _fade_out() finishing and _fade_in() starting).
+func _fade_out() -> void:
+	# Same z-order trick wave_popup uses -- new BattlePresenter children get
+	# added after fade_overlay was built in _build_hud(), so without this it
+	# would draw UNDER them instead of covering the whole screen.
+	move_child(fade_overlay, get_child_count() - 1)
+	fade_overlay.show()
+	fade_overlay.color.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(fade_overlay, "color:a", 1.0, FADE_HALF_SEC)
+	await tw.finished
+
+func _fade_in() -> void:
+	var tw := create_tween()
+	tw.tween_property(fade_overlay, "color:a", 0.0, FADE_HALF_SEC)
+	await tw.finished
+	fade_overlay.hide()

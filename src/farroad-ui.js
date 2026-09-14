@@ -816,14 +816,15 @@ function afterWaveCleared(){
  G.clearedWaves[G.wave]=1;
  G.units.forEach(function(u){G.hpCarry[u.id]=u.hp/u.maxHp;});
  var r=P.killReward(G.wave,G.enemies.length);
- G.aether+=r.aether;G.marks+=r.marks*P.marksMul(G);
+ var aetherMul=(G.wave<=P.TUTORIAL_AETHER_WAVES)?P.TUTORIAL_AETHER_MUL:1;
+ G.aether+=r.aether*aetherMul;G.marks+=r.marks*P.marksMul(G);
  if(P.isBossWave(G.wave)&&firstClear){
   G.bossesCleared++;
   /* BOSS HOARD. Sized against the measured cliff, not picked round: without it,
      w21 wins 82% and w22 wins 0%, because the recruit both starts from nothing and
      halves the shared pool. 120*w^1.2 takes w21-w26 to 100%. Larger payouts measure
      identical, so this is the saturation point rather than an arbitrary number. */
-  var hoard=P.bossAether(G.wave);
+  var hoard=P.bossAether(G.wave)*aetherMul;
   G.aether+=hoard;
   pushDrop({wave:G.wave,kind:'BOSS HOARD',
    name:'+'+hoard.toLocaleString()+' Aether',

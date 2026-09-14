@@ -551,10 +551,11 @@ if (mode === 'progression') {
     g.clearedWaves[g.wave] = 1;
     g.units.forEach(function (u) { g.hpCarry[u.id] = u.hp / u.maxHp; });
     var r = P.killReward(g.wave, g.enemies.length);
-    g.aether += r.aether; g.marks += r.marks * P.marksMul(g);
+    var aetherMul = (g.wave <= P.TUTORIAL_AETHER_WAVES) ? P.TUTORIAL_AETHER_MUL : 1;
+    g.aether += r.aether * aetherMul; g.marks += r.marks * P.marksMul(g);
     if (P.isBossWave(g.wave) && firstClear) {
       g.bossesCleared++;
-      var hoard = P.bossAether(g.wave);
+      var hoard = P.bossAether(g.wave) * aetherMul;
       g.aether += hoard;
       events.push({ kind: 'boss_hoard', wave: g.wave, amount: hoard });
       var next = P.unitDueAt(g.wave);
@@ -586,6 +587,11 @@ if (mode === 'progression') {
     events = events.concat(startWave(g, back));
     return events;
   }
+  function newDirectionsG() {
+    var d = {};
+    Object.keys(P.DIRECTION_CONFIG).forEach(function (dir) { d[dir] = { maxDepth: 0, dungeonsUnlocked: 0 }; });
+    return d;
+  }
   function newGame(seed, mc) {
     return {
       seed: seed || 7, rng: C.makeRNG(seed || 7), wave: 0, farthest: 1, bossesCleared: 0,
@@ -598,7 +604,8 @@ if (mode === 'progression') {
       battle: null, units: null, enemies: null, over: null, enrage: true, idleAcc: 0,
       mc: mc || null, expeditions: [], pullsSinceUnit: 0,
       dungeons: [], quests: { kesh: { stage: 0, frozen: [] } },
-      superBossQuests: [], superBossesUnlocked: 0, superBossesCleared: {}
+      superBossQuests: [], superBossesUnlocked: 0, superBossesCleared: {},
+      directions: newDirectionsG()
     };
   }
 
@@ -1050,6 +1057,253 @@ if (mode === 'progression') {
   marks6.loreAfter = g6.lore;
   marks6.aetherAfter = g6.aether;
   out.marks = marks6;
+
+  // Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
+  // hand-transcribed from the real farroad-ui.js the same way every
+  // orchestration function above was. Every time-touching function here
+  // takes `now`/`saved_at` explicitly (seconds, not the real JS's
+  // milliseconds) rather than reading Date.now() internally, so this
+  // scenario can inject fixed synthetic timestamps and get reproducible
+  // RNG-call counts -- the design fork this step's own plan flagged
+  // before writing any of it (every prior section relied purely on
+  // seed+call-sequence determinism; this is the first one that can't).
+  var EXPED_RETURN_HP_FRAC = 0.25, EXPED_CAP_SEC = P.OFFLINE_CAP_SEC, EXPED_DISCOVERY_CHANCE = 0.08;
+  var DIRECTION_AFFINITY_BONUS = 6;
+  function directionLabel(dir) { return (P.DIRECTION_CONFIG[dir] || {}).label || dir; }
+  function directionMul(dir) { return (P.DIRECTION_CONFIG[dir] || {}).mul || 1; }
+  function isOnExpeditionG(gg, uid) {
+    return gg.expeditions.some(function (e) { return e.partyIds.indexOf(uid) >= 0; });
+  }
+  function expNames(partyIds) {
+    return partyIds.map(function (uid) {
+      var d = null; C.ROSTER.forEach(function (r) { if (r.id === uid) d = r; });
+      return d ? d.name : uid;
+    }).join(', ');
+  }
+  function pushExpLog(exp, text, now) {
+    exp.log = exp.log || [];
+    exp.log.unshift({ at: now, text: text });
+    while (exp.log.length > 40) exp.log.pop();
+  }
+  function applyStatMulG(enemies, mul) {
+    var hpMul = Math.sqrt(mul);
+    enemies.forEach(function (u) {
+      u.base.hp = Math.max(1, Math.round(u.base.hp * hpMul)); u.maxHp = u.base.hp; u.hp = u.base.hp;
+      u.base.atk = Math.max(1, Math.round(u.base.atk * mul));
+      u.base.mag = Math.round(u.base.mag * mul);
+    });
+    return enemies;
+  }
+  function applyDirectionAffinityG(enemies, dir) {
+    var ax = P.DIRECTION_CONFIG[dir] && P.DIRECTION_CONFIG[dir].affinity;
+    if (!ax) return enemies;
+    enemies.forEach(function (u) { u.affinity[ax] = (u.affinity[ax] || 0) + DIRECTION_AFFINITY_BONUS; });
+    return enemies;
+  }
+  function buildExpeditionParty(gg, partyIds, hpFrac) {
+    var out2 = [];
+    partyIds.forEach(function (uid, i) {
+      var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+      var st = P.statsAt(uid, def.stats, def.hp, levelOf(gg, uid));
+      applyPctStatInvestment(gg, uid, st);
+      applyEquipmentStats(gg, uid, st);
+      var mh = st.hp;
+      var frac = (hpFrac == null) ? 1 : Math.min(1, hpFrac + recoveryOf(gg, uid));
+      var hp = Math.max(1, Math.round(mh * frac));
+      out2.push(C.makeUnit({
+        id: uid, name: def.name, isParty: true, level: 1, slotIndex: i, stats: st,
+        maxHp: mh, hp: Math.min(hp, mh), row: def.row, chargeAction: def.chargeAction,
+        affinity: effectiveAffinity(gg, uid),
+        slots: ensureLoadout(gg, uid).map(function (s) { return { cond: s.cond, action: s.action }; })
+      }));
+    });
+    return out2;
+  }
+  function sendExpeditionG(gg, partyIds, direction, now) {
+    if (!partyIds || !partyIds.length || partyIds.length > P.PARTY_CAP) return false;
+    if (Object.keys(P.DIRECTION_CONFIG).indexOf(direction) < 0) return false;
+    if (gg.expeditions.some(function (e) { return e.direction === direction; })) return false;
+    var seen = {};
+    for (var i = 0; i < partyIds.length; i++) {
+      var uid = partyIds[i];
+      if (seen[uid]) return false; seen[uid] = 1;
+      if (!gg.owned[uid] || gg.party.indexOf(uid) >= 0 || isOnExpeditionG(gg, uid)) return false;
+    }
+    var exp = {
+      id: 'exp' + now + '_0', partyIds: partyIds.slice(), direction: direction,
+      startedAt: now, lastResolvedAt: now, ew: 1, hpFrac: 1, bank: { aether: 0, marks: 0 },
+      homeAt: null, arrivedAt: null, log: []
+    };
+    gg.expeditions.push(exp);
+    pushExpLog(exp, expNames(partyIds) + ' set out to explore ' + directionLabel(direction) + '.', now);
+    return true;
+  }
+  function beginReturnTripG(exp, decisionMoment, reason, now) {
+    if (exp.homeAt) return;
+    var awaySec = Math.max(0, decisionMoment - exp.startedAt);
+    exp.homeAt = decisionMoment + awaySec / 2;
+    pushExpLog(exp, expNames(exp.partyIds) + ' — ' + reason + ' Heading home now.', now);
+    checkArrivalG(exp, now);
+  }
+  function checkArrivalG(exp, now) {
+    if (exp.arrivedAt || !exp.homeAt || now < exp.homeAt) return;
+    exp.arrivedAt = now;
+    pushExpLog(exp, expNames(exp.partyIds) + ' arrived home — awaiting collection.', now);
+  }
+  function resolveExpeditionG(gg, exp, now) {
+    if (exp.homeAt) { checkArrivalG(exp, now); return; }
+    var elapsedSec = Math.max(0, now - exp.lastResolvedAt);
+    if (elapsedSec < 5) return;
+    var resolveStartedAt = exp.lastResolvedAt;
+    var capped = Math.min(elapsedSec, EXPED_CAP_SEC);
+    var mul = directionMul(exp.direction);
+    var remaining = capped, guard = 0, savedWave = gg.wave, turnedBack = false;
+    while (remaining > 0 && guard++ < 200000) {
+      var cost = 20 + P.travelSec(exp.ew);
+      if (cost > remaining) break;
+      var party = buildExpeditionParty(gg, exp.partyIds, exp.hpFrac);
+      var enemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, exp.ew), mul), exp.direction);
+      var battle = C.makeBattle(party.concat(enemies), { rng: gg.rng, enrage: gg.enrage });
+      var beatGuard = 0;
+      while (!battle.over && beatGuard++ < 4000) C.step(battle);
+      if (battle.over === 'party') {
+        var r = P.killReward(exp.ew, enemies.length);
+        exp.bank.aether += r.aether * mul; exp.bank.marks += r.marks * P.marksMul(gg) * mul;
+        if (P.isBossWave(exp.ew)) exp.bank.aether += P.bossAether(exp.ew) * mul;
+        var alive = party.filter(function (u) { return u.hp > 0; });
+        exp.hpFrac = alive.length ? alive.reduce(function (s, u) { return s + u.hp / u.maxHp; }, 0) / alive.length : 0;
+        exp.ew++;
+        rollExpeditionDiscoveryG(gg, exp, mul, now);
+        var dp = gg.directions[exp.direction];
+        dp.maxDepth = Math.max(dp.maxDepth, exp.ew);
+      } else {
+        exp.hpFrac = 0;
+      }
+      remaining -= cost;
+      if (exp.hpFrac < EXPED_RETURN_HP_FRAC) { turnedBack = true; break; }
+    }
+    C.setWave(savedWave);
+    exp.lastResolvedAt = now;
+    if (turnedBack) beginReturnTripG(exp, resolveStartedAt + (capped - remaining), 'injuries mounted and the party turned back.', now);
+  }
+  function rollExpeditionDiscoveryG(gg, exp, mul, now) {
+    if (gg.rng.next() >= EXPED_DISCOVERY_CHANCE) return;
+    var bEnemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, exp.ew), mul), exp.direction);
+    var bParty = buildExpeditionParty(gg, exp.partyIds, exp.hpFrac);
+    var bBattle = C.makeBattle(bParty.concat(bEnemies), { rng: gg.rng, enrage: gg.enrage });
+    var bGuard = 0;
+    while (!bBattle.over && bGuard++ < 4000) C.step(bBattle);
+    if (bBattle.over === 'party') {
+      var br = P.killReward(exp.ew, bEnemies.length);
+      var bAether = br.aether * mul, bMarks = br.marks * P.marksMul(gg) * mul;
+      exp.bank.aether += bAether; exp.bank.marks += bMarks;
+      pushExpLog(exp, expNames(exp.partyIds) + ' won a bonus fight along the way — +' + Math.round(bAether) + ' Aether, +' + Math.floor(bMarks) + ' Marks.', now);
+    } else {
+      pushExpLog(exp, expNames(exp.partyIds) + ' were ambushed in a bonus fight and had to disengage — no reward.', now);
+    }
+  }
+  function resolveAllExpeditionsG(gg, now) {
+    gg.expeditions.slice().forEach(function (exp) { resolveExpeditionG(gg, exp, now); });
+  }
+  function recallExpeditionG(gg, id, now) {
+    var exp = null; gg.expeditions.forEach(function (e) { if (e.id === id) exp = e; });
+    if (!exp) return false;
+    resolveExpeditionG(gg, exp, now);
+    if (gg.expeditions.indexOf(exp) >= 0 && !exp.homeAt) beginReturnTripG(exp, now, 'recalled.', now);
+    return true;
+  }
+  function collectExpeditionG(gg, id) {
+    var exp = null; gg.expeditions.forEach(function (e) { if (e.id === id) exp = e; });
+    if (!exp || !exp.arrivedAt) return false;
+    gg.aether += exp.bank.aether; gg.marks += exp.bank.marks;
+    gg.expeditions = gg.expeditions.filter(function (e) { return e.id !== exp.id; });
+    return true;
+  }
+  function simulateOfflineProgressG(gg, savedAt, now) {
+    var elapsedSec = Math.max(0, now - (savedAt == null ? now : savedAt));
+    if (elapsedSec < 5) return;
+    var capped = Math.min(elapsedSec, P.OFFLINE_CAP_SEC);
+    var r = P.idlePerSec(gg.farthest);
+    gg.aether += r.aether * capped; gg.marks += r.marks * P.marksMul(gg) * capped;
+    var remaining = capped, guard = 0;
+    while (remaining > 0 && guard++ < 200000) {
+      if (!gg.battle) break;
+      var cost = 20 + P.travelSec(gg.wave);
+      if (cost > remaining) break;
+      var beatGuard = 0;
+      while (!gg.battle.over && beatGuard++ < 4000) C.step(gg.battle);
+      if (gg.battle.over === 'party') { afterWaveCleared(gg); startWave(gg, gg.wave + 1); }
+      else if (gg.battle.over === 'enemy') { onWipe(gg); }
+      else break;
+      remaining -= cost;
+    }
+  }
+
+  var NOW0 = 1700000000;
+  var g7 = newGame(7, null);
+  startWave(g7, 1);
+  var exped7 = {};
+  // Own a 2nd unit to send (kesh stays fielded, ansa gets benched-by-
+  // construction -- joinCompanion only auto-fields up to PARTY_CAP, and
+  // kesh is already in g7.party from newGame, so ansa lands benched here
+  // as long as PARTY_CAP allows both -- confirmed benched via
+  // isOnExpeditionG/available check below rather than assumed).
+  joinCompanion(g7, 'ansa');
+  g7.party = ['kesh']; // force ansa benched regardless of PARTY_CAP, deterministic setup
+  exped7.isOnExpeditionBefore = isOnExpeditionG(g7, 'ansa');
+  exped7.sendResult = sendExpeditionG(g7, ['ansa'], 'west', NOW0);
+  exped7.isOnExpeditionAfter = isOnExpeditionG(g7, 'ansa');
+  exped7.sendDuplicateDirectionRejected = sendExpeditionG(g7, ['ansa'], 'west', NOW0);
+  exped7.sendAlreadyAwayRejected = sendExpeditionG(g7, ['ansa'], 'northwest', NOW0);
+
+  var exp7 = g7.expeditions[0];
+  // Partial catch-up: 1 hour in.
+  resolveExpeditionG(g7, exp7, NOW0 + 3600);
+  exped7.ewAfter1h = exp7.ew;
+  exped7.bankAfter1h = { aether: exp7.bank.aether, marks: exp7.bank.marks };
+  exped7.hpFracAfter1h = exp7.hpFrac;
+  exped7.lastResolvedAtAfter1h = exp7.lastResolvedAt;
+  // A second pass far enough out to force the 12h cap on THIS pass alone.
+  resolveExpeditionG(g7, exp7, NOW0 + 3600 + 50000);
+  exped7.ewAfterCapPass = exp7.ew;
+  exped7.lastResolvedAtAfterCapPass = exp7.lastResolvedAt;
+  exped7.homeAtAfterCapPass = exp7.homeAt;
+  exped7.arrivedAtAfterCapPass = exp7.arrivedAt;
+
+  // Recall a FRESH short expedition (sent and immediately recalled --
+  // awaySec ~0, so the trip home reads as instant).
+  var g8 = newGame(11, null);
+  startWave(g8, 1);
+  joinCompanion(g8, 'ansa'); g8.party = ['kesh'];
+  sendExpeditionG(g8, ['ansa'], 'east', NOW0);
+  var exp8 = g8.expeditions[0];
+  exped7.recallResult = recallExpeditionG(g8, exp8.id, NOW0 + 2);
+  exped7.homeAtAfterRecall = exp8.homeAt;
+  exped7.arrivedAtAfterRecall = exp8.arrivedAt;
+  exped7.collectBeforeArrivedRejected = collectExpeditionG(g8, exp8.id);
+  // Fast-forward past the (near-instant) trip home, then collect for real.
+  var arrivedNow = Math.ceil(exp8.homeAt) + 1;
+  checkArrivalG(exp8, arrivedNow);
+  var aetherBeforeCollect = g8.aether, marksBeforeCollect = g8.marks;
+  var bankAtCollect = { aether: exp8.bank.aether, marks: exp8.bank.marks };
+  exped7.collectResult = collectExpeditionG(g8, exp8.id);
+  exped7.aetherGainFromCollect = g8.aether - aetherBeforeCollect;
+  exped7.marksGainFromCollect = g8.marks - marksBeforeCollect;
+  exped7.bankMatchesGain = (Math.abs(bankAtCollect.aether - exped7.aetherGainFromCollect) < 1e-9) &&
+    (Math.abs(bankAtCollect.marks - exped7.marksGainFromCollect) < 1e-9);
+  exped7.expeditionsAfterCollect = g8.expeditions.length;
+
+  // simulate_offline_progress: a multi-hour gap on a fresh game.
+  var g9 = newGame(7, null);
+  startWave(g9, 1);
+  var waveBefore9 = g9.wave, aetherBefore9 = g9.aether, wipesBefore9 = g9.wipes;
+  simulateOfflineProgressG(g9, NOW0, NOW0 + 7200);
+  exped7.offlineWaveDelta = g9.wave - waveBefore9;
+  exped7.offlineAetherGained = g9.aether - aetherBefore9;
+  exped7.offlineWipes = g9.wipes - wipesBefore9;
+  exped7.offlineRngCallsAfter = g9.rng.calls;
+
+  out.expedition = exped7;
 
   console.log(JSON.stringify(out));
 }

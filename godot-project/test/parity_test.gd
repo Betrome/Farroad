@@ -481,6 +481,68 @@ func _run_progression_suite() -> void:
 	marks["aetherAfter"] = g6["aether"]
 	out["marks"] = marks
 
+	# Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
+	# mirrors parity-reference.js's own 'expedition' section exactly,
+	# using the REAL FarroadProgression functions (not a hand copy --
+	# unlike the JS side, which has no exported equivalents to call).
+	var NOW0: float = 1700000000.0
+	var g7 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g7, 1)
+	var exped := {}
+	FarroadProgression.join_companion(g7, "ansa")
+	g7["party"] = ["kesh"]
+	exped["isOnExpeditionBefore"] = FarroadProgression.is_on_expedition(g7, "ansa")
+	exped["sendResult"] = FarroadProgression.send_expedition(g7, ["ansa"], "west", NOW0)
+	exped["isOnExpeditionAfter"] = FarroadProgression.is_on_expedition(g7, "ansa")
+	exped["sendDuplicateDirectionRejected"] = FarroadProgression.send_expedition(g7, ["ansa"], "west", NOW0)
+	exped["sendAlreadyAwayRejected"] = FarroadProgression.send_expedition(g7, ["ansa"], "northwest", NOW0)
+
+	var exp7: Dictionary = g7["expeditions"][0]
+	FarroadProgression.resolve_expedition(g7, exp7, NOW0 + 3600)
+	exped["ewAfter1h"] = exp7["ew"]
+	exped["bankAfter1h"] = {"aether": exp7["bank"]["aether"], "marks": exp7["bank"]["marks"]}
+	exped["hpFracAfter1h"] = exp7["hpFrac"]
+	exped["lastResolvedAtAfter1h"] = exp7["lastResolvedAt"]
+	FarroadProgression.resolve_expedition(g7, exp7, NOW0 + 3600 + 50000)
+	exped["ewAfterCapPass"] = exp7["ew"]
+	exped["lastResolvedAtAfterCapPass"] = exp7["lastResolvedAt"]
+	exped["homeAtAfterCapPass"] = exp7["homeAt"]
+	exped["arrivedAtAfterCapPass"] = exp7["arrivedAt"]
+
+	var g8 := FarroadProgression.new_game(11, null)
+	FarroadProgression.start_wave(g8, 1)
+	FarroadProgression.join_companion(g8, "ansa")
+	g8["party"] = ["kesh"]
+	FarroadProgression.send_expedition(g8, ["ansa"], "east", NOW0)
+	var exp8: Dictionary = g8["expeditions"][0]
+	exped["recallResult"] = FarroadProgression.recall_expedition(g8, exp8["id"], NOW0 + 2)
+	exped["homeAtAfterRecall"] = exp8["homeAt"]
+	exped["arrivedAtAfterRecall"] = exp8["arrivedAt"]
+	exped["collectBeforeArrivedRejected"] = FarroadProgression.collect_expedition(g8, exp8["id"])
+	var arrived_now: float = ceil(exp8["homeAt"]) + 1
+	FarroadProgression.check_arrival(exp8, arrived_now)
+	var aether_before_collect: float = g8["aether"]
+	var marks_before_collect: float = g8["marks"]
+	var bank_at_collect := {"aether": exp8["bank"]["aether"], "marks": exp8["bank"]["marks"]}
+	exped["collectResult"] = FarroadProgression.collect_expedition(g8, exp8["id"])
+	exped["aetherGainFromCollect"] = g8["aether"] - aether_before_collect
+	exped["marksGainFromCollect"] = g8["marks"] - marks_before_collect
+	exped["bankMatchesGain"] = (absf(bank_at_collect["aether"] - exped["aetherGainFromCollect"]) < 1e-9) and \
+		(absf(bank_at_collect["marks"] - exped["marksGainFromCollect"]) < 1e-9)
+	exped["expeditionsAfterCollect"] = g8["expeditions"].size()
+
+	var g9 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g9, 1)
+	var wave_before9: int = g9["wave"]
+	var aether_before9: float = g9["aether"]
+	var wipes_before9: int = g9["wipes"]
+	FarroadProgression.simulate_offline_progress(g9, NOW0, NOW0 + 7200)
+	exped["offlineWaveDelta"] = g9["wave"] - wave_before9
+	exped["offlineAetherGained"] = g9["aether"] - aether_before9
+	exped["offlineWipes"] = g9["wipes"] - wipes_before9
+	exped["offlineRngCallsAfter"] = g9["rng"].calls
+	out["expedition"] = exped
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode

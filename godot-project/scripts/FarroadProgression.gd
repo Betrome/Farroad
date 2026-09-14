@@ -807,15 +807,18 @@ static func bench_unit(g: Dictionary, uid: String) -> bool:
 	g["party"].remove_at(idx)
 	return true
 
-## Mirrors fieldUnit (farroad-ui.js:2653-2659), minus the isOnExpedition
-## guard (no expeditions yet, Step 3h) -- refuses if not owned, already
-## fielded, or the party is full; else appends and runs auto_equip(g),
-## same as the real call -- a no-op for this unit if g["touched"][uid] is
-## already set, otherwise it installs the default curated rule.
+## Mirrors fieldUnit (farroad-ui.js:2653-2659), now including the
+## isOnExpedition guard (Step 3h) -- refuses if not owned, already
+## fielded, on an active expedition, or the party is full; else appends
+## and runs auto_equip(g), same as the real call -- a no-op for this unit
+## if g["touched"][uid] is already set, otherwise it installs the default
+## curated rule.
 static func field_unit(g: Dictionary, uid: String) -> bool:
 	if not g["owned"].get(uid):
 		return false
 	if g["party"].has(uid):
+		return false
+	if is_on_expedition(g, uid):
 		return false
 	if g["party"].size() >= PARTY_CAP:
 		return false
@@ -823,12 +826,13 @@ static func field_unit(g: Dictionary, uid: String) -> bool:
 	auto_equip(g)
 	return true
 
-## Mirrors availableForParty (farroad-ui.js:2646-2647), minus the same
-## isOnExpedition filter -- every owned-and-unfielded unit is available.
+## Mirrors availableForParty (farroad-ui.js:2646-2647), now including the
+## isOnExpedition filter (Step 3h) -- every owned, unfielded, not-away
+## unit is available.
 static func available_for_party(g: Dictionary) -> Array:
 	var out := []
 	for uid in g["owned"].keys():
-		if not g["party"].has(uid):
+		if not g["party"].has(uid) and not is_on_expedition(g, uid):
 			out.append(uid)
 	return out
 
@@ -1239,6 +1243,16 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 	g["over"] = null
 	return events
 
+## Waves 1-20 (the solo tutorial stretch, same boundary the earlier
+## checkpoint/boss-difficulty rounds used) grant double Aether from
+## clearing a wave -- scoped to the after_wave_cleared call site, not
+## folded into kill_reward itself, since kill_reward is shared with
+## expeditions/bonus fights (their own ew counters, unrelated to the
+## Road's actual wave number) and the engine's other math must stay
+## untouched, same discipline as every prior scoped balance change.
+const TUTORIAL_AETHER_WAVES := 20
+const TUTORIAL_AETHER_MUL := 2.0
+
 static func after_wave_cleared(g: Dictionary) -> Array:
 	var events := []
 	var first_clear: bool = not g["clearedWaves"].get(g["wave"])
@@ -1246,11 +1260,12 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	for u in g["units"]:
 		g["hpCarry"][u["id"]] = u["hp"] / u["maxHp"]
 	var r := kill_reward(g["wave"], g["enemies"].size())
-	g["aether"] = g.get("aether", 0) + r["aether"]
+	var aether_mul: float = TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0
+	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul
 	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g)
 	if is_boss_wave(g["wave"]) and first_clear:
 		g["bossesCleared"] = g.get("bossesCleared", 0) + 1
-		var hoard := boss_aether(g["wave"])
+		var hoard := boss_aether(g["wave"]) * aether_mul
 		g["aether"] += hoard
 		events.append({"kind": "boss_hoard", "wave": g["wave"], "amount": hoard})
 		var next = unit_due_at(g["wave"])
@@ -1282,16 +1297,16 @@ static func on_wipe(g: Dictionary) -> Array:
 
 ## ===== new game / new save (mirrors newGame/newDirections, farroad-ui.js:45) =====
 
-## The 8 directions are hardcoded here (not derived from
-## window.FarroadContent.DIRECTION_CONFIG, not exported yet) -- same
-## precedent farroad-save.js's own deserialize() already established for
-## exactly this reason.
-const DIRECTION_IDS: Array[String] = ["west", "northwest", "southwest", "north", "south",
-	"northeast", "southeast", "east"]
+## Step 3h: DIRECTION_CONFIG is now exported (export-content.js) and
+## loaded into FarroadCore.DIRECTION_CONFIG -- direction_ids() derives the
+## 8 ids from it directly, mirroring the real P.DIRECTIONS=
+## Object.keys(P.DIRECTION_CONFIG) exactly, no more hardcoded fallback list.
+static func direction_ids() -> Array:
+	return FarroadCore.DIRECTION_CONFIG.keys()
 
 static func new_directions() -> Dictionary:
 	var d := {}
-	for dir in DIRECTION_IDS:
+	for dir in direction_ids():
 		d[dir] = {"maxDepth": 0, "dungeonsUnlocked": 0}
 	return d
 
@@ -1312,3 +1327,338 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
 		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {},
 		"directions": new_directions()}
+
+## ===== EXPEDITIONS (Step 3h) =====
+## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through
+## recallExpedition) -- the real JS reads Date.now() internally throughout;
+## every time-touching function here instead takes `now` (Unix SECONDS,
+## not the real JS's milliseconds -- matches FarroadSave.serialize's own
+## established `now: int` convention) as an explicit parameter, so a
+## parity test can inject a fixed fake time and get reproducible RNG-call
+## counts. The real caller (GameController.gd) reads the clock once via
+## Time.get_unix_time_from_system() and passes it down.
+##
+## Scope cut, flagged (not silently skipped): resolveExpedition's dungeon-
+## unlock side effect (unlockDirectionDungeon, gated on QUEST_LINES, which
+## stays unexported) is Step 3i's territory. dp["maxDepth"] tracking is
+## still ported (cheap, already-seeded, uses only exp["ew"]) so the data
+## is correct and ready when 3i lands; the dungeonsUnlocked increment +
+## dungeon-build call is not. bakeEnemySnapshot/unitsFromSnapshots
+## (dungeon-snapshot machinery) are out of scope for the same reason.
+##
+## A pushDrop()-based game-wide banner (arrival notice, "Welcome back")
+## is also not ported -- no drop-banner/toast system exists anywhere in
+## this port yet (the same trim MARKS' pull-result display already made);
+## push_expedition_log's own per-expedition log covers the same
+## information for this panel's own display.
+
+const EXPED_RETURN_HP_FRAC := 0.25
+const EXPED_CAP_SEC := OFFLINE_CAP_SEC
+const EXPED_DISCOVERY_CHANCE := 0.08
+const DIRECTION_AFFINITY_BONUS := 6.0
+
+static func direction_label(dir: String) -> String:
+	return FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("label", dir)
+
+static func direction_mul(dir: String) -> float:
+	return FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("mul", 1.0)
+
+## Mirrors isOnExpedition (farroad-ui.js:1012-1013).
+static func is_on_expedition(g: Dictionary, uid: String) -> bool:
+	for exp in g.get("expeditions", []):
+		if exp["partyIds"].has(uid):
+			return true
+	return false
+
+static func _expedition_names(party_ids: Array) -> String:
+	var names: Array = []
+	for uid in party_ids:
+		var def = FarroadCore.roster_by_id(uid)
+		names.append(def["name"] if def else uid)
+	return ", ".join(names)
+
+## Mirrors pushExpeditionLog (farroad-ui.js:1014-1017) -- newest first,
+## capped at 40 entries.
+static func push_expedition_log(exp: Dictionary, text: String, now) -> void:
+	if not exp.has("log"):
+		exp["log"] = []
+	exp["log"].push_front({"at": now, "text": text})
+	while exp["log"].size() > 40:
+		exp["log"].pop_back()
+
+## Mirrors applyStatMul (farroad-ui.js:1116-1122) -- asymmetric scaling:
+## HP via sqrt(mul), ATK/MAG via mul directly. Mutates `enemies` in place
+## (same as the real function) and returns it too, for chaining.
+static func apply_stat_mul(enemies: Array, mul: float) -> Array:
+	var hp_mul: float = sqrt(mul)
+	for u in enemies:
+		u["base"]["hp"] = maxf(1.0, round(u["base"]["hp"] * hp_mul))
+		u["maxHp"] = u["base"]["hp"]
+		u["hp"] = u["base"]["hp"]
+		u["base"]["atk"] = maxf(1.0, round(u["base"]["atk"] * mul))
+		u["base"]["mag"] = round(u["base"]["mag"] * mul)
+	return enemies
+
+## Mirrors applyDirectionAffinity (farroad-ui.js:1131-1135) -- a flat
+## additive bonus on top of an enemy's own archetype-authored affinity,
+## never replacing it.
+static func apply_direction_affinity(enemies: Array, dir: String) -> Array:
+	var ax = FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("affinity")
+	if not ax:
+		return enemies
+	for u in enemies:
+		u["affinity"][ax] = float(u["affinity"].get(ax, 0.0)) + DIRECTION_AFFINITY_BONUS
+	return enemies
+
+## Mirrors buildExpeditionParty (farroad-ui.js:1018-1032) -- close to
+## build_party_unit (Step 3f) but genuinely different HP math: ONE shared
+## hp_frac across the whole party (not per-unit g["hpCarry"]), so it's its
+## own function rather than a build_party_unit reuse.
+static func build_expedition_party(g: Dictionary, party_ids: Array, hp_frac) -> Array:
+	var out := []
+	for i in range(party_ids.size()):
+		var uid: String = party_ids[i]
+		var def = FarroadCore.roster_by_id(uid)
+		var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+		apply_pct_stat_investment(g, uid, st)
+		apply_equipment_stats(g, uid, st)
+		var mh: float = st["hp"]
+		var frac: float = 1.0 if hp_frac == null else minf(1.0, float(hp_frac) + recovery_of(g, uid))
+		var hp: float = maxf(1.0, round(mh * frac))
+		out.append(FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
+			"slotIndex": i, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
+			"chargeAction": def.get("chargeAction"), "affinity": effective_affinity(g, uid),
+			"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})}))
+	return out
+
+## Mirrors sendExpedition (farroad-ui.js:1084-1102) -- party-size/
+## direction-validity/one-expedition-per-direction/ownership/not-already-
+## fielded/not-already-out/no-duplicate-uid checks, then starts a fresh
+## expedition. The id's random component deliberately uses Godot's own
+## randi(), NOT g["rng"] -- mirrors the real 'exp'+Date.now()+'_'+
+## Math.random() exactly, which is itself deliberately outside the seeded
+## RNG stream (an id just needs to be unique, not reproducible) -- so
+## expedition ids are never bit-exact between JS and GD, by design.
+static func send_expedition(g: Dictionary, party_ids: Array, direction: String, now) -> bool:
+	if party_ids.is_empty() or party_ids.size() > PARTY_CAP:
+		return false
+	if not direction_ids().has(direction):
+		return false
+	for exp in g["expeditions"]:
+		if exp["direction"] == direction:
+			return false
+	var seen := {}
+	for uid in party_ids:
+		if seen.has(uid):
+			return false
+		seen[uid] = true
+		if not g["owned"].get(uid) or g["party"].has(uid) or is_on_expedition(g, uid):
+			return false
+	var exp := {"id": "exp%d_%d" % [int(now), randi() % 1000000], "partyIds": party_ids.duplicate(),
+		"direction": direction, "startedAt": now, "lastResolvedAt": now,
+		"ew": 1, "hpFrac": 1.0, "bank": {"aether": 0.0, "marks": 0.0},
+		"homeAt": null, "arrivedAt": null, "log": []}
+	g["expeditions"].append(exp)
+	var names := _expedition_names(party_ids)
+	push_expedition_log(exp, "%s set out to explore %s." % [names, direction_label(direction)], now)
+	return true
+
+## Mirrors beginReturnTrip (farroad-ui.js:1069-1076) -- the trip home costs
+## HALF the real time the party has been out, measured from startedAt to
+## decision_moment (NOT `now` -- a big catch-up pass can cross the turn-
+## back threshold mid-simulation, so the return-trip clock starts from
+## THAT point, same reasoning the real comment gives).
+static func begin_return_trip(exp: Dictionary, decision_moment, reason: String, now) -> void:
+	if exp.get("homeAt") != null:
+		return
+	var away_sec: float = maxf(0.0, float(decision_moment) - float(exp["startedAt"]))
+	exp["homeAt"] = float(decision_moment) + away_sec / 2.0
+	var names := _expedition_names(exp["partyIds"])
+	push_expedition_log(exp, "%s — %s Heading home now." % [names, reason], now)
+	check_arrival(exp, now)
+
+## Mirrors checkArrival (farroad-ui.js:1151-1159) -- first-observation-only
+## arrival flag; does NOT bank the reward (collect_expedition does that).
+static func check_arrival(exp: Dictionary, now) -> void:
+	if exp.get("arrivedAt") != null or exp.get("homeAt") == null or float(now) < float(exp["homeAt"]):
+		return
+	exp["arrivedAt"] = now
+	var names := _expedition_names(exp["partyIds"])
+	push_expedition_log(exp, "%s arrived home — awaiting collection." % names, now)
+
+## Mirrors resolveExpedition (farroad-ui.js:1160-1206) -- the real-time
+## resolution loop for ONE expedition. 5s no-op floor, 12h cap, a
+## cost=20+travel_sec(ew)-second-per-node loop building a fresh
+## expedition party + direction-scaled/-themed enemies each node, banking
+## kill_reward*mul (+boss_aether*mul on a boss node), tracking average-
+## alive-HP-fraction, auto-turning-back below EXPED_RETURN_HP_FRAC.
+## Restores FarroadCore's global current-wave via set_wave(saved_wave)
+## before returning -- build_enemies's own set_wave call would otherwise
+## leave the Road's wave-scaling state pointed at the expedition's ew, the
+## same real, easy-to-miss fix-up the JS source itself flags in a comment.
+static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
+	if exp.get("homeAt") != null:
+		check_arrival(exp, now)
+		return
+	var elapsed_sec: float = maxf(0.0, float(now) - float(exp["lastResolvedAt"]))
+	if elapsed_sec < 5.0:
+		return
+	var resolve_started_at: float = exp["lastResolvedAt"]
+	var capped: float = minf(elapsed_sec, EXPED_CAP_SEC)
+	var mul: float = direction_mul(exp["direction"])
+	var remaining: float = capped
+	var guard := 0
+	var saved_wave: int = g["wave"]
+	var turned_back := false
+	while remaining > 0.0 and guard < 200000:
+		guard += 1
+		var cost: float = 20.0 + travel_sec(exp["ew"])
+		if cost > remaining:
+			break
+		var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
+		var enemies: Array = apply_direction_affinity(
+			apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
+		var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+		var beat_guard := 0
+		while battle["over"] == null and beat_guard < 4000:
+			beat_guard += 1
+			if FarroadCore.step(battle) == null:
+				break
+		if battle["over"] == "party":
+			var r := kill_reward(exp["ew"], enemies.size())
+			exp["bank"]["aether"] = float(exp["bank"]["aether"]) + r["aether"] * mul
+			exp["bank"]["marks"] = float(exp["bank"]["marks"]) + r["marks"] * marks_mul(g) * mul
+			if is_boss_wave(exp["ew"]):
+				exp["bank"]["aether"] = float(exp["bank"]["aether"]) + boss_aether(exp["ew"]) * mul
+			var alive: Array = party.filter(func(u): return u["hp"] > 0)
+			if alive.is_empty():
+				exp["hpFrac"] = 0.0
+			else:
+				var sum_frac := 0.0
+				for u in alive:
+					sum_frac += float(u["hp"]) / float(u["maxHp"])
+				exp["hpFrac"] = sum_frac / alive.size()
+			exp["ew"] += 1
+			roll_expedition_discovery(g, exp, mul, now)
+			var dp: Dictionary = g["directions"][exp["direction"]]
+			dp["maxDepth"] = maxi(dp["maxDepth"], exp["ew"])
+			# Dungeon-unlock scheduling (dungeonsUnlocked increment +
+			# unlockDirectionDungeon) deliberately NOT ported -- see this
+			# section's own header comment (Step 3i's territory).
+		else:
+			exp["hpFrac"] = 0.0
+		remaining -= cost
+		if exp["hpFrac"] < EXPED_RETURN_HP_FRAC:
+			turned_back = true
+			break
+	FarroadCore.set_wave(saved_wave)
+	exp["lastResolvedAt"] = now
+	if turned_back:
+		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
+
+## Mirrors rollExpeditionDiscovery (farroad-ui.js:1250-1266) -- a flat 8%
+## chance per won node, a full one-off bonus fight against the SAME
+## party/ew, banked or logged as a miss. Never a dungeon (v2.9 correction,
+## already the real behavior -- dungeons come from the deterministic
+## per-direction schedule this step deliberately doesn't port).
+static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float, now) -> void:
+	if g["rng"].next() >= EXPED_DISCOVERY_CHANCE:
+		return
+	var names := _expedition_names(exp["partyIds"])
+	var b_enemies: Array = apply_direction_affinity(
+		apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
+	var b_party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
+	var b_battle := FarroadCore.make_battle(b_party + b_enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+	var b_guard := 0
+	while b_battle["over"] == null and b_guard < 4000:
+		b_guard += 1
+		if FarroadCore.step(b_battle) == null:
+			break
+	if b_battle["over"] == "party":
+		var br := kill_reward(exp["ew"], b_enemies.size())
+		var b_aether: float = br["aether"] * mul
+		var b_marks: float = br["marks"] * marks_mul(g) * mul
+		exp["bank"]["aether"] = float(exp["bank"]["aether"]) + b_aether
+		exp["bank"]["marks"] = float(exp["bank"]["marks"]) + b_marks
+		push_expedition_log(exp, "%s won a bonus fight along the way — +%d Aether, +%d Marks." % [
+			names, roundi(b_aether), floori(b_marks)], now)
+	else:
+		push_expedition_log(exp, "%s were ambushed in a bonus fight and had to disengage — no reward." % names, now)
+
+## Mirrors resolveAllExpeditions (farroad-ui.js:1339-1340).
+static func resolve_all_expeditions(g: Dictionary, now) -> void:
+	for exp in g["expeditions"]:
+		resolve_expedition(g, exp, now)
+
+## Mirrors recallExpedition (farroad-ui.js:1348-1352) -- catches up first
+## (may itself trigger a full or partial auto turn-back), then forces a
+## turn-back right now if still out. No reward penalty -- nothing banked
+## is lost, only the standard half-time trip delay applies. Returns false
+## only if `id` doesn't match any active expedition (the real JS is void
+## here; this port returns bool for consistency with every other mutation
+## function's own "did this succeed" convention).
+static func recall_expedition(g: Dictionary, id: String, now) -> bool:
+	var exp = null
+	for e in g["expeditions"]:
+		if e["id"] == id:
+			exp = e
+	if exp == null:
+		return false
+	resolve_expedition(g, exp, now)
+	if g["expeditions"].has(exp) and exp.get("homeAt") == null:
+		begin_return_trip(exp, now, "recalled.", now)
+	return true
+
+## Mirrors collectExpedition (farroad-ui.js:1046-1056) -- only reachable
+## once arrivedAt is set; grants bank into the real economy and removes
+## the expedition.
+static func collect_expedition(g: Dictionary, id: String) -> bool:
+	var exp = null
+	for e in g["expeditions"]:
+		if e["id"] == id:
+			exp = e
+	if exp == null or exp.get("arrivedAt") == null:
+		return false
+	g["aether"] = float(g["aether"]) + float(exp["bank"]["aether"])
+	g["marks"] = float(g["marks"]) + float(exp["bank"]["marks"])
+	g["expeditions"] = g["expeditions"].filter(func(e2): return e2["id"] != exp["id"])
+	return true
+
+## Mirrors simulateOfflineProgress (farroad-ui.js:947-984) -- 5s no-op
+## floor, 12h cap, credits the FULL idle trickle unconditionally for the
+## capped duration, then replays real Road combat for as many
+## cost=20+travel_sec(wave)-second waves as fit. A genuine wipe can happen
+## while away, matching the real game's own "full fidelity over offline-
+## never-wipes" choice. `saved_at` is the save envelope's own top-level
+## timestamp (sibling to the FIELDS-derived g content), not anything
+## inside `g` itself.
+static func simulate_offline_progress(g: Dictionary, saved_at, now) -> void:
+	var elapsed_sec: float = maxf(0.0, float(now) - float(saved_at if saved_at != null else now))
+	if elapsed_sec < 5.0:
+		return
+	var capped: float = minf(elapsed_sec, OFFLINE_CAP_SEC)
+	var r := idle_per_sec(g.get("farthest", 1))
+	g["aether"] = float(g["aether"]) + r["aether"] * capped
+	g["marks"] = float(g["marks"]) + r["marks"] * marks_mul(g) * capped
+	var remaining: float = capped
+	var guard := 0
+	while remaining > 0.0 and guard < 200000:
+		guard += 1
+		if g.get("battle") == null:
+			break
+		var cost: float = 20.0 + travel_sec(g["wave"])
+		if cost > remaining:
+			break
+		var beat_guard := 0
+		while g["battle"]["over"] == null and beat_guard < 4000:
+			beat_guard += 1
+			if FarroadCore.step(g["battle"]) == null:
+				break
+		if g["battle"]["over"] == "party":
+			after_wave_cleared(g)
+			start_wave(g, g["wave"] + 1)
+		elif g["battle"]["over"] == "enemy":
+			on_wipe(g)
+		else:
+			break
+		remaining -= cost

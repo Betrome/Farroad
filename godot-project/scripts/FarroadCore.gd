@@ -171,6 +171,12 @@ static func eval_crit_fn(action: Dictionary, tgt) -> float:
 static var ROSTER: Array = []
 static var ARCH: Dictionary = {}
 static var EQUIPMENT: Dictionary = {}
+## The 8-direction {label, mul, waveCount, unlockEvery, bossName, affinity}
+## table (Step 3h, EXPEDITION) -- exported alongside the other content
+## tables by export-content.js, same source (content-pipeline.js's
+## compileDirectionConfig) the real JS reads via
+## window.FarroadContent.DIRECTION_CONFIG.
+static var DIRECTION_CONFIG: Dictionary = {}
 
 ## Loads godot-project/data/content.json (export-content.js's output) --
 ## the Godot-side counterpart to core.js reading window.FarroadContent.
@@ -187,6 +193,7 @@ static func load_real_content(path: String = "res://data/content.json") -> bool:
 	ARCH = parsed.get("ARCH", {})
 	ROSTER = parsed.get("ROSTER", [])
 	EQUIPMENT = parsed.get("EQUIPMENT", {})
+	DIRECTION_CONFIG = parsed.get("DIRECTION_CONFIG", {})
 	register_bonus_eligible(equippable() + CHARGE_ACTIONS)
 	return true
 

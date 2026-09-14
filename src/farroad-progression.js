@@ -315,6 +315,16 @@ P.checkpoint=function(bossesCleared,farthest){
  if(bossesCleared>0)return P.bossWaveAt(bossesCleared-1)+1;
  var f=farthest||1;
  return Math.max(1,Math.floor((f-1)/P.TUTORIAL_CHECKPOINT_EVERY)*P.TUTORIAL_CHECKPOINT_EVERY+1);};
+/* Waves 1-20 (the same solo tutorial stretch TUTORIAL_CHECKPOINT_EVERY
+   above and the wave-20 boss's own FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA
+   ease cover) grant double Aether from clearing a wave -- applied at
+   afterWaveCleared's own call site, not folded into killReward itself,
+   since killReward is shared with expeditions/bonus fights (their own
+   ew counters, unrelated to the Road's actual wave number) and the
+   engine's other math must stay untouched, same scoped-constant
+   discipline every prior balance change in this stretch has used. */
+P.TUTORIAL_AETHER_WAVES=20;
+P.TUTORIAL_AETHER_MUL=2.0;
 
 /* Idle rate keys off FARTHEST wave (a ratchet), never current wave - so a wipe
    costs progress but never income rate. */

@@ -68,7 +68,7 @@ bulwarkoath,Bulwark Oath,charge,mag,,,0,,1.45,0.690,allAllies,1,warded,4,0,0,,,,
 emberglut,Ember Glut,charge,mag,,,0,,0.90,1.111,self,1,surging,4,0,0,,,,,,,,100,rare,"swift,lasting,thrifty",CHARGE - RESOURCE. Doubles own charge rate to chain. Rare: no power field to scale (buff-only).
 hollowtoll,Hollow Toll,charge,mag,dark,,2.09,,2.10,0.476,allFoes,1,,,0,0,,,0.60,,,,,100,legendary,"swift,potent,keen,thrifty",CHARGE - SUSTAIN-AoE. Heals caster 60% of total. Legendary: power scaled up 55%.
 wardensmaul,Warden's Maul,enemy_charge,atk,,,3.10,,1.75,0.571,foe,1,,,0,0.10,,,,,,,,100,,,CHARGE - boss. Heavy single target.
-sunderingroar,Sundering Roar,enemy_charge,atk,,,0,,1.50,0.667,allAllies,1,enfeebled,3,0,0,,,,,,,,100,,,CHARGE - Stone Ox. Enfeebles the party.
+sunderingroar,Sundering Roar,enemy_charge,atk,,,0,,1.50,0.667,allFoes,1,enfeebled,3,0,0,,,,,,,,100,,,CHARGE - Stone Ox. Enfeebles the party.
 quickenedhowl,Quickened Howl,enemy_charge,atk,,,0,,1.20,0.833,self,1,hasted,3,0,0,,,,,,,,100,,,CHARGE - Mire Hound. Hastes itself.
 bite,Bite,enemy_basic,atk,,,1.00,,1.00,1.000,foe,1,,,0,0,,,,,,,19,,,,Enemy basic.
 rake,Rake,enemy_basic,atk,,,0.85,,0.85,1.176,foe,1,,,0,0,,,,,,,16,,,,Enemy basic.

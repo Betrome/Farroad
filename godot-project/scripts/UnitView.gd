@@ -87,11 +87,20 @@ func update_hp() -> void:
 	else:
 		modulate.a = 1.0 if frac > 0.0 else 0.35
 
-## Re-reads unit["charge"] against its own chargeAction's costOfCharge (or
-## the generic CHARGE_FULL fallback for a unit with none) -- same "live
-## dict, no separate sync" reasoning as update_hp().
+## Re-reads unit["charge"] against its own chargeAction's costOfCharge --
+## same "live dict, no separate sync" reasoning as update_hp(). A unit
+## with no chargeAction at all (most non-boss enemies) has nothing to
+## ever spend charge on, so the bar is hidden outright rather than shown
+## clamped-at-some-fraction-of-a-generic-fallback, which used to read as
+## "this enemy is charging something" when it never was.
 func update_charge() -> void:
-	var act = FarroadCore.ACTIONS.get(unit.get("chargeAction")) if unit.get("chargeAction") else null
+	if not unit.get("chargeAction"):
+		_charge_bg.visible = false
+		_charge_fg.visible = false
+		return
+	_charge_bg.visible = true
+	_charge_fg.visible = true
+	var act = FarroadCore.ACTIONS.get(unit["chargeAction"])
 	var max_charge: float = FarroadCore.cost_of_charge(act)
 	var frac: float = clamp(float(unit.get("charge", 0.0)) / max_charge, 0.0, 1.0)
 	_charge_fg.size = Vector2(size * frac, _charge_bg.size.y)
