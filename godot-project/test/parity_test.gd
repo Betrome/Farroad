@@ -660,6 +660,29 @@ func _run_progression_suite() -> void:
 
 	out["questsDungeons"] = qd
 
+	# Step 3j: character creation -- mc_lerp/mc_points_spent/mc_build_stats
+	# are the REAL ported FarroadProgression functions, called directly
+	# (no hand-transcription needed, this file always calls the real
+	# Godot functions -- only parity-reference.js needs to hand-copy
+	# anything sourced from farroad-ui.js UI-layer closures).
+	var mc_out := {}
+	mc_out["lerpAtkMin"] = FarroadProgression.mc_lerp(FarroadProgression.MC_STAT_RANGE["atk"], FarroadProgression.MC_POINT_MIN)
+	mc_out["lerpAtkMax"] = FarroadProgression.mc_lerp(FarroadProgression.MC_STAT_RANGE["atk"], FarroadProgression.MC_POINT_MAX)
+	mc_out["lerpAtkMid"] = FarroadProgression.mc_lerp(FarroadProgression.MC_STAT_RANGE["atk"], 7)
+	mc_out["lerpHpGrowthMin"] = FarroadProgression.mc_lerp(FarroadProgression.MC_GROWTH_RANGE["hp"], FarroadProgression.MC_POINT_MIN)
+	mc_out["lerpHpGrowthMax"] = FarroadProgression.mc_lerp(FarroadProgression.MC_GROWTH_RANGE["hp"], FarroadProgression.MC_POINT_MAX)
+	mc_out["lerpHpGrowthMid"] = FarroadProgression.mc_lerp(FarroadProgression.MC_GROWTH_RANGE["hp"], 7)
+	var all_zero := {"atk": 0, "mag": 0, "def": 0, "res": 0, "spd": 0, "hp": 0}
+	var all_max := {"atk": 15, "mag": 15, "def": 15, "res": 15, "spd": 15, "hp": 15}
+	var mixed := {"atk": 15, "mag": 0, "def": 10, "res": 5, "spd": 10, "hp": 5}
+	mc_out["pointsSpentZero"] = FarroadProgression.mc_points_spent(all_zero)
+	mc_out["pointsSpentMax"] = FarroadProgression.mc_points_spent(all_max)
+	mc_out["pointsSpentMixed"] = FarroadProgression.mc_points_spent(mixed)
+	mc_out["buildStatsZero"] = FarroadProgression.mc_build_stats(all_zero)
+	mc_out["buildStatsMax"] = FarroadProgression.mc_build_stats(all_max)
+	mc_out["buildStatsMixed"] = FarroadProgression.mc_build_stats(mixed)
+	out["mc"] = mc_out
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode
@@ -681,7 +704,10 @@ func _run_save_suite() -> void:
 		"lvl": {"kesh": 3, "ansa": 1}, "bank": {"kesh": 12, "ansa": 0}, "maxLevelEver": 3, "owned": {"kesh": 1, "ansa": 1},
 		"enrage": true, "idleAcc": 1.5, "dropQueue": [{"name": "Sear"}], "dropHistory": [{"name": "Sear"}],
 		"pullsSinceUnit": 4, "dropGains": {"lore": 2, "aether": 10},
-		"mc": null, "expeditions": [], "dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
+		"mc": {"name": "Testarossa", "stats": {"atk": 28, "mag": 16, "def": 23, "res": 21, "spd": 86}, "hp": 444,
+			"growth": {"atk": 2.1, "mag": 1.4, "def": 1.4, "res": 1.2, "spd": 2.1, "hp": 30},
+			"chargeAction": "wildfire", "acquiredCharges": ["wildfire"]},
+		"expeditions": [], "dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
 		"directions": {"west": {"maxDepth": 3, "dungeonsUnlocked": 1}},
 		"affinities": {"kesh": {"fire": 2}, "ansa": {}}, "statInvest": {"kesh": {"evade": 1}, "ansa": {}},
 		"equipInv": {"emberwardencrown": 1}, "equipped": {"kesh": {"head": "emberwardencrown"}, "ansa": {}},
@@ -697,6 +723,7 @@ func _run_save_suite() -> void:
 	out["restoredParty"] = restored["party"]
 	out["restoredAffinities"] = restored["affinities"]
 	out["restoredEquipped"] = restored["equipped"]
+	out["restoredMc"] = restored["mc"]
 	var orig_next := []
 	var restored_next := []
 	for j in range(10):

@@ -36,4 +36,14 @@ window/size/viewport_width=412
 window/size/viewport_height=915
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation="portrait"
+; handheld/orientation is an enum project setting (int index into
+; landscape/portrait/reverse_landscape/reverse_portrait/sensor_landscape/
+; sensor_portrait/sensor) -- 1 = portrait. A quoted string like "portrait"
+; silently fails to parse and falls back to the default (0 = landscape),
+; which is exactly why the first Android build shipped landscape-only
+; despite this line already being present with the wrong value type.
+window/handheld/orientation=1
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true

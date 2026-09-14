@@ -8,26 +8,30 @@ extends Node2D
 ## changed (BattlePresenter.start_battle(), not its own hardcoded demo
 ## scenario).
 ##
-## No `mc` yet (character creation is Step 3j) -- a fresh game runs with
-## `g["mc"] = null`, exactly like a fresh JS save before creation exists,
-## which uses the hardcoded Kesh default. Step 3c added the GAMBITS tab
-## (loadout editor + party bench/field, see GambitsPanel.gd); Step 3d
-## added AETHER (leveling/Recovery/Evade-Crit/Affinity investment, see
-## AetherPanel.gd); Step 3e added LORE (per-action bonus purchase/refund,
-## see LorePanel.gd); Step 3f added EQUIPMENT (per-unit gear management,
-## see EquipmentPanel.gd); Step 3g added MARKS (gacha pulls, see
-## MarksPanel.gd); Step 3h added EXPEDITION (real-time idle sending +
-## offline catch-up, see ExpeditionPanel.gd); Step 3i added QUESTS
-## (companion quest lines + direction dungeons, a real interactive side
-## battle -- see QuestsPanel.gd and _enter_side_battle() below). No
-## character-creation screen yet (Step 3j, the last roadmap item).
+## Step 3c added the GAMBITS tab (loadout editor + party bench/field, see
+## GambitsPanel.gd); Step 3d added AETHER (leveling/Recovery/Evade-Crit/
+## Affinity investment, see AetherPanel.gd); Step 3e added LORE (per-action
+## bonus purchase/refund, see LorePanel.gd); Step 3f added EQUIPMENT
+## (per-unit gear management, see EquipmentPanel.gd); Step 3g added MARKS
+## (gacha pulls, see MarksPanel.gd); Step 3h added EXPEDITION (real-time
+## idle sending + offline catch-up, see ExpeditionPanel.gd); Step 3i added
+## QUESTS (companion quest lines + direction dungeons, a real interactive
+## side battle -- see QuestsPanel.gd and _enter_side_battle() below);
+## Step 3j (the last roadmap item) added character creation (MC point-buy
+## + charge-action picker, see McCreatePanel.gd) -- `_ready()` now gates
+## the whole HUD/panels/first-fight sequence (moved into `_start_game()`)
+## behind EITHER a resumed save (`_try_resume_save()`) OR a confirmed new
+## character (`_on_mc_confirmed()`), matching the real `tryResumeSave()`/
+## `showMcCreate()`/`boot()` boot gate exactly -- there is no more
+## "fresh game, no mc" fallback, since the real JS has no such path either
+## (character creation is unconditional whenever no save exists).
 
 const SAVE_PATH := "user://save.json"
 ## How often expeditions get a chance to resolve while the game is
 ## running (mirrors the real farroad-ui.js's own 15s setInterval poll --
 ## see _on_expedition_tick()). Offline catch-up (a much bigger, one-shot
 ## time gap) is handled separately, once, at boot -- see
-## _load_or_new_game().
+## _try_resume_save().
 const EXPEDITION_POLL_SEC := 15.0
 
 var g: Dictionary
@@ -42,6 +46,7 @@ var marks_panel: Node
 var expedition_panel: Node
 var expedition_timer: Timer
 var quests_panel: Node
+var mc_panel: Node
 ## The side battle currently running (a quest attempt or a dungeon
 ## crawl), or null when none is active -- GameController's own equivalent
 ## of the real JS's reassignable G.battle pointer (see
@@ -61,8 +66,19 @@ func _ready() -> void:
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
 		return
+	if _try_resume_save():
+		_start_game()
+	else:
+		mc_panel = load("res://scripts/McCreatePanel.gd").new()
+		add_child(mc_panel)
+		mc_panel.setup(_vp, self, _on_mc_confirmed)
+
+## Everything that used to run unconditionally right after
+## _load_or_new_game() -- now shared by both boot paths (a resumed save,
+## or a freshly confirmed character), run only once `g` is guaranteed
+## fully built either way.
+func _start_game() -> void:
 	_build_hud()
-	_load_or_new_game()
 	_refresh_hud()
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
@@ -144,30 +160,49 @@ func _on_viewport_resized() -> void:
 	expedition_panel.reflow(_vp)
 	quests_panel.reflow(_vp)
 
-## Resumes user://save.json if one exists and parses cleanly; otherwise
-## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
-## startWave(...);simulateOfflineProgress(snap);resolveAllExpeditions();
-## same exact call order. `saved_at` comes from the save envelope's own
-## top-level "savedAt" field (sibling to the FIELDS-derived content
-## deserialize() reads), not from anything inside `g` itself.
-func _load_or_new_game() -> void:
+## Resumes user://save.json if one exists and parses cleanly. Mirrors
+## tryResumeSave() (farroad-ui.js) -- applyCustomMC();startWave(...);
+## simulateOfflineProgress(snap);resolveAllExpeditions(); same exact call
+## order, including calling apply_custom_mc unconditionally (a no-op when
+## g["mc"] is null, e.g. a legacy pre-MC save -- matches the real
+## tryResumeSave()'s own applyCustomMC() call). `saved_at` comes from the
+## save envelope's own top-level "savedAt" field (sibling to the
+## FIELDS-derived content deserialize() reads), not from anything inside
+## `g` itself. Returns false (doing nothing else) when no save exists or
+## it fails to parse -- the caller then shows character creation instead
+## of silently falling back to a fresh mc=null game, matching how the real
+## JS has no "fresh game, no mc" path at all (showMcCreate() is
+## unconditional whenever no save exists).
+func _try_resume_save() -> bool:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if f != null:
-		var parsed = JSON.parse_string(f.get_as_text())
-		f.close()
-		if parsed != null:
-			g = FarroadSave.deserialize(parsed)
-			var resume_wave: int = g["wave"] if g.get("wave") else 1
-			# skip_drops=true: this wave was never cleared when saved, so
-			# grant_drops(w) must not treat resuming it as a fresh visit --
-			# same reasoning as the real tryResumeSave()'s own call.
-			FarroadProgression.start_wave(g, resume_wave, true)
-			var now := Time.get_unix_time_from_system()
-			FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
-			FarroadProgression.resolve_all_expeditions(g, now)
-			return
-	g = FarroadProgression.new_game(int(Time.get_unix_time_from_system()) % 100000, null)
+	if f == null:
+		return false
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	if parsed == null:
+		return false
+	g = FarroadSave.deserialize(parsed)
+	FarroadProgression.apply_custom_mc(g)
+	var resume_wave: int = g["wave"] if g.get("wave") else 1
+	# skip_drops=true: this wave was never cleared when saved, so
+	# grant_drops(w) must not treat resuming it as a fresh visit --
+	# same reasoning as the real tryResumeSave()'s own call.
+	FarroadProgression.start_wave(g, resume_wave, true)
+	var now := Time.get_unix_time_from_system()
+	FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
+	FarroadProgression.resolve_all_expeditions(g, now)
+	return true
+
+## Mirrors boot(7,mc) (farroad-ui.js:3234, the real btnMcConfirm handler --
+## fresh games always seed 7 in the real game; there is no real-JS
+## equivalent of a time-based seed, since a fresh mc=null game was never
+## a real path there). Called by McCreatePanel once the player confirms.
+func _on_mc_confirmed(mc: Dictionary) -> void:
+	g = FarroadProgression.new_game(7, mc)
+	FarroadProgression.apply_custom_mc(g)
 	FarroadProgression.start_wave(g, 1)
+	_save_game()   # mirrors doSave() immediately after boot(7,mc)
+	_start_game()
 
 func _save_game() -> void:
 	var snap := FarroadSave.serialize(g, int(Time.get_unix_time_from_system()))

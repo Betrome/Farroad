@@ -10,13 +10,8 @@ extends RefCounted
 ## globals" discipline FarroadCore.gd already established -- unlike the real
 ## JS, which reads window-scoped G directly.
 ##
-## OUT OF SCOPE for this step (see the plan): everything gated on
-## window.FarroadContent.DIRECTION_CONFIG/QUEST_LINES (directions, dungeons,
-## expeditions, super-boss quests, companion quest lines) -- those CSV tables
-## are deliberately not exported yet (Milestone 1 Step 1e's own note), and
-## the MC character-creation screen's own point-buy math (mcLerp/mcBuildStats
-## and friends) -- pure UI-screen concerns with no caller anywhere in the
-## core wave loop, deferred to Step 3j.
+## Step 3j (character creation) is now ported too -- mc_lerp/mc_build_stats/
+## apply_custom_mc and friends, see the "Step 3j" section further down.
 ##
 ## UI-facing text (pushDrop's HTML bodies, sysLog lines) is NOT ported here --
 ## grant_drops/after_wave_cleared/on_wipe return plain event Dictionaries
@@ -426,7 +421,13 @@ const EQUIP_DROP_CHANCE := 0.10
 
 ## ===== leveling =====
 
-const GROWTH := {
+## static var, not const -- Step 3j's apply_custom_mc() reassigns
+## GROWTH["kesh"] at runtime for a custom MC, mirroring the real
+## P.GROWTH.kesh=... reassignment exactly. GDScript's `const` Dictionary
+## literals are frozen (mutating one is a compile error, caught directly
+## by trying it), unlike a plain JS object literal -- static var is the
+## same mutable-content idiom FarroadCore.ROSTER/ARCH/etc. already use.
+static var GROWTH := {
 	"kesh": {"hp": 34, "atk": 2.1, "mag": 1.0, "def": 1.4, "res": 1.0, "spd": 2.2},
 	"ansa": {"hp": 22, "atk": 0.8, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 2.0},
 	"dorrek": {"hp": 48, "atk": 1.6, "mag": 0.5, "def": 2.4, "res": 1.4, "spd": 1.4},
@@ -1792,10 +1793,8 @@ static func quest_stage_aether(stage_idx: int) -> int:
 ## already uses. Freezes q["frozen"][stage] lazily on first call (win-or-
 ## lose-durable) so a companion acquired early and quested late still gets
 ## an approachable stage 1, not whatever the Road's current wave/power
-## implies at attempt time. Story text is returned RAW (no {{name}}
-## substitution -- withMcName() needs g["mc"], which doesn't exist until
-## Step 3j; same deferred pattern GAMBITS'/LORE's own MC-gated pieces
-## already established).
+## implies at attempt time. Story text has its {{name}} token substituted
+## via with_mc_name (Step 3j) -- falls back to "Kesh" if g["mc"] is null.
 static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 	if g.get("sideBattle") != null:
 		return {}
@@ -1818,7 +1817,7 @@ static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 	var frozen: Dictionary = q["frozen"][stage]
 	return {"enemies": units_from_snapshots(frozen["enemies"]), "wave": frozen["wave"],
 		"meta": {"kind": "quest", "uid": uid, "stage": stage,
-			"name": (def["name"] if def else uid), "story": step["story"]}}
+			"name": (def["name"] if def else uid), "story": with_mc_name(step["story"])}}
 
 ## Mirrors enterDungeon (farroad-ui.js:2505-2513).
 static func prep_dungeon_attempt(g: Dictionary, id: String) -> Dictionary:
@@ -1914,3 +1913,105 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool) -> 
 			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
+
+## ===== Step 3j: character creation (MC point-buy + charge picker) =====
+## Mirrors P.MC_STAT_RANGE/MC_GROWTH_RANGE/MC_STAT_KEYS/MC_POINT_MIN/MAX/
+## MC_POINTS_TOTAL/MC_STARTER_CHARGES (farroad-progression.js:925-944) --
+## hand-transcribed constants, not CSV-exported (never were on the JS side
+## either -- content-pipeline.js has nothing MC-creation-specific).
+## mcSanitizeName/renderMcStats/updateMcConfirm/showMcCreate stay UI-layer
+## orchestration (McCreatePanel.gd), same split every other step already
+## draws between this file and its own *Panel.gd.
+
+const MC_STAT_RANGE := {
+	"atk": [8.0, 28.0], "mag": [7.0, 30.0], "def": [8.0, 45.0],
+	"res": [8.0, 40.0], "spd": [56.0, 131.0], "hp": [180.0, 840.0]}
+const MC_GROWTH_RANGE := {
+	"atk": [0.6, 2.1], "mag": [0.5, 2.7], "def": [0.8, 2.4],
+	"res": [0.8, 1.7], "spd": [1.4, 3.2], "hp": [18.0, 48.0]}
+const MC_STAT_KEYS: Array[String] = ["atk", "mag", "def", "res", "spd", "hp"]
+const MC_POINT_MIN := 0
+const MC_POINT_MAX := 15
+## = MC_STAT_KEYS.size() * MC_POINT_MAX / 2 (hardcoded, not computed --
+## GDScript const-expressions can't call .size() at parse time; matches
+## P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2 = 6*15/2 = 45).
+const MC_POINTS_TOTAL := 45
+## Mirrors P.MC_STARTER_CHARGES -- only the 3 generic starters offered at
+## creation; the 18-entry MC_CHARGE_DROP_POOL above is deliberately
+## withheld (a rare post-wave-20 drop instead).
+const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal"]
+
+## Mirrors P.mcLerp (farroad-progression.js:981-983).
+static func mc_lerp(range: Array, point: float) -> float:
+	return range[0] + (point - MC_POINT_MIN) / float(MC_POINT_MAX - MC_POINT_MIN) * (range[1] - range[0])
+
+## Mirrors P.mcPointsSpent (farroad-progression.js:984-987).
+static func mc_points_spent(points: Dictionary) -> int:
+	var sum := 0
+	for k in MC_STAT_KEYS:
+		sum += int(points.get(k, 0))
+	return sum
+
+## Mirrors P.mcBuildStats (farroad-progression.js:988-996). `points` is a
+## {atk,mag,def,res,spd,hp: int 0..15} Dictionary. Returns {stats: 5-key
+## Dict, hp: int, growth: 6-key Dict} -- hp is pulled OUT of stats
+## (erased), same as JS's `delete stats.hp`. Deliberately does NOT enforce
+## the MC_POINTS_TOTAL budget itself -- only the UI's Confirm-button gate
+## does, matching the real JS exactly (an all-MC_POINT_MAX allocation
+## legally sums to 90, over budget, and this function still returns a
+## result without complaint).
+static func mc_build_stats(points: Dictionary) -> Dictionary:
+	var stats := {}
+	var growth := {}
+	for k in MC_STAT_KEYS:
+		var v: float = mc_lerp(MC_STAT_RANGE[k], float(points[k]))
+		stats[k] = roundi(v)
+		if MC_GROWTH_RANGE.has(k):
+			growth[k] = roundi(mc_lerp(MC_GROWTH_RANGE[k], float(points[k])) * 10.0) / 10.0
+	var hp = stats["hp"]
+	stats.erase("hp")
+	return {"stats": stats, "hp": hp, "growth": growth}
+
+## Mirrors applyCustomMC (farroad-ui.js:125-161) -- mutates the shared
+## FarroadCore.ROSTER "kesh" entry IN PLACE so every existing unit-
+## construction call site (roster_by_id/make_unit/build_party_unit) picks
+## up the custom MC for free; internal roster id stays "kesh" always (no
+## new roster row, matches new_game()'s own g["party"]=["kesh"] hardcode).
+## A no-op when g["mc"] is null, which is why it's safe to call
+## unconditionally on BOTH boot paths -- see GameController's
+## _try_resume_save (resumed game) and _on_mc_confirmed (fresh game),
+## exactly matching the real applyCustomMC's own two call sites
+## (tryResumeSave() and boot()).
+static func apply_custom_mc(g: Dictionary) -> void:
+	var mc = g.get("mc")
+	if mc == null:
+		return
+	if not mc.get("acquiredCharges"):
+		mc["acquiredCharges"] = [mc["chargeAction"]]
+	var kesh_def = FarroadCore.roster_by_id("kesh")
+	if kesh_def == null:
+		return
+	kesh_def["name"] = mc["name"]
+	kesh_def["hp"] = mc["hp"]
+	kesh_def["chargeAction"] = mc["chargeAction"]
+	kesh_def["affinity"] = FarroadCore.default_affinity()
+	kesh_def["stats"] = {
+		"atk": mc["stats"]["atk"], "mag": mc["stats"]["mag"], "def": mc["stats"]["def"],
+		"res": mc["stats"]["res"], "spd": mc["stats"]["spd"],
+		"atkCrit": 0, "magCrit": 0, "chargeRate": 1, "evade": 0}
+	GROWTH["kesh"] = {
+		"hp": mc["growth"]["hp"], "atk": mc["growth"]["atk"], "mag": mc["growth"]["mag"],
+		"def": mc["growth"]["def"], "res": mc["growth"]["res"], "spd": mc["growth"]["spd"]}
+
+## Mirrors mcName/withMcName (farroad-ui.js:178-181) -- reads the CURRENT
+## FarroadCore.ROSTER "kesh" entry's name directly (not g["mc"]["name"]),
+## exactly like the real mcName(), falling back to "Kesh" if that entry
+## is somehow absent. Takes no `g` -- the real functions don't either,
+## since apply_custom_mc() is what keeps ROSTER's kesh entry in sync with
+## g["mc"] in the first place; this just reads the result.
+static func with_mc_name(text: String) -> String:
+	if text == null or text == "":
+		return text
+	var kesh_def = FarroadCore.roster_by_id("kesh")
+	var mc_name: String = (kesh_def["name"] if kesh_def else "Kesh")
+	return text.replace("{{name}}", mc_name)

@@ -1326,6 +1326,19 @@ if (mode === 'progression') {
     gg.dungeons.push(dungeon);
     return dungeon;
   }
+  // Step 3j: mirrors mcName/withMcName (farroad-ui.js:178-181) -- reads
+  // the CURRENT C.ROSTER "kesh" entry's name directly (not g.mc.name),
+  // exactly like the real functions; applyCustomMC() (not hand-
+  // transcribed here, never called by this test file at all -- no
+  // scenario in this harness ever mutates C.ROSTER) is what keeps that
+  // entry in sync with g.mc in a real playthrough, so this always reads
+  // the CSV-authored default name "Kesh" in every scenario this file
+  // runs, same as prepQuestAttemptG's own g.mc-less scenarios.
+  function mcNameG() {
+    var d = null; C.ROSTER.forEach(function (r) { if (r.id === 'kesh') d = r; });
+    return d ? d.name : 'Kesh';
+  }
+  function withMcNameG(text) { return text ? text.replace(/\{\{name\}\}/g, mcNameG()) : text; }
   function prepQuestAttemptG(gg, uid) {
     if (gg.sideBattle) return {};
     var q = gg.quests[uid];
@@ -1342,7 +1355,7 @@ if (mode === 'progression') {
     var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
     return {
       enemies: unitsFromSnapshotsG(q.frozen[stage].enemies), wave: q.frozen[stage].wave,
-      meta: { kind: 'quest', uid: uid, stage: stage, name: def ? def.name : uid, story: step.story }
+      meta: { kind: 'quest', uid: uid, stage: stage, name: def ? def.name : uid, story: withMcNameG(step.story) }
     };
   }
   function prepDungeonAttemptG(gg, id) {
@@ -1500,6 +1513,28 @@ if (mode === 'progression') {
 
   out.questsDungeons = qd;
 
+  // Step 3j: character creation -- mc_lerp/mc_points_spent/mc_build_stats
+  // are REAL P functions (P.mcLerp/mcPointsSpent/mcBuildStats), not
+  // UI-layer closures -- called directly here, no hand-transcription
+  // needed (unlike everything sourced from farroad-ui.js).
+  var mcOut = {};
+  mcOut.lerpAtkMin = P.mcLerp(P.MC_STAT_RANGE.atk, P.MC_POINT_MIN);
+  mcOut.lerpAtkMax = P.mcLerp(P.MC_STAT_RANGE.atk, P.MC_POINT_MAX);
+  mcOut.lerpAtkMid = P.mcLerp(P.MC_STAT_RANGE.atk, 7);
+  mcOut.lerpHpGrowthMin = P.mcLerp(P.MC_GROWTH_RANGE.hp, P.MC_POINT_MIN);
+  mcOut.lerpHpGrowthMax = P.mcLerp(P.MC_GROWTH_RANGE.hp, P.MC_POINT_MAX);
+  mcOut.lerpHpGrowthMid = P.mcLerp(P.MC_GROWTH_RANGE.hp, 7);
+  var allZero = { atk: 0, mag: 0, def: 0, res: 0, spd: 0, hp: 0 };
+  var allMax = { atk: 15, mag: 15, def: 15, res: 15, spd: 15, hp: 15 };
+  var mixed = { atk: 15, mag: 0, def: 10, res: 5, spd: 10, hp: 5 };
+  mcOut.pointsSpentZero = P.mcPointsSpent(allZero);
+  mcOut.pointsSpentMax = P.mcPointsSpent(allMax);
+  mcOut.pointsSpentMixed = P.mcPointsSpent(mixed);
+  mcOut.buildStatsZero = P.mcBuildStats(allZero);
+  mcOut.buildStatsMax = P.mcBuildStats(allMax);
+  mcOut.buildStatsMixed = P.mcBuildStats(mixed);
+  out.mc = mcOut;
+
   var NOW0 = 1700000000;
   var g7 = newGame(7, null);
   startWave(g7, 1);
@@ -1590,7 +1625,10 @@ if (mode === 'save') {
     lvl: { kesh: 3, ansa: 1 }, bank: { kesh: 12, ansa: 0 }, maxLevelEver: 3, owned: { kesh: 1, ansa: 1 },
     enrage: true, idleAcc: 1.5, dropQueue: [{ name: 'Sear' }], dropHistory: [{ name: 'Sear' }],
     pullsSinceUnit: 4, dropGains: { lore: 2, aether: 10 },
-    mc: null, expeditions: [], dungeons: [], quests: { kesh: { stage: 0, frozen: [] } },
+    mc: { name: 'Testarossa', stats: { atk: 28, mag: 16, def: 23, res: 21, spd: 86 }, hp: 444,
+      growth: { atk: 2.1, mag: 1.4, def: 1.4, res: 1.2, spd: 2.1, hp: 30 },
+      chargeAction: 'wildfire', acquiredCharges: ['wildfire'] },
+    expeditions: [], dungeons: [], quests: { kesh: { stage: 0, frozen: [] } },
     directions: { west: { maxDepth: 3, dungeonsUnlocked: 1 } },
     affinities: { kesh: { fire: 2 }, ansa: {} }, statInvest: { kesh: { evade: 1 }, ansa: {} },
     equipInv: { emberwardencrown: 1 }, equipped: { kesh: { head: 'emberwardencrown' }, ansa: {} },
@@ -1606,6 +1644,7 @@ if (mode === 'save') {
   out.restoredParty = restored.party;
   out.restoredAffinities = restored.affinities;
   out.restoredEquipped = restored.equipped;
+  out.restoredMc = restored.mc;
   // Prove the RNG position round-trips: draw the same N values from both the
   // ORIGINAL (still-live) rng and the RESTORED one -- must match bit-exact.
   var origNext = [], restoredNext = [];
