@@ -44,16 +44,17 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.62, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.44, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# A blank square placeholder (real art comes later) with its label on the
-	# button itself, right slot of the bottom icon row next to GambitsPanel's
-	# own icon at the same fractions (duplicated there too -- different
-	# script, no shared base). Sits BELOW the turn-order strip's frame
-	# (frame bottom ~0.91) with real clearance, not overlapping it.
+	# button itself, middle slot of a 3-icon bottom row -- GambitsPanel's own
+	# icon takes the left slot (0.10) and LorePanel's the right slot (0.78),
+	# duplicated there too (different scripts, no shared base). Sits BELOW
+	# the turn-order strip's frame (frame bottom ~0.91) with real clearance,
+	# not overlapping it.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.62, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.44, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -321,12 +322,8 @@ func _refresh_card() -> void:
 	header.add_theme_font_size_override("font_size", 16)
 	card_container.add_child(header)
 
-	var xp_lbl := Label.new()
 	var need := FarroadProgression.cost_next(g, uid)
 	var have := FarroadProgression.exp_of(g, uid)
-	xp_lbl.text = "%d / %d Aether to LV %d" % [int(have), need, level + 1]
-	xp_lbl.modulate = Color(0.7, 0.7, 0.7)
-	card_container.add_child(xp_lbl)
 
 	# Stats + per-level growth -- a real 3-column, 2-row grid (not a single
 	# long line of text left to wrap on its own) so it can't bleed a stat's
@@ -366,7 +363,6 @@ func _refresh_card() -> void:
 	# exact-cost-to-next-level button remains; the flat +50/+250 feed
 	# buttons were dropped, also per direct request.
 	var exact := maxi(0, int(ceil(need - have)))
-	card_container.add_child(_section_label("LEVEL"))
 	card_container.add_child(_purchase_row(
 		"Level up", "→ LV %d" % (level + 1), exact, false, _on_feed_pressed.bind(uid, exact)))
 
@@ -387,8 +383,6 @@ func _refresh_card() -> void:
 	var btn_col_frac: float = 0.20
 
 	# Recovery -- now second, after Level.
-	card_container.add_child(_section_label("RECOVERY — %d%% (cap %d%%)" % [
-		roundi(FarroadProgression.recovery_of(g, uid) * 100), roundi(FarroadProgression.REST_CAP * 100)]))
 	var recovery_grid := GridContainer.new()
 	recovery_grid.columns = 3
 	recovery_grid.add_theme_constant_override("h_separation", 10)
@@ -404,7 +398,6 @@ func _refresh_card() -> void:
 	# row's label happens to be. Label and current value are separate cells
 	# (not one combined string) so the values themselves line up in their
 	# own column too, not wherever they land after a label of varying length.
-	card_container.add_child(_section_label("EVADE / CRIT"))
 	var pct_grid := GridContainer.new()
 	pct_grid.columns = 3
 	pct_grid.add_theme_constant_override("h_separation", 10)
@@ -447,20 +440,36 @@ func _refresh_card() -> void:
 				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08)
 	card_container.add_child(aff_grid)
 
+## GameController's own top-strip currency line (Aether/Lore/Marks) only
+## refreshed on a wave transition -- fine for Marks (nothing spends it yet),
+## wrong for Aether, which every purchase below actually changes right now,
+## not next wave. _parent IS the GameController (setup()'s own `parent` arg
+## -- see GameController._ready()), but typed as plain Node here (this panel
+## has no compile-time dependency on it), so a dynamic has_method()+call()
+## is used rather than a direct method call, which static analysis would
+## reject against Node's own declared interface.
+func _notify_currency_changed() -> void:
+	if _parent and _parent.has_method("_refresh_hud"):
+		_parent.call("_refresh_hud")
+
 func _on_recovery_pressed(uid: String) -> void:
-	FarroadProgression.spend_recovery(g, uid)
+	if FarroadProgression.spend_recovery(g, uid):
+		_notify_currency_changed()
 	_refresh_card()
 
 func _on_feed_pressed(uid: String, amount: int) -> void:
 	if amount <= 0:
 		return
-	FarroadProgression.spend_feed(g, uid, amount)
+	if FarroadProgression.spend_feed(g, uid, amount):
+		_notify_currency_changed()
 	_refresh_card()
 
 func _on_pct_stat_pressed(uid: String, stat: String) -> void:
-	FarroadProgression.spend_pct_stat(g, uid, stat)
+	if FarroadProgression.spend_pct_stat(g, uid, stat):
+		_notify_currency_changed()
 	_refresh_card()
 
 func _on_affinity_pressed(uid: String, axis: String) -> void:
-	FarroadProgression.spend_affinity(g, uid, axis)
+	if FarroadProgression.spend_affinity(g, uid, axis):
+		_notify_currency_changed()
 	_refresh_card()

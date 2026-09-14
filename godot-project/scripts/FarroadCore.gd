@@ -259,6 +259,31 @@ const BUFFS: Array[String] = ["hasted", "warded", "taunted", "surging", "bracing
 static func is_buff_status(s) -> bool:
 	return BUFFS.has(s)
 
+## Mirrors BONUSES (farroad-core.js:388-409) -- 9 display entries (name `n`,
+## description `d`; `potent` also carries `mag: true`, unused by any real UI
+## logic -- confirmed via grep of farroad-ui.js -- kept anyway for an exact
+## port). `bonus_applies`/`apply_bonuses` (below) already have the real
+## match-statement LOGIC ported since Milestone 1 Step 1d; this is only the
+## LORE screen's display table, extracted programmatically (a throwaway node
+## script loading the real farroad-core.js via the same vm-sandbox technique
+## parity-reference.js uses, then JSON.stringify(C.BONUSES)) to guarantee an
+## exact match rather than hand-typed copy risk -- same discipline
+## ALL_CONDITION_IDS used. `weighty` is correctly absent from both this
+## table and `bonus_applies` below -- it was merged into `potent` in v2.4
+## (farroad-core.js:368-376); `apply_bonuses` still honors old stacks for
+## backward compatibility, it just isn't newly purchasable.
+const BONUSES := {
+	"swift": {"n": "Swift", "d": "corrective — big gains below ×1.00 initiative, little above it"},
+	"potent": {"n": "Potent", "d": "+15% to whatever it does — damage or healing", "mag": true},
+	"lasting": {"n": "Lasting", "d": "+1 turn on the status it applies — nothing if it applies none"},
+	"deepening": {"n": "Deepening", "d": "debuff bites 25% harder — dead on buffs and on damage"},
+	"surge": {"n": "Surge", "d": "+10 charge gain — dead on charge actions themselves"},
+	"piercing": {"n": "Piercing", "d": "+0.15 pierce — DEF for a physical action, RES for a magic one; worth most vs a target strong in that stat"},
+	"broad": {"n": "Broad", "d": "single target → full AoE (whole party or whole enemy side) — dead on a self or already-multi action"},
+	"cleansing": {"n": "Cleansing", "d": "the heal also strips one debuff — dead if it does not heal"},
+	"thrifty": {"n": "Thrifty", "d": "−15 charge cost — CHARGE ACTIONS ONLY, fires more often"},
+}
+
 ## Mirrors actionBonusTotal (farroad-core.js:341-343).
 static func action_bonus_total(b: Dictionary) -> int:
 	var t := 0

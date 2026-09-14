@@ -297,6 +297,18 @@ func _run_progression_suite() -> void:
 		checkpoints.append(FarroadProgression.checkpoint(n))
 	out["checkpoints"] = checkpoints
 
+	# Tutorial checkpoints (bosses_cleared==0): farthest snaps DOWN to the
+	# nearest 5-wave boundary (1/6/11/16), not always a flat 1.
+	# bosses_cleared>0 still ignores farthest entirely -- confirmed via the
+	# last two entries. Mirrors parity-reference.js's own 'tutorialCheckpoints'
+	# array exactly.
+	var tutorial_checkpoints := []
+	for f in [1, 4, 5, 6, 7, 10, 11, 15, 16, 19]:
+		tutorial_checkpoints.append({"farthest": f, "checkpoint": FarroadProgression.checkpoint(0, f)})
+	tutorial_checkpoints.append({"bossesCleared": 1, "farthest": 999, "checkpoint": FarroadProgression.checkpoint(1, 999)})
+	tutorial_checkpoints.append({"bossesCleared": 1, "farthest": 1, "checkpoint": FarroadProgression.checkpoint(1, 1)})
+	out["tutorialCheckpoints"] = tutorial_checkpoints
+
 	var slots := []
 	for l in [1, 9, 10, 99, 100, 499, 500, 999, 1000, 1500]:
 		slots.append({"l": l, "slots": FarroadProgression.slots_at(l), "next": FarroadProgression.next_slot_at(l)})
@@ -380,6 +392,37 @@ func _run_progression_suite() -> void:
 	aether["refusedFeed"] = FarroadProgression.spend_feed(g3, "kesh", 50)
 	aether["aetherUnchanged"] = (g3["aether"] == aether_before_refuse)
 	out["aether"] = aether
+
+	# Step 3e: LORE -- bonus purchase/remove/refund, mirrors
+	# parity-reference.js's own 'lore' section exactly.
+	var g4 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g4, 1)
+	g4["loadout"]["kesh"] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "strike"}]
+	g4["lore"] = 100
+	var lore := {}
+	lore["actionIdsFresh"] = FarroadProgression.lore_action_ids(g4)
+	lore["usedFresh"] = FarroadProgression.used_actions(g4)
+	lore["holdersOathBefore"] = FarroadProgression.action_holders(g4, "oath")
+	lore["activeKesh"] = FarroadProgression.unit_active_actions(g4, "kesh")
+	lore["freeLoreFresh"] = FarroadProgression.free_lore(g4)
+	FarroadProgression.buy_bonus(g4, "strike", "swift")
+	FarroadProgression.buy_bonus(g4, "strike", "swift")
+	FarroadProgression.buy_bonus(g4, "oath", "potent")
+	FarroadProgression.buy_bonus(g4, "ember", "swift")
+	lore["strikeBonuses"] = (g4["bonuses"]["strike"] as Dictionary).duplicate()
+	lore["oathBonuses"] = (g4["bonuses"]["oath"] as Dictionary).duplicate()
+	lore["freeLoreAfterBuys"] = FarroadProgression.free_lore(g4)
+	lore["strikeRankPristine"] = FarroadCore.pristine_of("strike")["rank"]
+	lore["strikeRankAfter"] = FarroadCore.ACTIONS["strike"]["rank"]
+	FarroadProgression.remove_bonus(g4, "strike", "swift")
+	lore["strikeBonusesAfterRemove"] = (g4["bonuses"]["strike"] as Dictionary).duplicate()
+	lore["freeLoreAfterRemove"] = FarroadProgression.free_lore(g4)
+	var refund_preview: Dictionary = FarroadProgression.unused_lore_refund(g4)
+	lore["refundPreview"] = refund_preview
+	FarroadProgression.claim_lore_refund(g4, refund_preview["ids"])
+	lore["bonusesAfterRefund"] = g4["bonuses"]
+	lore["freeLoreAfterRefund"] = FarroadProgression.free_lore(g4)
+	out["lore"] = lore
 
 	print(JSON.stringify(out))
 

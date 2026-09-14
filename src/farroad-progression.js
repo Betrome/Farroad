@@ -5,6 +5,17 @@
 window.FarroadProgression=(function(C){
 'use strict';var P={};
 P.BOSS_EVERY=20; P.BOSS_LEN=1.40;         /* 1.3-1.5x a normal fight (Q9) */
+/* The wave-20 boss specifically (fought solo, before the 2nd party member
+   joins) was a ~2.8x-HP wall -- eased to ~2.3x for THIS ONE boss only
+   (buildEnemies checks w===BOSS_WAVES[0]), leaving BOSS_LEN itself (and
+   therefore every later boss, wave 40 on) untouched. A flat BOSS_LEN cut
+   would also have collided with DUNGEON_LEN (1.15, deliberately kept
+   "clearly short of the boss band" per its own comment below) and
+   permanently softened every future boss, not just the tutorial one.
+   Round 2 (still too hard even with the eased ~2.3x + cheap tutorial
+   retries): cut a further ~20% off THIS boss's HP specifically -- 0.92 is
+   1.15*0.80, so its HP is now ~1.84x a normal enemy's, not ~2.3x. */
+P.FIRST_BOSS_LEN=0.92;
 /* ===== BOSS SCHEDULE — the economy sets boss 2 =====
  * Boss 2 is placed at the wave where accrued Marks first cover one pull at the
  * shipped 700 cost. Measured across four seeds that is wave 22, identically
@@ -290,8 +301,20 @@ P.nextBossWave=function(w){
  var last=P.BOSS_WAVES[P.BOSS_WAVES.length-1];
  if(w<last)return last;
  return last+P.BOSS_EVERY*(Math.floor((w-last)/P.BOSS_EVERY)+1);};
-P.checkpoint=function(bossesCleared){
- return bossesCleared===0?1:(P.bossWaveAt(bossesCleared-1)+1);};
+/* Before the first boss, a wipe used to always return to wave 1 no matter
+   how far the player had gotten -- with waves 1-19 fought solo, that meant
+   every failed boss attempt cost a full 19-wave re-clear just to try again
+   (Ian's own report: "even after 3 wipes I am unable to beat the boss").
+   TUTORIAL_CHECKPOINT_EVERY snaps `farthest` down to the nearest 5-wave
+   boundary (1/6/11/16) instead, so a wipe costs at most 4 waves of replay
+   plus the boss attempt. Only the bossesCleared===0 case changes -- once a
+   boss is cleared, checkpoint() is exactly what it always was (the boss
+   wave + 1), unaffected by `farthest`. */
+P.TUTORIAL_CHECKPOINT_EVERY=5;
+P.checkpoint=function(bossesCleared,farthest){
+ if(bossesCleared>0)return P.bossWaveAt(bossesCleared-1)+1;
+ var f=farthest||1;
+ return Math.max(1,Math.floor((f-1)/P.TUTORIAL_CHECKPOINT_EVERY)*P.TUTORIAL_CHECKPOINT_EVERY+1);};
 
 /* Idle rate keys off FARTHEST wave (a ratchet), never current wave - so a wipe
    costs progress but never income rate. */
@@ -740,6 +763,21 @@ P.hardMul=function(w){
  var t=Math.min(1,Math.sqrt((w-P.HARD_FROM)/(P.HARD_REF-P.HARD_FROM)));
  return 1+(P.HARD_MAX-1)*t;};
 P.BOSS_HARD_EXTRA=1.20;        /* additional boss-only ATK/MAG multiplier */
+/* Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
+   the flat 1.10 boss ATK bonus in buildEnemies, the wave-20 boss's damage
+   output drops from ~1.32x to ~1.16x a normal enemy's, without touching
+   BOSS_HARD_EXTRA itself (which also feeds every later boss's damage past
+   HARD_FROM=100 — cutting it globally would have quietly nerfed every
+   boss forever, not just the tutorial one). */
+P.FIRST_BOSS_HARD_EXTRA=1.05;
+/* Round 2: the eased boss (~1.16x a normal enemy's damage via the two
+   constants above) was still knocking out a solo character too fast --
+   cut the wave-20 boss's actual ATK/MAG output by a further ~30%, scoped
+   the same way (only w===BOSS_WAVES[0], applied directly to the final
+   atk/mag stat values in buildEnemies rather than folded into hardAtkMul,
+   so it touches damage only -- not HP, crit, spd, or anything else
+   BOSS_HARD_EXTRA also feeds). */
+P.FIRST_BOSS_DMG_MUL=0.70;
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));

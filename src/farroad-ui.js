@@ -399,12 +399,18 @@ function buildEnemies(w,quiet,superBossKey){
  for(var j=0;j<n;j++){
   var key=boss?'ox':P.archetypeFor(w,j), a=C.ARCH[key];
   var hpBase;
+  /* The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
+     2nd party member joins -- it alone uses the eased FIRST_BOSS_LEN/
+     FIRST_BOSS_HARD_EXTRA (see their own comments in progression.js);
+     every later boss keeps the full BOSS_LEN/BOSS_HARD_EXTRA unchanged. */
+  var isFirstBoss=boss&&w===P.BOSS_WAVES[0];
   if(boss){
    /* Size the boss against a NORMAL WAVE at this depth, not against one body.
       The first attempt multiplied the Stone Ox's own 1.60 hpMul by 2.66 and
       produced 116-740 beat fights - 4x to 35x a normal fight, not 1.3-1.5x. */
    var ref=C.ARCH.wolf;
-   hpBase=200*ref.hpMul*C.dmgTakenMul(ref)*S*Math.max(1,P.enemyCount(w))*(superBossKey?P.SUPERBOSS_LEN:P.BOSS_LEN);
+   var lenMul=superBossKey?P.SUPERBOSS_LEN:(isFirstBoss?P.FIRST_BOSS_LEN:P.BOSS_LEN);
+   hpBase=200*ref.hpMul*C.dmgTakenMul(ref)*S*Math.max(1,P.enemyCount(w))*lenMul;
   } else hpBase=200*a.hpMul*C.dmgTakenMul(a)*S;
   /* DIFFICULTY scales HP *and* damage. Scaling HP alone measured as almost inert:
      runs still ended at the same waves, because what kills a solo character is
@@ -417,8 +423,9 @@ function buildEnemies(w,quiet,superBossKey){
      multiplier on ATK/MAG (BOSS_HARD_EXTRA) so they scale past regular
      enemies, not just alongside them — see P.hardMul/P.BOSS_HARD_EXTRA. */
   hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w));
-  var hardAtkMul=P.hardMul(w)*(boss?P.BOSS_HARD_EXTRA:1);
+  var hardAtkMul=P.hardMul(w)*(boss?(isFirstBoss?P.FIRST_BOSS_HARD_EXTRA:P.BOSS_HARD_EXTRA):1);
   var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul*hardAtkMul;
+  var dmgMul=isFirstBoss?P.FIRST_BOSS_DMG_MUL:1;
   /* ATK growth exponent 1.02 -> 0.80. At 1.02 enemy damage grew 3.10x by wave 20
      while a solo character grows 2.05x, so enemies outpaced the player by ~50%
      and the game was only survivable behind the 65% crutch. At 0.80 they track. */
@@ -434,8 +441,8 @@ function buildEnemies(w,quiet,superBossKey){
    row:j<5?'front':'back',
    stats:{hp:Math.max(8,Math.round(hpBase)),
     /* v2.0: ONE exponent for every stat, so no ratio can drift over 1000+ waves */
-    atk:Math.max(1,Math.round(a.atk*S*atkMul)),
-    mag:Math.round((a.mag||8)*S*P.DIFFICULTY*hardAtkMul),
+    atk:Math.max(1,Math.round(a.atk*S*atkMul*dmgMul)),
+    mag:Math.round((a.mag||8)*S*P.DIFFICULTY*hardAtkMul*dmgMul),
     def:Math.round(a.def*S),res:Math.round(a.res*S),
     spd:boss?Math.round(a.spd*P.bossSpdMul(w)):a.spd,
     /* ===== v2.9: ENEMY CRIT NOW SCALES WITH DEPTH =====
@@ -895,9 +902,10 @@ function afterWaveCleared(){
 
 function onWipe(){
  G.wipes++;
- var back=P.checkpoint(G.bossesCleared);
+ var back=P.checkpoint(G.bossesCleared,G.farthest);
  sysLog('<b style="color:var(--bad)">PARTY WIPED</b> — returned to wave '+back+
-  ' <span class="ckpt">(last boss checkpoint)</span>.<div class="tiny">Lost '+
+  ' <span class="ckpt">('+(G.bossesCleared>0?'last boss checkpoint':'last checkpoint')+
+  ')</span>.<div class="tiny">Lost '+
   Math.max(0,G.wave-back)+' waves. Idle rate is unchanged: it keys off your farthest wave ('+
   G.farthest+'), so failure never costs income.</div>');
  G.hpCarry={};
@@ -1765,7 +1773,7 @@ function renderHead(){
   ((G.enemies&&G.enemies.length===1)?' enemy':' enemies')+' · party '+G.party.length;
  $('#secLbl').textContent=(G.battle?(G.battle.elapsedMs/1000).toFixed(1):'0.0')+'s';
  var nb=P.nextBossWave(G.wave)||'—';
- $('#ckptLbl').innerHTML='farthest <b>'+G.farthest+'</b> · checkpoint <b>'+P.checkpoint(G.bossesCleared)+
+ $('#ckptLbl').innerHTML='farthest <b>'+G.farthest+'</b> · checkpoint <b>'+P.checkpoint(G.bossesCleared,G.farthest)+
   '</b> · next boss <b>'+nb+'</b>'+(G.wipes?' · wipes '+G.wipes:'')+
   (P.isCurated(G.wave)?' · <span class="ckpt">curated drops</span>':' · <span class="tiny">random drops</span>');}
 /* v2.9: "a value that accurately shows a player's total power level" —

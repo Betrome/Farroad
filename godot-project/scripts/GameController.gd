@@ -13,8 +13,9 @@ extends Node2D
 ## which uses the hardcoded Kesh default. Step 3c added the GAMBITS tab
 ## (loadout editor + party bench/field, see GambitsPanel.gd); Step 3d
 ## added AETHER (leveling/Recovery/Evade-Crit/Affinity investment, see
-## AetherPanel.gd). No LORE/EQUIPMENT/MARKS/EXPEDITION/QUESTS tabs yet
-## (Steps 3e-3j).
+## AetherPanel.gd); Step 3e added LORE (per-action bonus purchase/refund,
+## see LorePanel.gd). No EQUIPMENT/MARKS/EXPEDITION/QUESTS tabs yet
+## (Steps 3f-3j).
 
 const SAVE_PATH := "user://save.json"
 
@@ -23,6 +24,7 @@ var _vp: Vector2
 var current_presenter: Node = null
 var gambits_panel: Node
 var aether_panel: Node
+var lore_panel: Node
 
 var wave_label: Label
 var currency_label: Label
@@ -44,6 +46,9 @@ func _ready() -> void:
 	aether_panel = load("res://scripts/AetherPanel.gd").new()
 	add_child(aether_panel)
 	aether_panel.setup(g, _vp, self)
+	lore_panel = load("res://scripts/LorePanel.gd").new()
+	add_child(lore_panel)
+	lore_panel.setup(g, _vp, self)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	_begin_next_fight()
 
@@ -71,6 +76,7 @@ func _on_viewport_resized() -> void:
 		current_presenter.reflow(_vp)
 	gambits_panel.reflow(_vp)
 	aether_panel.reflow(_vp)
+	lore_panel.reflow(_vp)
 
 ## Resumes user://save.json if one exists and parses cleanly; otherwise
 ## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
@@ -144,6 +150,13 @@ func _refresh_hud() -> void:
 	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
 		roundi(g["aether"]), roundi(g["lore"]), roundi(g["marks"])]
 
+## Called by GambitsPanel (dynamic has_method()+call(), same pattern as
+## AetherPanel's _notify_currency_changed) when its popup opens/closes --
+## see BattlePresenter.loop_paused's own comment for why this exists.
+func _set_gambits_paused(paused: bool) -> void:
+	if current_presenter != null:
+		current_presenter.call("set_loop_paused", paused)
+
 func _begin_next_fight() -> void:
 	outcome_label.hide()
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
@@ -160,11 +173,25 @@ func _begin_next_fight() -> void:
 func _on_battle_finished(outcome: String) -> void:
 	if outcome == "party":
 		FarroadProgression.after_wave_cleared(g)
+		# Back to its normal top-strip spot -- a PRIOR wipe (see below) can
+		# have left it centered over the combat field instead.
+		outcome_label.custom_minimum_size = Vector2.ZERO
+		outcome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		outcome_label.position = Vector2(_vp.x * 0.30, _vp.y * 0.025)
 		outcome_label.text = "Wave %d cleared!" % g["wave"]
 		FarroadProgression.start_wave(g, g["wave"] + 1)
 	else:
 		var wave_lost: int = g["wave"]
 		FarroadProgression.on_wipe(g)
+		# Just above the "Wave N" popup that's about to show (_show_wave_popup,
+		# same combat-field vertical band) -- centered the same way the popup
+		# centers itself, so "here's why you're back here" and "here's what's
+		# next" read as one grouped announcement instead of two unrelated texts
+		# in different corners of the screen.
+		var combat_center_y: float = _vp.y * (0.11 + 0.58) / 2.0
+		outcome_label.custom_minimum_size = Vector2(_vp.x * 0.9, 0)
+		outcome_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		outcome_label.position = Vector2(_vp.x * 0.05, combat_center_y - _vp.y * 0.12)
 		outcome_label.text = "Wiped at wave %d — back to wave %d" % [wave_lost, g["wave"]]
 	outcome_label.show()
 	_refresh_hud()

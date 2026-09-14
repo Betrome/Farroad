@@ -889,9 +889,26 @@ func _calc_text(e: Dictionary) -> String:
 	s += "\n→ floor %d" % h["damage"]
 	return s
 
+## Set by GameController (via a dynamic has_method()+call(), same pattern
+## AetherPanel/GambitsPanel already use to reach back into it) while the
+## GAMBITS popup is open. Without this, the loop below keeps resolving beats
+## in the background at its normal ~1s/beat cadence WHILE the player is
+## navigating that popup -- a loadout edit's engine-level effect is already
+## immediate (FarroadProgression.sync_loadout reaches the live unit right
+## away), but by the time a real player finishes clicking through the menu
+## the current wave has often already ended, making an already-immediate
+## change LOOK like it only took effect next wave. Pausing between beats
+## (not mid-animation -- see the wait's placement below) gives an edit a
+## real chance to be observed within the CURRENT fight.
+var loop_paused: bool = false
+func set_loop_paused(p: bool) -> void:
+	loop_paused = p
+
 func _run_battle_loop() -> void:
 	var guard := 0
 	while battle["over"] == null and guard < 300:
+		while loop_paused:
+			await get_tree().create_timer(0.1).timeout
 		guard += 1
 		var e = FarroadCore.step(battle)
 		if e == null:

@@ -28,6 +28,18 @@ extends RefCounted
 
 const BOSS_EVERY := 20
 const BOSS_WAVES: Array[int] = [20]
+const BOSS_LEN := 1.40   # 1.3-1.5x a normal fight
+# The wave-20 boss specifically (fought solo, before the 2nd party member
+# joins) was a ~2.8x-HP wall -- eased to ~2.3x for THIS ONE boss only
+# (build_enemies checks w==BOSS_WAVES[0]), leaving BOSS_LEN itself (and
+# every later boss, wave 40 on) untouched. A flat BOSS_LEN cut would also
+# have collided with DUNGEON_LEN (kept "clearly short of the boss band"
+# per its own real-JS comment) and permanently softened every future boss.
+# Round 2 (still too hard even with the eased ~2.3x + cheap tutorial
+# retries): cut a further ~20% off THIS boss's HP specifically -- 0.92 is
+# 1.15*0.80, so its HP is now ~1.84x a normal enemy's (2 enemy-count-
+# equivalents * 0.92), not ~2.3x.
+const FIRST_BOSS_LEN := 0.92
 
 static func boss_wave_at(i: int) -> int:
 	if i < BOSS_WAVES.size():
@@ -49,8 +61,21 @@ static func next_boss_wave(w: int) -> int:
 		return last
 	return last + BOSS_EVERY * (int((w - last) / float(BOSS_EVERY)) + 1)
 
-static func checkpoint(bosses_cleared: int) -> int:
-	return 1 if bosses_cleared == 0 else (boss_wave_at(bosses_cleared - 1) + 1)
+## Before the first boss, a wipe used to always return to wave 1 no matter
+## how far the player had gotten -- with waves 1-19 fought solo, that meant
+## every failed boss attempt cost a full 19-wave re-clear just to try again.
+## TUTORIAL_CHECKPOINT_EVERY snaps `farthest` down to the nearest 5-wave
+## boundary (1/6/11/16) instead, so a wipe costs at most 4 waves of replay
+## plus the boss attempt. Only the bosses_cleared==0 case changes -- once a
+## boss is cleared, checkpoint() is exactly what it always was (the boss
+## wave + 1), unaffected by `farthest`.
+const TUTORIAL_CHECKPOINT_EVERY := 5
+
+static func checkpoint(bosses_cleared: int, farthest: int = 1) -> int:
+	if bosses_cleared > 0:
+		return boss_wave_at(bosses_cleared - 1) + 1
+	var f: int = farthest if farthest > 0 else 1
+	return maxi(1, int((f - 1) / TUTORIAL_CHECKPOINT_EVERY) * TUTORIAL_CHECKPOINT_EVERY + 1)
 
 const VARIETY_FROM := 40
 const COUNT_WEIGHTS: Array = [[1, 0.15], [2, 0.30], [3, 0.35], [4, 0.20]]
@@ -60,7 +85,22 @@ const COUNT_WEIGHTS_HARD: Array = [[1, 0.05], [2, 0.08], [3, 0.12], [4, 0.15], [
 const HARD_FROM := 100
 const HARD_REF := 800.0
 const HARD_MAX := 20.0
-const BOSS_HARD_EXTRA := 1.20
+const BOSS_HARD_EXTRA := 1.20   # additional boss-only ATK/MAG multiplier
+# Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
+# the flat 1.10 boss ATK bonus in build_enemies, the wave-20 boss's damage
+# output drops from ~1.32x to ~1.16x a normal enemy's, without touching
+# BOSS_HARD_EXTRA itself (which also feeds every later boss's damage past
+# HARD_FROM=100 -- cutting it globally would have quietly nerfed every
+# boss forever, not just the tutorial one).
+const FIRST_BOSS_HARD_EXTRA := 1.05
+# Round 2: the eased boss (~1.16x a normal enemy's damage via the two
+# constants above) was still knocking out a solo character too fast --
+# cut the wave-20 boss's actual ATK/MAG output by a further ~30%, scoped
+# the same way (only w==BOSS_WAVES[0], applied directly to the final
+# atk/mag stat values below rather than folded into hard_atk_mul, so it
+# touches damage only -- not HP, crit, spd, or anything else BOSS_HARD_EXTRA
+# also feeds).
+const FIRST_BOSS_DMG_MUL := 0.70
 const BOSS_SPD_FROM := 20.0
 const BOSS_SPD_REF := 800.0
 const BOSS_SPD_MAX_MUL := 2.2
@@ -664,6 +704,134 @@ static func action_holder_in_party(g: Dictionary, action_id: String, exclude_uid
 				return def["name"] if def else uid
 	return null
 
+## ===== LORE (mirrors farroad-ui.js's renderLore() and its supporting
+## functions usedActions/actionHolders/unitActiveActions, :1995-2220) =====
+
+## Mirrors usedActions (farroad-ui.js:2003-2010) -- every OWNED unit's (not
+## just fielded) loadout actions + roster chargeAction, as a lookup set --
+## the refund button's own eligibility check. The G.mc-gated
+## acquiredCharges branch naturally no-ops while g["mc"] is null (Step 3j),
+## same pattern as everywhere else this has come up.
+static func used_actions(g: Dictionary) -> Dictionary:
+	var used := {}
+	for uid in g["owned"].keys():
+		for s in g["loadout"].get(uid, []):
+			used[s["action"]] = 1
+		var rd = FarroadCore.roster_by_id(uid)
+		if rd and rd.get("chargeAction"):
+			used[rd["chargeAction"]] = 1
+	return used
+
+## Mirrors actionHolders (farroad-ui.js:2018-2029) -- who currently equips
+## action `aid`, split active (a loadout slot or the unit's live
+## chargeAction) from banked (sitting unequipped in the MC's
+## acquiredCharges pool). The `banked` case is unreachable while g["mc"]
+## is null (mcOwns is always false), matching the same no-op pattern.
+static func action_holders(g: Dictionary, aid: String) -> Dictionary:
+	var active := []
+	var banked := false
+	for uid in g["owned"].keys():
+		var holds := false
+		for s in g["loadout"].get(uid, []):
+			if s["action"] == aid:
+				holds = true
+		var rd = FarroadCore.roster_by_id(uid)
+		var ca = rd.get("chargeAction") if rd else null
+		if ca == aid:
+			holds = true
+		if holds:
+			active.append(rd["name"] if rd else uid)
+	return {"active": active, "banked": banked}
+
+## Mirrors unitActiveActions (farroad-ui.js:2035-2042) -- a unit's own
+## loadout-slot actions, deduped, plus its live charge action.
+static func unit_active_actions(g: Dictionary, uid: String) -> Array:
+	var ids := []
+	for s in g["loadout"].get(uid, []):
+		if not ids.has(s["action"]):
+			ids.append(s["action"])
+	var rd = FarroadCore.roster_by_id(uid)
+	var ca = rd.get("chargeAction") if rd else null
+	if ca and not ids.has(ca):
+		ids.append(ca)
+	return ids
+
+## Mirrors renderLore()'s own actionIds construction (farroad-ui.js:2066-2068)
+## -- every loadout-slot basic the player has unlocked (g["actions"],
+## already tracked and already used directly by GambitsPanel.gd) PLUS any
+## charge action currently in play (from used_actions, filtered to
+## FarroadCore.ACTIONS[id]["isCharge"]) that isn't already in that list --
+## a companion's chargeAction (a fixed roster property) and the MC's
+## acquired charges never go through the drop/pull unlock path g["actions"]
+## tracks, so without this they'd be silently unselectable on LORE.
+static func lore_action_ids(g: Dictionary) -> Array:
+	var ids: Array = g["actions"].duplicate()
+	for id in used_actions(g).keys():
+		if not ids.has(id) and FarroadCore.ACTIONS.get(id) and FarroadCore.ACTIONS[id].get("isCharge"):
+			ids.append(id)
+	return ids
+
+## Mirrors renderLore()'s own free-Lore line (farroad-ui.js:2045) -- Lore is
+## NOT a spendable balance decremented on purchase, g["lore"] is a
+## cumulative EARNED total (only ever incremented, by grant_drops's
+## duplicate-drop path) -- "free Lore to spend" is always DERIVED live as
+## earned-minus-spent.
+static func free_lore(g: Dictionary) -> float:
+	var spent: int = FarroadCore.bonus_spend(g["bonuses"])
+	return maxf(0.0, float(g["lore"]) - float(spent))
+
+## Mirrors the inline unusedIds/refundTotal computation (farroad-ui.js:2051-2056)
+## -- read-only preview, no mutation. Iterates g["bonuses"].keys() (every
+## action id the player has EVER spent Lore on), not lore_action_ids(g) --
+## an action can fall out of the current tab pool (e.g. a dropped/unpulled
+## action) while still holding a refundable Lore investment.
+static func unused_lore_refund(g: Dictionary) -> Dictionary:
+	var used := used_actions(g)
+	var unused_ids := []
+	for aid in g["bonuses"].keys():
+		if not used.has(aid) and g["bonuses"][aid] and not g["bonuses"][aid].is_empty():
+			unused_ids.append(aid)
+	var refund_total := 0
+	for aid in unused_ids:
+		var b: Dictionary = g["bonuses"][aid]
+		var total: int = FarroadCore.action_bonus_total(b)
+		refund_total += total * (total + 1) / 2 + int(b.get("broad", 0)) * FarroadCore.BONUS_COST_BROAD
+	return {"ids": unused_ids, "total": refund_total}
+
+## Mirrors the bulk refund handler (farroad-ui.js:2216-2220) -- deletes each
+## given action's ENTIRE bonus entry (typically unused_lore_refund(g)["ids"]).
+## Never touches g["lore"] -- free_lore(g) rises on its own once bonus_spend
+## drops. No re-validation inside (the real JS doesn't either -- the button
+## itself only exists when unused_lore_refund(g)["ids"] is non-empty).
+static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
+	for aid in ids:
+		g["bonuses"].erase(aid)
+	FarroadCore.apply_bonuses(g["bonuses"])
+
+## Mirrors the "+" purchase handler (farroad-ui.js:2208-2210) -- buys ONE
+## stack of bonus `bid` on action `aid`. No re-validation inside (gating is
+## structural, the button only exists when applicable/affordable -- the UI
+## layer's responsibility, same discipline as GAMBITS' own mutation
+## functions above).
+static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
+	if not g["bonuses"].has(aid):
+		g["bonuses"][aid] = {}
+	g["bonuses"][aid][bid] = int(g["bonuses"][aid].get(bid, 0)) + 1
+	FarroadCore.apply_bonuses(g["bonuses"])
+
+## Mirrors the "−" handler (farroad-ui.js:2211-2214) -- removes ONE stack of
+## bonus `bid` from action `aid` (distinct from the bulk claim_lore_refund
+## above), deleting the bid entry once it hits 0.
+static func remove_bonus(g: Dictionary, aid: String, bid: String) -> void:
+	if not g["bonuses"].has(aid):
+		return
+	var count: int = maxi(0, int(g["bonuses"][aid].get(bid, 0)) - 1)
+	if count == 0:
+		g["bonuses"][aid].erase(bid)
+	else:
+		g["bonuses"][aid][bid] = count
+	FarroadCore.apply_bonuses(g["bonuses"])
+
 ## ===== party/enemy construction (mirrors buildParty/buildEnemies,
 ## farroad-ui.js:366/388) =====
 
@@ -700,16 +868,23 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	for j in range(n):
 		var key: String = "ox" if boss else archetype_for(w, j)
 		var a: Dictionary = FarroadCore.ARCH[key]
+		# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before
+		# the 2nd party member joins -- it alone uses the eased
+		# FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA; every later boss keeps the
+		# full BOSS_LEN/BOSS_HARD_EXTRA unchanged.
+		var is_first_boss: bool = boss and w == BOSS_WAVES[0]
 		var hp_base: float
 		if boss:
 			var ref: Dictionary = FarroadCore.ARCH["wolf"]
+			var len_mul: float = 3.0 if super_boss_key != "" else (FIRST_BOSS_LEN if is_first_boss else BOSS_LEN)
 			hp_base = 200.0 * ref["hpMul"] * FarroadCore.dmg_taken_mul(ref) * s * \
-				maxf(1, enemy_count(w)) * (3.0 if super_boss_key != "" else 1.40)
+				maxf(1, enemy_count(w)) * len_mul
 		else:
 			hp_base = 200.0 * a["hpMul"] * FarroadCore.dmg_taken_mul(a) * s
 		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w))
-		var hard_atk_mul: float = hard_mul(w) * (BOSS_HARD_EXTRA if boss else 1.0)
+		var hard_atk_mul: float = hard_mul(w) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
 		var atk_mul: float = (1.10 if boss else 1.0) * DIFFICULTY * v_mul * hard_atk_mul
+		var dmg_mul: float = FIRST_BOSS_DMG_MUL if is_first_boss else 1.0
 		out.append(FarroadCore.make_unit({
 			"id": "e%d" % j,
 			"name": ("ROADWARDEN" if boss else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
@@ -717,8 +892,8 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 			"thorns": a.get("thorns", 0), "isBoss": boss, "row": "front" if j < 5 else "back",
 			"stats": {
 				"hp": maxf(8, round(hp_base)),
-				"atk": maxf(1, round(a["atk"] * s * atk_mul)),
-				"mag": round(a.get("mag", 8) * s * DIFFICULTY * hard_atk_mul),
+				"atk": maxf(1, round(a["atk"] * s * atk_mul * dmg_mul)),
+				"mag": round(a.get("mag", 8) * s * DIFFICULTY * hard_atk_mul * dmg_mul),
 				"def": round(a["def"] * s), "res": round(a["res"] * s),
 				"spd": round(a["spd"] * boss_spd_mul(w)) if boss else a["spd"],
 				"atkCrit": minf(FarroadCore.CAP_CRIT, a["atkCrit"] * sqrt(s)),
@@ -875,7 +1050,7 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 
 static func on_wipe(g: Dictionary) -> Array:
 	g["wipes"] = g.get("wipes", 0) + 1
-	var back := checkpoint(g.get("bossesCleared", 0))
+	var back := checkpoint(g.get("bossesCleared", 0), g.get("farthest", 1))
 	g["hpCarry"] = {}
 	var events: Array = [{"kind": "wipe", "backTo": back}]
 	events.append_array(start_wave(g, back))

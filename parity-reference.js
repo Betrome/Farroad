@@ -442,23 +442,26 @@ if (mode === 'progression') {
     var vMul = variety ? (P.countStrength(n) * P.bandRoll(g.rng)) : 1;
     C.setWave(w);
     var S = C.waveScale(w), out = [];
+    var isFirstBoss = boss && w === P.BOSS_WAVES[0];
     for (var j = 0; j < n; j++) {
       var key = boss ? 'ox' : P.archetypeFor(w, j), a = C.ARCH[key];
       var hpBase;
       if (boss) {
         var ref = C.ARCH.wolf;
-        hpBase = 200 * ref.hpMul * C.dmgTakenMul(ref) * S * Math.max(1, P.enemyCount(w)) * (superBossKey ? P.SUPERBOSS_LEN : P.BOSS_LEN);
+        var lenMul = superBossKey ? P.SUPERBOSS_LEN : (isFirstBoss ? P.FIRST_BOSS_LEN : P.BOSS_LEN);
+        hpBase = 200 * ref.hpMul * C.dmgTakenMul(ref) * S * Math.max(1, P.enemyCount(w)) * lenMul;
       } else hpBase = 200 * a.hpMul * C.dmgTakenMul(a) * S;
       hpBase *= P.DIFFICULTY * vMul * Math.sqrt(P.hardMul(w));
-      var hardAtkMul = P.hardMul(w) * (boss ? P.BOSS_HARD_EXTRA : 1);
+      var hardAtkMul = P.hardMul(w) * (boss ? (isFirstBoss ? P.FIRST_BOSS_HARD_EXTRA : P.BOSS_HARD_EXTRA) : 1);
       var atkMul = (boss ? 1.10 : 1) * P.DIFFICULTY * vMul * hardAtkMul;
+      var dmgMul = isFirstBoss ? P.FIRST_BOSS_DMG_MUL : 1;
       out.push(C.makeUnit({
         id: 'e' + j, name: (boss ? 'ROADWARDEN' : a.name) + (n > 1 ? ' ' + (j + 1) : ''),
         isParty: false, level: 1, slotIndex: 10 + j, arch: key, thorns: a.thorns || 0, isBoss: boss,
         row: j < 5 ? 'front' : 'back',
         stats: {
-          hp: Math.max(8, Math.round(hpBase)), atk: Math.max(1, Math.round(a.atk * S * atkMul)),
-          mag: Math.round((a.mag || 8) * S * P.DIFFICULTY * hardAtkMul),
+          hp: Math.max(8, Math.round(hpBase)), atk: Math.max(1, Math.round(a.atk * S * atkMul * dmgMul)),
+          mag: Math.round((a.mag || 8) * S * P.DIFFICULTY * hardAtkMul * dmgMul),
           def: Math.round(a.def * S), res: Math.round(a.res * S),
           spd: boss ? Math.round(a.spd * P.bossSpdMul(w)) : a.spd,
           atkCrit: Math.min(C.CAP_CRIT, a.atkCrit * Math.sqrt(S)),
@@ -577,7 +580,7 @@ if (mode === 'progression') {
   }
   function onWipe(g) {
     g.wipes++;
-    var back = P.checkpoint(g.bossesCleared);
+    var back = P.checkpoint(g.bossesCleared, g.farthest);
     g.hpCarry = {};
     var events = [{ kind: 'wipe', backTo: back }];
     events = events.concat(startWave(g, back));
@@ -612,6 +615,14 @@ if (mode === 'progression') {
     };
   });
   out.checkpoints = [0, 1, 2, 3, 5].map(function (n) { return P.checkpoint(n); });
+  // Tutorial checkpoints (bossesCleared===0): farthest snaps DOWN to the
+  // nearest 5-wave boundary (1/6/11/16), not always a flat 1. bossesCleared>0
+  // still ignores farthest entirely -- confirmed via the last two entries.
+  out.tutorialCheckpoints = [1, 4, 5, 6, 7, 10, 11, 15, 16, 19].map(function (f) {
+    return { farthest: f, checkpoint: P.checkpoint(0, f) };
+  });
+  out.tutorialCheckpoints.push({ bossesCleared: 1, farthest: 999, checkpoint: P.checkpoint(1, 999) });
+  out.tutorialCheckpoints.push({ bossesCleared: 1, farthest: 1, checkpoint: P.checkpoint(1, 1) });
   out.slots = [1, 9, 10, 99, 100, 499, 500, 999, 1000, 1500].map(function (l) { return { l: l, slots: P.slotsAt(l), next: P.nextSlotAt(l) }; });
   out.leveling = [[1, 1], [10, 1], [10, 50], [100, 100], [1000, 1000]].map(function (p) {
     return { l: p[0], r: p[1], cost: P.costToNext(p[0], p[1]) };
@@ -793,6 +804,117 @@ if (mode === 'progression') {
   aether3.refusedFeed = spendFeed(g3, 'kesh', 50);
   aether3.aetherUnchanged = (g3.aether === aetherBefore3);
   out.aether = aether3;
+
+  // Step 3e: LORE -- bonus purchase/remove/refund, hand-transcribed from
+  // the real renderLore() and its supporting functions
+  // (farroad-ui.js:1995-2220) the same way everything else above was.
+  function usedActionsG(gg) {
+    var used = {};
+    Object.keys(gg.owned).forEach(function (uid) {
+      (gg.loadout[uid] || []).forEach(function (s) { used[s.action] = 1; });
+      var rd = null; C.ROSTER.forEach(function (r) { if (r.id === uid) rd = r; });
+      if (rd && rd.chargeAction) used[rd.chargeAction] = 1;
+    });
+    return used;
+  }
+  function actionHoldersG(gg, aid) {
+    var active = [], banked = false;
+    Object.keys(gg.owned).forEach(function (uid) {
+      var holds = false;
+      (gg.loadout[uid] || []).forEach(function (s) { if (s.action === aid) holds = true; });
+      var rd = null; C.ROSTER.forEach(function (r) { if (r.id === uid) rd = r; });
+      var ca = rd && rd.chargeAction;
+      if (ca === aid) holds = true;
+      if (holds) active.push(rd ? rd.name : uid);
+    });
+    return { active: active, banked: banked };
+  }
+  function unitActiveActionsG(gg, uid) {
+    var ids = [];
+    (gg.loadout[uid] || []).forEach(function (s) { if (ids.indexOf(s.action) < 0) ids.push(s.action); });
+    var rd = null; C.ROSTER.forEach(function (r) { if (r.id === uid) rd = r; });
+    var ca = rd && rd.chargeAction;
+    if (ca && ids.indexOf(ca) < 0) ids.push(ca);
+    return ids;
+  }
+  function loreActionIdsG(gg) {
+    var ids = gg.actions.slice();
+    Object.keys(usedActionsG(gg)).forEach(function (id) {
+      if (ids.indexOf(id) < 0 && C.ACTIONS[id] && C.ACTIONS[id].isCharge) ids.push(id);
+    });
+    return ids;
+  }
+  function freeLoreG(gg) { return Math.max(0, gg.lore - C.bonusSpend(gg.bonuses)); }
+  function unusedLoreRefundG(gg) {
+    var used = usedActionsG(gg);
+    var unusedIds = Object.keys(gg.bonuses).filter(function (aid) {
+      return !used[aid] && gg.bonuses[aid] && Object.keys(gg.bonuses[aid]).length;
+    });
+    var total = 0;
+    unusedIds.forEach(function (aid) {
+      var b = gg.bonuses[aid], t = C.actionBonusTotal(b);
+      total += t * (t + 1) / 2 + (b.broad || 0) * C.BONUS_COST_BROAD;
+    });
+    return { ids: unusedIds, total: total };
+  }
+  function claimLoreRefundG(gg, ids) {
+    ids.forEach(function (aid) { delete gg.bonuses[aid]; });
+    C.applyBonuses(gg.bonuses);
+  }
+  function buyBonusG(gg, aid, bid) {
+    gg.bonuses[aid] = gg.bonuses[aid] || {};
+    gg.bonuses[aid][bid] = (gg.bonuses[aid][bid] || 0) + 1;
+    C.applyBonuses(gg.bonuses);
+  }
+  function removeBonusG(gg, aid, bid) {
+    if (!gg.bonuses[aid]) return;
+    gg.bonuses[aid][bid] = Math.max(0, (gg.bonuses[aid][bid] || 0) - 1);
+    if (!gg.bonuses[aid][bid]) delete gg.bonuses[aid][bid];
+    C.applyBonuses(gg.bonuses);
+  }
+
+  var g4 = newGame(7, null);
+  startWave(g4, 1);
+  // Deterministic loadout regardless of whatever the default happens to be
+  // -- both slots on 'strike', so 'strike' is unambiguously "used" while
+  // 'ember' (a starter action, never equipped) stays genuinely unused.
+  g4.loadout.kesh = [{ cond: 'none', action: 'strike' }, { cond: 'none', action: 'strike' }];
+  g4.lore = 100;
+  var lore4 = {};
+  // Kesh's own chargeAction ('oath') is never in g.actions (a fixed roster
+  // property, not a drop/pull unlock) -- this is exactly the case
+  // lore_action_ids exists to cover.
+  lore4.actionIdsFresh = loreActionIdsG(g4);
+  lore4.usedFresh = usedActionsG(g4);
+  lore4.holdersOathBefore = actionHoldersG(g4, 'oath');
+  lore4.activeKesh = unitActiveActionsG(g4, 'kesh');
+  lore4.freeLoreFresh = freeLoreG(g4);
+  buyBonusG(g4, 'strike', 'swift');
+  buyBonusG(g4, 'strike', 'swift');
+  buyBonusG(g4, 'oath', 'potent');
+  buyBonusG(g4, 'ember', 'swift');
+  // Object.assign snapshots -- g4.bonuses.strike is a live reference, and a
+  // later removeBonusG call mutates that SAME object, so capturing it
+  // without copying would silently show the post-remove value here too.
+  lore4.strikeBonuses = Object.assign({}, g4.bonuses.strike);
+  lore4.oathBonuses = Object.assign({}, g4.bonuses.oath);
+  lore4.freeLoreAfterBuys = freeLoreG(g4);
+  // 'swift' modifies rank (initiative), not power -- confirms applyBonuses
+  // (called inside buyBonusG, same as the real handler) actually took
+  // effect on the live ACTIONS table, not just the bonuses map.
+  lore4.strikeRankPristine = C.pristineOf('strike').rank;
+  lore4.strikeRankAfter = C.ACTIONS['strike'].rank;
+  removeBonusG(g4, 'strike', 'swift');
+  lore4.strikeBonusesAfterRemove = Object.assign({}, g4.bonuses.strike);
+  lore4.freeLoreAfterRemove = freeLoreG(g4);
+  // 'strike'/'oath' are both "used" (equipped/live chargeAction) so neither
+  // is refundable despite real bonus stacks -- only 'ember' (never
+  // equipped) should show up here.
+  lore4.refundPreview = unusedLoreRefundG(g4);
+  claimLoreRefundG(g4, lore4.refundPreview.ids);
+  lore4.bonusesAfterRefund = g4.bonuses;
+  lore4.freeLoreAfterRefund = freeLoreG(g4);
+  out.lore = lore4;
 
   console.log(JSON.stringify(out));
 }
