@@ -57,6 +57,15 @@ var active_unit_id: String = ""   # whichever unit's beat is currently animating
 var log_lines: Array = []   # each entry: {head_bbcode, dmg_text, via_bbcode, note_bbcodes, calc, expanded}
 var log_popup: PopupPanel
 var log_container: VBoxContainer
+var pause_log_btn: Button
+## While true, new beats still accumulate into log_lines (nothing is lost),
+## but the OPEN popup stops auto-rebuilding on every one -- lets a player
+## actually read/scroll a fast-moving fight's log without new entries
+## (inserted newest-first) jumping their place around underneath them.
+## _on_log_pressed's own rebuild on open is unaffected either way -- opening
+## the log always shows a fresh snapshot regardless of pause state; pausing
+## only stops it from moving once it's already open.
+var log_paused: bool = false
 var turn_cards: Array = []
 var status_icon_btn: Button
 var log_icon_btn: Button
@@ -584,6 +593,11 @@ func _build_log_ui() -> void:
 	title.add_theme_font_size_override("font_size", 16)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
+	pause_log_btn = Button.new()
+	pause_log_btn.text = "Pause"
+	pause_log_btn.toggle_mode = true
+	pause_log_btn.toggled.connect(_on_log_pause_toggled)
+	header.add_child(pause_log_btn)
 	var clear_btn := Button.new()
 	clear_btn.text = "Clear"
 	clear_btn.pressed.connect(_on_clear_pressed)
@@ -606,6 +620,12 @@ func _on_log_pressed() -> void:
 func _on_clear_pressed() -> void:
 	log_lines.clear()
 	_rebuild_log_container()
+
+func _on_log_pause_toggled(paused: bool) -> void:
+	log_paused = paused
+	pause_log_btn.text = "Resume" if paused else "Pause"
+	if not paused and log_popup != null and log_popup.visible:
+		_rebuild_log_container()
 
 ## Rebuilds every entry's Control block from scratch, newest first (mirrors
 ## logEntry()'s insertBefore(d, L.firstChild)). A real HBoxContainer per
@@ -652,16 +672,23 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 		btn.add_theme_font_size_override("font_size", 11)
 		btn.add_theme_color_override("font_color", Color(0.53, 0.53, 0.53))
 		btn.add_theme_color_override("font_hover_color", Color(0.75, 0.75, 0.75))
+		box.add_child(btn)
+		var calc_line := _rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, entry["calc"]])
+		calc_line.visible = entry["expanded"]
+		box.add_child(calc_line)
 		# Captures `entry` (a Dictionary -- a reference type in GDScript) by
 		# reference, so toggling it here correctly mutates the SAME dict
-		# still held in log_lines -- mirrors logEntry()'s own
-		# d.onclick toggling a class on that same log entry (farroad-ui.js:1804).
+		# still held in log_lines -- mirrors logEntry()'s own d.onclick
+		# toggling a class on that same log entry (farroad-ui.js:1804).
+		# Flips only THIS entry's own expanded flag and its own calc line's
+		# visibility -- deliberately NOT a full _rebuild_log_container() call
+		# (the earlier version's approach), which re-pulls the CURRENT
+		# log_lines wholesale and would silently undo a log pause: opening a
+		# damage breakdown while paused shouldn't jump the whole list back
+		# to whatever accumulated in the background since.
 		btn.pressed.connect(func():
 			entry["expanded"] = not entry["expanded"]
-			_rebuild_log_container())
-		box.add_child(btn)
-		if entry["expanded"]:
-			box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, entry["calc"]]))
+			calc_line.visible = entry["expanded"])
 
 	for note_bbcode in entry["note_bbcodes"]:
 		box.add_child(_rich_line(note_bbcode))
@@ -900,7 +927,7 @@ func _append_log(e: Dictionary) -> void:
 
 	log_lines.append({"head_bbcode": head, "dmg_text": dmg_text, "via_bbcode": via_bbcode,
 		"note_bbcodes": note_bbcodes, "calc": _calc_text(e), "expanded": false})
-	if log_popup != null and log_popup.visible:
+	if log_popup != null and log_popup.visible and not log_paused:
 		_rebuild_log_container()
 
 ## A plain, non-event log line (e.g. "Battle over") -- same storage shape,
@@ -908,7 +935,7 @@ func _append_log(e: Dictionary) -> void:
 func _append_raw_log(bbcode: String) -> void:
 	log_lines.append({"head_bbcode": bbcode, "dmg_text": "", "via_bbcode": "",
 		"note_bbcodes": [], "calc": "", "expanded": false})
-	if log_popup != null and log_popup.visible:
+	if log_popup != null and log_popup.visible and not log_paused:
 		_rebuild_log_container()
 
 ## Mirrors logEntry()'s `calc` string (farroad-ui.js:1783-1793) -- reuses
