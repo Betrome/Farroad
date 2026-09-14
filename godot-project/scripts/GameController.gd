@@ -23,6 +23,7 @@ var g: Dictionary
 var _vp: Vector2
 var current_presenter: Node = null
 var gambits_panel: Node
+var party_panel: Node
 var aether_panel: Node
 var lore_panel: Node
 
@@ -43,6 +44,9 @@ func _ready() -> void:
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
 	gambits_panel.setup(g, _vp, self)
+	party_panel = load("res://scripts/PartyPanel.gd").new()
+	add_child(party_panel)
+	party_panel.setup(g, _vp, self)
 	aether_panel = load("res://scripts/AetherPanel.gd").new()
 	add_child(aether_panel)
 	aether_panel.setup(g, _vp, self)
@@ -75,6 +79,7 @@ func _on_viewport_resized() -> void:
 	if current_presenter != null:
 		current_presenter.reflow(_vp)
 	gambits_panel.reflow(_vp)
+	party_panel.reflow(_vp)
 	aether_panel.reflow(_vp)
 	lore_panel.reflow(_vp)
 
@@ -150,12 +155,25 @@ func _refresh_hud() -> void:
 	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
 		roundi(g["aether"]), roundi(g["lore"]), roundi(g["marks"])]
 
-## Called by GambitsPanel (dynamic has_method()+call(), same pattern as
-## AetherPanel's _notify_currency_changed) when its popup opens/closes --
-## see BattlePresenter.loop_paused's own comment for why this exists.
-func _set_gambits_paused(paused: bool) -> void:
+## Called by GambitsPanel/AetherPanel (dynamic has_method()+call(), same
+## pattern as _notify_currency_changed) when either popup opens/closes --
+## see BattlePresenter.loop_paused's own comment for why this exists. Only
+## one of these popups is ever open at a time in practice, so a single
+## shared pause flag is enough -- no need to track which panel asked.
+func _set_battle_paused(paused: bool) -> void:
 	if current_presenter != null:
 		current_presenter.call("set_loop_paused", paused)
+
+## Called by PartyPanel (dynamic has_method()+call(), same pattern as
+## _set_battle_paused) right after a bench/field edit -- pushes the roster
+## change onto the live fight immediately (see
+## FarroadProgression.refresh_live_party's own comment) rather than waiting
+## for the next wave's build_party().
+func _sync_party_change() -> void:
+	if current_presenter == null:
+		return
+	var added: Array = FarroadProgression.refresh_live_party(g)
+	current_presenter.call("sync_live_party", added)
 
 func _begin_next_fight() -> void:
 	outcome_label.hide()

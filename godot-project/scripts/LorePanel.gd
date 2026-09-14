@@ -50,19 +50,20 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.78, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.776, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Third icon in the bottom row, right of Gambits (0.10) and Aether
-	# (0.44) -- GambitsPanel.gd/AetherPanel.gd's own x fractions shifted
-	# from 0.18/0.62 to 0.10/0.44 to make room for this one, three
-	# evenly-spaced 0.12×vp.x icons across the row.
+	# Last of 4 evenly-spaced icons across the bottom row: GambitsPanel
+	# 0.104, PartyPanel 0.328, AetherPanel 0.552, this one 0.776 --
+	# GambitsPanel.gd/AetherPanel.gd's own x fractions shifted from
+	# 0.10/0.44 to 0.104/0.552 to make room for PartyPanel's new icon.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.78, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.776, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
+	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
 	var scroll := ScrollContainer.new()
@@ -135,6 +136,14 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	_notify_battle_paused(true)
+
+## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
+## same pattern as GambitsPanel/AetherPanel's own copy (see
+## BattlePresenter.loop_paused's own comment for why this exists).
+func _notify_battle_paused(paused: bool) -> void:
+	if _parent and _parent.has_method("_set_battle_paused"):
+		_parent.call("_set_battle_paused", paused)
 
 func _default_uid() -> String:
 	if not g["party"].is_empty():

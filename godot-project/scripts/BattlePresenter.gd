@@ -78,13 +78,15 @@ var enemy_back_x: float
 func _recompute_field_fractions() -> void:
 	field_top = _vp.y * 0.11
 	field_bottom = _vp.y * 0.58
-	# Back rows pushed out toward the screen edges, front rows given a
-	# bigger gap from their own back row than before -- both wider apart
-	# overall than the original desktop-tuned spacing.
-	party_back_x = _vp.x * 0.06
+	# Back rows pulled in from the screen edges -- a back-row unit's own name
+	# label extends further left of its position than the unit itself (see
+	# UnitView.setup's -half-size*0.2 offset), so at the old 0.06/0.94 back-row
+	# fractions the label's left/right edge could land off-screen entirely on
+	# a narrow phone width (confirmed live). Front rows unchanged.
+	party_back_x = _vp.x * 0.14
 	party_front_x = _vp.x * 0.30
 	enemy_front_x = _vp.x * 0.70
-	enemy_back_x = _vp.x * 0.94
+	enemy_back_x = _vp.x * 0.86
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
@@ -161,11 +163,36 @@ func _reposition_units() -> void:
 	_place_side(party_front, party_back, party_front_x, party_back_x)
 	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x)
 
+## Smaller than the original desktop-tuned size -- a full party/enemy
+## roster (up to 5 + 10) needs to fit comfortably, not just a small demo.
+func _unit_size() -> float:
+	return _vp.y * 0.05
+
+## Called by GameController right after a PartyPanel bench/field edit --
+## `added` (from FarroadProgression.refresh_live_party's return) is every
+## unit that was JUST fielded into the live fight; a benched unit needs no
+## new view, only its existing one's HP bar refreshed (see below). Builds a
+## UnitView for each newly-fielded unit, re-runs _reposition_units() (which
+## already re-places EVERY currently-tracked view, existing ones included,
+## by row/side -- not _layout_units(), which would build a SECOND, orphaned
+## view for units already on the field), then refreshes every view's HP bar
+## so a just-benched unit (marked hp=0 by refresh_live_party, no combat hit
+## involved to trigger the usual per-hit update_hp() call) reflects it
+## immediately instead of waiting for its next unrelated hit.
+func sync_live_party(added: Array) -> void:
+	var unit_size: float = _unit_size()
+	for u in added:
+		var view := UnitView.new()
+		view.setup(u, unit_size)
+		add_child(view)
+		unit_views_by_id[u["id"]] = view
+		unit_views_by_name[u["name"]] = view
+	_reposition_units()
+	for view in unit_views_by_id.values():
+		view.update_hp()
+
 func _layout_units(units: Array) -> void:
-	# Smaller than the original desktop-tuned size -- a full party/enemy
-	# roster (up to 5 + 10) needs to fit comfortably, not just this demo's
-	# 1v1/2v2.
-	var unit_size: float = _vp.y * 0.05
+	var unit_size: float = _unit_size()
 	var party_front := []
 	var party_back := []
 	var enemy_front := []
@@ -971,25 +998,36 @@ func _animate_beat(e: Dictionary) -> void:
 
 	await get_tree().create_timer(BEAT_PAUSE).timeout
 
+## `stagger` tracks how many floating texts have already spawned at each
+## target THIS beat (across hits/heals/status notes together) -- see
+## DamageNumber.spawn's own comment for why this matters: without it, a hit
+## that both deals damage AND applies a status (or several hits landing on
+## the same target in one beat) spawns multiple labels at the identical
+## point, overlapping each other for their entire flight.
 func _apply_hit_effects(e: Dictionary) -> void:
+	var stagger: Dictionary = {}
 	for h in e["hits"]:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])
 		if tv == null:
 			continue
 		tv.update_hp()
+		var n: int = stagger.get(h["targetName"], 0)
+		stagger[h["targetName"]] = n + 1
 		if h["evaded"]:
-			DamageNumber.spawn(self, tv.damage_spawn_position(), "Evade", Color(0.75, 0.75, 0.75))
+			DamageNumber.spawn(self, tv.damage_spawn_position(), "Evade", Color(0.75, 0.75, 0.75), n)
 		else:
 			var color := Color(1.0, 0.55, 0.2) if h.get("crit") else Color(1.0, 0.9, 0.3)
-			DamageNumber.spawn(self, tv.damage_spawn_position(), str(h["damage"]), color)
+			DamageNumber.spawn(self, tv.damage_spawn_position(), str(h["damage"]), color, n)
 			tv.shake()
 	for h in e["heals"]:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])
 		if tv == null:
 			continue
 		tv.update_hp()
-		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5))
-	_apply_status_notes(e)
+		var n: int = stagger.get(h["targetName"], 0)
+		stagger[h["targetName"]] = n + 1
+		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5), n)
+	_apply_status_notes(e, stagger)
 
 ## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/
 ## dulled/frail/sundered/blurred/etc. -- anything with an "applies" field)
@@ -1002,7 +1040,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 ## "enraged x%d" (its own dedicated enrage bar/label already covers that,
 ## every beat once enrage is open would be popup spam) and "taunting"/
 ## "thorns -%d" (self-effects with no stat change to call out this way).
-func _apply_status_notes(e: Dictionary) -> void:
+func _apply_status_notes(e: Dictionary, stagger: Dictionary) -> void:
 	for note in e["notes"]:
 		var applied: bool = note.begins_with("applied ")
 		var refreshed: bool = note.begins_with("refreshed ")
@@ -1018,7 +1056,9 @@ func _apply_status_notes(e: Dictionary) -> void:
 		if tv == null:
 			continue
 		var color := Color(0.5, 0.85, 1.0) if FarroadCore.is_buff_status(status_id) else Color(0.85, 0.5, 1.0)
-		DamageNumber.spawn(self, tv.damage_spawn_position(), status_id.capitalize(), color)
+		var n: int = stagger.get(target_name, 0)
+		stagger[target_name] = n + 1
+		DamageNumber.spawn(self, tv.damage_spawn_position(), status_id.capitalize(), color, n)
 
 ## Animates ONLY the actor's shape -- `from`/`to` are LOCAL offsets from the
 ## unit's own rest position (Vector2.ZERO = at rest), not world-space points.

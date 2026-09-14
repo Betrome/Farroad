@@ -7,12 +7,10 @@ extends Node
 ## tab-row button + popup" shape, same unit-picker-including-benched
 ## pattern), not four separate ones.
 ##
-## Deliberately NOT ported: refreshLiveStats()'s push of a fresh purchase
-## onto a unit's LIVE mid-fight stats. A purchase still fully applies --
-## just starting next wave's build_party() (which already recomputes every
-## one of these fresh from g["lvl"]/g["statInvest"]/g["affinities"] every
-## time) rather than instantly mid-fight. Flagged, not silently skipped --
-## same class of deliberate trim as GAMBITS' deferred conflict modal.
+## Every purchase handler calls FarroadProgression.refresh_live_stats(g)
+## (mirrors refreshLiveStats(), farroad-ui.js:1991-2003) so a purchase
+## reaches a unit already mid-fight immediately, the same way GAMBITS'
+## sync_loadout does for a slot edit -- not just starting next wave.
 
 var g: Dictionary
 var _vp: Vector2
@@ -44,21 +42,22 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.44, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.552, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# A blank square placeholder (real art comes later) with its label on the
-	# button itself, middle slot of a 3-icon bottom row -- GambitsPanel's own
-	# icon takes the left slot (0.10) and LorePanel's the right slot (0.78),
+	# button itself, third of 4 evenly-spaced icons across the bottom row:
+	# GambitsPanel 0.104, PartyPanel 0.328, this one 0.552, LorePanel 0.776,
 	# duplicated there too (different scripts, no shared base). Sits BELOW
 	# the turn-order strip's frame (frame bottom ~0.91) with real clearance,
 	# not overlapping it.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.44, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.552, _vp.y * 0.93), icon_size, "Aether", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
+	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
 	var scroll := ScrollContainer.new()
@@ -123,6 +122,14 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	_notify_battle_paused(true)
+
+## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
+## same pattern as GambitsPanel/LorePanel's own copy (see
+## BattlePresenter.loop_paused's own comment for why this exists).
+func _notify_battle_paused(paused: bool) -> void:
+	if _parent and _parent.has_method("_set_battle_paused"):
+		_parent.call("_set_battle_paused", paused)
 
 func _default_uid() -> String:
 	if not g["party"].is_empty():
@@ -455,6 +462,7 @@ func _notify_currency_changed() -> void:
 func _on_recovery_pressed(uid: String) -> void:
 	if FarroadProgression.spend_recovery(g, uid):
 		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
 	_refresh_card()
 
 func _on_feed_pressed(uid: String, amount: int) -> void:
@@ -462,14 +470,17 @@ func _on_feed_pressed(uid: String, amount: int) -> void:
 		return
 	if FarroadProgression.spend_feed(g, uid, amount):
 		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
 	_refresh_card()
 
 func _on_pct_stat_pressed(uid: String, stat: String) -> void:
 	if FarroadProgression.spend_pct_stat(g, uid, stat):
 		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
 	_refresh_card()
 
 func _on_affinity_pressed(uid: String, axis: String) -> void:
 	if FarroadProgression.spend_affinity(g, uid, axis):
 		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
 	_refresh_card()

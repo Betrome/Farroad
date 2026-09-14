@@ -835,24 +835,98 @@ static func remove_bonus(g: Dictionary, aid: String, bid: String) -> void:
 ## ===== party/enemy construction (mirrors buildParty/buildEnemies,
 ## farroad-ui.js:366/388) =====
 
+## Mirrors refreshLiveStats (farroad-ui.js:1991-2003) -- pushes a fresh
+## AETHER purchase (feed/level, Recovery, Evade/Crit, Affinity) onto every
+## unit already mid-fight, the same way sync_loadout does for a GAMBITS
+## slot edit. g["units"][i] is the SAME Dictionary as g["battle"]["units"][i]
+## (make_battle never copies its input array's elements), so mutating the
+## one found here already reaches the live fight. HP is rescaled to keep
+## the unit's CURRENT hp fraction, not reset to full, exactly like the
+## real function.
+static func refresh_live_stats(g: Dictionary) -> void:
+	if g.get("units") == null:
+		return
+	for u in g["units"]:
+		var def = FarroadCore.roster_by_id(u["id"])
+		if def == null:
+			continue
+		var st := stats_at(u["id"], def["stats"], def["hp"], level_of(g, u["id"]))
+		apply_pct_stat_investment(g, u["id"], st)
+		apply_equipment_stats(g, u["id"], st)
+		u["base"]["atk"] = st["atk"]; u["base"]["mag"] = st["mag"]
+		u["base"]["def"] = st["def"]; u["base"]["res"] = st["res"]; u["base"]["spd"] = st["spd"]
+		u["base"]["evade"] = st["evade"]; u["base"]["atkCrit"] = st["atkCrit"]; u["base"]["magCrit"] = st["magCrit"]
+		var fr: float = float(u["hp"]) / float(u["maxHp"])
+		u["maxHp"] = st["hp"]
+		u["hp"] = maxf(1.0, round(st["hp"] * fr))
+		u["affinity"] = effective_affinity(g, u["id"])
+		u["slots"] = ensure_loadout(g, u["id"]).map(func(s): return {"cond": s["cond"], "action": s["action"]})
+
+## One party member's fresh unit dict -- factored out of build_party() so
+## refresh_live_party() (below) can build a single newly-fielded unit the
+## same way, without re-running the whole party's construction.
+static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dictionary:
+	var def = FarroadCore.roster_by_id(uid)
+	var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+	apply_pct_stat_investment(g, uid, st)
+	apply_equipment_stats(g, uid, st)
+	var mh: float = st["hp"]
+	var carry = g["hpCarry"].get(uid)
+	if carry != null:
+		carry = minf(1.0, carry + recovery_of(g, uid))
+	var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
+	return FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
+		"slotIndex": slot_index, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
+		"chargeAction": def.get("chargeAction"), "affinity": effective_affinity(g, uid),
+		"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})})
+
 static func build_party(g: Dictionary) -> Array:
 	var out := []
 	for i in range(g["party"].size()):
-		var uid: String = g["party"][i]
-		var def = FarroadCore.roster_by_id(uid)
-		var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
-		apply_pct_stat_investment(g, uid, st)
-		apply_equipment_stats(g, uid, st)
-		var mh: float = st["hp"]
-		var carry = g["hpCarry"].get(uid)
-		if carry != null:
-			carry = minf(1.0, carry + recovery_of(g, uid))
-		var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
-		out.append(FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
-			"slotIndex": i, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
-			"chargeAction": def.get("chargeAction"), "affinity": effective_affinity(g, uid),
-			"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})}))
+		out.append(build_party_unit(g, g["party"][i], i))
 	return out
+
+## Godot-only enhancement, not a JS port -- confirmed the real benchUnit/
+## fieldUnit (farroad-ui.js) don't sync a live fight either, so this isn't a
+## parity gap, and nothing here consumes RNG or touches a bit-exact formula
+## (no parity-test implications). Called right after bench_unit/field_unit
+## so a party-roster change reaches a fight already in progress, the same
+## immediacy sync_loadout already gives a GAMBITS slot edit.
+##
+## Benching a currently-fielded unit marks it dead (hp=0) in THIS fight
+## rather than removing its entry from g["battle"]["units"] outright --
+## removing an array entry mid-fight risks invariants the engine was never
+## built to handle (turn-order scans, threat lists), where a 0-HP unit is
+## already correctly ignored everywhere (living()/choose()/etc.) and reads
+## visually as "fallen", the same treatment a real combat death gets.
+##
+## Fielding a new companion builds a fresh unit (build_party_unit) and
+## appends it to BOTH g["units"] and g["battle"]["units"] -- two separate
+## Array objects sharing element references, not one Array (see
+## start_wave's own `party + enemies` concatenation) -- with its turn
+## schedule seeded from the battle's CURRENT time (`battle["t"]`), not a
+## fresh-battle-relative 0, so it takes its first turn in due course
+## instead of jumping the queue. Returns the newly-added unit dicts so the
+## presentation layer can build matching UnitViews for them.
+static func refresh_live_party(g: Dictionary) -> Array:
+	if g.get("units") == null:
+		return []
+	var present_ids := {}
+	for u in g["units"]:
+		present_ids[u["id"]] = true
+	for u in g["units"]:
+		if u["isParty"] and not g["party"].has(u["id"]):
+			u["hp"] = 0.0
+	var added := []
+	for i in range(g["party"].size()):
+		var uid: String = g["party"][i]
+		if not present_ids.has(uid):
+			var nu := build_party_unit(g, uid, g["units"].size())
+			nu["nextActAt"] = g["battle"]["t"] + FarroadCore.tc_of(nu, 1.00)
+			g["units"].append(nu)
+			g["battle"]["units"].append(nu)
+			added.append(nu)
+	return added
 
 ## @param quiet caller-side hook for a future variety-roll log line -- no log
 ## is built here (that's a UI concern), kept only so callers match the real
