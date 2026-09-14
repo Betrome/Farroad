@@ -177,6 +177,10 @@ static var EQUIPMENT: Dictionary = {}
 ## compileDirectionConfig) the real JS reads via
 ## window.FarroadContent.DIRECTION_CONFIG.
 static var DIRECTION_CONFIG: Dictionary = {}
+## The per-companion 5-stage {story, powerFraction, isBoss} quest table
+## (Step 3i, QUESTS/dungeons) -- same export-content.js/content-pipeline.js
+## source as DIRECTION_CONFIG, just not previously selected.
+static var QUEST_LINES: Dictionary = {}
 
 ## Loads godot-project/data/content.json (export-content.js's output) --
 ## the Godot-side counterpart to core.js reading window.FarroadContent.
@@ -194,6 +198,7 @@ static func load_real_content(path: String = "res://data/content.json") -> bool:
 	ROSTER = parsed.get("ROSTER", [])
 	EQUIPMENT = parsed.get("EQUIPMENT", {})
 	DIRECTION_CONFIG = parsed.get("DIRECTION_CONFIG", {})
+	QUEST_LINES = parsed.get("QUEST_LINES", {})
 	register_bonus_eligible(equippable() + CHARGE_ACTIONS)
 	return true
 

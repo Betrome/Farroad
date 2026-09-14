@@ -1338,13 +1338,10 @@ static func new_game(seed: int, mc) -> Dictionary:
 ## counts. The real caller (GameController.gd) reads the clock once via
 ## Time.get_unix_time_from_system() and passes it down.
 ##
-## Scope cut, flagged (not silently skipped): resolveExpedition's dungeon-
-## unlock side effect (unlockDirectionDungeon, gated on QUEST_LINES, which
-## stays unexported) is Step 3i's territory. dp["maxDepth"] tracking is
-## still ported (cheap, already-seeded, uses only exp["ew"]) so the data
-## is correct and ready when 3i lands; the dungeonsUnlocked increment +
-## dungeon-build call is not. bakeEnemySnapshot/unitsFromSnapshots
-## (dungeon-snapshot machinery) are out of scope for the same reason.
+## Step 3i: resolveExpedition's dungeon-unlock side effect
+## (unlockDirectionDungeon, see the DUNGEONS/QUESTS section below) is now
+## wired in -- dp["maxDepth"] tracking (already ported here since 3h) is
+## what feeds it.
 ##
 ## A pushDrop()-based game-wide banner (arrival notice, "Welcome back")
 ## is also not ported -- no drop-banner/toast system exists anywhere in
@@ -1542,9 +1539,13 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			roll_expedition_discovery(g, exp, mul, now)
 			var dp: Dictionary = g["directions"][exp["direction"]]
 			dp["maxDepth"] = maxi(dp["maxDepth"], exp["ew"])
-			# Dungeon-unlock scheduling (dungeonsUnlocked increment +
-			# unlockDirectionDungeon) deliberately NOT ported -- see this
-			# section's own header comment (Step 3i's territory).
+			# A while, not if -- a big catch-up pass crossing more than one
+			# unlockEvery multiple in one go must unlock every intervening
+			# dungeon, not just one.
+			var target_tier: int = int(floor(float(dp["maxDepth"]) / float(FarroadCore.DIRECTION_CONFIG[exp["direction"]]["unlockEvery"])))
+			while target_tier > dp["dungeonsUnlocked"]:
+				dp["dungeonsUnlocked"] += 1
+				unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
 		else:
 			exp["hpFrac"] = 0.0
 		remaining -= cost
@@ -1662,3 +1663,254 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> void:
 		else:
 			break
 		remaining -= cost
+
+## ===== POWER LEVEL (Step 3i) =====
+## Mirrors powerLevel (farroad-progression.js:1030-1058) -- a rollup of
+## wave-implied level, owned-unit levels/count, Lore invested, and
+## affinity/pct-stat investment, used ONLY to scale companion quest
+## difficulty (questStageWave below) rather than reading G.wave directly,
+## so a late-acquired companion's quest line doesn't face the "wall" a
+## fixed wave-equivalent would create (the v2.9 correction the real source
+## comment describes).
+const POWER_PER_UNIT := 15.0
+const POWER_PER_LORE := 1.0
+const POWER_PER_AFFINITY_POINT := 0.5
+const POWER_PER_PCT_STAT_STEP := 0.5
+
+static func power_level(g: Dictionary) -> int:
+	var wave_level: float = FarroadCore.level_curve(g.get("wave", 1))
+	var unit_levels := 0.0
+	var unit_count := 0
+	for uid in g.get("owned", {}).keys():
+		unit_count += 1
+		unit_levels += float(g["lvl"].get(uid, 1))
+	var lore_levels := 0.0
+	for aid in g.get("bonuses", {}).keys():
+		var b: Dictionary = g["bonuses"][aid]
+		lore_levels += float(FarroadCore.action_bonus_total(b) + int(b.get("broad", 0)))
+	var affinity_points := 0.0
+	for uid in g.get("affinities", {}).keys():
+		for axis in (g["affinities"][uid] as Dictionary).keys():
+			affinity_points += float(g["affinities"][uid][axis])
+	var pct_stat_steps := 0.0
+	for uid in g.get("statInvest", {}).keys():
+		for stat in (g["statInvest"][uid] as Dictionary).keys():
+			pct_stat_steps += float(g["statInvest"][uid][stat])
+	return roundi(wave_level + unit_levels + unit_count * POWER_PER_UNIT + lore_levels * POWER_PER_LORE +
+		affinity_points * POWER_PER_AFFINITY_POINT + pct_stat_steps * POWER_PER_PCT_STAT_STEP)
+
+## ===== DUNGEONS/QUESTS (Step 3i) =====
+## Mirrors farroad-ui.js:1213-1236/1284-1313/2505-2634 and
+## farroad-progression.js:1168-1203 -- companion quest lines (a 5-stage
+## frozen fight per roster unit, difficulty scaled off power_level above,
+## not the Road's own wave) and direction dungeons (multi-wave frozen
+## fights auto-discovered from EXPEDITION's dp["maxDepth"] tracking, wired
+## in above). Both resolve as a REAL interactive battle -- see
+## start_side_battle/finish_side_battle below -- not a headless
+## instant-resolve like expeditions.
+##
+## Super Boss Quests (G.superBossQuests/superBossesUnlocked/
+## superBossesCleared, enterSuperBoss) stay out of scope -- a genuinely
+## separate third system, already has full save-field parity (FarroadSave.gd),
+## zero gameplay logic. Deferred the same way GAMBITS' conflict modal and
+## AETHER's live-sync trim were.
+
+const DUNGEON_LEN := 1.15   # 1 < DUNGEON_LEN < BOSS_LEN(1.40) -- "slightly harder", not boss-tier
+const QUEST_STAGE_AETHER_MIN := 100
+const QUEST_STAGE_AETHER_MAX := 500
+
+## Mirrors bakeEnemySnapshot/unitsFromSnapshots (farroad-ui.js:1213-1236).
+## Serializes a live enemy into a plain, JSON-safe cfg (base stats/
+## affinity/archetype/slots only, never per-battle runtime fields like hp/
+## status/charge) so it can be repeatedly rebuilt at a FROZEN difficulty
+## instead of rescaling with Road progress the way a freshly-built enemy
+## would. A real v2.17 bug the real JS shipped and later had to fix is
+## avoided from day one here: affinity is included unconditionally (the
+## real snapshot originally omitted it, silently losing a dungeon enemy's
+## themed direction-affinity bonus on first bake).
+static func bake_enemy_snapshot(u: Dictionary) -> Dictionary:
+	return {
+		"name": u["name"], "arch": u["arch"], "thorns": u.get("thorns", 0.0),
+		"isBoss": u.get("isBoss", false), "row": u.get("row"), "chargeAction": u.get("chargeAction"),
+		"slots": (u["slots"] as Array).map(func(s): return {"cond": s["cond"], "action": s["action"]}),
+		"stats": {"hp": u["base"]["hp"], "atk": u["base"]["atk"], "mag": u["base"]["mag"],
+			"def": u["base"]["def"], "res": u["base"]["res"], "spd": u["base"]["spd"],
+			"atkCrit": u["base"]["atkCrit"], "magCrit": u["base"]["magCrit"],
+			"chargeRate": u["base"]["chargeRate"], "evade": u["base"]["evade"]},
+		"affinity": (u["affinity"] as Dictionary).duplicate()}
+
+static func units_from_snapshots(snapshots: Array) -> Array:
+	var out := []
+	for j in range(snapshots.size()):
+		var snap: Dictionary = snapshots[j]
+		out.append(FarroadCore.make_unit({"id": "e%d" % j, "name": snap["name"], "isParty": false,
+			"level": 1, "slotIndex": 10 + j, "arch": snap["arch"], "thorns": snap.get("thorns", 0.0),
+			"isBoss": snap.get("isBoss", false), "row": snap.get("row"), "stats": snap["stats"],
+			"chargeAction": snap.get("chargeAction"), "slots": snap["slots"], "affinity": snap["affinity"]}))
+	return out
+
+## Mirrors unlockDirectionDungeon (farroad-ui.js:1284-1313). Dungeon ids
+## use Godot's own randi(), not g["rng"] -- same established reasoning as
+## send_expedition's own id (unique, not reproducible; never bit-exact
+## between JS/GD by design).
+static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now) -> Dictionary:
+	var cfg: Dictionary = FarroadCore.DIRECTION_CONFIG[dir]
+	var mul: float = cfg["mul"]
+	var base_wave: int = tier * int(cfg["unlockEvery"])
+	var regular_wave: int = (base_wave - 1) if is_boss_wave(base_wave) else base_wave
+	var waves := []
+	for i in range(int(cfg["waveCount"]) - 1):
+		var enemies: Array = apply_direction_affinity(
+			apply_stat_mul(build_enemies(g, regular_wave, true), mul), dir)
+		waves.append({"wave": regular_wave, "enemies": enemies.map(bake_enemy_snapshot)})
+	var boss_wave: int = next_boss_wave(base_wave - 1)
+	var boss_enemies: Array = apply_direction_affinity(
+		apply_stat_mul(build_enemies(g, boss_wave, true), mul * DUNGEON_LEN), dir)
+	if cfg.get("bossName"):
+		for u in boss_enemies:
+			u["name"] = cfg["bossName"]
+	waves.append({"wave": boss_wave, "enemies": boss_enemies.map(bake_enemy_snapshot)})
+	var dungeon := {"id": "dgn%d_%d" % [int(now), randi() % 1000000],
+		"name": "%s Dungeon (depth %d)" % [cfg["label"], base_wave], "direction": dir, "tier": tier,
+		"waves": waves, "clears": 0}
+	g["dungeons"].append(dungeon)
+	return dungeon
+
+## Mirrors questStageWave/questStageAether (farroad-progression.js:1168-1203).
+static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
+	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
+	return maxi(1, roundi(frac * power_level(g)))
+
+static func quest_stage_aether(stage_idx: int) -> int:
+	return roundi(QUEST_STAGE_AETHER_MIN + stage_idx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4.0)
+
+## Mirrors attemptQuestStage's validation+freeze half (farroad-ui.js:2540-2562).
+## The pure-state half only -- returns a plain {enemies, wave, meta} bundle
+## for GameController.gd to hand to start_side_battle, splitting "prepare
+## the fight" (pure) from "actually drive it visually" (Node-owning), the
+## same split every Progression/GameController boundary in this project
+## already uses. Freezes q["frozen"][stage] lazily on first call (win-or-
+## lose-durable) so a companion acquired early and quested late still gets
+## an approachable stage 1, not whatever the Road's current wave/power
+## implies at attempt time. Story text is returned RAW (no {{name}}
+## substitution -- withMcName() needs g["mc"], which doesn't exist until
+## Step 3j; same deferred pattern GAMBITS'/LORE's own MC-gated pieces
+## already established).
+static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
+	if g.get("sideBattle") != null:
+		return {}
+	var q: Dictionary = g["quests"].get(uid, {})
+	if q.is_empty() or int(q["stage"]) >= 5 or not (g["party"] as Array).has(uid):
+		return {}
+	var line: Array = FarroadCore.QUEST_LINES.get(uid, [])
+	if line.is_empty():
+		return {}
+	var stage: int = q["stage"]
+	var step: Dictionary = line[stage]
+	q["frozen"] = q.get("frozen", [])
+	while (q["frozen"] as Array).size() <= stage:
+		(q["frozen"] as Array).append(null)
+	if q["frozen"][stage] == null:
+		var raw_wave: int = quest_stage_wave(g, uid, stage)
+		var wave: int = next_boss_wave(raw_wave - 1) if step.get("isBoss", false) else raw_wave
+		q["frozen"][stage] = {"wave": wave, "enemies": build_enemies(g, wave, true).map(bake_enemy_snapshot)}
+	var def = FarroadCore.roster_by_id(uid)
+	var frozen: Dictionary = q["frozen"][stage]
+	return {"enemies": units_from_snapshots(frozen["enemies"]), "wave": frozen["wave"],
+		"meta": {"kind": "quest", "uid": uid, "stage": stage,
+			"name": (def["name"] if def else uid), "story": step["story"]}}
+
+## Mirrors enterDungeon (farroad-ui.js:2505-2513).
+static func prep_dungeon_attempt(g: Dictionary, id: String) -> Dictionary:
+	if g.get("sideBattle") != null:
+		return {}
+	var dungeon = null
+	for d in g["dungeons"]:
+		if d["id"] == id:
+			dungeon = d
+	if dungeon == null:
+		return {}
+	var wave0: Dictionary = dungeon["waves"][0]
+	return {"enemies": units_from_snapshots(wave0["enemies"]), "wave": wave0["wave"],
+		"meta": {"kind": "dungeon", "dungeonId": id, "name": dungeon["name"], "direction": dungeon["direction"],
+			"tier": dungeon["tier"], "waveIndex": 0, "totalWaves": (dungeon["waves"] as Array).size()}}
+
+## Mirrors startSideBattle (farroad-ui.js:1455-1466), state only -- no
+## play()/stop()/wasPlaying: this port has no player-facing play/pause/
+## speed control for the Road to preserve in the first place (the Road
+## always auto-plays), so that half of the real function has nothing to
+## mirror. GameController.gd's own pause/hide of current_presenter is the
+## Godot-side equivalent of "stop the Road while this runs."
+static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Dictionary) -> bool:
+	if g.get("sideBattle") != null:
+		return false
+	g["roadBattle"] = g["battle"]
+	var saved_wave: int = g["wave"]
+	FarroadCore.set_wave(wave)
+	var party := build_expedition_party(g, g["party"], 1)
+	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+	g["sideBattle"] = {"savedWave": saved_wave, "wave": wave, "meta": meta}
+	return true
+
+## Mirrors finishSideBattle (farroad-ui.js:1476-1618), minus the superboss
+## branch (out of scope) and all pushDrop/sysLog text -- returns a plain
+## event Dictionary for QuestsPanel to render however it likes, same split
+## every other progression event function (grant_drops, after_wave_cleared)
+## already uses.
+## @return {"kind":"dungeon_wave_advance",...} if a multi-wave dungeon just
+##   advanced IN PLACE (g["sideBattle"] still active -- same fight
+##   continues); otherwise one of "quest_cleared"/"quest_failed"/
+##   "quest_abandoned"/"dungeon_cleared"/"dungeon_failed" once fully
+##   resolved (g["sideBattle"]/g["roadBattle"] cleared, g["battle"]
+##   restored to the Road's own battle).
+static func finish_side_battle(g: Dictionary, result: String, gave_up: bool) -> Dictionary:
+	var sb: Dictionary = g["sideBattle"]
+	var meta: Dictionary = sb["meta"]
+	if meta["kind"] == "dungeon" and result == "party" and int(meta["waveIndex"]) < int(meta["totalWaves"]) - 1:
+		var cur_dungeon = null
+		for d in g["dungeons"]:
+			if d["id"] == meta["dungeonId"]:
+				cur_dungeon = d
+		var survivors: Array = (g["battle"]["units"] as Array).filter(func(u): return u["isParty"])
+		meta["waveIndex"] = int(meta["waveIndex"]) + 1
+		var next_wave: Dictionary = cur_dungeon["waves"][meta["waveIndex"]]
+		FarroadCore.set_wave(next_wave["wave"])
+		sb["wave"] = next_wave["wave"]
+		g["battle"] = FarroadCore.make_battle(survivors + units_from_snapshots(next_wave["enemies"]),
+			{"rng": g["rng"], "enrage": g.get("enrage", true)})
+		return {"kind": "dungeon_wave_advance", "waveIndex": meta["waveIndex"], "totalWaves": meta["totalWaves"]}
+
+	FarroadCore.set_wave(sb["savedWave"])
+	g["battle"] = g["roadBattle"]
+	g["roadBattle"] = null
+	g["sideBattle"] = null
+
+	if meta["kind"] == "quest":
+		var q: Dictionary = g["quests"][meta["uid"]]
+		if result == "party":
+			q["stage"] = int(q["stage"]) + 1
+			var reward: int = quest_stage_aether(meta["stage"])
+			g["aether"] = float(g["aether"]) + reward
+			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
+				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "aether": reward}
+		elif gave_up:
+			return {"kind": "quest_abandoned", "name": meta["name"], "stageNum": int(meta["stage"]) + 1}
+		else:
+			return {"kind": "quest_failed", "name": meta["name"], "stageNum": int(meta["stage"]) + 1}
+	else:   # dungeon
+		var dungeon = null
+		for d in g["dungeons"]:
+			if d["id"] == meta["dungeonId"]:
+				dungeon = d
+		if result == "party" and dungeon != null:
+			dungeon["clears"] = int(dungeon["clears"]) + 1
+			var reward_wave: float = float(meta["tier"]) * float(FarroadCore.DIRECTION_CONFIG[meta["direction"]]["unlockEvery"])
+			var mul: float = direction_mul(meta["direction"])
+			var r := kill_reward(reward_wave, meta["totalWaves"])
+			var d_aether: float = r["aether"] * mul
+			var d_marks: float = r["marks"] * marks_mul(g) * mul
+			g["aether"] = float(g["aether"]) + d_aether
+			g["marks"] = float(g["marks"]) + d_marks
+			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks}
+		else:
+			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}

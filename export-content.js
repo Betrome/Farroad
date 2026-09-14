@@ -8,10 +8,10 @@
  * already share, so this is never a second, possibly-drifted CSV reader.
  * Exports the 4 tables farroad-core.js itself reads off
  * window.FarroadContent (ACTIONS/ARCH/ROSTER/EQUIPMENT), plus
- * DIRECTION_CONFIG (Step 3h, EXPEDITION -- the 8-direction table, already
- * compiled/validated by buildContent(), just not previously selected here).
- * QUEST_LINES stays unexported -- still out of scope (Step 3i, QUESTS/
- * dungeons).
+ * DIRECTION_CONFIG (Step 3h, EXPEDITION -- the 8-direction table) and
+ * QUEST_LINES (Step 3i, QUESTS/dungeons -- the per-companion 5-stage quest
+ * table), both already compiled/validated by buildContent(), just not
+ * previously selected here.
  *
  * Like farroad-prototype-*.html, the output is a committed build artifact,
  * not hand-edited -- regenerate with `node export-content.js` whenever the
@@ -35,7 +35,8 @@ const exported = {
   ARCH: content.ARCH,
   ROSTER: content.ROSTER,
   EQUIPMENT: content.EQUIPMENT,
-  DIRECTION_CONFIG: content.DIRECTION_CONFIG
+  DIRECTION_CONFIG: content.DIRECTION_CONFIG,
+  QUEST_LINES: content.QUEST_LINES
 };
 
 const outDir = path.join(__dirname, 'godot-project', 'data');
@@ -48,4 +49,5 @@ console.log('exported ' + path.relative(__dirname, outFile) +
   Object.keys(exported.ARCH).length + ' archetypes, ' +
   exported.ROSTER.length + ' roster, ' +
   Object.keys(exported.EQUIPMENT).length + ' equipment, ' +
-  Object.keys(exported.DIRECTION_CONFIG).length + ' directions)');
+  Object.keys(exported.DIRECTION_CONFIG).length + ' directions, ' +
+  Object.keys(exported.QUEST_LINES).length + ' quest lines)');

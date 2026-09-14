@@ -43,21 +43,24 @@ func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
 	if toggle_button:
 		toggle_button.queue_free()
-	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.02, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
+	var icon_size: float = _vp.x * 0.11
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# A blank square placeholder (real art comes later) with its label on the
-	# button itself, first of 7 evenly-spaced icons across the bottom row:
-	# Gambits 0.02, PartyPanel's Party icon 0.16, AetherPanel's Aether icon
-	# 0.30, LorePanel's Lore icon 0.44, EquipmentPanel's Equip icon 0.58,
-	# MarksPanel's Marks icon 0.72, ExpeditionPanel's Exped icon 0.86 --
-	# duplicated there since these are seven different scripts with no
-	# shared base. Sits BELOW the turn-order strip's frame (frame bottom
-	# ~0.91 -- see BattlePresenter's turn_order_frame) with real
-	# clearance, not overlapping it.
-	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.02, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
+	# button itself, first of 8 evenly-spaced icons across the bottom row:
+	# Gambits 0.0133, PartyPanel's Party icon 0.1367, AetherPanel's Aether
+	# icon 0.2600, LorePanel's Lore icon 0.3833, EquipmentPanel's Equip icon
+	# 0.5067, MarksPanel's Marks icon 0.6300, ExpeditionPanel's Exped icon
+	# 0.7533, QuestsPanel's Quests icon 0.8767 -- duplicated there since
+	# these are eight different scripts with no shared base. Icon size
+	# shrank 0.12->0.11*vp.x when QuestsPanel's icon was added (Step 3i),
+	# to keep the inter-icon gap from squeezing to a near-invisible sliver.
+	# Sits BELOW the turn-order strip's frame (frame bottom ~0.91 -- see
+	# BattlePresenter's turn_order_frame) with real clearance, not
+	# overlapping it.
+	var icon_size: float = _vp.x * 0.11
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

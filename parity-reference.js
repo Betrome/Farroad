@@ -1176,6 +1176,14 @@ if (mode === 'progression') {
         rollExpeditionDiscoveryG(gg, exp, mul, now);
         var dp = gg.directions[exp.direction];
         dp.maxDepth = Math.max(dp.maxDepth, exp.ew);
+        // Step 3i: a while, not if -- a big catch-up pass crossing more
+        // than one unlockEvery multiple in one go must unlock every
+        // intervening dungeon, not just one.
+        var targetTier = Math.floor(dp.maxDepth / P.DIRECTION_CONFIG[exp.direction].unlockEvery);
+        while (targetTier > dp.dungeonsUnlocked) {
+          dp.dungeonsUnlocked++;
+          unlockDirectionDungeonG(gg, exp.direction, dp.dungeonsUnlocked, now);
+        }
       } else {
         exp.hpFrac = 0;
       }
@@ -1238,6 +1246,259 @@ if (mode === 'progression') {
       remaining -= cost;
     }
   }
+
+  // Step 3i: QUESTS/dungeons -- companion quest lines + direction
+  // dungeons, hand-transcribed from the real farroad-ui.js/
+  // farroad-progression.js the same way every orchestration function
+  // above was. bakeEnemySnapshot/unitsFromSnapshots/unlockDirectionDungeon/
+  // startSideBattle/finishSideBattle mirror the real functions verbatim
+  // (minus the superboss branch and all pushDrop/sysLog text, same scope
+  // cut the Godot port made) -- power_level/quest_stage_wave/
+  // quest_stage_aether are plain pure functions, transcribed directly.
+  var DUNGEON_LEN = 1.15;
+  var QUEST_STAGE_AETHER_MIN = 100, QUEST_STAGE_AETHER_MAX = 500;
+  var POWER_PER_UNIT = 15, POWER_PER_LORE = 1, POWER_PER_AFFINITY_POINT = 0.5, POWER_PER_PCT_STAT_STEP = 0.5;
+  function powerLevelG(gg) {
+    var waveLevel = C.levelCurve(gg.wave || 1);
+    var unitLevels = 0, unitCount = 0;
+    Object.keys(gg.owned || {}).forEach(function (uid) { unitCount++; unitLevels += (gg.lvl && gg.lvl[uid]) || 1; });
+    var loreLevels = 0;
+    Object.keys(gg.bonuses || {}).forEach(function (aid) {
+      var b = gg.bonuses[aid]; loreLevels += C.actionBonusTotal(b) + (b.broad || 0);
+    });
+    var affinityPoints = 0;
+    Object.keys(gg.affinities || {}).forEach(function (uid) {
+      var a = gg.affinities[uid]; if (!a) return;
+      Object.keys(a).forEach(function (axis) { affinityPoints += a[axis] || 0; });
+    });
+    var pctStatSteps = 0;
+    Object.keys(gg.statInvest || {}).forEach(function (uid) {
+      var s = gg.statInvest[uid]; if (!s) return;
+      Object.keys(s).forEach(function (stat) { pctStatSteps += s[stat] || 0; });
+    });
+    return Math.round(waveLevel + unitLevels + unitCount * POWER_PER_UNIT + loreLevels * POWER_PER_LORE +
+      affinityPoints * POWER_PER_AFFINITY_POINT + pctStatSteps * POWER_PER_PCT_STAT_STEP);
+  }
+  function questStageWaveG(gg, uid, stageIdx) {
+    var frac = P.QUEST_LINES[uid][stageIdx].powerFraction;
+    return Math.max(1, Math.round(frac * powerLevelG(gg)));
+  }
+  function questStageAetherG(stageIdx) {
+    return Math.round(QUEST_STAGE_AETHER_MIN + stageIdx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4);
+  }
+  function bakeEnemySnapshotG(u) {
+    return {
+      name: u.name, arch: u.arch, thorns: u.thorns, isBoss: u.isBoss, row: u.row,
+      chargeAction: u.chargeAction, slots: u.slots.map(function (s) { return { cond: s.cond, action: s.action }; }),
+      stats: {
+        hp: u.base.hp, atk: u.base.atk, mag: u.base.mag, def: u.base.def, res: u.base.res, spd: u.base.spd,
+        atkCrit: u.base.atkCrit, magCrit: u.base.magCrit, chargeRate: u.base.chargeRate, evade: u.base.evade
+      },
+      affinity: u.affinity
+    };
+  }
+  function unitsFromSnapshotsG(snapshots) {
+    return snapshots.map(function (snap, j) {
+      return C.makeUnit({
+        id: 'e' + j, name: snap.name, isParty: false, level: 1, slotIndex: 10 + j,
+        arch: snap.arch, thorns: snap.thorns || 0, isBoss: snap.isBoss, row: snap.row,
+        stats: snap.stats, chargeAction: snap.chargeAction, slots: snap.slots, affinity: snap.affinity
+      });
+    });
+  }
+  function unlockDirectionDungeonG(gg, dir, tier, now) {
+    var cfg = P.DIRECTION_CONFIG[dir], mul = cfg.mul;
+    var baseWave = tier * cfg.unlockEvery;
+    var regularWave = P.isBossWave(baseWave) ? baseWave - 1 : baseWave;
+    var waves = [];
+    for (var i = 0; i < cfg.waveCount - 1; i++) {
+      var enemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, regularWave), mul), dir);
+      waves.push({ wave: regularWave, enemies: enemies.map(bakeEnemySnapshotG) });
+    }
+    var bossWave = P.nextBossWave(baseWave - 1);
+    var bossEnemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, bossWave), mul * DUNGEON_LEN), dir);
+    if (cfg.bossName) bossEnemies.forEach(function (u) { u.name = cfg.bossName; });
+    waves.push({ wave: bossWave, enemies: bossEnemies.map(bakeEnemySnapshotG) });
+    var dungeon = {
+      id: 'dgn' + now + '_0', name: cfg.label + ' Dungeon (depth ' + baseWave + ')',
+      direction: dir, tier: tier, waves: waves, clears: 0
+    };
+    gg.dungeons.push(dungeon);
+    return dungeon;
+  }
+  function prepQuestAttemptG(gg, uid) {
+    if (gg.sideBattle) return {};
+    var q = gg.quests[uid];
+    if (!q || q.stage >= 5 || gg.party.indexOf(uid) < 0) return {};
+    var line = P.QUEST_LINES[uid]; if (!line) return {};
+    var stage = q.stage, step = line[stage];
+    q.frozen = q.frozen || [];
+    if (!q.frozen[stage]) {
+      var rawWave = questStageWaveG(gg, uid, stage);
+      var wave = step.isBoss ? P.nextBossWave(rawWave - 1) : rawWave;
+      var fresh = buildEnemies(gg, wave);
+      q.frozen[stage] = { wave: wave, enemies: fresh.map(bakeEnemySnapshotG) };
+    }
+    var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+    return {
+      enemies: unitsFromSnapshotsG(q.frozen[stage].enemies), wave: q.frozen[stage].wave,
+      meta: { kind: 'quest', uid: uid, stage: stage, name: def ? def.name : uid, story: step.story }
+    };
+  }
+  function prepDungeonAttemptG(gg, id) {
+    if (gg.sideBattle) return {};
+    var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === id) dungeon = d; });
+    if (!dungeon) return {};
+    var wave0 = dungeon.waves[0];
+    return {
+      enemies: unitsFromSnapshotsG(wave0.enemies), wave: wave0.wave,
+      meta: { kind: 'dungeon', dungeonId: id, name: dungeon.name, direction: dungeon.direction, tier: dungeon.tier, waveIndex: 0, totalWaves: dungeon.waves.length }
+    };
+  }
+  function startSideBattleG(gg, enemies, wave, meta) {
+    if (gg.sideBattle) return false;
+    gg.roadBattle = gg.battle;
+    var savedWave = gg.wave;
+    C.setWave(wave);
+    var party = buildExpeditionParty(gg, gg.party, 1);
+    gg.battle = C.makeBattle(party.concat(enemies), { rng: gg.rng, enrage: gg.enrage });
+    gg.sideBattle = { savedWave: savedWave, wave: wave, meta: meta };
+    return true;
+  }
+  function finishSideBattleG(gg, result, gaveUp) {
+    var sb = gg.sideBattle, meta = sb.meta;
+    if (meta.kind === 'dungeon' && result === 'party' && meta.waveIndex < meta.totalWaves - 1) {
+      var curDungeon = null; gg.dungeons.forEach(function (d) { if (d.id === meta.dungeonId) curDungeon = d; });
+      var survivors = gg.battle.units.filter(function (u) { return u.isParty; });
+      meta.waveIndex++;
+      var nextWave = curDungeon.waves[meta.waveIndex];
+      C.setWave(nextWave.wave);
+      sb.wave = nextWave.wave;
+      gg.battle = C.makeBattle(survivors.concat(unitsFromSnapshotsG(nextWave.enemies)), { rng: gg.rng, enrage: gg.enrage });
+      return { kind: 'dungeon_wave_advance', waveIndex: meta.waveIndex, totalWaves: meta.totalWaves };
+    }
+    C.setWave(sb.savedWave);
+    gg.battle = gg.roadBattle; gg.roadBattle = null; gg.sideBattle = null;
+    if (meta.kind === 'quest') {
+      var q = gg.quests[meta.uid];
+      if (result === 'party') {
+        q.stage++;
+        var reward = questStageAetherG(meta.stage);
+        gg.aether += reward;
+        return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, aether: reward };
+      } else if (gaveUp) {
+        return { kind: 'quest_abandoned', name: meta.name, stageNum: meta.stage + 1 };
+      } else {
+        return { kind: 'quest_failed', name: meta.name, stageNum: meta.stage + 1 };
+      }
+    } else {
+      var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === meta.dungeonId) dungeon = d; });
+      if (result === 'party' && dungeon) {
+        dungeon.clears++;
+        var rewardWave = meta.tier * P.DIRECTION_CONFIG[meta.direction].unlockEvery;
+        var mul = directionMul(meta.direction);
+        var r = P.killReward(rewardWave, meta.totalWaves);
+        var dAether = r.aether * mul, dMarks = r.marks * P.marksMul(gg) * mul;
+        gg.aether += dAether; gg.marks += dMarks;
+        return { kind: 'dungeon_cleared', name: dungeon.name, aether: dAether, marks: dMarks };
+      } else {
+        return { kind: 'dungeon_failed', name: dungeon ? dungeon.name : 'Dungeon' };
+      }
+    }
+  }
+
+  var qd = {};
+  // power_level across wave/unit-count/lore/affinity/stat-invest variation.
+  var gpl = newGame(7, null); startWave(gpl, 5);
+  qd.powerLevelFreshWave5 = powerLevelG(gpl);
+  joinCompanion(gpl, 'ansa');
+  gpl.lvl.kesh = 10; gpl.lvl.ansa = 4;
+  gpl.bonuses = { strike: { potent: 2, swift: 1 } };
+  gpl.affinities = { kesh: { fire: 3, water: 1 } };
+  gpl.statInvest = { kesh: { evade: 2 } };
+  qd.powerLevelAfterInvestment = powerLevelG(gpl);
+
+  // quest_stage_wave/quest_stage_aether across all 5 stages, two roster ids.
+  qd.questStageWaveKesh = [0, 1, 2, 3, 4].map(function (s) { return questStageWaveG(gpl, 'kesh', s); });
+  qd.questStageWaveAnsa = [0, 1, 2, 3, 4].map(function (s) { return questStageWaveG(gpl, 'ansa', s); });
+  qd.questStageAether = [0, 1, 2, 3, 4].map(questStageAetherG);
+
+  // unlock_direction_dungeon's full construction, two directions/tiers.
+  var gud = newGame(7, null); startWave(gud, 1);
+  var dWest1 = unlockDirectionDungeonG(gud, 'west', 1, 1700000000);
+  var dEast2 = unlockDirectionDungeonG(gud, 'east', 2, 1700000001);
+  qd.dungeonWest1 = { name: dWest1.name, tier: dWest1.tier, waveCount: dWest1.waves.length,
+    waves: dWest1.waves.map(function (w) { return { wave: w.wave, enemyCount: w.enemies.length, firstAffinityKeys: Object.keys(w.enemies[0].affinity).length }; }) };
+  qd.dungeonEast2 = { name: dEast2.name, tier: dEast2.tier, waveCount: dEast2.waves.length,
+    waves: dEast2.waves.map(function (w) { return { wave: w.wave, enemyCount: w.enemies.length }; }) };
+  qd.dungeonIdsUnique = dWest1.id !== dEast2.id;
+
+  // resolve_expedition's while-loop dungeon-unlock wiring: a maxDepth jump
+  // crossing 2+ unlockEvery multiples in one catch-up pass must unlock
+  // every intervening tier, not just one.
+  var gwl = newGame(7, null); startWave(gwl, 1);
+  var dpWl = gwl.directions.west;
+  dpWl.maxDepth = 250;
+  var targetTierWl = Math.floor(dpWl.maxDepth / P.DIRECTION_CONFIG.west.unlockEvery);
+  while (targetTierWl > dpWl.dungeonsUnlocked) {
+    dpWl.dungeonsUnlocked++;
+    unlockDirectionDungeonG(gwl, 'west', dpWl.dungeonsUnlocked, 1700000000);
+  }
+  qd.whileLoopDungeonsUnlocked = dpWl.dungeonsUnlocked;
+  qd.whileLoopDungeonCount = gwl.dungeons.length;
+
+  // prep_quest_attempt's freeze-once-on-first-attempt behavior.
+  var gfz = newGame(7, null); startWave(gfz, 1);
+  var prep1 = prepQuestAttemptG(gfz, 'kesh');
+  qd.prepWaveBefore = prep1.wave;
+  startWave(gfz, 50);
+  var prep2 = prepQuestAttemptG(gfz, 'kesh');
+  qd.prepWaveAfterMoved = prep2.wave;
+  qd.prepFrozenMatches = prep1.wave === prep2.wave;
+
+  // finish_side_battle's reward math -- quest branch (full cycle, real
+  // combat play-out, deterministic via the shared seeded RNG).
+  var gq = newGame(7, null); startWave(gq, 1);
+  var aetherBeforeQ = gq.aether;
+  var prepQ = prepQuestAttemptG(gq, 'kesh');
+  startSideBattleG(gq, prepQ.enemies, prepQ.wave, prepQ.meta);
+  var bg1 = 0; while (!gq.battle.over && bg1++ < 4000) C.step(gq.battle);
+  var eventQ = finishSideBattleG(gq, gq.battle.over, false);
+  qd.questCycleEvent = eventQ;
+  qd.questCycleAetherGain = gq.aether - aetherBeforeQ;
+  qd.questCycleStageAfter = gq.quests.kesh.stage;
+  qd.questCycleSideBattleCleared = gq.sideBattle === null && gq.roadBattle === null;
+
+  // give-up (quest only), instant, no beats stepped.
+  var gg2 = newGame(7, null); startWave(gg2, 1);
+  var stageBeforeGiveUp = gg2.quests.kesh.stage, aetherBeforeGiveUp = gg2.aether;
+  var prepGu = prepQuestAttemptG(gg2, 'kesh');
+  startSideBattleG(gg2, prepGu.enemies, prepGu.wave, prepGu.meta);
+  var eventGu = finishSideBattleG(gg2, 'enemy', true);
+  qd.giveUpEvent = eventGu;
+  qd.giveUpStageUnchanged = gg2.quests.kesh.stage === stageBeforeGiveUp;
+  qd.giveUpAetherUnchanged = gg2.aether === aetherBeforeGiveUp;
+
+  // finish_side_battle's reward math + multi-wave in-place advance --
+  // dungeon branch, driven to full resolution (win or lose is fine, this
+  // exercises the SAME code path either way; we just record what happened).
+  var gd = newGame(7, null); startWave(gd, 1);
+  var dungeonD = unlockDirectionDungeonG(gd, 'west', 1, 1700000000);
+  var prepD = prepDungeonAttemptG(gd, dungeonD.id);
+  startSideBattleG(gd, prepD.enemies, prepD.wave, prepD.meta);
+  var waveAdvances = 0, finalEventD = null, guardD = 0;
+  while (guardD++ < 20) {
+    var bg2 = 0; while (!gd.battle.over && bg2++ < 4000) C.step(gd.battle);
+    var evD = finishSideBattleG(gd, gd.battle.over, false);
+    if (evD.kind === 'dungeon_wave_advance') { waveAdvances++; continue; }
+    finalEventD = evD; break;
+  }
+  qd.dungeonCycleWaveAdvances = waveAdvances;
+  qd.dungeonCycleFinalEvent = finalEventD;
+  qd.dungeonCycleClears = dungeonD.clears;
+  qd.dungeonCycleSideBattleCleared = gd.sideBattle === null;
+
+  out.questsDungeons = qd;
 
   var NOW0 = 1700000000;
   var g7 = newGame(7, null);

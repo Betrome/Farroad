@@ -52,7 +52,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	for i in range(calls):
 		rng.next()
 	var g := {"seed": snap.get("seed", 7), "rng": rng, "battle": null, "units": null,
-		"enemies": null, "over": null}
+		"enemies": null, "over": null, "sideBattle": null, "roadBattle": null}
 	for k in FIELDS:
 		g[k] = _clone(snap.get(k))
 

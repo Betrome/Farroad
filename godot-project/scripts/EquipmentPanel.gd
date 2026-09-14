@@ -45,19 +45,19 @@ func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
 	if toggle_button:
 		toggle_button.queue_free()
-	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.58, _vp.y * 0.93), icon_size, "Equip", _on_toggle_pressed)
+	var icon_size: float = _vp.x * 0.11
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Equip", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Fifth of 7 evenly-spaced icons across the bottom row: Gambits 0.02,
-	# Party 0.16, Aether 0.30, Lore 0.44, this one 0.58, Marks 0.72,
-	# Expedition 0.86 -- adding ExpeditionPanel's icon meant recomputing
-	# all 7 x-fractions for even spacing (the prior 6-icon layout's 0.04
-	# margin/gap doesn't divide evenly by 7), so the other panels' own
-	# _build_ui/reflow fractions were updated too (duplicated per file,
-	# same convention, no shared base).
-	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.58, _vp.y * 0.93), icon_size, "Equip", _on_toggle_pressed)
+	# Fifth of 8 evenly-spaced icons across the bottom row: Gambits 0.0133,
+	# Party 0.1367, Aether 0.2600, Lore 0.3833, this one 0.5067, Marks
+	# 0.6300, Expedition 0.7533, Quests 0.8767 -- adding QuestsPanel's icon
+	# meant recomputing all 8 x-fractions for even spacing (and shrinking
+	# icon size 0.12->0.11), so the other panels' own _build_ui/reflow
+	# fractions were updated too (duplicated per file, same convention, no
+	# shared base).
+	var icon_size: float = _vp.x * 0.11
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Equip", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

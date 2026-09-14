@@ -17,8 +17,10 @@ extends Node2D
 ## see LorePanel.gd); Step 3f added EQUIPMENT (per-unit gear management,
 ## see EquipmentPanel.gd); Step 3g added MARKS (gacha pulls, see
 ## MarksPanel.gd); Step 3h added EXPEDITION (real-time idle sending +
-## offline catch-up, see ExpeditionPanel.gd). No QUESTS tab yet (Steps
-## 3i-3j).
+## offline catch-up, see ExpeditionPanel.gd); Step 3i added QUESTS
+## (companion quest lines + direction dungeons, a real interactive side
+## battle -- see QuestsPanel.gd and _enter_side_battle() below). No
+## character-creation screen yet (Step 3j, the last roadmap item).
 
 const SAVE_PATH := "user://save.json"
 ## How often expeditions get a chance to resolve while the game is
@@ -39,6 +41,14 @@ var equipment_panel: Node
 var marks_panel: Node
 var expedition_panel: Node
 var expedition_timer: Timer
+var quests_panel: Node
+## The side battle currently running (a quest attempt or a dungeon
+## crawl), or null when none is active -- GameController's own equivalent
+## of the real JS's reassignable G.battle pointer (see
+## FarroadProgression.start_side_battle's own comment for why a SECOND,
+## independent BattlePresenter instance is enough here, unlike the real
+## JS's shared-tick-loop architecture).
+var side_presenter: Node = null
 
 var wave_label: Label
 var currency_label: Label
@@ -75,6 +85,9 @@ func _ready() -> void:
 	expedition_panel = load("res://scripts/ExpeditionPanel.gd").new()
 	add_child(expedition_panel)
 	expedition_panel.setup(g, _vp, self)
+	quests_panel = load("res://scripts/QuestsPanel.gd").new()
+	add_child(quests_panel)
+	quests_panel.setup(g, _vp, self)
 	expedition_timer = Timer.new()
 	expedition_timer.wait_time = EXPEDITION_POLL_SEC
 	expedition_timer.autostart = true
@@ -94,6 +107,12 @@ func _on_expedition_tick() -> void:
 	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system())
 	if expedition_panel.popup.visible:
 		expedition_panel.call("_refresh")
+	# resolve_all_expeditions can unlock a new dungeon (Step 3i,
+	# unlock_direction_dungeon called from inside resolve_expedition) --
+	# refresh a currently-open QUESTS popup so a new dungeon card appears
+	# without waiting for the player to close and reopen it.
+	if quests_panel.popup.visible:
+		quests_panel.call("_refresh")
 
 ## A window resize (or, on a real device, a size Godot didn't report until
 ## just now) changes what get_viewport_rect().size actually is -- everything
@@ -123,6 +142,7 @@ func _on_viewport_resized() -> void:
 	equipment_panel.reflow(_vp)
 	marks_panel.reflow(_vp)
 	expedition_panel.reflow(_vp)
+	quests_panel.reflow(_vp)
 
 ## Resumes user://save.json if one exists and parses cleanly; otherwise
 ## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
@@ -314,3 +334,88 @@ func _fade_in() -> void:
 	tw.tween_property(fade_overlay, "color:a", 0.0, FADE_HALF_SEC)
 	await tw.finished
 	fade_overlay.hide()
+
+## ===== QUESTS side battles (Step 3i) =====
+## Mirrors startSideBattle's presentation half (farroad-ui.js:1455-1466) --
+## the state mutation itself is FarroadProgression.start_side_battle().
+## No wasPlaying/play() dance is needed here: this port has no
+## player-facing play/pause/speed control for the Road to preserve in the
+## first place (the Road always auto-plays), unlike the real JS, which
+## needed that dance specifically to avoid double-scheduling a second
+## parallel setTimeout chain. Pausing+hiding current_presenter (the SAME
+## set_loop_paused every sibling panel already uses, plus additionally
+## hiding it since the side battle needs the same on-field real estate,
+## not a small popup) is this port's whole equivalent.
+func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
+	if not FarroadProgression.start_side_battle(g, enemies, wave, meta):
+		return
+	if current_presenter != null:
+		current_presenter.call("set_loop_paused", true)
+		current_presenter.hide()
+		if current_presenter.log_popup.visible:
+			current_presenter.log_popup.hide()
+		if current_presenter.status_popup.visible:
+			current_presenter.status_popup.hide()
+	side_presenter = load("res://scripts/BattlePresenter.gd").new()
+	side_presenter.battle_finished.connect(_on_side_battle_finished)
+	add_child(side_presenter)
+	await get_tree().process_frame
+	side_presenter.start_battle(g["battle"], g["battle"]["units"])
+
+## Called by QuestsPanel (dynamic has_method()+call(), same pattern as
+## every other panel-to-controller call in this project).
+func _attempt_quest(uid: String) -> void:
+	var prep := FarroadProgression.prep_quest_attempt(g, uid)
+	if prep.is_empty():
+		return
+	quests_panel.popup.hide()
+	_enter_side_battle(prep["enemies"], prep["wave"], prep["meta"])
+
+func _enter_dungeon(id: String) -> void:
+	var prep := FarroadProgression.prep_dungeon_attempt(g, id)
+	if prep.is_empty():
+		return
+	quests_panel.popup.hide()
+	_enter_side_battle(prep["enemies"], prep["wave"], prep["meta"])
+
+func _on_side_battle_finished(outcome: String) -> void:
+	_resolve_side_battle(outcome, false)
+
+## Give Up is quests-only (the real JS's own "Ian's ask" scope -- dungeons
+## can't be abandoned mid-crawl, only quests). Instant: directly
+## queue_free()s side_presenter rather than waiting for another beat --
+## Godot's Tween/coroutine machinery already cleans up safely when the
+## node it's bound to is freed mid-animation (the same unconditional
+## queue_free() a Road wipe already relies on), so no BattlePresenter-side
+## abort flag is needed.
+func _give_up_quest() -> void:
+	if g.get("sideBattle") == null or g["sideBattle"]["meta"]["kind"] != "quest":
+		return
+	side_presenter.battle_finished.disconnect(_on_side_battle_finished)
+	side_presenter.queue_free()
+	side_presenter = null
+	_resolve_side_battle("enemy", true)
+
+func _resolve_side_battle(result: String, gave_up: bool) -> void:
+	var event := FarroadProgression.finish_side_battle(g, result, gave_up)
+	if event["kind"] == "dungeon_wave_advance":
+		# Same fresh-instance-per-wave convention _begin_next_fight already
+		# uses for the Road -- BattlePresenter._layout_units() never frees
+		# prior UnitViews, so reusing one instance across waves would leak
+		# them; a new instance per wave is both simpler and consistent.
+		side_presenter.queue_free()
+		side_presenter = load("res://scripts/BattlePresenter.gd").new()
+		side_presenter.battle_finished.connect(_on_side_battle_finished)
+		add_child(side_presenter)
+		await get_tree().process_frame
+		side_presenter.start_battle(g["battle"], g["battle"]["units"])
+		return
+	if side_presenter != null:
+		side_presenter.queue_free()
+		side_presenter = null
+	if current_presenter != null:
+		current_presenter.show()
+		current_presenter.call("set_loop_paused", false)
+	quests_panel.call("_show_result", event)
+	_refresh_hud()
+	_save_game()

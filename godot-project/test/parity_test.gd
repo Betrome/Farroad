@@ -543,6 +543,123 @@ func _run_progression_suite() -> void:
 	exped["offlineRngCallsAfter"] = g9["rng"].calls
 	out["expedition"] = exped
 
+	# Step 3i: QUESTS/dungeons -- mirrors parity-reference.js's own
+	# 'questsDungeons' section exactly, using the REAL FarroadProgression
+	# functions (not a hand copy -- unlike the JS side, which has no
+	# exported equivalents to call).
+	var qd := {}
+	var gpl := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gpl, 5)
+	qd["powerLevelFreshWave5"] = FarroadProgression.power_level(gpl)
+	FarroadProgression.join_companion(gpl, "ansa")
+	gpl["lvl"]["kesh"] = 10
+	gpl["lvl"]["ansa"] = 4
+	gpl["bonuses"] = {"strike": {"potent": 2, "swift": 1}}
+	gpl["affinities"] = {"kesh": {"fire": 3, "water": 1}}
+	gpl["statInvest"] = {"kesh": {"evade": 2}}
+	qd["powerLevelAfterInvestment"] = FarroadProgression.power_level(gpl)
+
+	var qskesh := []
+	var qsansa := []
+	var qsaether := []
+	for s in range(5):
+		qskesh.append(FarroadProgression.quest_stage_wave(gpl, "kesh", s))
+		qsansa.append(FarroadProgression.quest_stage_wave(gpl, "ansa", s))
+		qsaether.append(FarroadProgression.quest_stage_aether(s))
+	qd["questStageWaveKesh"] = qskesh
+	qd["questStageWaveAnsa"] = qsansa
+	qd["questStageAether"] = qsaether
+
+	var gud := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gud, 1)
+	var d_west1 := FarroadProgression.unlock_direction_dungeon(gud, "west", 1, 1700000000)
+	var d_east2 := FarroadProgression.unlock_direction_dungeon(gud, "east", 2, 1700000001)
+	var west1_waves := []
+	for w in d_west1["waves"]:
+		west1_waves.append({"wave": w["wave"], "enemyCount": w["enemies"].size(),
+			"firstAffinityKeys": (w["enemies"][0]["affinity"] as Dictionary).size()})
+	qd["dungeonWest1"] = {"name": d_west1["name"], "tier": d_west1["tier"],
+		"waveCount": (d_west1["waves"] as Array).size(), "waves": west1_waves}
+	var east2_waves := []
+	for w in d_east2["waves"]:
+		east2_waves.append({"wave": w["wave"], "enemyCount": w["enemies"].size()})
+	qd["dungeonEast2"] = {"name": d_east2["name"], "tier": d_east2["tier"],
+		"waveCount": (d_east2["waves"] as Array).size(), "waves": east2_waves}
+	qd["dungeonIdsUnique"] = d_west1["id"] != d_east2["id"]
+
+	var gwl := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gwl, 1)
+	var dp_wl: Dictionary = gwl["directions"]["west"]
+	dp_wl["maxDepth"] = 250
+	var target_tier_wl: int = int(floor(float(dp_wl["maxDepth"]) / float(FarroadCore.DIRECTION_CONFIG["west"]["unlockEvery"])))
+	while target_tier_wl > dp_wl["dungeonsUnlocked"]:
+		dp_wl["dungeonsUnlocked"] += 1
+		FarroadProgression.unlock_direction_dungeon(gwl, "west", dp_wl["dungeonsUnlocked"], 1700000000)
+	qd["whileLoopDungeonsUnlocked"] = dp_wl["dungeonsUnlocked"]
+	qd["whileLoopDungeonCount"] = (gwl["dungeons"] as Array).size()
+
+	var gfz := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gfz, 1)
+	var prep1 := FarroadProgression.prep_quest_attempt(gfz, "kesh")
+	qd["prepWaveBefore"] = prep1["wave"]
+	FarroadProgression.start_wave(gfz, 50)
+	var prep2 := FarroadProgression.prep_quest_attempt(gfz, "kesh")
+	qd["prepWaveAfterMoved"] = prep2["wave"]
+	qd["prepFrozenMatches"] = prep1["wave"] == prep2["wave"]
+
+	var gq := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gq, 1)
+	var aether_before_q: float = gq["aether"]
+	var prep_q := FarroadProgression.prep_quest_attempt(gq, "kesh")
+	FarroadProgression.start_side_battle(gq, prep_q["enemies"], prep_q["wave"], prep_q["meta"])
+	var bg1 := 0
+	while gq["battle"]["over"] == null and bg1 < 4000:
+		bg1 += 1
+		FarroadCore.step(gq["battle"])
+	var event_q := FarroadProgression.finish_side_battle(gq, gq["battle"]["over"], false)
+	qd["questCycleEvent"] = event_q
+	qd["questCycleAetherGain"] = gq["aether"] - aether_before_q
+	qd["questCycleStageAfter"] = gq["quests"]["kesh"]["stage"]
+	qd["questCycleSideBattleCleared"] = gq["sideBattle"] == null and gq["roadBattle"] == null
+
+	var gg2 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gg2, 1)
+	var stage_before_giveup: int = gg2["quests"]["kesh"]["stage"]
+	var aether_before_giveup: float = gg2["aether"]
+	var prep_gu := FarroadProgression.prep_quest_attempt(gg2, "kesh")
+	FarroadProgression.start_side_battle(gg2, prep_gu["enemies"], prep_gu["wave"], prep_gu["meta"])
+	var event_gu := FarroadProgression.finish_side_battle(gg2, "enemy", true)
+	qd["giveUpEvent"] = event_gu
+	qd["giveUpStageUnchanged"] = gg2["quests"]["kesh"]["stage"] == stage_before_giveup
+	qd["giveUpAetherUnchanged"] = gg2["aether"] == aether_before_giveup
+
+	var gd_ := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gd_, 1)
+	var dungeon_d := FarroadProgression.unlock_direction_dungeon(gd_, "west", 1, 1700000000)
+	var prep_d := FarroadProgression.prep_dungeon_attempt(gd_, dungeon_d["id"])
+	FarroadProgression.start_side_battle(gd_, prep_d["enemies"], prep_d["wave"], prep_d["meta"])
+	var wave_advances := 0
+	var final_event_d := {}
+	var guard_d := 0
+	while guard_d < 20:
+		guard_d += 1
+		var bg2 := 0
+		while gd_["battle"]["over"] == null and bg2 < 4000:
+			bg2 += 1
+			FarroadCore.step(gd_["battle"])
+		var ev_d := FarroadProgression.finish_side_battle(gd_, gd_["battle"]["over"], false)
+		if ev_d["kind"] == "dungeon_wave_advance":
+			wave_advances += 1
+			continue
+		final_event_d = ev_d
+		break
+	qd["dungeonCycleWaveAdvances"] = wave_advances
+	qd["dungeonCycleFinalEvent"] = final_event_d
+	qd["dungeonCycleClears"] = dungeon_d["clears"]
+	qd["dungeonCycleSideBattleCleared"] = gd_["sideBattle"] == null
+
+	out["questsDungeons"] = qd
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode
