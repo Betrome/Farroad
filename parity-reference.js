@@ -916,6 +916,67 @@ if (mode === 'progression') {
   lore4.freeLoreAfterRefund = freeLoreG(g4);
   out.lore = lore4;
 
+  // Step 3f: EQUIPMENT -- equip/unequip mutation + query helpers,
+  // hand-transcribed from the real farroad-ui.js the same way every
+  // orchestration function above was.
+  function equipKindForSlot(slot) { return slot.indexOf('hand') === 0 ? 'hand' : slot; }
+  function equipOwnedCount(gg, id) { return gg.equipInv[id] || 0; }
+  function equipInUseCount(gg, id) {
+    var n = 0;
+    Object.keys(gg.equipped || {}).forEach(function (uid) {
+      Object.keys(gg.equipped[uid]).forEach(function (slot) {
+        if (gg.equipped[uid][slot] === id) n++;
+      });
+    });
+    return n;
+  }
+  function equipAvailableCount(gg, id) { return equipOwnedCount(gg, id) - equipInUseCount(gg, id); }
+  function equipItem(gg, uid, slot, itemId) {
+    var item = C.EQUIPMENT[itemId];
+    if (!item || item.slot !== equipKindForSlot(slot)) return false;
+    gg.equipped = gg.equipped || {}; gg.equipped[uid] = gg.equipped[uid] || {};
+    if (gg.equipped[uid][slot] === itemId) return true;
+    if (equipAvailableCount(gg, itemId) <= 0) return false;
+    gg.equipped[uid][slot] = itemId;
+    return true;
+  }
+  function unequipItem(gg, uid, slot) {
+    gg.equipped = gg.equipped || {}; gg.equipped[uid] = gg.equipped[uid] || {};
+    delete gg.equipped[uid][slot];
+  }
+
+  var g5 = newGame(7, null);
+  startWave(g5, 1);
+  var equipIds = Object.keys(C.EQUIPMENT);
+  var headId = equipIds.filter(function (id) { return C.EQUIPMENT[id].slot === 'head'; })[0];
+  var handIds = equipIds.filter(function (id) { return C.EQUIPMENT[id].slot === 'hand'; });
+  var handId = handIds[0];
+  g5.equipInv[headId] = 1;
+  g5.equipInv[handId] = 1;
+  var equip5 = {};
+  equip5.ownedBefore = equipOwnedCount(g5, headId);
+  equip5.availableBefore = equipAvailableCount(g5, headId);
+  equip5.equipHeadResult = equipItem(g5, 'kesh', 'head', headId);
+  equip5.availableAfterEquip = equipAvailableCount(g5, headId);
+  equip5.inUseAfterEquip = equipInUseCount(g5, headId);
+  // Same item, same slot, already worn there -- a no-op success, not a
+  // second consumption of the single owned copy.
+  equip5.reEquipSameSlotResult = equipItem(g5, 'kesh', 'head', headId);
+  equip5.availableAfterReEquipSameSlot = equipAvailableCount(g5, headId);
+  // Slot/kind mismatch: a head item can't go in a hand slot.
+  equip5.slotMismatchResult = equipItem(g5, 'kesh', 'hand1', headId);
+  // Only 1 copy owned and it's already worn by kesh -- a 2nd unit can't
+  // equip the same (unowned-a-2nd-copy-of) item.
+  equip5.secondUnitRejectedResult = equipItem(g5, 'ansa', 'head', headId);
+  unequipItem(g5, 'kesh', 'head');
+  equip5.availableAfterUnequip = equipAvailableCount(g5, headId);
+  equip5.equippedAfterUnequip = g5.equipped.kesh.head === undefined;
+  // hand1/hand2 both accept a 'hand'-kind item (equipKindForSlot collapses
+  // both positions to the same kind).
+  equip5.equipHand1Result = equipItem(g5, 'kesh', 'hand1', handId);
+  equip5.equipKindForHand2 = equipKindForSlot('hand2');
+  out.equipment = equip5;
+
   console.log(JSON.stringify(out));
 }
 

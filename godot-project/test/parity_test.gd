@@ -424,6 +424,37 @@ func _run_progression_suite() -> void:
 	lore["freeLoreAfterRefund"] = FarroadProgression.free_lore(g4)
 	out["lore"] = lore
 
+	# Step 3f: EQUIPMENT -- equip/unequip mutation + query helpers, mirrors
+	# parity-reference.js's own 'equipment' section exactly.
+	var g5 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g5, 1)
+	var head_id: String = ""
+	var hand_id: String = ""
+	for id in FarroadCore.EQUIPMENT.keys():
+		var item: Dictionary = FarroadCore.EQUIPMENT[id]
+		if head_id == "" and item["slot"] == "head":
+			head_id = id
+		if hand_id == "" and item["slot"] == "hand":
+			hand_id = id
+	g5["equipInv"][head_id] = 1
+	g5["equipInv"][hand_id] = 1
+	var equip := {}
+	equip["ownedBefore"] = FarroadProgression.equip_owned_count(g5, head_id)
+	equip["availableBefore"] = FarroadProgression.equip_available_count(g5, head_id)
+	equip["equipHeadResult"] = FarroadProgression.equip_item(g5, "kesh", "head", head_id)
+	equip["availableAfterEquip"] = FarroadProgression.equip_available_count(g5, head_id)
+	equip["inUseAfterEquip"] = FarroadProgression.equip_in_use_count(g5, head_id)
+	equip["reEquipSameSlotResult"] = FarroadProgression.equip_item(g5, "kesh", "head", head_id)
+	equip["availableAfterReEquipSameSlot"] = FarroadProgression.equip_available_count(g5, head_id)
+	equip["slotMismatchResult"] = FarroadProgression.equip_item(g5, "kesh", "hand1", head_id)
+	equip["secondUnitRejectedResult"] = FarroadProgression.equip_item(g5, "ansa", "head", head_id)
+	FarroadProgression.unequip_item(g5, "kesh", "head")
+	equip["availableAfterUnequip"] = FarroadProgression.equip_available_count(g5, head_id)
+	equip["equippedAfterUnequip"] = not (g5["equipped"]["kesh"] as Dictionary).has("head")
+	equip["equipHand1Result"] = FarroadProgression.equip_item(g5, "kesh", "hand1", hand_id)
+	equip["equipKindForHand2"] = FarroadProgression.equip_kind_for_slot("hand2")
+	out["equipment"] = equip
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode

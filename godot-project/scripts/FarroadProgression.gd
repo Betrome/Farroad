@@ -551,8 +551,8 @@ static func apply_pct_stat_investment(g: Dictionary, uid: String, st: Dictionary
 		st[stat] = pct_stat_value(g, uid, stat)
 	return st
 
-## ===== equipment (stat/spd-penalty application only -- equip/unequip
-## actions themselves are Step 3f's EQUIPMENT tab) =====
+## ===== equipment (stat/spd-penalty application, Milestone 1/3a; equip/
+## unequip mutation + query helpers, Step 3f's EQUIPMENT tab) =====
 
 static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) -> Dictionary:
 	var equipped: Dictionary = g.get("equipped", {}).get(uid, {})
@@ -572,6 +572,57 @@ static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) ->
 	if spd_penalty:
 		st["spd"] = int(round(st["spd"] - spd_penalty))
 	return st
+
+## Mirrors equipKindForSlot (farroad-ui.js:327) -- hand1/hand2 (the two
+## fixed POSITIONS) both collapse to the single 'hand' item KIND for
+## compatibility checks; every other slot name already matches its kind.
+static func equip_kind_for_slot(slot: String) -> String:
+	return "hand" if slot.begins_with("hand") else slot
+
+## Mirrors equipOwnedCount (farroad-ui.js:307).
+static func equip_owned_count(g: Dictionary, item_id: String) -> int:
+	return int(g.get("equipInv", {}).get(item_id, 0))
+
+## Mirrors equipInUseCount (farroad-ui.js:308-312) -- how many copies of
+## item_id are currently sitting in ANY unit's equipped slots.
+static func equip_in_use_count(g: Dictionary, item_id: String) -> int:
+	var n := 0
+	for uid in g.get("equipped", {}).keys():
+		for slot in g["equipped"][uid].keys():
+			if g["equipped"][uid][slot] == item_id:
+				n += 1
+	return n
+
+## Mirrors equipAvailableCount (farroad-ui.js:313).
+static func equip_available_count(g: Dictionary, item_id: String) -> int:
+	return equip_owned_count(g, item_id) - equip_in_use_count(g, item_id)
+
+## Mirrors equipItem (farroad-ui.js:344-351) -- rejects a slot/kind
+## mismatch, no-ops (returns true) if already worn in that exact slot,
+## rejects if no free copy is available, else equips. No cost/currency --
+## equipping is free once owned, the only constraint is copy count.
+static func equip_item(g: Dictionary, uid: String, slot: String, item_id: String) -> bool:
+	var item = FarroadCore.EQUIPMENT.get(item_id)
+	if item == null or item["slot"] != equip_kind_for_slot(slot):
+		return false
+	if not g.has("equipped"):
+		g["equipped"] = {}
+	if not g["equipped"].has(uid):
+		g["equipped"][uid] = {}
+	if g["equipped"][uid].get(slot) == item_id:
+		return true
+	if equip_available_count(g, item_id) <= 0:
+		return false
+	g["equipped"][uid][slot] = item_id
+	return true
+
+## Mirrors unequipItem (farroad-ui.js:352-354).
+static func unequip_item(g: Dictionary, uid: String, slot: String) -> void:
+	if not g.has("equipped"):
+		g["equipped"] = {}
+	if not g["equipped"].has(uid):
+		g["equipped"][uid] = {}
+	g["equipped"][uid].erase(slot)
 
 ## ===== gambit loadout defaults (GAMBITS tab, Step 3c, edits G.loadout after
 ## this -- ensure_loadout only guarantees a sane STARTING shape exists) =====

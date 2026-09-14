@@ -14,8 +14,9 @@ extends Node2D
 ## (loadout editor + party bench/field, see GambitsPanel.gd); Step 3d
 ## added AETHER (leveling/Recovery/Evade-Crit/Affinity investment, see
 ## AetherPanel.gd); Step 3e added LORE (per-action bonus purchase/refund,
-## see LorePanel.gd). No EQUIPMENT/MARKS/EXPEDITION/QUESTS tabs yet
-## (Steps 3f-3j).
+## see LorePanel.gd); Step 3f added EQUIPMENT (per-unit gear management,
+## see EquipmentPanel.gd). No MARKS/EXPEDITION/QUESTS tabs yet (Steps
+## 3g-3j).
 
 const SAVE_PATH := "user://save.json"
 
@@ -26,6 +27,7 @@ var gambits_panel: Node
 var party_panel: Node
 var aether_panel: Node
 var lore_panel: Node
+var equipment_panel: Node
 
 var wave_label: Label
 var currency_label: Label
@@ -53,6 +55,9 @@ func _ready() -> void:
 	lore_panel = load("res://scripts/LorePanel.gd").new()
 	add_child(lore_panel)
 	lore_panel.setup(g, _vp, self)
+	equipment_panel = load("res://scripts/EquipmentPanel.gd").new()
+	add_child(equipment_panel)
+	equipment_panel.setup(g, _vp, self)
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	_begin_next_fight()
 
@@ -82,6 +87,7 @@ func _on_viewport_resized() -> void:
 	party_panel.reflow(_vp)
 	aether_panel.reflow(_vp)
 	lore_panel.reflow(_vp)
+	equipment_panel.reflow(_vp)
 
 ## Resumes user://save.json if one exists and parses cleanly; otherwise
 ## starts a brand new run. Mirrors tryResumeSave()/boot() (farroad-ui.js) --
