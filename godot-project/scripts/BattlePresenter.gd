@@ -600,6 +600,7 @@ func _build_log_ui() -> void:
 	scroll.add_child(log_container)
 
 func _on_log_pressed() -> void:
+	_rebuild_log_container()
 	log_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.75))
 
 func _on_clear_pressed() -> void:
@@ -858,6 +859,18 @@ func _action_glyph(act) -> String:
 ## for why), an italic "via · initiative ×NNN" line, note bullets, and a
 ## "tap for the damage breakdown" affordance expanding the same
 ## base/off/mitigation math resolveHit() itself already computed.
+##
+## The visual container is only rebuilt while the popup is actually
+## VISIBLE (log_popup.visible) -- a real performance bug found and fixed
+## here: this function (and _append_raw_log below) runs every single beat
+## regardless of whether the log is open, and _rebuild_log_container() tears
+## down and recreates a Control node per log_lines entry EVERY TIME it's
+## called. Rebuilding unconditionally every beat meant a beat late in a long
+## fight paid for rebuilding every earlier beat's entry too (O(beats) work
+## per beat, O(beats^2) over a whole fight) even though nobody could see it
+## -- exactly the kind of thing that reads as "gets choppier the longer a
+## fight runs." log_lines itself still accumulates every beat regardless
+## (cheap, just data); _on_log_pressed rebuilds once on open to catch up.
 func _append_log(e: Dictionary) -> void:
 	var color: String = PARTY_COLOR if e["isParty"] else ENEMY_COLOR
 	var act = FarroadCore.ACTIONS.get(e["actionId"])
@@ -887,7 +900,7 @@ func _append_log(e: Dictionary) -> void:
 
 	log_lines.append({"head_bbcode": head, "dmg_text": dmg_text, "via_bbcode": via_bbcode,
 		"note_bbcodes": note_bbcodes, "calc": _calc_text(e), "expanded": false})
-	if log_container != null:
+	if log_popup != null and log_popup.visible:
 		_rebuild_log_container()
 
 ## A plain, non-event log line (e.g. "Battle over") -- same storage shape,
@@ -895,7 +908,7 @@ func _append_log(e: Dictionary) -> void:
 func _append_raw_log(bbcode: String) -> void:
 	log_lines.append({"head_bbcode": bbcode, "dmg_text": "", "via_bbcode": "",
 		"note_bbcodes": [], "calc": "", "expanded": false})
-	if log_container != null:
+	if log_popup != null and log_popup.visible:
 		_rebuild_log_container()
 
 ## Mirrors logEntry()'s `calc` string (farroad-ui.js:1783-1793) -- reuses
