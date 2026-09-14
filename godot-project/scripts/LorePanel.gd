@@ -50,15 +50,15 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.627, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.52, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Fourth of 5 evenly-spaced icons across the bottom row: GambitsPanel
-	# 0.067, PartyPanel 0.253, AetherPanel 0.440, this one 0.627,
-	# EquipmentPanel 0.813 -- all four other panels' own x fractions were
-	# recomputed to make room for EquipmentPanel's new 5th icon.
+	# Fourth of 6 evenly-spaced icons across the bottom row: GambitsPanel
+	# 0.04, PartyPanel 0.20, AetherPanel 0.36, this one 0.52, EquipmentPanel
+	# 0.68, MarksPanel 0.84 -- all other panels' own x fractions were
+	# recomputed to make room for MarksPanel's new 6th icon.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.627, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.52, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

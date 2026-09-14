@@ -161,6 +161,9 @@ const AETHER_RATE := 0.18
 const MARKS_RATE := 0.13
 const PRE_UNLOCK_MARKS_MUL := 0.45
 const MARKS_UNLOCK_WAVE := 40
+## Display-only ("X pulls waiting" on the locked screen); pull_cost's own
+## flat 100 is the real gate, this just happens to share the same number.
+const MARKS_PER_PULL := 100
 const BOSS_AETHER_WAVES := 12.5
 const DUP_UNIT_WAVES := 3
 const NOMINAL_WAVE_SEC := 40.0
@@ -196,6 +199,102 @@ static func dup_unit_aether(w: float) -> int:
 	var kr: float = kill_reward(w, enemy_count(int(w)))["aether"]
 	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
 	return int(round(DUP_UNIT_WAVES * (kr + idle)))
+
+## Mirrors pullCostAt/pullCost (farroad-progression.js:59, :787) -- a flat
+## cost, deliberately non-scaling (v2.3). There is only ONE pull tier in
+## the real game -- no premium/bulk variant exists.
+static func pull_cost_at(_w: float) -> int:
+	return 100
+
+static func pull_cost(w: float) -> int:
+	return pull_cost_at(w if w else 1.0)
+
+## ===== MARKS tab: gacha pulls (Step 3g) =====
+
+## Mirrors P.PULL_ODDS (farroad-ui.js:2286) -- equip is "about as rare as
+## units" (Ian's own call in the real game's v2.14 changelog).
+const PULL_ODDS := {"unit": 0.10, "equip": 0.10, "action": 0.40, "cond": 0.40}
+## Mirrors P.PULL_PITY_AT (farroad-ui.js:2294) -- a companion is guaranteed
+## at least every 30 pulls regardless of the roll.
+const PULL_PITY_AT := 30
+
+## Mirrors doPull (farroad-ui.js:2295-2367). Returns {} if locked or
+## unaffordable (mirrors the real function's own silent early `return` --
+## the UI's disabled button is the only real gate a player ever hits).
+## Otherwise returns a small event Dictionary describing what happened
+## ({"kind":..., "id":..., "duplicate":..., "pity":..., ...}) -- there is
+## no drop-banner/toast system in this port yet (wave drops already
+## return this same shape of event and nothing renders them either), so
+## this is what MarksPanel.gd shows as a plain "Last pull" result line
+## rather than the real game's pushDrop() card; a real UI subsystem for
+## that is out of this step's scope. Pure g-mutation only, no live-sync
+## side effects -- see MarksPanel.gd for why that stays the caller's job.
+static func do_pull(g: Dictionary) -> Dictionary:
+	var cost := pull_cost(g.get("wave", 1))
+	if not pulls_unlocked(g):
+		return {}
+	if g["marks"] < cost:
+		return {}
+	g["marks"] -= cost
+	g["pullsSinceUnit"] = int(g.get("pullsSinceUnit", 0)) + 1
+	var pity: bool = g["pullsSinceUnit"] >= PULL_PITY_AT
+	# The roll is ALWAYS consumed, even under pity -- pity overrides the
+	# roll's RESULT, it doesn't skip drawing it (a real RNG-consumption
+	# detail confirmed from the source, needed for parity).
+	var roll: float = g["rng"].next()
+	var o = PULL_ODDS
+	var kind: String
+	if pity:
+		kind = "unit"
+	elif roll < o["unit"]:
+		kind = "unit"
+	elif roll < o["unit"] + o["equip"]:
+		kind = "equip"
+	elif roll < o["unit"] + o["equip"] + o["action"]:
+		kind = "action"
+	else:
+		kind = "cond"
+
+	if kind == "unit":
+		# Nothing more this pity cycle could grant, hit or not.
+		g["pullsSinceUnit"] = 0
+		# v2.8 bugfix kept: filter on OWNED, not party -- a benched unit is
+		# still a real acquisition.
+		var avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false))
+		if avail.is_empty():
+			var dup := dup_unit_aether(g.get("wave", 1))
+			g["aether"] += dup
+			return {"kind": "unit_dup", "pity": pity, "aetherGain": dup}
+		var pick: Dictionary = weighted_roster_pick(g["rng"], avail)
+		var fielded: bool = join_companion(g, pick["id"])
+		return {"kind": "unit", "pity": pity, "id": pick["id"], "name": pick["name"], "fielded": fielded}
+	elif kind == "equip":
+		# Same rule as random_drop's own equip branch: a dupe is never
+		# converted -- extra copies are genuinely useful (dual-wielding a
+		# hand item, the same armor on two units).
+		var equip_ids := random_equipment_ids()
+		var eid: String = weighted_equipment_pick(g["rng"], equip_ids)
+		g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
+		return {"kind": "equip", "id": eid, "duplicate": g["equipInv"][eid] > 1, "ownedCount": g["equipInv"][eid]}
+	elif kind == "action":
+		var aid: String = weighted_action_pick(g["rng"], FarroadCore.equippable())
+		g["actionCounts"][aid] = int(g["actionCounts"].get(aid, 0)) + 1
+		var dup_a: bool = g["actions"].has(aid)
+		if not dup_a:
+			g["actions"].append(aid)
+		else:
+			g["lore"] = g.get("lore", 0) + 1
+		return {"kind": "action", "id": aid, "duplicate": dup_a}
+	else:
+		var cp: Array = FarroadCore.ALL_CONDITION_IDS.filter(func(id): return id != "none")
+		var cid: String = cp[g["rng"].next_int(cp.size())]
+		g["condCounts"][cid] = int(g["condCounts"].get(cid, 0)) + 1
+		var dup_c: bool = g["conditions"].has(cid)
+		if not dup_c:
+			g["conditions"].append(cid)
+		else:
+			g["lore"] = g.get("lore", 0) + 1
+		return {"kind": "cond", "id": cid, "duplicate": dup_c}
 
 static func travel_sec(w: float) -> float:
 	return 8.0 + 0.08 * w

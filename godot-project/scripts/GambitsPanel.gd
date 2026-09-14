@@ -44,19 +44,19 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.067, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.04, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# A blank square placeholder (real art comes later) with its label on the
-	# button itself, first of 5 evenly-spaced icons across the bottom row:
-	# Gambits 0.067, PartyPanel's Party icon 0.253, AetherPanel's Aether icon
-	# 0.440, LorePanel's Lore icon 0.627, EquipmentPanel's Equip icon 0.813 --
-	# duplicated there since these are five different scripts with no shared
-	# base. Sits BELOW the turn-order strip's frame (frame bottom ~0.91 --
-	# see BattlePresenter's turn_order_frame) with real clearance, not
-	# overlapping it.
+	# button itself, first of 6 evenly-spaced icons across the bottom row:
+	# Gambits 0.04, PartyPanel's Party icon 0.20, AetherPanel's Aether icon
+	# 0.36, LorePanel's Lore icon 0.52, EquipmentPanel's Equip icon 0.68,
+	# MarksPanel's Marks icon 0.84 -- duplicated there since these are six
+	# different scripts with no shared base. Sits BELOW the turn-order
+	# strip's frame (frame bottom ~0.91 -- see BattlePresenter's
+	# turn_order_frame) with real clearance, not overlapping it.
 	var icon_size: float = _vp.x * 0.12
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.067, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.04, _vp.y * 0.93), icon_size, "Gambits", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

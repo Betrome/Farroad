@@ -455,6 +455,32 @@ func _run_progression_suite() -> void:
 	equip["equipKindForHand2"] = FarroadProgression.equip_kind_for_slot("hand2")
 	out["equipment"] = equip
 
+	# Step 3g: MARKS -- gacha pulls, mirrors parity-reference.js's own
+	# 'marks' section exactly, using the REAL FarroadProgression.do_pull
+	# (not a hand copy -- unlike the JS side, which has no exported doPull
+	# to call, this IS the production function).
+	var g6 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g6, 1)
+	var marks := {}
+	marks["lockedBeforeUnlock"] = FarroadProgression.do_pull(g6)
+	g6["farthest"] = FarroadProgression.MARKS_UNLOCK_WAVE
+	marks["unaffordable"] = FarroadProgression.do_pull(g6)
+	g6["marks"] = 100000.0
+	var pull_results := []
+	for i in range(35):
+		pull_results.append(FarroadProgression.do_pull(g6))
+	marks["pullResults"] = pull_results
+	marks["pullsSinceUnitAfter"] = g6["pullsSinceUnit"]
+	marks["marksAfter"] = g6["marks"]
+	marks["ownedAfter"] = g6["owned"].keys()
+	marks["partyAfter"] = g6["party"].duplicate()
+	marks["actionsAfter"] = g6["actions"].duplicate()
+	marks["conditionsAfter"] = g6["conditions"].duplicate()
+	marks["equipInvAfter"] = g6["equipInv"]
+	marks["loreAfter"] = g6["lore"]
+	marks["aetherAfter"] = g6["aether"]
+	out["marks"] = marks
+
 	print(JSON.stringify(out))
 
 ## Step 3a: FarroadSave.gd -- mirrors parity-reference.js's 'save' mode

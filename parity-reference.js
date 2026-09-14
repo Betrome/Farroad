@@ -977,6 +977,80 @@ if (mode === 'progression') {
   equip5.equipKindForHand2 = equipKindForSlot('hand2');
   out.equipment = equip5;
 
+  // Step 3g: MARKS -- gacha pulls, hand-transcribed from the real
+  // farroad-ui.js's own doPull() (UI-closure-private, same situation
+  // equipItem/unequipItem were in above) the same way every orchestration
+  // function above was.
+  // PULL_ODDS/PULL_PITY_AT live in farroad-ui.js in the real source, which
+  // this harness never loads (only core/progression/save) -- transcribed
+  // here the same way doPull itself is.
+  var PULL_ODDS = { unit: 0.10, equip: 0.10, action: 0.40, cond: 0.40 };
+  var PULL_PITY_AT = 30;
+  function pullCost(w) { return 100; }
+  function doPull(g) {
+    var cost = pullCost(g.wave);
+    if (!P.pullsUnlocked(g)) return {};
+    if (g.marks < cost) return {};
+    g.marks -= cost;
+    g.pullsSinceUnit = (g.pullsSinceUnit || 0) + 1;
+    var pity = g.pullsSinceUnit >= PULL_PITY_AT;
+    var roll = g.rng.next(), O = PULL_ODDS;
+    var kind = pity ? 'unit' : ((roll < O.unit) ? 'unit' :
+      ((roll < O.unit + O.equip) ? 'equip' :
+        ((roll < O.unit + O.equip + O.action) ? 'action' : 'cond')));
+    if (kind === 'unit') {
+      g.pullsSinceUnit = 0;
+      var avail = C.ROSTER.filter(function (r) { return !g.owned[r.id]; });
+      if (!avail.length) {
+        var dup = P.dupUnitAether(g.wave); g.aether += dup;
+        return { kind: 'unit_dup', pity: pity, aetherGain: dup };
+      }
+      var pick = P.weightedRosterPick(g.rng, avail);
+      var fielded = joinCompanion(g, pick.id);
+      return { kind: 'unit', pity: pity, id: pick.id, name: pick.name, fielded: fielded };
+    } else if (kind === 'equip') {
+      var equipIds = Object.keys(C.EQUIPMENT);
+      var eid = P.weightedEquipmentPick(g.rng, equipIds);
+      g.equipInv = g.equipInv || {};
+      g.equipInv[eid] = (g.equipInv[eid] || 0) + 1;
+      return { kind: 'equip', id: eid, duplicate: g.equipInv[eid] > 1, ownedCount: g.equipInv[eid] };
+    } else if (kind === 'action') {
+      var aid = P.weightedActionPick(g.rng, C.EQUIPPABLE);
+      g.actionCounts[aid] = (g.actionCounts[aid] || 0) + 1;
+      var dupA = g.actions.indexOf(aid) >= 0;
+      if (!dupA) g.actions.push(aid); else g.lore += 1;
+      return { kind: 'action', id: aid, duplicate: dupA };
+    } else {
+      var cp = C.CONDITIONS.filter(function (c) { return c.id !== 'none'; });
+      var cid = cp[g.rng.nextInt(cp.length)].id;
+      g.condCounts[cid] = (g.condCounts[cid] || 0) + 1;
+      var dupC = g.conditions.indexOf(cid) >= 0;
+      if (!dupC) g.conditions.push(cid); else g.lore += 1;
+      return { kind: 'cond', id: cid, duplicate: dupC };
+    }
+  }
+
+  var g6 = newGame(7, null);
+  startWave(g6, 1);
+  var marks6 = {};
+  marks6.lockedBeforeUnlock = doPull(g6);
+  g6.farthest = P.MARKS_UNLOCK_WAVE;
+  marks6.unaffordable = doPull(g6);
+  g6.marks = 100000;
+  var pullResults = [];
+  for (var i = 0; i < 35; i++) pullResults.push(doPull(g6));
+  marks6.pullResults = pullResults;
+  marks6.pullsSinceUnitAfter = g6.pullsSinceUnit;
+  marks6.marksAfter = g6.marks;
+  marks6.ownedAfter = Object.keys(g6.owned);
+  marks6.partyAfter = g6.party.slice();
+  marks6.actionsAfter = g6.actions.slice();
+  marks6.conditionsAfter = g6.conditions.slice();
+  marks6.equipInvAfter = g6.equipInv;
+  marks6.loreAfter = g6.lore;
+  marks6.aetherAfter = g6.aether;
+  out.marks = marks6;
+
   console.log(JSON.stringify(out));
 }
 
