@@ -282,11 +282,27 @@ func _sync_party_change() -> void:
 	var added: Array = FarroadProgression.refresh_live_party(g)
 	current_presenter.call("sync_live_party", added)
 
+## Guarded against a real race with side battles (Step 3i/3j fix): a Road
+## win/wipe can already be mid-await (_show_wave_popup/_fade_out, both a
+## full second or more) when the player attempts a quest/dungeon --
+## start_side_battle() reassigns g["battle"] to the side fight's own
+## battle out from under this function. Without the two checks below,
+## the resumed _on_battle_finished call would build a SECOND, unpaused,
+## visible presenter from that reassigned g["battle"]/stale g["units"]/
+## g["enemies"], rendered alongside side_presenter -- exactly the
+## visible "quests overlap with the road" bug this was written to fix.
+## _resolve_side_battle's own restore path is what rebuilds the Road's
+## presenter once it's actually safe again (see its own comment).
 func _begin_next_fight() -> void:
+	if g.get("sideBattle") != null:
+		return
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished)
 	add_child(presenter)
 	await get_tree().process_frame
+	if g.get("sideBattle") != null:
+		presenter.queue_free()
+		return
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"])
 	current_presenter = presenter
 
@@ -396,6 +412,15 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 	add_child(side_presenter)
 	await get_tree().process_frame
 	side_presenter.start_battle(g["battle"], g["battle"]["units"])
+	wave_label.text = _side_battle_label_text(meta)
+
+## Replaces the top strip's "Wave N" text with the quest/dungeon's own
+## name while a side battle is active -- restored by the ordinary
+## _refresh_hud() call once the side battle fully resolves.
+func _side_battle_label_text(meta: Dictionary) -> String:
+	if meta["kind"] == "quest":
+		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
+	return "%s — Wave %d/%d" % [meta["name"], int(meta["waveIndex"]) + 1, int(meta["totalWaves"])]
 
 ## Called by QuestsPanel (dynamic has_method()+call(), same pattern as
 ## every other panel-to-controller call in this project).
@@ -444,6 +469,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		add_child(side_presenter)
 		await get_tree().process_frame
 		side_presenter.start_battle(g["battle"], g["battle"]["units"])
+		wave_label.text = _side_battle_label_text(g["sideBattle"]["meta"])
 		return
 	if side_presenter != null:
 		side_presenter.queue_free()
@@ -451,6 +477,13 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 	if current_presenter != null:
 		current_presenter.show()
 		current_presenter.call("set_loop_paused", false)
+	else:
+		# Recovery path for the race _begin_next_fight() guards against:
+		# a Road win/wipe that was already mid-await when this side battle
+		# started ran its own cleanup (current_presenter freed and nulled)
+		# but skipped rebuilding a new one, deferring that to right here --
+		# now that g["sideBattle"] is clear again, it's finally safe to.
+		_begin_next_fight()
 	quests_panel.call("_show_result", event)
 	_refresh_hud()
 	_save_game()
