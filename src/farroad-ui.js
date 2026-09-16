@@ -2795,15 +2795,11 @@ var selectedActionTab=null;
 function currentSelectedAction(actionIds){
  if(!selectedActionTab||actionIds.indexOf(selectedActionTab)<0)selectedActionTab=actionIds[0];
  return selectedActionTab;}
-/* "level" = total Lore upgrades an action has, escalating (Swift/Potent/
-   etc, via actionBonusTotal — the same count bonusPrice uses to escalate
-   cost, and the "this action's upgrade #N" line shows) PLUS Broad, which
-   is flat-priced and doesn't feed the escalating counter but is still a
-   real Lore upgrade spent on this action — "leveling up broad does not
-   level up the action; it should count towards its level." Pricing itself
-   is untouched (bonusPrice/actionBonusTotal still exclude broad on
-   purpose, for the escalation math) — only this display number changes. */
-function actionLevel(aid){var b=G.bonuses[aid]||{};return C.actionBonusTotal(b)+(b.broad||0);}
+/* "level" = that action's own TOTAL LORE EARNED (G.loreByAction[aid], not
+   just what's been spent on it) — e.g. Lv. 4 once 4 total Lore has been
+   earned for it, regardless of how many upgrade stacks that Lore has
+   actually bought. */
+function actionLevel(aid){return Math.floor(G.loreByAction[aid]||0);}
 /* Returns a plain HTML string rather than appending to a host directly —
    renderExpedition() (its one call site) already assembles its own content
    as a single string and sets host.innerHTML once, so this needs to slot

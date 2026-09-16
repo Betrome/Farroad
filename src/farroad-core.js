@@ -346,7 +346,7 @@ function actionBonusTotal(b){
    further stacks do nothing), not a repeatable magnitude buy — it neither
    pays into NOR counts toward the linear total the other bonuses escalate
    against. */
-var BONUS_COST_BROAD=50;
+var BONUS_COST_BROAD=10;
 /* v2.12 introduced a rarity cost multiplier here (every Lore price on a
    Rare/Legendary action cost more) plus a triangular per-stack scaling
    (the Nth non-broad upgrade cost N Lore); v2.13 reverts BOTH — a

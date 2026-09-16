@@ -163,9 +163,12 @@ func _build_purchase_button(buy_text: String, cost: int, aid: String, callback: 
 	btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return btn
 
+## The "Lv%d" tag shown next to an action's name: always equal to that
+## action's own TOTAL LORE EARNED (g["loreByAction"][aid], not just what's
+## been spent on it) -- e.g. Lv. 4 once 4 total Lore has been earned for it,
+## regardless of how many upgrade stacks that Lore has actually bought.
 func _action_level(aid: String) -> int:
-	var b: Dictionary = g["bonuses"].get(aid, {})
-	return FarroadCore.action_bonus_total(b) + int(b.get("broad", 0))
+	return floori(g["loreByAction"].get(aid, 0.0))
 
 ## Dictionary.get(key, default) only applies `default` when the KEY IS
 ## ABSENT -- a real GDScript/JS-semantics mismatch already flagged elsewhere
