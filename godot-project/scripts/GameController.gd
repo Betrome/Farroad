@@ -462,36 +462,28 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		_:
 			body_text = "%s" % event["name"]
 
-	# Same "nest inside whatever's already open, don't open a second
-	# top-level Window" fix as _show_action_detail_popup -- a side battle
-	# can resolve while the player has some OTHER tab popup open (QUESTS
-	# itself is always closed before a side battle starts, but nothing
-	# stops opening e.g. UNITS while one plays out), so this needs the
-	# same safe-overlay treatment, not just the action-detail popup.
-	var hs := _overlay_host()
-	var host: Node = hs[0]
-	var host_size: Vector2 = hs[1]
-
-	var backdrop := ColorRect.new()
-	backdrop.color = Color(0, 0, 0, 0.55)
-	backdrop.size = host_size
-	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
-	host.add_child(backdrop)
-	host.move_child(backdrop, host.get_child_count() - 1)
-
-	var box := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = border_color
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(_vp.y * 0.03))
-	box.add_theme_stylebox_override("panel", style)
-	backdrop.add_child(box)
-
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(host_size.x * 0.78, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	box.add_child(vbox)
+	# Post-Milestone-3 APK feedback (round 6): a real, reported bug -- this
+	# popup used to build its own unbounded backdrop+box+vbox directly
+	# (predating _build_detail_overlay, from when it still needed the
+	# "nest inside whatever's already open" fix on its own). An
+	# auto-sizing vbox with no explicit size budget, combined with a large
+	# (_vp.y*0.04) title font, could apparently take more than the one
+	# awaited frame to fully converge on its real layout size -- box.size
+	# was then read for centering BEFORE it reflected the title's true
+	# rendered height, positioning the box as if it were smaller than it
+	# actually rendered, so content visibly overflowed past the box's own
+	# drawn border (reported live: "Quest cleared!" text spilling out
+	# above the green-bordered box, "+100 Aether" spilling out below it).
+	# _build_detail_overlay's own scroll container has an EXPLICIT,
+	# content-independent minimum size instead -- deterministic from the
+	# moment it's created, not something that can lag behind children
+	# still settling -- exactly the fix every OTHER detail overlay
+	# (action/equipment/enemy) already gets for free. Reusing it here
+	# closes that gap and keeps the "nest inside whatever's open, or
+	# fall back to full-screen" behavior unchanged (still via
+	# _overlay_host() internally).
+	var o := _build_detail_overlay(border_color)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = title_text
@@ -514,13 +506,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		gained.modulate = Color(0.85, 0.75, 0.4)
 		vbox.add_child(gained)
 
-	var got_it := Button.new()
-	got_it.text = "Got it"
-	got_it.pressed.connect(func(): backdrop.queue_free())
-	vbox.add_child(got_it)
-
-	await get_tree().process_frame
-	box.position = (host_size - box.size) / 2.0
+	await _finish_detail_overlay(o)
 
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
@@ -584,7 +570,7 @@ func _overlay_host() -> Array:
 ## content into (o["vbox"]) and later finishes via _finish_detail_overlay
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
-func _build_detail_overlay() -> Dictionary:
+func _build_detail_overlay(border_color: Color = Color(0.3, 0.3, 0.34, 1.0)) -> Dictionary:
 	var hs := _overlay_host()
 	var host: Node = hs[0]
 	var host_size: Vector2 = hs[1]
@@ -605,7 +591,7 @@ func _build_detail_overlay() -> Dictionary:
 	var box := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.border_color = border_color
 	style.set_border_width_all(2)
 	style.set_content_margin_all(int(_vp.y * 0.025))
 	box.add_theme_stylebox_override("panel", style)
@@ -641,6 +627,44 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	await get_tree().process_frame
 	var box: PanelContainer = o["box"]
 	box.position = (o["host_size"] - box.size) / 2.0
+
+## Post-Milestone-3 APK feedback (round 5): "I want to have the filters be
+## in the actual drop downs when selecting the actions, not above them...
+## I just want a header at the top of the list you scroll through to pare
+## it down some." A native OptionButton can't embed a custom filter
+## control inside its own popup, so wherever a filter narrows a list of
+## selectable actions/conditions, that OptionButton is replaced with a
+## plain trigger Button that opens THIS overlay instead -- same backdrop+
+## box+scroll construction _build_detail_overlay already uses (so it
+## nests correctly inside whichever popup is open, not a second top-level
+## Window), with a scrollable `list_container` whose own FIRST children
+## are the filter row, followed by the actual selectable rows -- one
+## single list you scroll through together, exactly as asked, not a fixed
+## toolbar above a separately-scrolling area.
+##
+## `populate(list_container, backdrop)` is called once up front and is
+## expected to clear+rebuild `list_container` itself (filter row first,
+## then rows) -- the CALLER owns its own filter state and re-invokes its
+## own `populate` closure recursively from each filter dropdown's
+## on_change handler to refresh the list in place without closing the
+## overlay; each selectable row's own press handler calls
+## `backdrop.queue_free()` after applying the pick, closing the overlay
+## the same way _finish_detail_overlay's own Close button does.
+func _show_picker_overlay(title: String, populate: Callable) -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var title_lbl := Label.new()
+	title_lbl.text = title
+	title_lbl.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(title_lbl)
+
+	var list_container := VBoxContainer.new()
+	list_container.add_theme_constant_override("separation", 6)
+	vbox.add_child(list_container)
+	populate.call(list_container, o["backdrop"])
+
+	await _finish_detail_overlay(o)
 
 ## A small "detailed stats" overlay for any action id -- shared by
 ## GambitsPanel's slot-editor info icon, LorePanel's unequipped-action

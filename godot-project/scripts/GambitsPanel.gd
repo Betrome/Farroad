@@ -42,14 +42,18 @@ var selected_uid: String = ""
 
 var slots_container: Container
 
-## Post-Milestone-3 APK feedback (round 3): "I need the filters all places
-## actions and gambits show up" -- same dropdown-filter mechanism
-## CataloguePanel's Actions/Gambits tabs already established, applied here
-## to every slot's own condition/action OptionButton simultaneously (one
-## filter row above the slot cards, not per-slot -- narrowing what's
-## SELECTABLE, unlike Catalogue's own read-only browsing list). Persists
-## across _refresh_slots() calls (a unit swap, a slot edit) since these are
-## plain instance vars, not rebuilt each time.
+## Post-Milestone-3 APK feedback (round 3 asked for filters here at all;
+## round 4 moved them beside the IF/THEN controls but still above a plain
+## OptionButton; round 5: "I want the filters be in the actual drop downs
+## when selecting the actions, not above them... a header at the top of
+## the list you scroll through to pare it down some" -- a native
+## OptionButton can't embed a filter control inside its own popup at all,
+## so the condition/action pickers are no longer OptionButtons: tapping
+## the current-selection button now opens GameController's shared
+## _show_picker_overlay, whose scrollable list has the filter row as its
+## own first entries, followed by the selectable rows -- one list you
+## scroll through together. Filter STATE is still these same shared
+## instance vars (persists across a unit swap or reopening the picker).
 var cond_filter_group: String = "any"
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
@@ -60,6 +64,23 @@ const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["
 	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
 const ACTION_CAMP_OPTIONS := [["any", "Any type"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"]]
 const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"]]
+
+## Same swatch-icon technique EquipmentPanel.gd/LorePanel.gd already use --
+## a Button (unlike an OptionButton's per-item text) can show ONE icon
+## fine, so the picker trigger button and each row inside the picker both
+## carry the action's own rarity color this way.
+const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+static var _rarity_icon_cache: Dictionary = {}
+
+static func _rarity_icon(rarity: String) -> Texture2D:
+	if _rarity_icon_cache.has(rarity):
+		return _rarity_icon_cache[rarity]
+	var color: Color = RARITY_COLOR.get(rarity, Color(1, 1, 1))
+	var img := Image.create(14, 14, false, Image.FORMAT_RGBA8)
+	img.fill(color)
+	var tex := ImageTexture.create_from_image(img)
+	_rarity_icon_cache[rarity] = tex
+	return tex
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -131,53 +152,6 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
 	return opt
 
-## Post-Milestone-3 APK feedback (round 4): "the filters on the Gambit tab
-## are currently confusing. I want them to be within the section where you
-## select the gambits and actions themselves." The previous design put ALL
-## 4 filter dropdowns in one unlabeled row above every slot card, with no
-## visible connection to what they actually narrowed. Now each filter sits
-## directly beside the control it governs -- the condition (group) filter
-## right next to "IF", the action (target/type/effect) filters right next
-## to "THEN" -- shown only once, on the FIRST slot (i==0), since the
-## filter STATE is still shared across every slot's own dropdown (a small
-## note makes that explicit) rather than repeating the same 4 controls in
-## every slot card.
-func _build_cond_filter_inline() -> Control:
-	var col := VBoxContainer.new()
-	var row := HBoxContainer.new()
-	var lbl := Label.new()
-	lbl.text = "Filter:"
-	lbl.modulate = Color(0.55, 0.55, 0.55)
-	row.add_child(lbl)
-	row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, cond_filter_group, func(v): cond_filter_group = v; _refresh_slots()))
-	col.add_child(row)
-	var hint := Label.new()
-	hint.text = "(applies to every slot's IF dropdown)"
-	hint.modulate = Color(0.45, 0.45, 0.45)
-	hint.add_theme_font_size_override("font_size", 11)
-	col.add_child(hint)
-	return col
-
-func _build_action_filter_inline() -> Control:
-	var col := VBoxContainer.new()
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 4)
-	var lbl := Label.new()
-	lbl.text = "Filter:"
-	lbl.modulate = Color(0.55, 0.55, 0.55)
-	row.add_child(lbl)
-	row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh_slots()))
-	row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh_slots()))
-	row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh_slots()))
-	col.add_child(row)
-	var hint := Label.new()
-	hint.text = "(applies to every slot's THEN dropdown)"
-	hint.modulate = Color(0.45, 0.45, 0.45)
-	hint.add_theme_font_size_override("font_size", 11)
-	col.add_child(hint)
-	return col
-
 ## Mirrors buildGambits' per-slot condition/action <select> pair
 ## (farroad-ui.js:2791-2840) plus the ▲/▼ reorder buttons.
 func _refresh_slots() -> void:
@@ -219,25 +193,28 @@ func _refresh_slots() -> void:
 		if_lbl.text = "IF"
 		if_lbl.modulate = Color(0.65, 0.7, 0.65)
 		vbox.add_child(if_lbl)
-		if i == 0:
-			vbox.add_child(_build_cond_filter_inline())
-		vbox.add_child(_build_condition_option(i, s["cond"]))
+		var cond_btn := Button.new()
+		cond_btn.text = FarroadCore.cond_label(s["cond"])
+		cond_btn.pressed.connect(_open_condition_picker.bind(i, s["cond"]))
+		vbox.add_child(cond_btn)
 
 		var then_lbl := Label.new()
 		then_lbl.text = "THEN"
 		then_lbl.modulate = Color(0.65, 0.7, 0.65)
 		vbox.add_child(then_lbl)
-		if i == 0:
-			vbox.add_child(_build_action_filter_inline())
 		var action_row := HBoxContainer.new()
-		var action_opt := _build_action_option(i, s["action"])
-		action_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		action_row.add_child(action_opt)
+		var cur_act = FarroadCore.ACTIONS.get(s["action"])
+		var action_btn := Button.new()
+		action_btn.text = cur_act["name"] if cur_act else s["action"]
+		action_btn.icon = _rarity_icon(cur_act.get("rarity", "common")) if cur_act else null
+		action_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		action_btn.pressed.connect(_open_action_picker.bind(i, s["action"]))
+		action_row.add_child(action_btn)
 		# Post-Milestone-3 APK feedback (Group D): an info icon next to each
 		# slot's action, opening GameController's shared action-detail popup
 		# (also used by CataloguePanel's Actions tab) -- .bind() the CURRENT
 		# action id, not the slot index, since the info icon should describe
-		# whatever's presently selected, same as the dropdown's own label.
+		# whatever's presently selected, same as the button's own label.
 		var info_btn := Button.new()
 		info_btn.text = "ⓘ"
 		info_btn.custom_minimum_size = Vector2(36, 0)
@@ -289,54 +266,123 @@ func _refresh_slots() -> void:
 			charge_lbl.modulate = Color(0.85, 0.7, 0.15)
 			slots_container.add_child(charge_lbl)
 
-func _build_condition_option(i: int, current_cond: String) -> OptionButton:
-	var opt := OptionButton.new()
+## Post-Milestone-3 APK feedback (round 5): opens a filterable picker
+## overlay (GameController._show_picker_overlay) instead of a native
+## OptionButton -- the filter row is the scrollable list's own first
+## entry, everything scrolls together. `populate` is a self-referencing
+## closure (declared, then assigned, so it can call itself from a filter
+## dropdown's own on_change handler to rebuild the list in place without
+## closing the overlay) -- the same recursive-closure shape GDScript
+## lambdas support natively.
+func _open_condition_picker(i: int, current_cond: String) -> void:
+	if not (_parent and _parent.has_method("_show_picker_overlay")):
+		return
+	_parent.call("_show_picker_overlay", "Choose condition", func(list_container: Container, backdrop: Node):
+		_populate_condition_picker(list_container, backdrop, i, current_cond))
+
+## Rebuilds the condition picker's scrollable list (filter row first, then
+## rows) -- called once when the picker opens AND again, directly by name,
+## from the filter dropdown's own on_change handler below. A NAMED method
+## call rather than a self-referencing local `var populate: Callable`
+## closure deliberately -- GDScript lambdas capture enclosing locals by a
+## snapshot tied to the lambda's own creation, which does not reliably
+## survive a lambda calling ITSELF by name from inside its own body across
+## re-invocations (confirmed by a real "Attempt to call function on a null
+## instance" error when the filter dropdown fired) -- a plain method call
+## has no such lifetime ambiguity.
+func _populate_condition_picker(list_container: Container, backdrop: Node, i: int, current_cond: String) -> void:
+	for c in list_container.get_children():
+		c.queue_free()
+	var filter_row := HBoxContainer.new()
+	var lbl := Label.new()
+	lbl.text = "Filter:"
+	lbl.modulate = Color(0.55, 0.55, 0.55)
+	filter_row.add_child(lbl)
+	filter_row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, cond_filter_group, func(v):
+		cond_filter_group = v
+		_populate_condition_picker(list_container, backdrop, i, current_cond)))
+	list_container.add_child(filter_row)
+
 	var cond_ids := _sorted_owned_conditions()
-	# The slot's OWN current selection always stays visible/selectable even
-	# if a filter would otherwise exclude it -- same "never hide what's
-	# actually chosen" rule the action dropdown's own held-elsewhere
-	# disable-don't-omit logic already follows.
+	# The slot's OWN current selection always stays listed even if a
+	# filter would otherwise exclude it -- same "never hide what's
+	# actually chosen" rule the action picker's own held-elsewhere
+	# disable-don't-omit logic follows below.
 	if not cond_ids.has(current_cond):
 		cond_ids.append(current_cond)
-	for idx in range(cond_ids.size()):
-		var cid: String = cond_ids[idx]
-		opt.add_item(FarroadCore.cond_label(cid), idx)
-		if cid == current_cond:
-			opt.select(idx)
-	opt.item_selected.connect(func(idx2): _on_cond_changed(i, cond_ids[idx2]))
-	return opt
+	for cid in cond_ids:
+		var row_btn := Button.new()
+		row_btn.text = FarroadCore.cond_label(cid)
+		row_btn.disabled = (cid == current_cond)
+		row_btn.pressed.connect(func():
+			_on_cond_changed(i, cid)
+			backdrop.queue_free())
+		list_container.add_child(row_btn)
 
 ## Mirrors the action <select> build (farroad-ui.js:2798-2808) -- an
 ## option already held by another FIELDED unit (per
 ## FarroadProgression.action_holder_in_party) is disabled with a tooltip,
 ## except the slot's OWN current selection, which is never disabled even
-## if held elsewhere (same aid!==s.action guard the real code uses).
-func _build_action_option(i: int, current_action: String) -> OptionButton:
-	var opt := OptionButton.new()
+## if held elsewhere (same aid!==s.action guard the real code uses). Same
+## picker-overlay shape as the condition picker above.
+func _open_action_picker(i: int, current_action: String) -> void:
+	if not (_parent and _parent.has_method("_show_picker_overlay")):
+		return
+	_parent.call("_show_picker_overlay", "Choose action", func(list_container: Container, backdrop: Node):
+		_populate_action_picker(list_container, backdrop, i, current_action))
+
+## Same named-method-instead-of-self-referencing-closure reasoning as
+## _populate_condition_picker's own comment.
+func _populate_action_picker(list_container: Container, backdrop: Node, i: int, current_action: String) -> void:
+	for c in list_container.get_children():
+		c.queue_free()
+	var filter_row := HFlowContainer.new()
+	filter_row.add_theme_constant_override("h_separation", 6)
+	filter_row.add_theme_constant_override("v_separation", 4)
+	var lbl := Label.new()
+	lbl.text = "Filter:"
+	lbl.modulate = Color(0.55, 0.55, 0.55)
+	filter_row.add_child(lbl)
+	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v):
+		action_filter_target = v
+		_populate_action_picker(list_container, backdrop, i, current_action)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v):
+		action_filter_camp = v
+		_populate_action_picker(list_container, backdrop, i, current_action)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
+		action_filter_effect = v
+		_populate_action_picker(list_container, backdrop, i, current_action)))
+	list_container.add_child(filter_row)
+
 	var action_ids: Array = g["actions"]
-	if action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any":
-		action_ids = action_ids.filter(func(aid):
-			if aid == current_action:
-				return true
-			var act = FarroadCore.ACTIONS.get(aid)
-			return act != null and _action_passes_filter(act))
-	for idx in range(action_ids.size()):
-		var aid: String = action_ids[idx]
+	var filters_active: bool = action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any"
+	for aid in action_ids:
 		var act = FarroadCore.ACTIONS.get(aid)
-		var label: String = act["name"] if act else aid
+		if filters_active and aid != current_action and (act == null or not _action_passes_filter(act)):
+			continue
 		var holder = FarroadProgression.action_holder_in_party(g, aid, selected_uid)
 		var blocked: bool = holder != null and aid != current_action
+		var row := HBoxContainer.new()
+		var row_btn := Button.new()
+		row_btn.text = (act["name"] if act else aid) + (" (used by %s)" % holder if blocked else "")
+		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
+		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row_btn.disabled = blocked or aid == current_action
 		if blocked:
-			label += " (used by %s)" % holder
-		opt.add_item(label, idx)
-		if blocked:
-			opt.set_item_disabled(idx, true)
-			opt.set_item_tooltip(idx, "%s is equipped by %s — non-starter actions can only be used by one unit at a time" % [
-				act["name"] if act else aid, holder])
-		if aid == current_action:
-			opt.select(idx)
-	opt.item_selected.connect(func(idx2): _on_action_changed(i, action_ids[idx2]))
-	return opt
+			row_btn.tooltip_text = "%s is equipped by %s — non-starter actions can only be used by one unit at a time" % [
+				(act["name"] if act else aid), holder]
+		row_btn.pressed.connect(func():
+			_on_action_changed(i, aid)
+			backdrop.queue_free())
+		row.add_child(row_btn)
+		var row_info_btn := Button.new()
+		row_info_btn.text = "ⓘ"
+		row_info_btn.custom_minimum_size = Vector2(36, 0)
+		row_info_btn.pressed.connect(func():
+			if _parent and _parent.has_method("_show_action_detail_popup"):
+				_parent.call("_show_action_detail_popup", aid))
+		row.add_child(row_info_btn)
+		list_container.add_child(row)
 
 func _on_reorder(i: int, delta: int) -> void:
 	var slots: Array = g["loadout"][selected_uid]

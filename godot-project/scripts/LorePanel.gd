@@ -279,39 +279,30 @@ func _refresh_card() -> void:
 		var uneq_label := Label.new()
 		uneq_label.text = "Unequipped actions"
 		card_container.add_child(uneq_label)
-		# Post-Milestone-3 APK feedback (round 3): "I need the filters all
-		# places actions and gambits show up" -- same dropdown-filter
-		# mechanism CataloguePanel/GambitsPanel already established.
-		var filter_row := HFlowContainer.new()
-		filter_row.add_theme_constant_override("h_separation", 6)
-		filter_row.add_theme_constant_override("v_separation", 6)
-		filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh_card()))
-		filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh_card()))
-		filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh_card()))
-		card_container.add_child(filter_row)
-		var filtered_ids: Array = unequipped_ids
-		if action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any":
-			filtered_ids = unequipped_ids.filter(func(aid): return _action_passes_filter(FarroadCore.ACTIONS[aid]))
+		# Post-Milestone-3 APK feedback (round 5): "I want the filters be in
+		# the actual drop downs when selecting the actions, not above them
+		# ... a header at the top of the list you scroll through to pare it
+		# down some" -- replaces the OptionButton (which can't embed a
+		# filter control inside its own popup) with a trigger button that
+		# opens GameController's shared _show_picker_overlay, same shape
+		# GambitsPanel's own condition/action pickers now use.
 		var uneq_row := HBoxContainer.new()
-		var uneq_option := OptionButton.new()
-		uneq_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var selected_idx := 0
-		for i in range(filtered_ids.size()):
-			var aid: String = filtered_ids[i]
-			var act = FarroadCore.ACTIONS[aid]
-			uneq_option.add_icon_item(_rarity_icon(act.get("rarity", "common")), "%s — Lv%d" % [act["name"], _action_level(aid)], i)
-			uneq_option.set_item_metadata(i, aid)
-			if aid == selected_action_id:
-				selected_idx = i
-		uneq_option.selected = selected_idx
-		uneq_option.item_selected.connect(_on_unequipped_selected.bind(uneq_option))
-		uneq_row.add_child(uneq_option)
+		var uneq_btn := Button.new()
+		var cur_act = FarroadCore.ACTIONS.get(selected_action_id) if unequipped_ids.has(selected_action_id) else null
+		if cur_act != null:
+			uneq_btn.text = "%s — Lv%d" % [cur_act["name"], _action_level(selected_action_id)]
+			uneq_btn.icon = _rarity_icon(cur_act.get("rarity", "common"))
+		else:
+			uneq_btn.text = "Choose an action..."
+		uneq_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		uneq_btn.pressed.connect(_open_unequipped_picker.bind(unequipped_ids))
+		uneq_row.add_child(uneq_btn)
 		# Post-Milestone-3 APK feedback (round 3): "add the informational
 		# popups for actions wherever they can be selected."
 		var uneq_info_btn := Button.new()
 		uneq_info_btn.text = "ⓘ"
 		uneq_info_btn.custom_minimum_size = Vector2(36, 0)
-		uneq_info_btn.pressed.connect(_on_unequipped_info_pressed.bind(uneq_option))
+		uneq_info_btn.pressed.connect(_on_unequipped_info_pressed)
 		uneq_row.add_child(uneq_info_btn)
 		card_container.add_child(uneq_row)
 
@@ -426,18 +417,61 @@ func _on_action_selected(aid: String) -> void:
 	selected_action_id = aid
 	_refresh_card()
 
-func _on_unequipped_selected(index: int, option: OptionButton) -> void:
-	selected_action_id = option.get_item_metadata(index)
-	_refresh_card()
+## Post-Milestone-3 APK feedback (round 5): opens the filterable picker
+## overlay instead of a native OptionButton -- same shape GambitsPanel's
+## own condition/action pickers use.
+func _open_unequipped_picker(candidate_ids: Array) -> void:
+	if not (_parent and _parent.has_method("_show_picker_overlay")):
+		return
+	_parent.call("_show_picker_overlay", "Choose an action", func(list_container: Container, backdrop: Node):
+		_populate_unequipped_picker(list_container, backdrop, candidate_ids))
 
-## Post-Milestone-3 APK feedback (round 3) -- reads the dropdown's CURRENT
-## selection fresh at press-time.
-func _on_unequipped_info_pressed(option: OptionButton) -> void:
-	var aid = option.get_item_metadata(option.selected)
-	if aid == null:
+## Rebuilds the picker's scrollable list (filter row first, then rows) --
+## called once when the picker opens AND again, directly by name, from a
+## filter dropdown's own on_change handler. A NAMED method call rather
+## than a self-referencing local `var populate: Callable` closure
+## deliberately -- see GambitsPanel._populate_condition_picker's own
+## comment for the real "Attempt to call function on a null instance"
+## error that pattern produced.
+func _populate_unequipped_picker(list_container: Container, backdrop: Node, candidate_ids: Array) -> void:
+	for c in list_container.get_children():
+		c.queue_free()
+	var filter_row := HFlowContainer.new()
+	filter_row.add_theme_constant_override("h_separation", 6)
+	filter_row.add_theme_constant_override("v_separation", 6)
+	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v):
+		action_filter_target = v
+		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v):
+		action_filter_camp = v
+		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
+		action_filter_effect = v
+		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
+	list_container.add_child(filter_row)
+
+	var filtered_ids: Array = candidate_ids
+	if action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any":
+		filtered_ids = candidate_ids.filter(func(aid): return _action_passes_filter(FarroadCore.ACTIONS[aid]))
+	for aid in filtered_ids:
+		var act = FarroadCore.ACTIONS[aid]
+		var row_btn := Button.new()
+		row_btn.text = "%s — Lv%d" % [act["name"], _action_level(aid)]
+		row_btn.icon = _rarity_icon(act.get("rarity", "common"))
+		row_btn.disabled = (aid == selected_action_id)
+		row_btn.pressed.connect(func():
+			selected_action_id = aid
+			backdrop.queue_free()
+			_refresh_card())
+		list_container.add_child(row_btn)
+
+## Post-Milestone-3 APK feedback (round 3) -- reads selected_action_id
+## fresh at press-time.
+func _on_unequipped_info_pressed() -> void:
+	if selected_action_id == "":
 		return
 	if _parent and _parent.has_method("_show_action_detail_popup"):
-		_parent.call("_show_action_detail_popup", aid)
+		_parent.call("_show_action_detail_popup", selected_action_id)
 
 func _action_passes_filter(act: Dictionary) -> bool:
 	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
