@@ -36,6 +36,12 @@ static func serialize(g: Dictionary, now: int) -> Dictionary:
 	var snap := {"v": VERSION, "savedAt": now, "seed": g["seed"], "rngCalls": g["rng"].calls if g.get("rng") else 0}
 	for k in FIELDS:
 		snap[k] = _clone(g.get(k))
+	# Post-Milestone-3 APK feedback (Group C1): Catalogue's own "seen enemy
+	# archetypes" tracking -- deliberately NOT added to FIELDS above, since
+	# that list mirrors farroad-save.js's own FIELDS field-for-field and
+	# Catalogue has no real-JS equivalent to mirror. Handled as its own
+	# top-level key instead, same pattern v/savedAt/seed/rngCalls already use.
+	snap["seenArch"] = _clone(g.get("seenArch"))
 	return snap
 
 ## @param snap parsed snapshot Dictionary (caller does the JSON parse)
@@ -104,6 +110,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["wipes"] = g.get("wipes") if g.get("wipes") else 0
 	g["idleAcc"] = g.get("idleAcc") if g.get("idleAcc") else 0
 	g["enrage"] = g.get("enrage") != false
+	g["seenArch"] = _clone(snap.get("seenArch")) if snap.get("seenArch") else {}
 
 	# v2.9 MIGRATION: pre-multi-expedition saves aren't handled here (that
 	# legacy 'expedition'/'expeditionLog' shape predates this whole feature

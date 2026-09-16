@@ -1122,7 +1122,25 @@ static func step(b: Dictionary) -> Variant:
 		b["log"].append(e)
 		check_end(b)
 		return e
+	# Post-Milestone-3 APK feedback (Group A2): if the turn-order preview UI
+	# already announced this exact unit as the next actor, it snapshotted
+	# their `slots` at that moment (BattlePresenter._lock_next_actor) --
+	# honor that snapshot here instead of whatever `u["slots"]` may have
+	# been edited to since, then consume (clear) the lock. Godot-only WRITE
+	# site (only a live-watched fight ever sets it), but this READ/consume
+	# is engine-layer so headless callers (expedition/dungeon/offline
+	# catch-up) that never set it are unaffected -- `locked` stays null and
+	# this is a pure no-op there.
+	var locked = b.get("lockedActor")
+	var original_slots = null
+	if locked != null and locked["uid"] == u["id"]:
+		original_slots = u["slots"]
+		u["slots"] = locked["slots"]
 	var ch := choose(u, b)
+	if original_slots != null:
+		u["slots"] = original_slots
+	if locked != null and locked["uid"] == u["id"]:
+		b["lockedActor"] = null
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
 	e["actionId"] = act["id"]; e["actionName"] = act["name"]; e["via"] = ch["via"]
 	e["isCharge"] = bool(act.get("isCharge", false)); e["rank"] = act["rank"]

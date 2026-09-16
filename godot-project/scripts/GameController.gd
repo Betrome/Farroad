@@ -38,6 +38,9 @@ var g: Dictionary
 var _vp: Vector2
 var current_presenter: Node = null
 var gambits_panel: Node
+var units_panel: Node
+var catalogue_panel: Node
+var settings_panel: Node
 var party_panel: Node
 var aether_panel: Node
 var lore_panel: Node
@@ -47,6 +50,7 @@ var expedition_panel: Node
 var expedition_timer: Timer
 var quests_panel: Node
 var mc_panel: Node
+var road_button: Button
 ## Tracks whichever panel's own popup is currently open -- see
 ## _panel_opening()'s own comment for why this exists.
 var open_panel: Node = null
@@ -93,6 +97,15 @@ func _start_game() -> void:
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
 	gambits_panel.setup(g, _vp, self)
+	units_panel = load("res://scripts/UnitsPanel.gd").new()
+	add_child(units_panel)
+	units_panel.setup(g, _vp, self)
+	catalogue_panel = load("res://scripts/CataloguePanel.gd").new()
+	add_child(catalogue_panel)
+	catalogue_panel.setup(g, _vp, self)
+	settings_panel = load("res://scripts/SettingsPanel.gd").new()
+	add_child(settings_panel)
+	settings_panel.setup(g, _vp, self)
 	party_panel = load("res://scripts/PartyPanel.gd").new()
 	add_child(party_panel)
 	party_panel.setup(g, _vp, self)
@@ -164,6 +177,9 @@ func _on_viewport_resized() -> void:
 	if current_presenter != null:
 		current_presenter.reflow(_vp)
 	gambits_panel.reflow(_vp)
+	units_panel.reflow(_vp)
+	catalogue_panel.reflow(_vp)
+	settings_panel.reflow(_vp)
 	party_panel.reflow(_vp)
 	aether_panel.reflow(_vp)
 	lore_panel.reflow(_vp)
@@ -171,6 +187,7 @@ func _on_viewport_resized() -> void:
 	marks_panel.reflow(_vp)
 	expedition_panel.reflow(_vp)
 	quests_panel.reflow(_vp)
+	_reflow_road_button()
 
 ## Resumes user://save.json if one exists and parses cleanly. Mirrors
 ## tryResumeSave() (farroad-ui.js) -- applyCustomMC();startWave(...);
@@ -279,6 +296,46 @@ func _build_hud() -> void:
 	wave_popup_label.add_theme_font_size_override("font_size", int(_vp.y * 0.06))
 	wave_popup.add_child(wave_popup_label)
 
+	_build_road_button()
+
+## Called by SettingsPanel (dynamic has_method()+call()) after the player
+## confirms the "Reset Game" prompt -- deletes the save file (first use of
+## file-deletion anywhere in this codebase, a standard, low-risk Godot API)
+## and reloads the scene, cleanly re-entering _ready()'s own existing boot
+## gate (no save found -> character creation) rather than hand-rolling a
+## manual in-place teardown/rebuild of every panel and timer.
+func _reset_game() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		DirAccess.remove_absolute(SAVE_PATH)
+	get_tree().reload_current_scene()
+
+## Post-Milestone-3 APK feedback (Group B4) -- center of the 8-icon bottom
+## row (same 0.11*vp.x icon size/0.93*vp.y row every tab panel's own icon
+## uses), styled distinctly (a gold fill, not the flat grey every tab icon
+## uses) so it reads as a different KIND of control, not just another tab.
+func _build_road_button() -> void:
+	var icon_size: float = _vp.x * 0.11
+	road_button = Button.new()
+	road_button.text = "Road"
+	road_button.position = Vector2(_vp.x * 0.3833, _vp.y * 0.93)
+	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
+	road_button.clip_text = true
+	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
+	var normal_style := StyleBoxFlat.new()
+	normal_style.bg_color = Color(0.45, 0.36, 0.08)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.55, 0.44, 0.1)
+	road_button.add_theme_stylebox_override("normal", normal_style)
+	road_button.add_theme_stylebox_override("hover", hover_style)
+	road_button.add_theme_stylebox_override("pressed", hover_style)
+	road_button.pressed.connect(_on_road_pressed)
+	add_child(road_button)
+
+func _reflow_road_button() -> void:
+	var icon_size: float = _vp.x * 0.11
+	road_button.position = Vector2(_vp.x * 0.3833, _vp.y * 0.93)
+	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
+
 ## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
 ## shown right after the HUD is built whenever a resumed save had a real
 ## offline gap (_offline_summary is non-empty -- simulate_offline_progress's
@@ -362,6 +419,109 @@ func _show_welcome_back_popup() -> void:
 
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.6))
 
+## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
+## after completing or failing a quest that does the rewards you got,
+## similar to the welcome back pop-up" -- same PopupPanel/StyleBoxFlat
+## construction and post-add-one-frame-before-popup_centered fix as
+## _show_welcome_back_popup above, just keyed off a
+## FarroadProgression.finish_side_battle event instead of an offline
+## summary. QuestsPanel's own "_show_result" card (still called right
+## after this from _resolve_side_battle) is UNCHANGED -- this popup is in
+## addition to it, not a replacement.
+func _show_quest_result_popup(event: Dictionary) -> void:
+	var kind: String = event["kind"]
+	var title_text: String
+	var border_color: Color
+	match kind:
+		"quest_cleared":
+			title_text = "Quest complete!" if event["questComplete"] else "Quest cleared!"
+			border_color = Color(0.35, 0.75, 0.4, 1.0)
+		"quest_failed":
+			title_text = "Quest failed"
+			border_color = Color(0.75, 0.35, 0.35, 1.0)
+		"quest_abandoned":
+			title_text = "Quest abandoned"
+			border_color = Color(0.6, 0.6, 0.35, 1.0)
+		"dungeon_cleared":
+			title_text = "Dungeon cleared!"
+			border_color = Color(0.35, 0.75, 0.4, 1.0)
+		"dungeon_failed":
+			title_text = "Dungeon failed"
+			border_color = Color(0.75, 0.35, 0.35, 1.0)
+		_:
+			return
+
+	var body_text: String
+	match kind:
+		"quest_cleared":
+			body_text = "%s -- stage %d of 5 cleared." % [event["name"], int(event["stageNum"])]
+		"quest_failed":
+			body_text = "%s -- stage %d of 5 was not cleared." % [event["name"], int(event["stageNum"])]
+		"quest_abandoned":
+			body_text = "%s -- stage %d attempt abandoned." % [event["name"], int(event["stageNum"])]
+		_:
+			body_text = "%s" % event["name"]
+
+	# Same "nest inside whatever's already open, don't open a second
+	# top-level Window" fix as _show_action_detail_popup -- a side battle
+	# can resolve while the player has some OTHER tab popup open (QUESTS
+	# itself is always closed before a side battle starts, but nothing
+	# stops opening e.g. UNITS while one plays out), so this needs the
+	# same safe-overlay treatment, not just the action-detail popup.
+	var hs := _overlay_host()
+	var host: Node = hs[0]
+	var host_size: Vector2 = hs[1]
+
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0, 0, 0, 0.55)
+	backdrop.size = host_size
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	host.add_child(backdrop)
+	host.move_child(backdrop, host.get_child_count() - 1)
+
+	var box := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
+	style.border_color = border_color
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(_vp.y * 0.03))
+	box.add_theme_stylebox_override("panel", style)
+	backdrop.add_child(box)
+
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(host_size.x * 0.78, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	box.add_child(vbox)
+
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = body_text
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(body)
+
+	var aether_gained: float = float(event.get("aether", 0.0))
+	var marks_gained: float = float(event.get("marks", 0.0))
+	if aether_gained > 0.0 or marks_gained > 0.0:
+		var gained := Label.new()
+		gained.text = ("+%d Aether, +%d Marks" % [roundi(aether_gained), roundi(marks_gained)]) if marks_gained > 0.0 \
+			else "+%d Aether" % roundi(aether_gained)
+		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+		gained.modulate = Color(0.85, 0.75, 0.4)
+		vbox.add_child(gained)
+
+	var got_it := Button.new()
+	got_it.text = "Got it"
+	got_it.pressed.connect(func(): backdrop.queue_free())
+	vbox.add_child(got_it)
+
+	await get_tree().process_frame
+	box.position = (host_size - box.size) / 2.0
+
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
 	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
@@ -397,6 +557,313 @@ func _panel_opening(panel: Node) -> void:
 		open_panel.popup.hide()
 	open_panel = panel
 
+const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+
+## Post-Milestone-3 APK feedback: "closing the details of an action closes
+## all popups." Root cause: _show_action_detail_popup used to add_child() a
+## brand new top-level PopupPanel directly onto GameController -- a SIBLING
+## Window to whatever tab popup was already open (e.g. UnitsPanel's).
+## Godot's embedded-window system only tracks ONE exclusive top-level popup
+## layer at a time, so opening that second, independent Window silently
+## closed the first the instant it appeared; closing the info popup then
+## left nothing visibly open, reading as "closing it closed everything."
+## A Control (not Window) added as a CHILD of the popup that's already
+## open does not have this problem -- it just nests inside that SAME
+## window, the same way the existing ScrollContainer/VBoxContainer content
+## already does. _overlay_host() below resolves where to nest into.
+func _overlay_host() -> Array:
+	if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
+		return [open_panel.popup, Vector2(open_panel.popup.size)]
+	return [self, _vp]
+
+## Shared construction for every "on top of the current view" detail
+## overlay (action/equipment/enemy) -- builds the dim backdrop + bordered,
+## internally-scrollable box, nested inside whichever popup is currently
+## open (see _overlay_host's own comment for why this, not a second
+## top-level Window). Returns a Dictionary the caller appends its own
+## content into (o["vbox"]) and later finishes via _finish_detail_overlay
+## (adds the Close button, centers the box once its real size is known).
+## Tapping the dim backdrop also dismisses it, same as an explicit Close.
+func _build_detail_overlay() -> Dictionary:
+	var hs := _overlay_host()
+	var host: Node = hs[0]
+	var host_size: Vector2 = hs[1]
+
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0, 0, 0, 0.55)
+	backdrop.size = host_size
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	host.add_child(backdrop)
+	# Same z-order trick wave_popup/fade_overlay already use -- draws on
+	# top of whatever content this window already had, since later-added
+	# siblings draw last. Also correctly layers a SECOND overlay (e.g. an
+	# enemy's own action info, opened from inside its own detail overlay)
+	# on top of the first, since both nest as siblings under the same host
+	# rather than inside one another.
+	host.move_child(backdrop, host.get_child_count() - 1)
+
+	var box := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
+	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.set_border_width_all(2)
+	style.set_content_margin_all(int(_vp.y * 0.025))
+	box.add_theme_stylebox_override("panel", style)
+	backdrop.add_child(box)
+
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, _vp.y * 0.6))
+	box.add_child(scroll)
+
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(host_size.x * 0.76, 0)
+	vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(vbox)
+
+	# Tapping the dim area outside the box also dismisses it -- standard
+	# modal-overlay convention. box itself stops the click from reaching
+	# backdrop's own handler when the tap actually landed inside it.
+	backdrop.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.pressed:
+			backdrop.queue_free())
+	box.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.pressed:
+			get_viewport().set_input_as_handled())
+
+	return {"vbox": vbox, "backdrop": backdrop, "box": box, "host_size": host_size}
+
+func _finish_detail_overlay(o: Dictionary) -> void:
+	var backdrop: ColorRect = o["backdrop"]
+	var close_btn := Button.new()
+	close_btn.text = "Close"
+	close_btn.pressed.connect(func(): backdrop.queue_free())
+	o["vbox"].add_child(close_btn)
+	await get_tree().process_frame
+	var box: PanelContainer = o["box"]
+	box.position = (o["host_size"] - box.size) / 2.0
+
+## A small "detailed stats" overlay for any action id -- shared by
+## GambitsPanel's slot-editor info icon, LorePanel's unequipped-action
+## dropdown, and CataloguePanel's Actions tab (a central, GameController-
+## owned builder, same precedent _show_quest_result_popup/
+## _show_welcome_back_popup already set, rather than duplicating this
+## construction into every panel that needs it).
+func _show_action_detail_popup(action_id: String) -> void:
+	var act = FarroadCore.ACTIONS.get(action_id)
+	if act == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var color: Color = RARITY_COLOR.get(act.get("rarity", "common"), Color(1, 1, 1))
+	var title := RichTextLabel.new()
+	title.bbcode_enabled = true
+	title.fit_content = true
+	title.text = "[b][color=#%s]%s[/color][/b]" % [color.to_html(false), act["name"]]
+	vbox.add_child(title)
+
+	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
+	var target_txt: String = str(act.get("tk", "foe"))
+	var power_lbl := Label.new()
+	power_lbl.text = "%s -- target: %s -- power ×%s -- rank %s" % [camp_txt, target_txt, str(act.get("power", 1.0)), str(act.get("rank", 1.0))]
+	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(power_lbl)
+
+	var cost_lbl := Label.new()
+	if act.get("isCharge", false):
+		cost_lbl.text = "Charge action -- fills at %d per use of a non-charge action" % int(FarroadCore.cost_of_charge(act))
+	else:
+		cost_lbl.text = "Adds %d to the charge gauge" % int(act.get("charge", 0))
+	vbox.add_child(cost_lbl)
+
+	if act.get("heal", false):
+		var heal_lbl := Label.new()
+		heal_lbl.text = "Heals its target(s) instead of dealing damage."
+		heal_lbl.modulate = Color(0.5, 0.85, 0.55)
+		vbox.add_child(heal_lbl)
+
+	if act.get("element"):
+		var elem_lbl := Label.new()
+		elem_lbl.text = "Element: %s" % str(act["element"]).capitalize()
+		vbox.add_child(elem_lbl)
+
+	if act.get("note"):
+		var note_lbl := Label.new()
+		note_lbl.text = str(act["note"])
+		note_lbl.modulate = Color(0.65, 0.65, 0.65)
+		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(note_lbl)
+
+	await _finish_detail_overlay(o)
+
+## Post-Milestone-3 APK feedback (round 3): "change enemies and equipment
+## to have similar popups" -- shared by EquipmentPanel's per-slot info icon
+## and CataloguePanel's Equipment tab. `uid` is optional (empty when opened
+## from a unit-agnostic context like Catalogue) -- see
+## EquipmentPanel._describe_equipment's own comment for why a marginal %
+## affinity contribution needs a REAL unit's baseline to be well-defined;
+## with no uid, this falls back to the item's raw affinity values instead
+## of a computed %.
+func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
+	var item = FarroadCore.EQUIPMENT.get(item_id)
+	if item == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var color: Color = RARITY_COLOR.get(item.get("rarity", "common"), Color(1, 1, 1))
+	var title := RichTextLabel.new()
+	title.bbcode_enabled = true
+	title.fit_content = true
+	title.text = "[b][color=#%s]%s[/color][/b]" % [color.to_html(false), item["name"]]
+	vbox.add_child(title)
+
+	var slot_lbl := Label.new()
+	slot_lbl.text = "Slot: %s" % str(item.get("slot", "")).capitalize()
+	vbox.add_child(slot_lbl)
+
+	var stat_bits: Array = []
+	for k in ["atk", "mag", "def", "res", "spd"]:
+		if item.get(k):
+			stat_bits.append("%s +%d" % [k.to_upper(), item[k]])
+	if item.get("evade"):
+		stat_bits.append("Evade +%d%%" % roundi(item["evade"] * 100.0))
+	if not stat_bits.is_empty():
+		var stat_lbl := Label.new()
+		stat_lbl.text = ", ".join(stat_bits)
+		vbox.add_child(stat_lbl)
+
+	var affinity: Dictionary = item.get("affinity", {})
+	var nonzero_axes: Array = affinity.keys().filter(func(ax): return affinity[ax] != 0.0)
+	if not nonzero_axes.is_empty():
+		var aff_lbl := Label.new()
+		aff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		if uid != "" and g.get("owned", {}).has(uid):
+			var base := FarroadProgression.affinity_baseline(uid)
+			var purchased := FarroadProgression.affinity_purchased(g, uid)
+			var bits: Array = []
+			for ax in nonzero_axes:
+				var without: float = base.get(ax, 0.0) + purchased.get(ax, 0.0)
+				var with_item: float = without + affinity[ax]
+				var delta_pct: float = (FarroadCore.affinity_mul(with_item) - FarroadCore.affinity_mul(without)) * 100.0
+				bits.append("%s %+.0f%%" % [str(ax).capitalize(), delta_pct])
+			var unit_def = FarroadCore.roster_by_id(uid)
+			aff_lbl.text = "Affinity on %s: %s" % [(unit_def["name"] if unit_def else uid), ", ".join(bits)]
+		else:
+			var bits: Array = []
+			for ax in nonzero_axes:
+				bits.append("%s +%s" % [str(ax).capitalize(), str(affinity[ax])])
+			aff_lbl.text = "Affinity (raw): %s" % ", ".join(bits)
+		vbox.add_child(aff_lbl)
+
+	if item.get("note"):
+		var note_lbl := Label.new()
+		note_lbl.text = str(item["note"])
+		note_lbl.modulate = Color(0.65, 0.65, 0.65)
+		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(note_lbl)
+
+	await _finish_detail_overlay(o)
+
+## Post-Milestone-3 APK feedback (round 3): "for enemies, include their
+## actions" -- CataloguePanel's Enemies tab info icon. Enemy archetypes
+## carry their own gambit `slots` (an Array of {cond,action} pairs, same
+## shape a unit's own loadout uses) -- resolved here into readable
+## condition/action names via the same FarroadCore.cond_label/ACTIONS
+## lookups every other panel already uses. Each listed action gets its own
+## info icon too, opening _show_action_detail_popup as a second overlay --
+## nests correctly on top of this one since both are siblings under the
+## same host popup, not nested inside each other (see
+## _build_detail_overlay's own comment).
+func _show_enemy_detail_popup(arch_key: String) -> void:
+	var a = FarroadCore.ARCH.get(arch_key)
+	if a == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var color: Color = RARITY_COLOR.get(a.get("rarity", "common"), Color(1, 1, 1))
+	var title := RichTextLabel.new()
+	title.bbcode_enabled = true
+	title.fit_content = true
+	title.text = "[b][color=#%s]%s[/color][/b]" % [color.to_html(false), a["name"]]
+	vbox.add_child(title)
+
+	var stat_lbl := Label.new()
+	stat_lbl.text = "ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [
+		str(a.get("atk", 0)), str(a.get("mag", 0)), str(a.get("def", 0)), str(a.get("res", 0)), str(a.get("spd", 0))]
+	vbox.add_child(stat_lbl)
+
+	var affinity: Dictionary = a.get("affinity", {})
+	var aff_bits: Array = []
+	for ax in affinity.keys():
+		if affinity[ax] != 0.0:
+			aff_bits.append("%s %+d" % [str(ax).capitalize(), int(affinity[ax])])
+	if not aff_bits.is_empty():
+		var aff_lbl := Label.new()
+		aff_lbl.text = "Affinity: %s" % ", ".join(aff_bits)
+		aff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		vbox.add_child(aff_lbl)
+
+	if a.get("chargeAction"):
+		var cact = FarroadCore.ACTIONS.get(a["chargeAction"])
+		var charge_lbl := Label.new()
+		charge_lbl.text = "⚡ Charge action: %s" % (cact["name"] if cact else a["chargeAction"])
+		charge_lbl.modulate = Color(0.85, 0.7, 0.15)
+		vbox.add_child(charge_lbl)
+
+	var slots: Array = a.get("slots", [])
+	if not slots.is_empty():
+		var slots_header := Label.new()
+		slots_header.text = "Gambits:"
+		slots_header.modulate = Color(0.6, 0.75, 1.0)
+		vbox.add_child(slots_header)
+		for s in slots:
+			var cond_id: String = s.get("cond", "none")
+			var action_id: String = s.get("action", "strike")
+			var act = FarroadCore.ACTIONS.get(action_id)
+			var row := HBoxContainer.new()
+			var lbl := Label.new()
+			lbl.text = "IF %s THEN %s" % [FarroadCore.cond_label(cond_id), (act["name"] if act else action_id)]
+			lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lbl)
+			var info_btn := Button.new()
+			info_btn.text = "ⓘ"
+			info_btn.custom_minimum_size = Vector2(36, 0)
+			info_btn.pressed.connect(_show_action_detail_popup.bind(action_id))
+			row.add_child(info_btn)
+			vbox.add_child(row)
+
+	await _finish_detail_overlay(o)
+
+## Called by UnitsPanel (dynamic has_method()+call()) whenever its
+## Gambits/Aether/Lore/Equipment sub-tab needs to (re)build its content --
+## on first selecting that sub-tab, and again on every unit swap while it
+## stays the active sub-tab. Dispatches to whichever panel's own
+## build_into(container, uid, host_popup) -- these 4 panels no longer own
+## any popup of their own (see GambitsPanel.gd's header comment for why:
+## a nested-popup-closes-everything bug, plus Ian's explicit "show up
+## beneath them, not as new windows" request) -- `host_popup` is passed
+## through only so a panel with its OWN transient dialog (LorePanel's
+## refund confirm) can nest it inside the SAME window this content lives
+## in, rather than risking the identical sibling-Window bug.
+func _build_unit_subpanel_content(panel_key: String, container: Container, uid: String, host_popup: Window) -> void:
+	match panel_key:
+		"gambits": gambits_panel.call("build_into", container, uid, host_popup)
+		"aether": aether_panel.call("build_into", container, uid, host_popup)
+		"lore": lore_panel.call("build_into", container, uid, host_popup)
+		"equipment": equipment_panel.call("build_into", container, uid, host_popup)
+
+## Post-Milestone-3 APK feedback (Group B4): full-screen popups (B2) would
+## otherwise make the Road/combat view unreachable-looking while a tab is
+## open -- the Road view is already always rendered behind every popup, so
+## "returning to it" is just closing whatever's currently open.
+func _on_road_pressed() -> void:
+	if open_panel != null and is_instance_valid(open_panel):
+		open_panel.popup.hide()
+		open_panel = null
+
 ## Called by PartyPanel (dynamic has_method()+call(), same pattern as
 ## _set_battle_paused) right after a bench/field edit -- pushes the roster
 ## change onto the live fight immediately (see
@@ -407,6 +874,15 @@ func _sync_party_change() -> void:
 		return
 	var result: Dictionary = FarroadProgression.refresh_live_party(g)
 	current_presenter.call("sync_live_party", result["added"], result["removed"])
+
+## Called by PartyPanel (dynamic has_method()+call()) right after a
+## front/back row toggle (post-Milestone-3 APK feedback, Group A1) --
+## pushes the row change onto the live fight's on-field sprite immediately,
+## animated, rather than waiting for the next wave's build_party().
+func _sync_row_change(uid: String) -> void:
+	if current_presenter == null:
+		return
+	current_presenter.call("hop_to_new_row", uid)
 
 ## Guarded against a real race with side battles (Step 3i/3j fix): a Road
 ## win/wipe can already be mid-await (_show_wave_popup/_fade_out, both a
@@ -708,5 +1184,6 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		# now that g["sideBattle"] is clear again, it's finally safe to.
 		_begin_next_fight()
 	quests_panel.call("_show_result", event)
+	_show_quest_result_popup(event)
 	_refresh_hud()
 	_save_game()

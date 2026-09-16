@@ -42,23 +42,20 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Seventh of 8 evenly-spaced icons across the bottom row: Gambits
-	# 0.0133, Party 0.1367, Aether 0.2600, Lore 0.3833, Equip 0.5067, Marks
-	# 0.6300, this one 0.7533, Quests 0.8767 -- adding QuestsPanel's icon
-	# meant recomputing all 8 x-fractions (and shrinking icon size
-	# 0.12->0.11), so the other panels' own _build_ui/reflow fractions were
-	# updated too (duplicated per file, same convention, no shared base).
+	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
+	# row's slots -- see MarksPanel.gd's own copy of this comment for the
+	# full new layout. This panel now sits at 0.5067 (was Equipment's slot).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
 
-	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.89)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -73,10 +70,10 @@ func _build_ui(parent: Node) -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	root_vbox.add_child(title)
 
-	active_container = VBoxContainer.new()
-	active_container.add_theme_constant_override("separation", 10)
-	root_vbox.add_child(active_container)
-
+	# Post-Milestone-3 APK feedback (Group B5): the send picker moved ABOVE
+	# the active-expeditions list -- previously it sat below, meaning it was
+	# scrolled well past the fold whenever an expedition was already active,
+	# exactly when a player is most likely to want to send another one.
 	var send_label := Label.new()
 	send_label.text = "Send a party:"
 	root_vbox.add_child(send_label)
@@ -84,6 +81,10 @@ func _build_ui(parent: Node) -> void:
 	send_container = VBoxContainer.new()
 	send_container.add_theme_constant_override("separation", 8)
 	root_vbox.add_child(send_container)
+
+	active_container = VBoxContainer.new()
+	active_container.add_theme_constant_override("separation", 10)
+	root_vbox.add_child(active_container)
 
 ## Same opaque-panel convention every sibling panel already established --
 ## the default theme's PopupPanel background isn't fully opaque.
@@ -119,7 +120,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.02), Vector2i(_vp.x * 0.96, _vp.y * 0.89)))
 
 func _notify_currency_changed() -> void:
 	if _parent and _parent.has_method("_refresh_hud"):
@@ -235,6 +236,11 @@ func _refresh_send_picker() -> void:
 		send_container.add_child(none_lbl)
 		return
 
+	# Post-Milestone-3 APK feedback (Group B5): "increase their size" -- every
+	# button in this panel used to rely on plain default Button sizing (no
+	# custom_minimum_size anywhere); a real ~1.35x taller floor here makes
+	# them easier to tap without changing the HFlowContainer auto-layout.
+	var btn_min_size := Vector2(0, 44)
 	var units_row := HFlowContainer.new()
 	units_row.add_theme_constant_override("h_separation", 6)
 	units_row.add_theme_constant_override("v_separation", 6)
@@ -242,6 +248,7 @@ func _refresh_send_picker() -> void:
 		var def = FarroadCore.roster_by_id(uid)
 		var btn := Button.new()
 		btn.text = def["name"] if def else uid
+		btn.custom_minimum_size = btn_min_size
 		btn.toggle_mode = true
 		btn.button_pressed = selected_uids.has(uid)
 		btn.pressed.connect(_on_unit_toggled.bind(uid))
@@ -257,6 +264,7 @@ func _refresh_send_picker() -> void:
 	for dir in FarroadProgression.direction_ids():
 		var btn := Button.new()
 		btn.text = FarroadProgression.direction_label(dir)
+		btn.custom_minimum_size = btn_min_size
 		btn.toggle_mode = true
 		btn.button_pressed = (selected_direction == dir)
 		btn.disabled = occupied.get(dir, false) and selected_direction != dir
@@ -266,6 +274,7 @@ func _refresh_send_picker() -> void:
 
 	var send_btn := Button.new()
 	send_btn.text = "Send expedition (%d/%d)" % [selected_uids.size(), FarroadProgression.PARTY_CAP]
+	send_btn.custom_minimum_size = btn_min_size
 	send_btn.disabled = selected_uids.is_empty() or selected_direction == ""
 	send_btn.pressed.connect(_on_send_pressed)
 	send_container.add_child(send_btn)

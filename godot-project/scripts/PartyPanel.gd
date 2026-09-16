@@ -56,7 +56,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.89)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -109,7 +109,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_roster()
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.02), Vector2i(_vp.x * 0.96, _vp.y * 0.89)))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
@@ -125,6 +125,14 @@ func _notify_battle_paused(paused: bool) -> void:
 func _notify_party_changed() -> void:
 	if _parent and _parent.has_method("_sync_party_change"):
 		_parent.call("_sync_party_change")
+
+## Pushes a front/back row edit onto the CURRENT fight's on-field sprite
+## immediately, animated -- see _on_row_toggle_pressed's own comment for
+## why the "self-corrects within one wave" tradeoff was replaced with a
+## real live hop (post-Milestone-3 APK feedback, Group A1).
+func _notify_row_changed(uid: String) -> void:
+	if _parent and _parent.has_method("_sync_row_change"):
+		_parent.call("_sync_row_change", uid)
 
 ## Mirrors partyRosterHTML/wirePartyRoster (farroad-ui.js:2722-2746) --
 ## fielded units with a Bench button (disabled at 1 remaining), owned-and-
@@ -184,11 +192,10 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 ## copy) -- matches how the real JS's own row-toggle tag mutates BOTH the
 ## live unit AND C.ROSTER's def (farroad-ui.js:1740-1745), a mechanic that
 ## already existed in the real game but had no Godot UI surface until now.
-## Also pushed onto any matching LIVE g["units"] entry for correctness,
-## though (deliberately, scoped simply) the on-field sprite itself won't
-## visually reposition until the next wave's build_party() lays everyone
-## out fresh -- same "self-corrects within one wave" tradeoff this
-## project already accepted for a viewport-resize mid-fight.
+## Also pushed onto any matching LIVE g["units"] entry for correctness, and
+## (post-Milestone-3 APK feedback, Group A1) now notifies GameController so
+## the on-field sprite hops to its new slot immediately instead of waiting
+## for the next wave's build_party() -- see _notify_row_changed.
 func _on_row_toggle_pressed(uid: String) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	if def == null:
@@ -198,6 +205,7 @@ func _on_row_toggle_pressed(uid: String) -> void:
 	for u in g.get("units", []):
 		if u["id"] == uid:
 			u["row"] = new_row
+	_notify_row_changed(uid)
 	_refresh_roster()
 
 func _on_bench_pressed(uid: String) -> void:

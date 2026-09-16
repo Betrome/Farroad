@@ -38,28 +38,21 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# 8th of 8 evenly-spaced icons across the bottom row. Adding this icon
-	# meant recomputing all 8 x-fractions -- at the prior 7-icon size
-	# (0.12*vp.x), an 8th icon would squeeze the gap to a near-invisible
-	# ~0.0044 (a much harder cliff than any prior icon-count transition),
-	# so icon_size itself shrinks to 0.11*vp.x here, giving a ~0.0133 gap
-	# (comparable squeeze ratio to the 6->7 transition, not a cliff):
-	# Gambits 0.0133, Party 0.1367, Aether 0.2600, Lore 0.3833,
-	# Equipment 0.5067, Marks 0.6300, Expedition 0.7533, this one 0.8767 --
-	# the other 7 panels' own _build_ui/reflow fractions were updated too
-	# (duplicated per file, same convention, no shared base).
+	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
+	# row's slots -- see MarksPanel.gd's own copy of this comment for the
+	# full new layout. This panel now sits at 0.6300 (was Marks' slot).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.89)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -112,7 +105,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.02), Vector2i(_vp.x * 0.96, _vp.y * 0.89)))
 	_notify_battle_paused(true)
 
 ## Also called by GameController (dynamic has_method()+call()) after a

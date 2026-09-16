@@ -801,7 +801,21 @@ function step(b){
  for(var si=0;si<ST.length;si++)if(u.st[ST[si]]>0)u.st[ST[si]]--;
  if(u.hp<=0){e.actionId='none';e.actionName='(burned out)';e.via='—';e.rank=1;e.chargeAfter=u.charge;
   b.log.push(e);checkEnd(b);return e;}
+ /* Post-Milestone-3 APK feedback (Group A2): "once an action is in the
+    queue it shouldn't change" — if the turn-order preview UI already
+    announced this exact unit as the next actor, it snapshotted their
+    slots at that moment (see the Godot port's BattlePresenter own
+    _lock_next_actor for the reference implementation, and farroad-ui.js's
+    own turn-order refresh for this side's write site) — honor that
+    snapshot here instead of whatever u.slots may have been edited to
+    since, then consume (clear) the lock. chooseFrom/resolveCondition are
+    fully deterministic/RNG-free (only later damage/evade/crit resolution
+    rolls), so this is 100% safe w.r.t. RNG — no roll skipped or added. */
+ var locked=b.lockedActor,originalSlots=null;
+ if(locked&&locked.uid===u.id){originalSlots=u.slots;u.slots=locked.slots;}
  var ch=choose(u,b);var act=ACTIONS[ch.actionId]||ACTIONS.strike;
+ if(originalSlots)u.slots=originalSlots;
+ if(locked&&locked.uid===u.id)b.lockedActor=null;
  e.actionId=act.id;e.actionName=act.name;e.via=ch.via;e.isCharge=!!act.isCharge;e.rank=act.rank;
  e.tickCost=tcOf(u,act.rank);
  var primary=resolveTarget(act,ch.target,u,b);

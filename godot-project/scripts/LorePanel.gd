@@ -21,6 +21,19 @@ extends Node
 ## null (Step 3j), same pattern as GAMBITS/AETHER. Ported anyway for
 ## fidelity rather than dropped, since it becomes reachable once Step 3j
 ## lands.
+##
+## Post-Milestone-3 APK feedback (Group B1, then revised after real-device
+## testing): this panel no longer owns any UI surface of its own -- see
+## GambitsPanel.gd's own header comment for the full story of why (a
+## nested-popup-closes-everything bug, plus Ian's explicit "show up
+## beneath them, not as new windows" request). UnitsPanel is the sole
+## popup owner now; this panel builds its existing card content directly
+## into whatever container UnitsPanel hands it (build_into). refund_dialog
+## is a real exception worth flagging: it's still a genuine Window
+## (ConfirmationDialog), but nested as a CHILD of whatever `host_popup`
+## build_into is given -- a child of an already-open Window layers
+## correctly (this is exactly how it worked before this panel had its own
+## popup too), unlike a SEPARATE top-level Window would.
 
 var g: Dictionary
 var _vp: Vector2
@@ -28,182 +41,74 @@ var _parent: Node
 var selected_uid: String = ""
 var selected_action_id: String = ""
 
-var toggle_button: Button
-var popup: PopupPanel
-var unit_tabs_container: HBoxContainer
-var card_container: VBoxContainer
+var card_container: Container
 var refund_dialog: ConfirmationDialog
 var _pending_refund_ids: Array = []
 
+## Post-Milestone-3 APK feedback (round 3): "I need the filters all places
+## actions and gambits show up" -- same dropdown-filter mechanism
+## CataloguePanel/GambitsPanel already established, applied to the
+## Unequipped-actions dropdown.
+var action_filter_target: String = "any"
+var action_filter_camp: String = "any"
+var action_filter_effect: String = "any"
+const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
+	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
+const ACTION_CAMP_OPTIONS := [["any", "Any type"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"]]
+const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"]]
+
 const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width -- same convention AetherPanel.gd established
-const RARITY_TAG := {"rare": " [RARE]", "legendary": " [LEGENDARY]"}
+## Post-Milestone-3 APK feedback (Group B3): "have rarity text colors
+## instead of text" (round 4, after Ian reported equipment's own bracket
+## tag was STILL showing uncolored -- the same underlying issue existed
+## here too) -- Button/OptionButton can't render BBCode/per-item text
+## color, but BOTH support a per-item/per-button ICON, so the bracket tag
+## is replaced with a small solid-color swatch icon instead (see
+## _rarity_icon below, same technique EquipmentPanel.gd's own copy uses).
+## Every RichTextLabel site (the action detail card's own header) still
+## uses RARITY_COLOR directly.
+const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+static var _rarity_icon_cache: Dictionary = {}
+
+static func _rarity_icon(rarity: String) -> Texture2D:
+	if _rarity_icon_cache.has(rarity):
+		return _rarity_icon_cache[rarity]
+	var color: Color = RARITY_COLOR.get(rarity, Color(1, 1, 1))
+	var img := Image.create(14, 14, false, Image.FORMAT_RGBA8)
+	img.fill(color)
+	var tex := ImageTexture.create_from_image(img)
+	_rarity_icon_cache[rarity] = tex
+	return tex
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
-	_build_ui(parent)
 
-## Same reasoning/limitation as AetherPanel.reflow() -- see its comment.
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
-	if toggle_button:
-		toggle_button.queue_free()
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
 
-func _build_ui(parent: Node) -> void:
-	# Fourth of 8 evenly-spaced icons across the bottom row: GambitsPanel
-	# 0.0133, PartyPanel 0.1367, AetherPanel 0.2600, this one 0.3833,
-	# EquipmentPanel 0.5067, MarksPanel 0.6300, ExpeditionPanel 0.7533,
-	# QuestsPanel 0.8767 -- all other panels' own x fractions were
-	# recomputed to make room for QuestsPanel's new 8th icon.
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Lore", _on_toggle_pressed)
-
-	popup = PopupPanel.new()
-	_style_popup(popup)
-	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
-
-	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
-	popup.add_child(scroll)
-
-	var root_vbox := VBoxContainer.new()
-	root_vbox.custom_minimum_size = Vector2(popup_size.x - 40, 0)
-	root_vbox.add_theme_constant_override("separation", 14)
-	scroll.add_child(root_vbox)
-
-	var title := Label.new()
-	title.text = "LORE"
-	title.add_theme_font_size_override("font_size", 20)
-	root_vbox.add_child(title)
-
-	var tabs_label := Label.new()
-	tabs_label.text = "Upgrade actions for:"
-	root_vbox.add_child(tabs_label)
-
-	# A horizontal-only ScrollContainer of its own -- see GambitsPanel.gd's
-	# own copy of this comment for why (the real source of "scrolling is
-	# inconsistent" across panels).
-	var tabs_scroll := ScrollContainer.new()
-	tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root_vbox.add_child(tabs_scroll)
-	unit_tabs_container = HBoxContainer.new()
-	unit_tabs_container.add_theme_constant_override("separation", 6)
-	tabs_scroll.add_child(unit_tabs_container)
-
-	card_container = VBoxContainer.new()
-	card_container.add_theme_constant_override("separation", 12)
-	root_vbox.add_child(card_container)
-
-	# Godot's ConfirmationDialog stands in for the real confirm() popup --
-	# a child of `popup` itself so it's freed along with everything else,
-	# reused (just its dialog_text) rather than rebuilt on every refund
-	# click. The confirmed signal is connected exactly ONCE here (reading
-	# _pending_refund_ids when it fires) rather than per-click -- a
-	# per-click bind+CONNECT_ONE_SHOT looked simpler but doesn't actually
-	# disconnect on CANCEL, only on confirm, so a cancel-then-reopen cycle
-	# would silently stack a second live connection.
-	refund_dialog = ConfirmationDialog.new()
-	refund_dialog.confirmed.connect(_on_refund_confirmed)
-	popup.add_child(refund_dialog)
-
-func _style_popup(p: PopupPanel) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
-	style.set_border_width_all(2)
-	style.set_content_margin_all(10)
-	p.add_theme_stylebox_override("panel", style)
-
-## Same icon-square style BattlePresenter's own _build_icon_tab uses --
-## duplicated here (different script, no shared base). See BattlePresenter's
-## own copy for the fuller comment on why the label lives ON the button.
-func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	btn.position = pos
-	btn.custom_minimum_size = Vector2(size, size)
-	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.pressed.connect(callback)
-	parent.add_child(btn)
-	return btn
-
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
-	_refresh()
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
-	_notify_battle_paused(true)
-
-## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
-## same pattern as GambitsPanel/AetherPanel's own copy (see
-## BattlePresenter.loop_paused's own comment for why this exists).
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
-
-func _default_uid() -> String:
-	if not g["party"].is_empty():
-		return g["party"][0]
-	var keys: Array = g["owned"].keys()
-	return keys[0] if not keys.is_empty() else ""
-
-func _refresh() -> void:
-	if selected_uid == "" or not g["owned"].has(selected_uid):
-		selected_uid = _default_uid()
-	_refresh_unit_tabs()
-	_refresh_card()
-
-## Same renderUnitTabs(..., true) pattern GAMBITS/AETHER already established --
-## every owned unit, fielded or benched.
-func _refresh_unit_tabs() -> void:
-	for c in unit_tabs_container.get_children():
-		c.queue_free()
-	for uid in g["owned"].keys():
-		var def = FarroadCore.roster_by_id(uid)
-		var btn := Button.new()
-		var label: String = def["name"] if def else uid
-		if not g["party"].has(uid):
-			label += " •"
-		btn.text = label
-		var selected: bool = (uid == selected_uid)
-		btn.disabled = selected
-		_style_unit_tab(btn, selected)
-		btn.pressed.connect(_on_unit_tab_pressed.bind(uid))
-		unit_tabs_container.add_child(btn)
-
-## An explicit gold border/background on the SELECTED unit's tab -- the
-## default theme's "disabled" dimming alone (still used to make
-## re-clicking the current tab a no-op) read as too subtle a way to show
-## who you're currently working with. Duplicated per sibling panel, same
-## no-shared-base convention as _style_purchase_button/_charge_style.
-func _style_unit_tab(btn: Button, selected: bool) -> void:
-	if not selected:
-		return
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.32, 0.27, 0.08)
-	style.border_color = Color(0.85, 0.7, 0.15)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(4)
-	style.set_content_margin_all(6)
-	btn.add_theme_stylebox_override("disabled", style)
-	btn.add_theme_color_override("font_disabled_color", Color(1.0, 0.93, 0.72))
-
-func _on_unit_tab_pressed(uid: String) -> void:
+## Called by UnitsPanel every time the LORE sub-tab is shown. `host_popup`
+## is the Window this content now lives inside -- refund_dialog (a real
+## Window itself, ConfirmationDialog) needs to be reparented there (not
+## left on some earlier host, and never a sibling top-level Window) so it
+## layers correctly if a refund is triggered. Built once, lazily, on first
+## use; the confirmed signal is connected exactly ONCE (reading
+## _pending_refund_ids when it fires) rather than per-click -- a per-click
+## bind+CONNECT_ONE_SHOT looked simpler but doesn't actually disconnect on
+## CANCEL, only on confirm, so a cancel-then-reopen cycle would silently
+## stack a second live connection.
+func build_into(container: Container, uid: String, host_popup: Window) -> void:
 	selected_uid = uid
-	_refresh()
+	card_container = container
+	if refund_dialog == null:
+		refund_dialog = ConfirmationDialog.new()
+		refund_dialog.confirmed.connect(_on_refund_confirmed)
+	if refund_dialog.get_parent() != host_popup:
+		if refund_dialog.get_parent() != null:
+			refund_dialog.get_parent().remove_child(refund_dialog)
+		host_popup.add_child(refund_dialog)
+	_refresh_card()
 
 func _section_label(text: String) -> Label:
 	var lbl := Label.new()
@@ -356,7 +261,8 @@ func _refresh_card() -> void:
 		for aid in equipped_ids:
 			var act = FarroadCore.ACTIONS[aid]
 			var btn := Button.new()
-			btn.text = "%s%s Lv%d" % [act["name"], RARITY_TAG.get(act.get("rarity"), ""), _action_level(aid)]
+			btn.text = "%s Lv%d" % [act["name"], _action_level(aid)]
+			btn.icon = _rarity_icon(act.get("rarity", "common"))
 			btn.disabled = (aid == selected_action_id)
 			btn.pressed.connect(_on_action_selected.bind(aid))
 			eq_row.add_child(btn)
@@ -373,18 +279,41 @@ func _refresh_card() -> void:
 		var uneq_label := Label.new()
 		uneq_label.text = "Unequipped actions"
 		card_container.add_child(uneq_label)
+		# Post-Milestone-3 APK feedback (round 3): "I need the filters all
+		# places actions and gambits show up" -- same dropdown-filter
+		# mechanism CataloguePanel/GambitsPanel already established.
+		var filter_row := HFlowContainer.new()
+		filter_row.add_theme_constant_override("h_separation", 6)
+		filter_row.add_theme_constant_override("v_separation", 6)
+		filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh_card()))
+		filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh_card()))
+		filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh_card()))
+		card_container.add_child(filter_row)
+		var filtered_ids: Array = unequipped_ids
+		if action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any":
+			filtered_ids = unequipped_ids.filter(func(aid): return _action_passes_filter(FarroadCore.ACTIONS[aid]))
+		var uneq_row := HBoxContainer.new()
 		var uneq_option := OptionButton.new()
+		uneq_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var selected_idx := 0
-		for i in range(unequipped_ids.size()):
-			var aid: String = unequipped_ids[i]
+		for i in range(filtered_ids.size()):
+			var aid: String = filtered_ids[i]
 			var act = FarroadCore.ACTIONS[aid]
-			uneq_option.add_item("%s%s — Lv%d" % [act["name"], RARITY_TAG.get(act.get("rarity"), ""), _action_level(aid)])
+			uneq_option.add_icon_item(_rarity_icon(act.get("rarity", "common")), "%s — Lv%d" % [act["name"], _action_level(aid)], i)
 			uneq_option.set_item_metadata(i, aid)
 			if aid == selected_action_id:
 				selected_idx = i
 		uneq_option.selected = selected_idx
 		uneq_option.item_selected.connect(_on_unequipped_selected.bind(uneq_option))
-		card_container.add_child(uneq_option)
+		uneq_row.add_child(uneq_option)
+		# Post-Milestone-3 APK feedback (round 3): "add the informational
+		# popups for actions wherever they can be selected."
+		var uneq_info_btn := Button.new()
+		uneq_info_btn.text = "ⓘ"
+		uneq_info_btn.custom_minimum_size = Vector2(36, 0)
+		uneq_info_btn.pressed.connect(_on_unequipped_info_pressed.bind(uneq_option))
+		uneq_row.add_child(uneq_info_btn)
+		card_container.add_child(uneq_row)
 
 		var refund: Dictionary = FarroadProgression.unused_lore_refund(g)
 		if not (refund["ids"] as Array).is_empty():
@@ -410,8 +339,9 @@ func _refresh_card() -> void:
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
-	box.add_child(_rich_line("[b]%s%s%s[/b] [font_size=12]Lv%d[/font_size]" % [
-		"⚡ " if act.get("isCharge") else "", act["name"], RARITY_TAG.get(act.get("rarity"), ""), _action_level(aid)]))
+	var rarity_color: Color = RARITY_COLOR.get(act.get("rarity"), Color(1, 1, 1))
+	box.add_child(_rich_line("[b]%s[color=#%s]%s[/color][/b] [font_size=12]Lv%d[/font_size]" % [
+		"⚡ " if act.get("isCharge") else "", rarity_color.to_html(false), act["name"], _action_level(aid)]))
 
 	var cost_text := "cost %d" % roundi(float(act["rank"]) * 100.0)
 	if act.get("isCharge"):
@@ -499,6 +429,38 @@ func _on_action_selected(aid: String) -> void:
 func _on_unequipped_selected(index: int, option: OptionButton) -> void:
 	selected_action_id = option.get_item_metadata(index)
 	_refresh_card()
+
+## Post-Milestone-3 APK feedback (round 3) -- reads the dropdown's CURRENT
+## selection fresh at press-time.
+func _on_unequipped_info_pressed(option: OptionButton) -> void:
+	var aid = option.get_item_metadata(option.selected)
+	if aid == null:
+		return
+	if _parent and _parent.has_method("_show_action_detail_popup"):
+		_parent.call("_show_action_detail_popup", aid)
+
+func _action_passes_filter(act: Dictionary) -> bool:
+	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
+		return false
+	if action_filter_camp != "any" and act.get("camp") != action_filter_camp:
+		return false
+	if action_filter_effect == "heal" and not act.get("heal", false):
+		return false
+	if action_filter_effect == "charge" and not act.get("isCharge", false):
+		return false
+	if action_filter_effect == "element" and not act.get("element"):
+		return false
+	return true
+
+func _build_filter_dropdown(options: Array, current_value: String, on_change: Callable) -> OptionButton:
+	var opt := OptionButton.new()
+	for idx in range(options.size()):
+		var entry: Array = options[idx]
+		opt.add_item(entry[1], idx)
+		if entry[0] == current_value:
+			opt.select(idx)
+	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
+	return opt
 
 func _on_buy_bonus(aid: String, bid: String) -> void:
 	FarroadProgression.buy_bonus(g, aid, bid)

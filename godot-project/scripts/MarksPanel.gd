@@ -39,25 +39,24 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Sixth of 8 evenly-spaced icons across the bottom row: Gambits 0.0133,
-	# Party 0.1367, Aether 0.2600, Lore 0.3833, Equip 0.5067, this one
-	# 0.6300, Expedition 0.7533, Quests 0.8767 -- adding QuestsPanel's icon
-	# meant recomputing all 8 x-fractions ((1-8*0.11)/9 ~= 0.0133 margin/gap,
-	# replacing the 7-icon layout's 0.02 at icon size 0.12), so the other
-	# panels' own _build_ui/reflow fractions were updated too (duplicated
-	# per file, same convention, no shared base).
+	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
+	# row's slots after GAMBITS/AETHER/LORE/EQUIPMENT lost their own icons
+	# (folded into UnitsPanel): Units 0.0133, Party 0.1367, this one 0.2600,
+	# Road (GameController's own button, not a panel) 0.3833, Expedition
+	# 0.5067, Quests 0.6300, Catalogue 0.7533, Settings 0.8767 -- same
+	# 0.11*vp.x icon size/0.93*vp.y row as before, just reassigned.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.89)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -110,7 +109,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_card()
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.02), Vector2i(_vp.x * 0.96, _vp.y * 0.89)))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --

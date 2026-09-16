@@ -85,6 +85,7 @@ func update_hp() -> void:
 	if frac <= 0.0 and not unit["isParty"]:
 		visible = false
 	else:
+		visible = true
 		modulate.a = 1.0 if frac > 0.0 else 0.35
 
 ## Re-reads unit["charge"] against its own chargeAction's costOfCharge --

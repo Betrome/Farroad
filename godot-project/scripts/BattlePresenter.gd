@@ -227,6 +227,29 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 	for view in unit_views_by_id.values():
 		view.update_hp()
 
+## Called by GameController right after a PartyPanel front/back row toggle
+## (post-Milestone-3 APK feedback, Group A1) -- replaces the earlier
+## "self-corrects within one wave" tradeoff with a real live hop. The
+## mover's own UnitView is still at its OLD slot when this runs; snapshot
+## that, re-run _reposition_units() (which re-places EVERY tracked view,
+## including the mover, by its now-updated `row` -- same shared recompute
+## sync_live_party's own hop already uses), then tween just the mover from
+## its old position to the freshly computed new one. Every OTHER view gets
+## snapped instantly by _reposition_units() too, but harmlessly -- only the
+## mover's own row changed, so only its own slot actually moved.
+func hop_to_new_row(uid: String) -> void:
+	var view: UnitView = unit_views_by_id.get(uid)
+	if view == null:
+		return
+	var start: Vector2 = view.position
+	_reposition_units()
+	var target: Vector2 = view.position
+	if start == target:
+		return
+	view.position = start
+	var tw := create_tween()
+	tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
 func _layout_units(units: Array) -> void:
 	var unit_size: float = _unit_size()
 	var party_front := []
@@ -858,6 +881,7 @@ func _build_turn_order_ui() -> void:
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
 	var upcoming: Array = [] if battle["over"] != null else FarroadCore.preview(battle, TURN_ORDER_COUNT)
+	_lock_next_actor(upcoming)
 	# A small inset off the card's own width -- the true content width after
 	# the PanelContainer's own border/margins, not the full slot fraction.
 	var max_w: float = _turn_card_w - _vp.x * 0.02
@@ -874,6 +898,34 @@ func _refresh_turn_order() -> void:
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.
 		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.014), max_w)
+
+## Post-Milestone-3 APK feedback (Group A2): "once an action is in the
+## queue it shouldn't change" -- Ian confirmed this means the turn-order
+## preview's own slot 0 (the very next actor) could show one action, then
+## actually execute a different one if a GAMBITS edit landed in the
+## in-between window. Confirmed via direct reads of FarroadCore.gd's
+## choose_from/resolve_condition that action/target SELECTION is fully
+## deterministic and RNG-free (only later damage/evade/crit resolution
+## rolls) -- so freezing one unit's `slots` for one beat's decision is 100%
+## safe w.r.t. RNG/parity, no roll is skipped or added either way.
+## Writes battle["lockedActor"] (a new transient, unsaved battle field,
+## consumed and cleared by FarroadCore.step()/farroad-core.js's own step())
+## the moment upcoming[0]'s unit changes from whichever was locked before --
+## snapshotting THAT unit's live `slots` at exactly the instant it becomes
+## the next actor, so any GAMBITS edit landing after this point can no
+## longer retroactively change what they're about to do.
+func _lock_next_actor(upcoming: Array) -> void:
+	if upcoming.is_empty():
+		return
+	var name: String = upcoming[0]["unitName"]
+	var view: UnitView = unit_views_by_name.get(name)
+	if view == null:
+		return
+	var u: Dictionary = view.unit
+	var locked = battle.get("lockedActor")
+	if locked != null and locked["uid"] == u["id"]:
+		return   # already locked for this same upcoming actor -- nothing to do
+	battle["lockedActor"] = {"uid": u["id"], "slots": (u["slots"] as Array).duplicate(true)}
 
 ## A long action/unit name (e.g. "Wayfarer's Oath") could otherwise draw past
 ## a turn-order card's own edge into its neighbor -- there's no Godot Label
@@ -1083,6 +1135,20 @@ func _animate_beat(e: Dictionary) -> void:
 ## the same target in one beat) spawns multiple labels at the identical
 ## point, overlapping each other for their entire flight.
 func _apply_hit_effects(e: Dictionary) -> void:
+	# "Recalled units still appear dead despite acting" -- a revive action
+	# (recall/lastlight) mutates its target's hp directly but is captured
+	# ONLY as a text note (e["notes"]), never in e["hits"]/e["heals"] (see
+	# FarroadCore.step()'s own revive branch) -- so neither loop below ever
+	# reached the revived unit's view, leaving it dimmed/hidden despite
+	# being alive and taking its own turns again. e["targetName"] already
+	# correctly names the primary target for EVERY action (set unconditionally
+	# before the revive/heal/hit branch), so unconditionally refreshing it
+	# here is a cheap, always-correct general fix, not a revive-only special
+	# case -- redundant (harmless) for actions whose hits/heals loops below
+	# already cover the same target.
+	var primary_view: UnitView = unit_views_by_name.get(e.get("targetName"))
+	if primary_view != null:
+		primary_view.update_hp()
 	var stagger: Dictionary = {}
 	for h in e["hits"]:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])

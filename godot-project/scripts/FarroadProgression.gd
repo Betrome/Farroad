@@ -1138,6 +1138,15 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 			else:
 				priest_used = true
 		var a: Dictionary = FarroadCore.ARCH[key]
+		# Post-Milestone-3 APK feedback (Group C1): pure bookkeeping for the
+		# new Catalogue tab's Enemies list -- marks this archetype as
+		# encountered. Zero RNG consumption, so this is safe to write
+		# unconditionally with no parity impact (verified via the full
+		# 60-wave progression-mode battle trace staying bit-exact). Godot-only
+		# -- Catalogue has no real-JS equivalent, so g["seenArch"] is
+		# deliberately NOT mirrored to src/farroad-save.js/parity-reference.js.
+		if g.has("seenArch"):
+			g["seenArch"][key] = true
 		# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before
 		# the 2nd party member joins -- it alone uses the eased
 		# FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA; every later boss keeps the
@@ -1370,7 +1379,8 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"mc": mc, "expeditions": [], "pullsSinceUnit": 0,
 		"dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
 		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {},
-		"directions": new_directions()}
+		"directions": new_directions(),
+		"seenArch": {}}
 
 ## ===== EXPEDITIONS (Step 3h) =====
 ## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through
@@ -2067,6 +2077,28 @@ static func apply_custom_mc(g: Dictionary) -> void:
 	GROWTH["kesh"] = {
 		"hp": mc["growth"]["hp"], "atk": mc["growth"]["atk"], "mag": mc["growth"]["mag"],
 		"def": mc["growth"]["def"], "res": mc["growth"]["res"], "spd": mc["growth"]["spd"]}
+
+## Post-Milestone-3 APK feedback (Group A4): "there's currently no way to
+## change charge actions." Mirrors the real JS's own mcc-swap <select>
+## onchange handler (farroad-ui.js:2914-2922) -- sets the MC's ACTIVE
+## charge action, re-applies it onto the shared roster def via
+## apply_custom_mc (already correct/idempotent), then patches any matching
+## LIVE unit's own chargeAction field too, same shared-dict-reference
+## reasoning sync_loadout already relies on (Step 3c), so a swap mid-fight
+## takes effect immediately rather than waiting for the next wave. Only
+## meaningful when `action_id` is already in mc["acquiredCharges"] -- the
+## UI only ever offers already-acquired ids (mirrors mcOwns/swappable), so
+## no re-validation here, same discipline every other mutation function in
+## this file already follows.
+static func set_mc_charge_action(g: Dictionary, action_id: String) -> void:
+	var mc = g.get("mc")
+	if mc == null:
+		return
+	mc["chargeAction"] = action_id
+	apply_custom_mc(g)
+	for u in g.get("units", []):
+		if u["id"] == "kesh":
+			u["chargeAction"] = action_id
 
 ## Mirrors mcName/withMcName (farroad-ui.js:178-181) -- reads the CURRENT
 ## FarroadCore.ROSTER "kesh" entry's name directly (not g["mc"]["name"]),
