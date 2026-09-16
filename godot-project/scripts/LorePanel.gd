@@ -151,10 +151,10 @@ func _style_purchase_button(btn: Button, available: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", font)
 	btn.add_theme_color_override("font_hover_color", font)
 
-func _build_purchase_button(buy_text: String, cost: int, callback: Callable, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC) -> Button:
+func _build_purchase_button(buy_text: String, cost: int, aid: String, callback: Callable, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC) -> Button:
 	var btn := Button.new()
 	btn.text = buy_text
-	var available: bool = FarroadProgression.free_lore(g) >= cost
+	var available: bool = FarroadProgression.free_lore(g, aid) >= cost
 	btn.disabled = not available
 	btn.pressed.connect(callback)
 	_style_purchase_button(btn, available)
@@ -224,10 +224,11 @@ func _refresh_card() -> void:
 	card_container.add_child(header)
 
 	# Mirrors renderLore()'s own early return (farroad-ui.js:2046-2048) --
-	# checks the RAW earned total, not free_lore(g): a player who's spent
-	# everything they've earned (free==0) still sees their existing
-	# purchases; only a genuinely fresh g["lore"]==0 shows this message.
-	if g.get("lore", 0) == 0:
+	# checks the RAW earned total across EVERY action, not any one action's
+	# own free_lore(g, aid): a player who's spent everything they've earned
+	# (free==0) still sees their existing purchases; only a genuinely fresh
+	# total_lore(g)==0 shows this message.
+	if FarroadProgression.total_lore(g) == 0.0:
 		card_container.add_child(_rich_line(
 			"[font_size=12]No Lore yet. Lore comes from [b]duplicate[/b] drops, and the curated sequence never repeats itself — so it stays at zero until drops turn random after the wave-20 boss. That is by design, not a stall.[/font_size]"))
 		return
@@ -314,11 +315,6 @@ func _refresh_card() -> void:
 			refund_btn.pressed.connect(_on_refund_pressed.bind(refund))
 			card_container.add_child(refund_btn)
 
-	var free := FarroadProgression.free_lore(g)
-	card_container.add_child(_rich_line(
-		"[b][color=#c9a0ff]%d[/color][/b] [font_size=12]of %d Lore free — each action's next upgrade costs one more Lore than its last[/font_size]" % [
-			int(free), floori(g["lore"])]))
-
 	if selected_action_id == "":
 		return
 	var aid := selected_action_id
@@ -327,6 +323,14 @@ func _refresh_card() -> void:
 		return
 	var b: Dictionary = g["bonuses"].get(aid, {})
 	var holders: Dictionary = FarroadProgression.action_holders(g, aid)
+
+	# v2.13: Lore became per-action -- this line now shows THIS action's own
+	# earned/free pool, not a global total, and each upgrade costs a FLAT
+	# price (no more "costs one more than its last" triangular scaling).
+	var free := FarroadProgression.free_lore(g, aid)
+	card_container.add_child(_rich_line(
+		"[b][color=#c9a0ff]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
+			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
@@ -404,7 +408,7 @@ func _refresh_card() -> void:
 		var count_lbl := Label.new()
 		count_lbl.text = str(n)
 		ctl.add_child(count_lbl)
-		ctl.add_child(_build_purchase_button("+ %d" % price, price, _on_buy_bonus.bind(aid, bid), 0.18))
+		ctl.add_child(_build_purchase_button("+ %d" % price, price, aid, _on_buy_bonus.bind(aid, bid), 0.18))
 		row.add_child(ctl)
 		bonus_list.add_child(row)
 	card_container.add_child(bonus_list)

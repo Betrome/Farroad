@@ -547,14 +547,16 @@ func _build_status_card(u: Dictionary) -> Control:
 		# unmodified baseline rather than a fabricated number.
 		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY 0%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["8ec99a", DIM_COLOR]))
 	elif battle.get("enrage"):
-		var stacks: int = int(u.get("enrageN", 0))
+		# Stacks are battle-wide (battle["enrageN"], rising once per turn
+		# regardless of who acts) -- every enemy shows the SAME stack count
+		# once the gate is open; an enemy just hasn't caught its own stats up
+		# to it yet if it hasn't acted since the count last rose.
+		var stacks: int = int(battle.get("enrageN", 0))
 		var beat: int = battle["beat"]
 		var enrage_text: String
 		if stacks > 0:
-			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage, rising each of its turns" % [
+			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage, rising every turn" % [
 				stacks, roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, stacks) - 1.0) * 100.0)]
-		elif beat > FarroadCore.ENRAGE_AFTER:
-			enrage_text = "⏱ calm — enrages on its next turn"
 		else:
 			enrage_text = "⏱ calm — enrages after turn %d" % FarroadCore.ENRAGE_AFTER
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
@@ -790,15 +792,14 @@ func _refresh_enrage() -> void:
 	var frac: float = clamp(float(beat) / float(gate), 0.0, 1.0)
 	enrage_fg.size = Vector2(enrage_bg.size.x * frac, enrage_bg.size.y)
 	if beat > gate:
-		var max_stacks := 0
-		for u in battle["units"]:
-			if not u["isParty"] and u["hp"] > 0:
-				max_stacks = max(max_stacks, int(u.get("enrageN", 0)))
+		# Stacks are battle-wide now (battle["enrageN"], rising once per turn
+		# regardless of who acts) -- no more per-unit max scan needed.
+		var stacks: int = int(battle.get("enrageN", 0))
 		# Mirrors the JS display formula exactly (farroad-ui.js:1727) -- each
 		# stack multiplies the CURRENT (already-boosted) atk/mag, so N stacks
 		# compound to (1+ENRAGE_PCT)^N, not a flat N*ENRAGE_PCT.
-		var pct := roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, max_stacks) - 1.0) * 100.0)
-		enrage_label.text = ("ENRAGED +%d%% dmg" % pct) if max_stacks > 0 else "ENRAGED"
+		var pct := roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, stacks) - 1.0) * 100.0)
+		enrage_label.text = ("ENRAGED +%d%% dmg" % pct) if stacks > 0 else "ENRAGED"
 	else:
 		var turns_left: int = gate - beat + 1
 		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]

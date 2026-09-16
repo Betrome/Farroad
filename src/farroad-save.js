@@ -22,7 +22,12 @@ S.VERSION=1;
 
 /* Plain fields copied as-is. All of these are already JSON-safe in newGame()
    (farroad-ui.js) — no functions, no DOM handles, no circular refs. */
-var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
+/* v2.13: 'lore' (a single global earned total) became 'loreByAction' (one
+   earned total PER action) -- an old save's legacy global total is
+   deliberately NOT migrated into any action's new pool (this project is
+   still dev/test-only, a "Reset Game" button already exists) -- every
+   action just starts fresh at 0. */
+var FIELDS=['wave','farthest','bossesCleared','aether','loreByAction','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
  'loadout','hpCarry','chargeCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
  'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
@@ -138,19 +143,21 @@ S.deserialize=function(snap,C){
  /* v2.11 MIGRATION: Keen (crit) retired from Lore entirely (redundant once
     ATK/MAG Crit became directly Aether-investable) — a save with banked
     keen stacks on some action must not just lose that spent Lore. Refund
-    the difference this action's own triangular price (bonusSpend, same
-    closed-form every other Lore cost already uses) drops by once keen no
-    longer counts toward its stack total, then strip keen so it can never
+    the difference this action's own price (bonusSpend) drops by once keen
+    no longer counts toward its stack total, then strip keen so it can never
     be read again — same "don't strand a purchase" rule every other
     removed/changed stat this codebase has followed (Block's own removal,
     two phases back, needed no such migration only because nothing had
-    been spent buying it up yet at the time). */
+    been spent buying it up yet at the time). v2.13: the refund now credits
+    THAT ACTION's own loreByAction pool (Lore is per-action now), not a
+    global total. */
+ if(!G.loreByAction)G.loreByAction={};
  Object.keys(G.bonuses).forEach(function(aid){
   var b=G.bonuses[aid];
   if(!b||!b.keen)return;
   var without={};Object.keys(b).forEach(function(k){if(k!=='keen')without[k]=b[k];});
   var refund=C.bonusSpend({x:b})-C.bonusSpend({x:without});
-  G.lore=(G.lore||0)+refund;
+  G.loreByAction[aid]=(G.loreByAction[aid]||0)+refund;
   delete b.keen;});
  /* v2.9: dropsGranted is a NEW, stricter gate than clearedWaves (see
     grantDrops() in the UI layer) — a save from before this field existed
@@ -167,7 +174,7 @@ S.deserialize=function(snap,C){
  if(!G.owned.kesh)G.owned.kesh=1;
  G.maxLevelEver=G.maxLevelEver||1;
  G.wave=G.wave||0;G.farthest=G.farthest||1;G.bossesCleared=G.bossesCleared||0;
- G.aether=G.aether||0;G.lore=G.lore||0;G.marks=G.marks||0;G.wipes=G.wipes||0;
+ G.aether=G.aether||0;G.loreByAction=G.loreByAction||{};G.marks=G.marks||0;G.wipes=G.wipes||0;
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
  /* v2.9 MIGRATION: a save written before multi-expedition support has a
     singular 'expedition' object (possibly a real in-flight one) and a

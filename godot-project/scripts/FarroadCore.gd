@@ -306,16 +306,16 @@ static func action_bonus_total(b: Dictionary) -> int:
 			t += int(b.get(bid, 0))
 	return t
 
-static func _rarity_of(a) -> String:
-	var r = a.get("rarity") if a != null else null
-	return r if r != null else "common"
-
-## Mirrors bonusPrice (farroad-core.js:356-359).
+## Mirrors bonusPrice (farroad-core.js:356-359). v2.13: flat cost -- no more
+## rarity multiplier (RARITY_COST_MUL is kept defined, just unreferenced
+## here, for any other reader) and no more triangular per-stack scaling
+## (total_on_action is kept as a parameter for call-site compatibility, but
+## no longer read) -- every non-broad stack costs a flat 1 Lore, matching
+## what the OLD formula's own very first purchase already cost (0+1=1).
 static func bonus_price(a, bid: String, total_on_action: int) -> int:
-	var mul: float = RARITY_COST_MUL.get(_rarity_of(a), 1.0)
 	if bid == "broad":
-		return roundi(BONUS_COST_BROAD * mul)
-	return roundi((total_on_action + 1) * mul)
+		return BONUS_COST_BROAD
+	return 1
 
 ## Mirrors bonusApplies (farroad-core.js:423-451).
 static func bonus_applies(a, bid: String) -> bool:
@@ -409,16 +409,17 @@ static func apply_bonuses(map: Dictionary) -> void:
 			var computed: int = CHARGE_FULL + CHARGE_UP_COST * ups - CHARGE_THRIFT * int(b.get("thrifty", 0))
 			a["chargeCost"] = max(CHARGE_COST_MIN, min(CHARGE_COST_MAX, computed))
 
-## Mirrors bonusSpend (farroad-core.js:513-519).
+## Mirrors bonusSpend (farroad-core.js:513-519). v2.13: flat cost -- no
+## rarity multiplier, no triangular per-stack scaling (see bonus_price) --
+## a non-broad stack now costs a flat 1 Lore regardless of the action's own
+## rarity, so this no longer needs to look up ACTIONS[aid] at all. `map` can
+## hold one action (`{aid: b}`, the per-action-pool idiom FarroadSave.gd's
+## refund-diff and free_lore below already use) or several summed together.
 static func bonus_spend(map: Dictionary) -> int:
 	var n := 0
 	for aid in map.keys():
 		var b = map[aid]
-		var total := action_bonus_total(b)
-		var mul: float = RARITY_COST_MUL.get(_rarity_of(ACTIONS.get(aid)), 1.0)
-		for k in range(1, total + 1):
-			n += roundi(k * mul)
-		n += int(b.get("broad", 0)) * roundi(BONUS_COST_BROAD * mul)
+		n += action_bonus_total(b) + int(b.get("broad", 0)) * BONUS_COST_BROAD
 	return n
 
 ## ===== affinity system (mirrors farroad-core.js:88-139) =====
@@ -540,17 +541,17 @@ static func make_unit(cfg: Dictionary) -> Dictionary:
 		"chargeAction": cfg.get("chargeAction"),
 		"slots": cfg.get("slots", [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "strike"}]),
 		"st": new_st(), "stMag": {}, "affinity": aff, "nextActAt": 0, "alternateFlag": 0,
-		"turnsTaken": 0, "enrageN": 0, "row": cfg.get("row"), "arch": cfg.get("arch"),
+		"turnsTaken": 0, "enrageApplied": 0, "row": cfg.get("row"), "arch": cfg.get("arch"),
 		"thorns": cfg.get("thorns", 0.0), "isBoss": bool(cfg.get("isBoss", false))}
 
 static func make_battle(units: Array, opts: Dictionary = {}) -> Dictionary:
 	var b := {"units": units, "t": 0, "beat": 0, "elapsedMs": 0, "log": [], "over": null,
 		"rng": opts.get("rng") if opts.get("rng") != null else make_rng(1),
 		"det": bool(opts.get("deterministic", false)), "gambitMode": "topdown",
-		"smartHeal": true, "enrage": bool(opts.get("enrage", false))}
+		"smartHeal": true, "enrage": bool(opts.get("enrage", false)), "enrageN": 0}
 	for u in units:
 		u["st"] = new_st(); u["stMag"] = {}
-		u["nextActAt"] = tc_of(u, 1.00); u["turnsTaken"] = 0; u["enrageN"] = 0; u["alternateFlag"] = 0
+		u["nextActAt"] = tc_of(u, 1.00); u["turnsTaken"] = 0; u["enrageApplied"] = 0; u["alternateFlag"] = 0
 	return b
 
 ## ===== targeting / threat (mirrors farroad-core.js:520-545, 660-665) =====
@@ -1211,12 +1212,17 @@ static func step(b: Dictionary) -> Variant:
 	e["chargeAfter"] = u["charge"]
 	u["turnsTaken"] += 1
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
-	if b["enrage"] and not u["isParty"] and u["hp"] > 0 and b["beat"] > ENRAGE_AFTER:
-		u["enrageN"] = u.get("enrageN", 0) + 1
-		u["base"]["atk"] *= (1 + ENRAGE_PCT)
-		u["base"]["mag"] *= (1 + ENRAGE_PCT)
-		e["enrageStacks"] = u["enrageN"]
-		e["notes"].append("enraged x%d (+%d%% damage)" % [e["enrageStacks"], round(ENRAGE_PCT * 100)])
+	if b["enrage"] and b["beat"] > ENRAGE_AFTER:
+		b["enrageN"] = b.get("enrageN", 0) + 1
+	if b["enrage"] and not u["isParty"] and u["hp"] > 0:
+		var pending: int = int(b.get("enrageN", 0)) - int(u.get("enrageApplied", 0))
+		if pending > 0:
+			var mul: float = pow(1 + ENRAGE_PCT, pending)
+			u["base"]["atk"] *= mul
+			u["base"]["mag"] *= mul
+			u["enrageApplied"] = b.get("enrageN", 0)
+			e["enrageStacks"] = b["enrageN"]
+			e["notes"].append("enraged ×%d (+%d%% damage)" % [e["enrageStacks"], round((pow(1 + ENRAGE_PCT, e["enrageStacks"]) - 1) * 100)])
 	b["log"].append(e)
 	check_end(b)
 	return e

@@ -12,8 +12,12 @@ extends RefCounted
 const VERSION := 1
 
 ## Plain fields copied as-is -- mirrors FIELDS (farroad-save.js:25-102)
-## exactly, field-for-field, same order.
-const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "lore", "marks", "wipes",
+## exactly, field-for-field, same order. v2.13: "lore" (a single global
+## earned total) became "loreByAction" (one earned total PER action) --
+## an old save's legacy global total is deliberately NOT migrated into any
+## action's new pool (this project is still dev/test-only, a "Reset Game"
+## button already exists) -- every action just starts fresh at 0.
+const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "wipes",
 	"party", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
 	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
 	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
@@ -75,8 +79,12 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		g[k] = g.get(k) if g.get(k) != null else {}
 
 	# v2.11 MIGRATION: Keen (crit) retired from Lore entirely -- refund the
-	# difference this action's own triangular price drops by once keen no
-	# longer counts toward its stack total, then strip it.
+	# difference this action's own price drops by once keen no longer counts
+	# toward its stack total, then strip it. v2.13: the refund now credits
+	# THAT ACTION's own loreByAction pool (Lore is per-action now), not a
+	# global total.
+	if not g.get("loreByAction"):
+		g["loreByAction"] = {}
 	for aid in g["bonuses"].keys():
 		var b: Dictionary = g["bonuses"][aid]
 		if not b or not b.get("keen"):
@@ -86,7 +94,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 			if k != "keen":
 				without[k] = b[k]
 		var refund: int = FarroadCore.bonus_spend({"x": b}) - FarroadCore.bonus_spend({"x": without})
-		g["lore"] = g.get("lore", 0) + refund
+		g["loreByAction"][aid] = float(g["loreByAction"].get(aid, 0.0)) + float(refund)
 		b.erase("keen")
 
 	# v2.9: dropsGranted is a stricter gate than clearedWaves -- seed it from
@@ -105,7 +113,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["farthest"] = g.get("farthest") if g.get("farthest") else 1
 	g["bossesCleared"] = g.get("bossesCleared") if g.get("bossesCleared") else 0
 	g["aether"] = g.get("aether") if g.get("aether") else 0
-	g["lore"] = g.get("lore") if g.get("lore") else 0
+	g["loreByAction"] = g.get("loreByAction") if g.get("loreByAction") else {}
 	g["marks"] = g.get("marks") if g.get("marks") else 0
 	g["wipes"] = g.get("wipes") if g.get("wipes") else 0
 	g["idleAcc"] = g.get("idleAcc") if g.get("idleAcc") else 0

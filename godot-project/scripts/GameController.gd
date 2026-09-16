@@ -511,7 +511,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
 	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
-		roundi(g["aether"]), roundi(g["lore"]), roundi(g["marks"])]
+		roundi(g["aether"]), roundi(FarroadProgression.total_lore(g)), roundi(g["marks"])]
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
 	idle_rate_label.text = "%.1f Aether/hr   %.1f Marks/hr" % [r["aether"] * 3600.0, marks_rate * 3600.0]
@@ -939,7 +939,7 @@ func _begin_next_fight() -> void:
 func _on_battle_finished(outcome: String) -> void:
 	if outcome == "party":
 		var aether_before: float = g.get("aether", 0.0)
-		var lore_before: float = g.get("lore", 0.0)
+		var lore_before: float = FarroadProgression.total_lore(g)
 		var marks_before: float = g.get("marks", 0.0)
 		var events: Array = FarroadProgression.after_wave_cleared(g)
 		events += FarroadProgression.start_wave(g, g["wave"] + 1)
@@ -1051,7 +1051,7 @@ func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float
 	if aether_delta >= 1.0:
 		_spawn_reward_flyer(start, currency_label.position, "+%d Aether" % roundi(aether_delta), delay)
 		delay += REWARD_FLYER_STAGGER
-	var lore_delta: float = g.get("lore", 0.0) - lore_before
+	var lore_delta: float = FarroadProgression.total_lore(g) - lore_before
 	if lore_delta >= 1.0:
 		_spawn_reward_flyer(start, currency_label.position, "+%d Lore" % roundi(lore_delta), delay)
 		delay += REWARD_FLYER_STAGGER

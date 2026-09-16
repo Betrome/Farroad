@@ -266,7 +266,8 @@ func _describe_pull_result(r: Dictionary) -> String:
 		"action":
 			var act = FarroadCore.ACTIONS.get(r["id"])
 			var aname: String = act["name"] if act else r["id"]
-			return "Duplicate action, converted to +1 Lore: %s." % aname if r["duplicate"] else "New action: %s." % aname
+			var noun: String = "charge action" if r.get("isCharge") else "action"
+			return "Duplicate %s, converted to +1 Lore on it: %s." % [noun, aname] if r["duplicate"] else "New %s: %s." % [noun, aname]
 		"cond":
 			return "Duplicate gambit condition, converted to +1 Lore: %s." % FarroadCore.cond_label(r["id"]) if r["duplicate"] else "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
 		_:

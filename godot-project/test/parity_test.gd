@@ -128,6 +128,18 @@ func _run_battle_suite() -> void:
 			"stats": {"hp": 130, "atk": 8, "mag": 12, "def": 7, "res": 10, "spd": 88}, "slots": [{"cond": "none", "action": "mend"}]})
 	])
 
+	out["G"] = _run_battle(4242, [
+		FarroadCore.make_unit({"id": "p1", "name": "Skirmisher", "isParty": true, "level": 1, "slotIndex": 0,
+			"stats": {"hp": 260, "atk": 14, "mag": 4, "def": 10, "res": 10, "spd": 100},
+			"slots": [{"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e1", "name": "Swift Hound", "isParty": false, "level": 1, "slotIndex": 10, "arch": "hound", "row": "back",
+			"stats": {"hp": 900, "atk": 6, "mag": 2, "def": 18, "res": 14, "spd": 220},
+			"slots": [{"cond": "none", "action": "strike"}]}),
+		FarroadCore.make_unit({"id": "e2", "name": "Lumbering Ox", "isParty": false, "level": 1, "slotIndex": 11, "arch": "ox", "row": "front",
+			"stats": {"hp": 900, "atk": 6, "mag": 2, "def": 18, "res": 14, "spd": 30},
+			"slots": [{"cond": "none", "action": "strike"}]})
+	], true)
+
 	print(JSON.stringify(out))
 
 func _run_rng() -> void:
@@ -333,14 +345,14 @@ func _run_progression_suite() -> void:
 		var entry := {"wave": w, "outcome": g["battle"]["over"]}
 		if g["battle"]["over"] == "party":
 			entry["events"] = FarroadProgression.after_wave_cleared(g)
-			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["lore"] = g["lore"]
+			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["loreByAction"] = g["loreByAction"]
 			entry["party"] = g["party"].duplicate(); entry["actions"] = g["actions"].duplicate()
 			entry["conditions"] = g["conditions"].duplicate()
 			trace.append(entry)
 			FarroadProgression.start_wave(g, w + 1)
 		else:
 			entry["events"] = FarroadProgression.on_wipe(g)
-			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["lore"] = g["lore"]
+			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["loreByAction"] = g["loreByAction"]
 			trace.append(entry)
 	out["trace"] = trace
 
@@ -398,30 +410,41 @@ func _run_progression_suite() -> void:
 	var g4 := FarroadProgression.new_game(7, null)
 	FarroadProgression.start_wave(g4, 1)
 	g4["loadout"]["kesh"] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "strike"}]
-	g4["lore"] = 100
+	g4["loreByAction"] = {"strike": 100, "oath": 100, "ember": 100}
 	var lore := {}
 	lore["actionIdsFresh"] = FarroadProgression.lore_action_ids(g4)
 	lore["usedFresh"] = FarroadProgression.used_actions(g4)
 	lore["holdersOathBefore"] = FarroadProgression.action_holders(g4, "oath")
 	lore["activeKesh"] = FarroadProgression.unit_active_actions(g4, "kesh")
-	lore["freeLoreFresh"] = FarroadProgression.free_lore(g4)
+	lore["freeLoreFreshStrike"] = FarroadProgression.free_lore(g4, "strike")
 	FarroadProgression.buy_bonus(g4, "strike", "swift")
 	FarroadProgression.buy_bonus(g4, "strike", "swift")
 	FarroadProgression.buy_bonus(g4, "oath", "potent")
 	FarroadProgression.buy_bonus(g4, "ember", "swift")
 	lore["strikeBonuses"] = (g4["bonuses"]["strike"] as Dictionary).duplicate()
 	lore["oathBonuses"] = (g4["bonuses"]["oath"] as Dictionary).duplicate()
-	lore["freeLoreAfterBuys"] = FarroadProgression.free_lore(g4)
+	lore["freeLoreAfterBuysStrike"] = FarroadProgression.free_lore(g4, "strike")
+	lore["freeLoreAfterBuysOath"] = FarroadProgression.free_lore(g4, "oath")
+	lore["freeLoreAfterBuysEmber"] = FarroadProgression.free_lore(g4, "ember")
 	lore["strikeRankPristine"] = FarroadCore.pristine_of("strike")["rank"]
 	lore["strikeRankAfter"] = FarroadCore.ACTIONS["strike"]["rank"]
 	FarroadProgression.remove_bonus(g4, "strike", "swift")
 	lore["strikeBonusesAfterRemove"] = (g4["bonuses"]["strike"] as Dictionary).duplicate()
-	lore["freeLoreAfterRemove"] = FarroadProgression.free_lore(g4)
+	lore["freeLoreAfterRemoveStrike"] = FarroadProgression.free_lore(g4, "strike")
 	var refund_preview: Dictionary = FarroadProgression.unused_lore_refund(g4)
 	lore["refundPreview"] = refund_preview
 	FarroadProgression.claim_lore_refund(g4, refund_preview["ids"])
 	lore["bonusesAfterRefund"] = g4["bonuses"]
-	lore["freeLoreAfterRefund"] = FarroadProgression.free_lore(g4)
+	lore["freeLoreAfterRefundEmber"] = FarroadProgression.free_lore(g4, "ember")
+	# Duplicate-drop routing (v2.13, confirmed design): a duplicate REGULAR
+	# action and a duplicate CHARGE action both credit that SAME action's
+	# own pool; only a duplicate CONDITION routes to a RANDOM action's pool.
+	FarroadProgression._credit_lore(g4, "strike")
+	lore["loreByActionAfterOwnCredit"] = (g4["loreByAction"] as Dictionary).duplicate()
+	var pool_before_random_credit: Array = FarroadProgression.lore_action_ids(g4)
+	FarroadProgression._credit_random_lore(g4)
+	lore["poolForRandomCredit"] = pool_before_random_credit
+	lore["loreByActionAfterRandomCredit"] = (g4["loreByAction"] as Dictionary).duplicate()
 	out["lore"] = lore
 
 	# Step 3f: EQUIPMENT -- equip/unequip mutation + query helpers, mirrors
@@ -461,13 +484,17 @@ func _run_progression_suite() -> void:
 	# to call, this IS the production function).
 	var g6 := FarroadProgression.new_game(7, null)
 	FarroadProgression.start_wave(g6, 1)
+	# v2.13: a real (non-null) mc so the expanded action-pull pool's charge
+	# branch is genuinely exercised (post-character-creation state), not
+	# silently no-op'd by the defensive g["mc"]==null guard.
+	g6["mc"] = {"name": "MC", "chargeAction": "heavystrike", "acquiredCharges": ["heavystrike"]}
 	var marks := {}
 	marks["lockedBeforeUnlock"] = FarroadProgression.do_pull(g6)
 	g6["farthest"] = FarroadProgression.MARKS_UNLOCK_WAVE
 	marks["unaffordable"] = FarroadProgression.do_pull(g6)
 	g6["marks"] = 100000.0
 	var pull_results := []
-	for i in range(35):
+	for i in range(60):
 		pull_results.append(FarroadProgression.do_pull(g6))
 	marks["pullResults"] = pull_results
 	marks["pullsSinceUnitAfter"] = g6["pullsSinceUnit"]
@@ -477,8 +504,14 @@ func _run_progression_suite() -> void:
 	marks["actionsAfter"] = g6["actions"].duplicate()
 	marks["conditionsAfter"] = g6["conditions"].duplicate()
 	marks["equipInvAfter"] = g6["equipInv"]
-	marks["loreAfter"] = g6["lore"]
+	marks["loreByActionAfter"] = g6["loreByAction"]
 	marks["aetherAfter"] = g6["aether"]
+	marks["mcAcquiredChargesAfter"] = g6["mc"]["acquiredCharges"].duplicate()
+	var any_charge_pull_seen := false
+	for r in pull_results:
+		if r.get("isCharge"):
+			any_charge_pull_seen = true
+	marks["anyChargePullSeen"] = any_charge_pull_seen
 	out["marks"] = marks
 
 	# Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
@@ -695,7 +728,7 @@ func _run_save_suite() -> void:
 		return
 	var g := {
 		"seed": 999, "rng": FarroadCore.make_rng(999), "wave": 5, "farthest": 5, "bossesCleared": 0,
-		"aether": 42.5, "lore": 3, "marks": 7.25, "wipes": 1,
+		"aether": 42.5, "loreByAction": {"strike": 3}, "marks": 7.25, "wipes": 1,
 		"party": ["kesh", "ansa"], "actions": ["strike", "ember", "sear"], "conditions": ["none", "foe_lowest_hp"],
 		"actionCounts": {"sear": 1}, "condCounts": {"foe_lowest_hp": 1}, "bonuses": {"strike": {"potent": 2}},
 		"recovery": {"kesh": 3}, "loadout": {"kesh": [{"cond": "none", "action": "strike"}]},
@@ -725,6 +758,7 @@ func _run_save_suite() -> void:
 	out["restoredEquipped"] = restored["equipped"]
 	out["restoredMc"] = restored["mc"]
 	out["restoredChargeCarry"] = restored["chargeCarry"]
+	out["restoredLoreByAction"] = restored["loreByAction"]
 	var orig_next := []
 	var restored_next := []
 	for j in range(10):
@@ -743,6 +777,6 @@ func _run_save_suite() -> void:
 		"bank": migrated["bank"], "affinities": migrated["affinities"], "statInvest": migrated["statInvest"],
 		"equipped": migrated["equipped"], "directions": migrated["directions"], "quests": migrated["quests"],
 		"expeditions": migrated["expeditions"], "enrage": migrated["enrage"], "actions": migrated["actions"],
-		"conditions": migrated["conditions"]}
+		"conditions": migrated["conditions"], "loreByAction": migrated["loreByAction"]}
 
 	print(JSON.stringify(out))

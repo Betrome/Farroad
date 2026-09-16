@@ -184,6 +184,24 @@ if (mode === 'battle') {
       stats: { hp: 130, atk: 8, mag: 12, def: 7, res: 10, spd: 88 }, slots: [{ cond: 'none', action: 'mend' }] })
   ]);
 
+  // Scenario G: enrage-every-turn catch-up -- a huge speed gap between two
+  // enemies (Swift Hound acts many times, Lumbering Ox rarely) against a
+  // weak attacker, high enemy HP/DEF so the fight runs well past
+  // ENRAGE_AFTER=20 beats -- exercises the SHARED battle-level enrageN
+  // counter (rising on the party's turns too, not just an enemy's) and the
+  // rare-acting Ox's lump pow(1+ENRAGE_PCT, pending) catch-up specifically.
+  out.G = runBattle(4242, [
+    C.makeUnit({ id: 'p1', name: 'Skirmisher', isParty: true, level: 1, slotIndex: 0,
+      stats: { hp: 260, atk: 14, mag: 4, def: 10, res: 10, spd: 100 },
+      slots: [{ cond: 'none', action: 'strike' }] }),
+    C.makeUnit({ id: 'e1', name: 'Swift Hound', isParty: false, level: 1, slotIndex: 10, arch: 'hound', row: 'back',
+      stats: { hp: 900, atk: 6, mag: 2, def: 18, res: 14, spd: 220 },
+      slots: [{ cond: 'none', action: 'strike' }] }),
+    C.makeUnit({ id: 'e2', name: 'Lumbering Ox', isParty: false, level: 1, slotIndex: 11, arch: 'ox', row: 'front',
+      stats: { hp: 900, atk: 6, mag: 2, def: 18, res: 14, spd: 30 },
+      slots: [{ cond: 'none', action: 'strike' }] })
+  ], true);
+
   console.log(JSON.stringify(out));
 }
 
@@ -511,12 +529,12 @@ if (mode === 'progression') {
       if (d.kind === 'action') {
         g.actionCounts[d.id] = (g.actionCounts[d.id] || 0) + 1;
         var dup = g.actions.indexOf(d.id) >= 0;
-        if (!dup) g.actions.push(d.id); else g.lore += 1;
+        if (!dup) g.actions.push(d.id); else creditLoreG(g, d.id);
         events.push({ kind: 'action', id: d.id, wave: w, duplicate: dup, why: curated ? (d.why || null) : null });
       } else if (d.kind === 'charge') {
         g.mc.acquiredCharges = g.mc.acquiredCharges || [];
         var dupC = g.mc.acquiredCharges.indexOf(d.id) >= 0;
-        if (!dupC) g.mc.acquiredCharges.push(d.id); else g.lore += 1;
+        if (!dupC) g.mc.acquiredCharges.push(d.id); else creditLoreG(g, d.id);
         events.push({ kind: 'charge', id: d.id, wave: w, duplicate: dupC });
       } else if (d.kind === 'equip') {
         g.equipInv = g.equipInv || {};
@@ -525,7 +543,7 @@ if (mode === 'progression') {
       } else {
         g.condCounts[d.id] = (g.condCounts[d.id] || 0) + 1;
         var dup2 = g.conditions.indexOf(d.id) >= 0;
-        if (!dup2) g.conditions.push(d.id); else g.lore += 1;
+        if (!dup2) g.conditions.push(d.id); else creditRandomLoreG(g);
         events.push({ kind: 'cond', id: d.id, wave: w, duplicate: dup2, why: curated ? (d.why || null) : null });
       }
     });
@@ -603,7 +621,7 @@ if (mode === 'progression') {
   function newGame(seed, mc) {
     return {
       seed: seed || 7, rng: C.makeRNG(seed || 7), wave: 0, farthest: 1, bossesCleared: 0,
-      aether: 0, lore: 0, marks: 0, wipes: 0,
+      aether: 0, loreByAction: {}, marks: 0, wipes: 0,
       party: ['kesh'], actions: P.STARTER_ACTIONS.slice(), conditions: ['none'],
       actionCounts: {}, condCounts: {}, bonuses: {}, recovery: {}, loadout: {}, hpCarry: {}, chargeCarry: {}, touched: {},
       clearedWaves: {}, dropsGranted: {},
@@ -658,13 +676,13 @@ if (mode === 'progression') {
     var entry = { wave: w, outcome: g.battle.over };
     if (g.battle.over === 'party') {
       entry.events = afterWaveCleared(g);
-      entry.aether = g.aether; entry.marks = g.marks; entry.lore = g.lore;
+      entry.aether = g.aether; entry.marks = g.marks; entry.loreByAction = g.loreByAction;
       entry.party = g.party.slice(); entry.actions = g.actions.slice(); entry.conditions = g.conditions.slice();
       trace.push(entry);
       startWave(g, w + 1);
     } else {
       entry.events = onWipe(g);
-      entry.aether = g.aether; entry.marks = g.marks; entry.lore = g.lore;
+      entry.aether = g.aether; entry.marks = g.marks; entry.loreByAction = g.loreByAction;
       trace.push(entry);
     }
   }
@@ -859,7 +877,20 @@ if (mode === 'progression') {
     });
     return ids;
   }
-  function freeLoreG(gg) { return Math.max(0, gg.lore - C.bonusSpend(gg.bonuses)); }
+  // v2.13: Lore became per-action (gg.loreByAction[aid], replacing the
+  // single global gg.lore) and bonusSpend/bonusPrice lost their rarity
+  // multiplier AND triangular per-stack scaling -- a non-broad stack is
+  // now a flat 1 Lore regardless of rarity or how many are already owned.
+  function freeLoreG(gg, aid) {
+    return Math.max(0, (gg.loreByAction[aid] || 0) - C.bonusSpend({ x: gg.bonuses[aid] || {} }));
+  }
+  function creditLoreG(gg, aid) { gg.loreByAction[aid] = (gg.loreByAction[aid] || 0) + 1; }
+  function loreActionIdsGForCredit(gg) { return loreActionIdsG(gg); }
+  function creditRandomLoreG(gg) {
+    var ids = loreActionIdsGForCredit(gg);
+    if (!ids.length) return;
+    creditLoreG(gg, ids[gg.rng.nextInt(ids.length)]);
+  }
   function unusedLoreRefundG(gg) {
     var used = usedActionsG(gg);
     var unusedIds = Object.keys(gg.bonuses).filter(function (aid) {
@@ -867,8 +898,7 @@ if (mode === 'progression') {
     });
     var total = 0;
     unusedIds.forEach(function (aid) {
-      var b = gg.bonuses[aid], t = C.actionBonusTotal(b);
-      total += t * (t + 1) / 2 + (b.broad || 0) * C.BONUS_COST_BROAD;
+      total += C.bonusSpend({ x: gg.bonuses[aid] });
     });
     return { ids: unusedIds, total: total };
   }
@@ -894,7 +924,9 @@ if (mode === 'progression') {
   // -- both slots on 'strike', so 'strike' is unambiguously "used" while
   // 'ember' (a starter action, never equipped) stays genuinely unused.
   g4.loadout.kesh = [{ cond: 'none', action: 'strike' }, { cond: 'none', action: 'strike' }];
-  g4.lore = 100;
+  // v2.13: each action gets its OWN Lore pool now -- strike/oath/ember each
+  // seeded separately (was a single flat g.lore=100 before).
+  g4.loreByAction = { strike: 100, oath: 100, ember: 100 };
   var lore4 = {};
   // Kesh's own chargeAction ('oath') is never in g.actions (a fixed roster
   // property, not a drop/pull unlock) -- this is exactly the case
@@ -903,7 +935,7 @@ if (mode === 'progression') {
   lore4.usedFresh = usedActionsG(g4);
   lore4.holdersOathBefore = actionHoldersG(g4, 'oath');
   lore4.activeKesh = unitActiveActionsG(g4, 'kesh');
-  lore4.freeLoreFresh = freeLoreG(g4);
+  lore4.freeLoreFreshStrike = freeLoreG(g4, 'strike');
   buyBonusG(g4, 'strike', 'swift');
   buyBonusG(g4, 'strike', 'swift');
   buyBonusG(g4, 'oath', 'potent');
@@ -913,7 +945,13 @@ if (mode === 'progression') {
   // without copying would silently show the post-remove value here too.
   lore4.strikeBonuses = Object.assign({}, g4.bonuses.strike);
   lore4.oathBonuses = Object.assign({}, g4.bonuses.oath);
-  lore4.freeLoreAfterBuys = freeLoreG(g4);
+  // v2.13: flat 1-Lore-per-stack, no triangular scaling -- 2 swift stacks on
+  // strike costs exactly 2 Lore now (was 1+2=3 under the old formula), and
+  // buying on 'oath'/'ember' must NOT touch strike's own pool (each action's
+  // pool is now genuinely independent).
+  lore4.freeLoreAfterBuysStrike = freeLoreG(g4, 'strike');
+  lore4.freeLoreAfterBuysOath = freeLoreG(g4, 'oath');
+  lore4.freeLoreAfterBuysEmber = freeLoreG(g4, 'ember');
   // 'swift' modifies rank (initiative), not power -- confirms applyBonuses
   // (called inside buyBonusG, same as the real handler) actually took
   // effect on the live ACTIONS table, not just the bonuses map.
@@ -921,14 +959,24 @@ if (mode === 'progression') {
   lore4.strikeRankAfter = C.ACTIONS['strike'].rank;
   removeBonusG(g4, 'strike', 'swift');
   lore4.strikeBonusesAfterRemove = Object.assign({}, g4.bonuses.strike);
-  lore4.freeLoreAfterRemove = freeLoreG(g4);
+  lore4.freeLoreAfterRemoveStrike = freeLoreG(g4, 'strike');
   // 'strike'/'oath' are both "used" (equipped/live chargeAction) so neither
   // is refundable despite real bonus stacks -- only 'ember' (never
   // equipped) should show up here.
   lore4.refundPreview = unusedLoreRefundG(g4);
   claimLoreRefundG(g4, lore4.refundPreview.ids);
   lore4.bonusesAfterRefund = g4.bonuses;
-  lore4.freeLoreAfterRefund = freeLoreG(g4);
+  lore4.freeLoreAfterRefundEmber = freeLoreG(g4, 'ember');
+  // Duplicate-drop routing (v2.13, confirmed design): a duplicate REGULAR
+  // action and a duplicate CHARGE action both credit that SAME action's own
+  // pool (creditLoreG); only a duplicate CONDITION routes to a RANDOM
+  // action's pool (creditRandomLoreG), chosen from lore_action_ids(g).
+  creditLoreG(g4, 'strike');
+  lore4.loreByActionAfterOwnCredit = Object.assign({}, g4.loreByAction);
+  var poolBeforeRandomCredit = loreActionIdsG(g4);
+  creditRandomLoreG(g4);
+  lore4.poolForRandomCredit = poolBeforeRandomCredit;
+  lore4.loreByActionAfterRandomCredit = Object.assign({}, g4.loreByAction);
   out.lore = lore4;
 
   // Step 3f: EQUIPMENT -- equip/unequip mutation + query helpers,
@@ -1030,30 +1078,46 @@ if (mode === 'progression') {
       g.equipInv[eid] = (g.equipInv[eid] || 0) + 1;
       return { kind: 'equip', id: eid, duplicate: g.equipInv[eid] > 1, ownedCount: g.equipInv[eid] };
     } else if (kind === 'action') {
-      var aid = P.weightedActionPick(g.rng, C.EQUIPPABLE);
+      // v2.13: ALL charge actions are now pullable too, not just the
+      // EQUIPPABLE pool -- the pool grows, the outcome branch dispatches on
+      // ACTIONS[id].isCharge.
+      var pool = C.EQUIPPABLE.concat(C.CHARGE_ACTIONS);
+      var aid = P.weightedActionPick(g.rng, pool);
       g.actionCounts[aid] = (g.actionCounts[aid] || 0) + 1;
+      var isChargeA = !!(C.ACTIONS[aid] && C.ACTIONS[aid].isCharge);
+      if (isChargeA) {
+        if (!g.mc) return { kind: 'action', id: aid, duplicate: false, isCharge: true };
+        g.mc.acquiredCharges = g.mc.acquiredCharges || [];
+        var dupMc = g.mc.acquiredCharges.indexOf(aid) >= 0;
+        if (!dupMc) g.mc.acquiredCharges.push(aid); else creditLoreG(g, aid);
+        return { kind: 'action', id: aid, duplicate: dupMc, isCharge: true };
+      }
       var dupA = g.actions.indexOf(aid) >= 0;
-      if (!dupA) g.actions.push(aid); else g.lore += 1;
+      if (!dupA) g.actions.push(aid); else creditLoreG(g, aid);
       return { kind: 'action', id: aid, duplicate: dupA };
     } else {
       var cp = C.CONDITIONS.filter(function (c) { return c.id !== 'none'; });
       var cid = cp[g.rng.nextInt(cp.length)].id;
       g.condCounts[cid] = (g.condCounts[cid] || 0) + 1;
       var dupC = g.conditions.indexOf(cid) >= 0;
-      if (!dupC) g.conditions.push(cid); else g.lore += 1;
+      if (!dupC) g.conditions.push(cid); else creditRandomLoreG(g);
       return { kind: 'cond', id: cid, duplicate: dupC };
     }
   }
 
   var g6 = newGame(7, null);
   startWave(g6, 1);
+  // v2.13: a real (non-null) mc so the expanded action-pull pool's charge
+  // branch is genuinely exercised (post-character-creation state), not
+  // silently no-op'd by the defensive g.mc==null guard.
+  g6.mc = { name: 'MC', chargeAction: 'heavystrike', acquiredCharges: ['heavystrike'] };
   var marks6 = {};
   marks6.lockedBeforeUnlock = doPull(g6);
   g6.farthest = P.MARKS_UNLOCK_WAVE;
   marks6.unaffordable = doPull(g6);
   g6.marks = 100000;
   var pullResults = [];
-  for (var i = 0; i < 35; i++) pullResults.push(doPull(g6));
+  for (var i = 0; i < 60; i++) pullResults.push(doPull(g6));
   marks6.pullResults = pullResults;
   marks6.pullsSinceUnitAfter = g6.pullsSinceUnit;
   marks6.marksAfter = g6.marks;
@@ -1062,8 +1126,13 @@ if (mode === 'progression') {
   marks6.actionsAfter = g6.actions.slice();
   marks6.conditionsAfter = g6.conditions.slice();
   marks6.equipInvAfter = g6.equipInv;
-  marks6.loreAfter = g6.lore;
+  marks6.loreByActionAfter = g6.loreByAction;
   marks6.aetherAfter = g6.aether;
+  marks6.mcAcquiredChargesAfter = g6.mc.acquiredCharges.slice();
+  // Confirms at least one charge action was actually offered by the
+  // expanded pull pool across these 60 draws -- a real, not just
+  // theoretical, exercise of the B4 pool expansion.
+  marks6.anyChargePullSeen = pullResults.some(function (r) { return r && r.isCharge; });
   out.marks = marks6;
 
   // Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
@@ -1624,7 +1693,7 @@ if (mode === 'progression') {
 if (mode === 'save') {
   var g = {
     seed: 999, rng: C.makeRNG(999), wave: 5, farthest: 5, bossesCleared: 0,
-    aether: 42.5, lore: 3, marks: 7.25, wipes: 1,
+    aether: 42.5, loreByAction: { strike: 3 }, marks: 7.25, wipes: 1,
     party: ['kesh', 'ansa'], actions: ['strike', 'ember', 'sear'], conditions: ['none', 'foe_lowest_hp'],
     actionCounts: { sear: 1 }, condCounts: { foe_lowest_hp: 1 }, bonuses: { strike: { potent: 2 } },
     recovery: { kesh: 3 }, loadout: { kesh: [{ cond: 'none', action: 'strike' }] },
@@ -1654,6 +1723,7 @@ if (mode === 'save') {
   out.restoredEquipped = restored.equipped;
   out.restoredMc = restored.mc;
   out.restoredChargeCarry = restored.chargeCarry;
+  out.restoredLoreByAction = restored.loreByAction;
   // Prove the RNG position round-trips: draw the same N values from both the
   // ORIGINAL (still-live) rng and the RESTORED one -- must match bit-exact.
   var origNext = [], restoredNext = [];
@@ -1671,7 +1741,8 @@ if (mode === 'save') {
     dropsGranted: migrated.dropsGranted, owned: migrated.owned, lvl: migrated.lvl, bank: migrated.bank,
     affinities: migrated.affinities, statInvest: migrated.statInvest, equipped: migrated.equipped,
     directions: migrated.directions, quests: migrated.quests, expeditions: migrated.expeditions,
-    enrage: migrated.enrage, actions: migrated.actions, conditions: migrated.conditions
+    enrage: migrated.enrage, actions: migrated.actions, conditions: migrated.conditions,
+    loreByAction: migrated.loreByAction
   };
 
   console.log(JSON.stringify(out));

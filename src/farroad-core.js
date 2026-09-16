@@ -347,16 +347,16 @@ function actionBonusTotal(b){
    pays into NOR counts toward the linear total the other bonuses escalate
    against. */
 var BONUS_COST_BROAD=50;
-/* v2.12: every Lore price on a Rare/Legendary action now costs more,
-   RARITY_COST_MUL applied uniformly (Broad included — "everything about
-   a rare action costs more," not a special case). bonusSpend below must
-   apply the SAME multiplier to its closed-form reconstruction, or a save
-   with Lore already spent on a Rare/Legendary action would recompute a
-   smaller total than was actually paid. */
+/* v2.12 introduced a rarity cost multiplier here (every Lore price on a
+   Rare/Legendary action cost more) plus a triangular per-stack scaling
+   (the Nth non-broad upgrade cost N Lore); v2.13 reverts BOTH — a
+   non-broad stack is now a flat 1 Lore regardless of rarity or how many
+   are already owned, matching what the OLD formula's own very first
+   purchase already cost. `a`/`totalOnAction` are kept as parameters for
+   call-site compatibility but no longer read. */
 function bonusPrice(a,bid,totalOnAction){
- var mul=RARITY_COST_MUL[(a&&a.rarity)||'common']||1;
- if(bid==='broad')return Math.round(BONUS_COST_BROAD*mul);
- return Math.round(((totalOnAction||0)+1)*mul);}
+ if(bid==='broad')return BONUS_COST_BROAD;
+ return 1;}
 /* ===== LORE BONUSES =====
  * v2.2 (item 5): support actions had NO upgrade path — Mend did not scale at all
  * while attacks had piercing/keen/weighty. Six support bonuses added below.
@@ -494,28 +494,17 @@ function applyBonuses(map){snapshot();
    Object.keys(b).forEach(function(k){if(k!=='thrifty')ups+=b[k]||0;});
    a.chargeCost=Math.max(CHARGE_COST_MIN,Math.min(CHARGE_COST_MAX,
     CHARGE_FULL+CHARGE_UP_COST*ups-CHARGE_THRIFT*(b.thrifty||0)));}});}
-/* Reconstructs total Lore spent from final stack counts, not stacks x
-   today's price, same reasoning as the v2.9 bugfix this replaced: a re-spend
-   from scratch (e.g. after a save round-trip) must always land on the same
-   total the player actually paid. Since price now depends only on the
-   ACTION's running total (not on which bonus each purchase was — see
-   bonusPrice/actionBonusTotal above), the total cost of K non-broad stacks
-   on one action is 1+2+...+K, regardless of how those K stacks are split
-   across bonus types or the order they were bought in — no need to replay
-   a purchase sequence.
-   v2.12: at mul===1 (Common) that sum has the closed form K*(K+1)/2 exactly,
-   since every term is already an integer. At any other mul, bonusPrice
-   rounds EACH purchase individually (Lore is spent in whole points), so
-   Math.round(K*(K+1)/2*mul) drifts from the real total — rounding error
-   compounds differently than rounding the smooth sum once. Sum the same
-   per-purchase Math.round bonusPrice itself applies; K is a purchase COUNT
-   on a single action (small — tens at most), so the loop costs nothing. */
+/* Reconstructs total Lore spent from final stack counts. v2.13: with
+   bonusPrice's rarity multiplier and triangular per-stack scaling both
+   reverted, a non-broad stack always costs a flat 1 Lore regardless of the
+   action's rarity or how many are already owned — so this no longer needs
+   ACTIONS[aid] at all, and `map` works equally well holding one action
+   (`{aid:b}`, the per-action-pool idiom farroad-save.js's refund-diff and
+   freeLore below already use) or several summed together. */
 function bonusSpend(map){var n=0;
  Object.keys(map||{}).forEach(function(aid){
-  var b=map[aid],total=actionBonusTotal(b);
-  var mul=RARITY_COST_MUL[(ACTIONS[aid]&&ACTIONS[aid].rarity)||'common']||1;
-  for(var k=1;k<=total;k++)n+=Math.round(k*mul);
-  n+=(b.broad||0)*Math.round(BONUS_COST_BROAD*mul);});
+  var b=map[aid];
+  n+=actionBonusTotal(b)+(b.broad||0)*BONUS_COST_BROAD;});
  return n;}
 function living(b,p){var o=[];for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp>0&&p(u))o.push(u);}return o;}
 function foes(b,u){return living(b,function(x){return x.isParty!==u.isParty;});}
@@ -697,12 +686,12 @@ function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit
  return {id:cfg.id,name:cfg.name,isParty:!!cfg.isParty,level:cfg.level||1,slotIndex:cfg.slotIndex||0,base:d,
   maxHp:cfg.maxHp!=null?cfg.maxHp:d.hp,hp:cfg.hp!=null?cfg.hp:d.hp,charge:cfg.charge||0,
   chargeAction:cfg.chargeAction||null,slots:cfg.slots||[{cond:'none',action:'strike'},{cond:'none',action:'strike'}],
-  st:newSt(),stMag:{},affinity:aff,nextActAt:0,alternateFlag:0,turnsTaken:0,enrageN:0,
+  st:newSt(),stMag:{},affinity:aff,nextActAt:0,alternateFlag:0,turnsTaken:0,enrageApplied:0,
   row:cfg.row||null,arch:cfg.arch||null,thorns:cfg.thorns||0,isBoss:!!cfg.isBoss};}
 function makeBattle(units,opts){opts=opts||{};
  var b={units:units,t:0,beat:0,elapsedMs:0,log:[],over:null,rng:opts.rng||makeRNG(1),det:!!opts.deterministic,
-  gambitMode:'topdown',smartHeal:true,enrage:!!opts.enrage};
- for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.stMag={};u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageN=0;u.alternateFlag=0;}
+  gambitMode:'topdown',smartHeal:true,enrage:!!opts.enrage,enrageN:0};
+ for(var i=0;i<units.length;i++){var u=units[i];u.st=newSt();u.stMag={};u.nextActAt=tcOf(u,1.00);u.turnsTaken=0;u.enrageApplied=0;u.alternateFlag=0;}
  return b;}
 function pickNext(b){var best=null;
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
@@ -851,31 +840,31 @@ function step(b){
   if(act.selfTaunt){apply(u,'taunted',act.selfTaunt,u.affinity.spirit);e.notes.push('taunting');}}
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
- /* ENRAGE (v1.0, on by default; v2.9 gate reworked). Was gated on the
-    ENEMY'S OWN TURNS (grace of 8), which meant a fast enemy raced to its own
-    enrage threshold in real fight-time regardless of how the fight was
-    actually going, sometimes ramping up before the party had a real chance
-    to respond — a crippling start. Gate is now the battle's TOTAL turn
-    count (b.beat, both sides combined, grace of 20) instead, so enrage
-    timing tracks how long the FIGHT has run rather than how fast any one
-    enemy happens to act. Once the gate is open, growth is still applied
-    per-unit-action (u.enrageN counts THIS unit's own actions taken since
-    the gate opened, same +5%/turn compounding as before) — a fast enemy
-    still racks up stacks faster than a slow one from that point on, same as
-    always, it just can no longer get there ahead of the fight itself.
-    (This does give up the old Slow/Cripple-delays-enrage synergy the gate
-    used to have for free, since the gate itself is no longer keyed to any
-    one unit's own turn count.) */
- if(b.enrage&&!u.isParty&&u.hp>0&&b.beat>ENRAGE_AFTER){
-  u.enrageN=(u.enrageN||0)+1;
-  /* v2.11: was ATK-only — a MAG-using enemy (Fen Priest, or any archetype
-     with a real mag stat) got no stronger from enrage at all. Both damage
-     stats scale now, matching the "enraged should increase damage, not
-     just attack" ask. */
-  u.base.atk=u.base.atk*(1+ENRAGE_PCT);
-  u.base.mag=u.base.mag*(1+ENRAGE_PCT);
-  e.enrageStacks=u.enrageN;
-  e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*100)+'% damage)');}
+ /* ENRAGE (v1.0, on by default; v2.9 gate reworked; v2.13 stack-source
+    reworked). Gate is the battle's TOTAL turn count (b.beat, both sides
+    combined, grace of 20). Growth is now ALSO counted off the battle's
+    total turn count, not just the acting enemy's own turns — b.enrageN
+    increments once per beat (any actor) once the gate is open, so the
+    fight-wide danger level rises in lockstep regardless of who's acting.
+    Each enemy tracks how many of those shared stacks are already baked
+    into its own base.atk/base.mag (u.enrageApplied) and, on its own turn,
+    catches up in one lump multiply (pow(1+ENRAGE_PCT, pending)) — same
+    total compounding as always, just no longer letting a slow enemy lag
+    behind a fast one in overall danger. */
+ if(b.enrage&&b.beat>ENRAGE_AFTER)b.enrageN=(b.enrageN||0)+1;
+ if(b.enrage&&!u.isParty&&u.hp>0){
+  var pending=(b.enrageN||0)-(u.enrageApplied||0);
+  if(pending>0){
+   var mul=Math.pow(1+ENRAGE_PCT,pending);
+   /* v2.11: was ATK-only — a MAG-using enemy (Fen Priest, or any archetype
+      with a real mag stat) got no stronger from enrage at all. Both damage
+      stats scale now, matching the "enraged should increase damage, not
+      just attack" ask. */
+   u.base.atk=u.base.atk*mul;
+   u.base.mag=u.base.mag*mul;
+   u.enrageApplied=b.enrageN||0;
+   e.enrageStacks=b.enrageN;
+   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round((Math.pow(1+ENRAGE_PCT,e.enrageStacks)-1)*100)+'% damage)');}}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
  for(var i=0;i<b.units.length;i++)if(b.units[i].hp>0){if(b.units[i].isParty)pa=true;else fa=true;}
@@ -973,5 +962,5 @@ F.ENRAGE_AFTER=ENRAGE_AFTER;F.ENRAGE_PCT=ENRAGE_PCT;
    so window.FarroadCore was never assigned and the whole page died. */
 F.waveScale=waveScale;F.K_BASE=K_BASE;F.levelCurve=levelCurve;F.GAIN_RATIO=GAIN_RATIO;
 F.setWave=function(w){CURRENT_WAVE=w;};F.getK=function(){return K_of(1);};
-F.enrageStacks=function(u){return u.enrageN||0;};
+F.enrageStacks=function(b){return b.enrageN||0;};
 return F;})();

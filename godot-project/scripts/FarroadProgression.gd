@@ -272,13 +272,34 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
 		return {"kind": "equip", "id": eid, "duplicate": g["equipInv"][eid] > 1, "ownedCount": g["equipInv"][eid]}
 	elif kind == "action":
-		var aid: String = weighted_action_pick(g["rng"], FarroadCore.equippable())
+		# v2.13: ALL charge actions are now pullable too, not just the
+		# ATK_CAMP+MAG_CAMP pool -- the pool grows, the outcome branch
+		# dispatches on ACTIONS[id]["isCharge"].
+		var pool: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
+		var aid: String = weighted_action_pick(g["rng"], pool)
 		g["actionCounts"][aid] = int(g["actionCounts"].get(aid, 0)) + 1
+		var is_charge: bool = bool(FarroadCore.ACTIONS.get(aid, {}).get("isCharge", false))
+		if is_charge:
+			# A pulled charge action credits the MC's own acquiredCharges
+			# list -- same destination a rare charge DROP already uses
+			# (grant_drops' "charge" branch). g["mc"] is always set by the
+			# time pulls unlock (wave 20+, well past mandatory character
+			# creation) -- defensive no-op rather than crashing if somehow
+			# null (the RNG draw above is still consumed either way).
+			if g["mc"] == null:
+				return {"kind": "action", "id": aid, "duplicate": false, "isCharge": true}
+			g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
+			var dup_mc: bool = g["mc"]["acquiredCharges"].has(aid)
+			if not dup_mc:
+				g["mc"]["acquiredCharges"].append(aid)
+			else:
+				_credit_lore(g, aid)
+			return {"kind": "action", "id": aid, "duplicate": dup_mc, "isCharge": true}
 		var dup_a: bool = g["actions"].has(aid)
 		if not dup_a:
 			g["actions"].append(aid)
 		else:
-			g["lore"] = g.get("lore", 0) + 1
+			_credit_lore(g, aid)
 		return {"kind": "action", "id": aid, "duplicate": dup_a}
 	else:
 		var cp: Array = FarroadCore.ALL_CONDITION_IDS.filter(func(id): return id != "none")
@@ -288,7 +309,7 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		if not dup_c:
 			g["conditions"].append(cid)
 		else:
-			g["lore"] = g.get("lore", 0) + 1
+			_credit_random_lore(g)
 		return {"kind": "cond", "id": cid, "duplicate": dup_c}
 
 static func travel_sec(w: float) -> float:
@@ -926,20 +947,34 @@ static func lore_action_ids(g: Dictionary) -> Array:
 			ids.append(id)
 	return ids
 
-## Mirrors renderLore()'s own free-Lore line (farroad-ui.js:2045) -- Lore is
-## NOT a spendable balance decremented on purchase, g["lore"] is a
-## cumulative EARNED total (only ever incremented, by grant_drops's
-## duplicate-drop path) -- "free Lore to spend" is always DERIVED live as
-## earned-minus-spent.
-static func free_lore(g: Dictionary) -> float:
-	var spent: int = FarroadCore.bonus_spend(g["bonuses"])
-	return maxf(0.0, float(g["lore"]) - float(spent))
+## v2.13: Lore became PER-ACTION -- g["loreByAction"][aid] is a cumulative
+## EARNED total for that one action specifically (replacing the single
+## global g["lore"]), only ever incremented (by grant_drops'/do_pull's
+## duplicate-drop routing below). "Free Lore to spend ON THIS ACTION" is
+## still always DERIVED live as that action's own earned-minus-spent --
+## bonus_spend already works on a single-action map (`{aid: b}`), matching
+## the same idiom FarroadSave.gd's refund-diff already used.
+static func free_lore(g: Dictionary, action_id: String) -> float:
+	var earned: float = float(g["loreByAction"].get(action_id, 0.0))
+	var spent: int = FarroadCore.bonus_spend({action_id: g["bonuses"].get(action_id, {})})
+	return maxf(0.0, earned - float(spent))
+
+## Sum of every action's own Lore pool -- the simple aggregate the top HUD
+## shows (GameController._refresh_hud), distinct from any one action's own
+## detail-view pool (free_lore above).
+static func total_lore(g: Dictionary) -> float:
+	var t := 0.0
+	for aid in g["loreByAction"].keys():
+		t += float(g["loreByAction"][aid])
+	return t
 
 ## Mirrors the inline unusedIds/refundTotal computation (farroad-ui.js:2051-2056)
 ## -- read-only preview, no mutation. Iterates g["bonuses"].keys() (every
 ## action id the player has EVER spent Lore on), not lore_action_ids(g) --
 ## an action can fall out of the current tab pool (e.g. a dropped/unpulled
-## action) while still holding a refundable Lore investment.
+## action) while still holding a refundable Lore investment. v2.13: flat
+## per-stack cost, no more triangular total*(total+1)/2 reconstruction --
+## reuses bonus_spend directly, same as free_lore above.
 static func unused_lore_refund(g: Dictionary) -> Dictionary:
 	var used := used_actions(g)
 	var unused_ids := []
@@ -948,15 +983,13 @@ static func unused_lore_refund(g: Dictionary) -> Dictionary:
 			unused_ids.append(aid)
 	var refund_total := 0
 	for aid in unused_ids:
-		var b: Dictionary = g["bonuses"][aid]
-		var total: int = FarroadCore.action_bonus_total(b)
-		refund_total += total * (total + 1) / 2 + int(b.get("broad", 0)) * FarroadCore.BONUS_COST_BROAD
+		refund_total += FarroadCore.bonus_spend({aid: g["bonuses"][aid]})
 	return {"ids": unused_ids, "total": refund_total}
 
 ## Mirrors the bulk refund handler (farroad-ui.js:2216-2220) -- deletes each
 ## given action's ENTIRE bonus entry (typically unused_lore_refund(g)["ids"]).
-## Never touches g["lore"] -- free_lore(g) rises on its own once bonus_spend
-## drops. No re-validation inside (the real JS doesn't either -- the button
+## Never touches g["loreByAction"] -- free_lore(g, aid) rises on its own once
+## bonus_spend drops. No re-validation inside (the real JS doesn't either -- the button
 ## itself only exists when unused_lore_refund(g)["ids"] is non-empty).
 static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
 	for aid in ids:
@@ -1211,10 +1244,29 @@ static func random_drop(g: Dictionary, w: int) -> Array:
 	var cp: Array = FarroadCore.ALL_CONDITION_IDS.filter(func(id): return id != "none")
 	return [{"kind": "cond", "id": cp[g["rng"].next_int(cp.size())], "why": "random drop"}]
 
+## Credits ONE Lore to a specific action's own pool -- duplicate REGULAR
+## actions and duplicate CHARGE actions both route here (v2.13: charge
+## actions are no longer special-cased to random routing, per the confirmed
+## design -- a charge-action duplicate is "specific to itself," same as a
+## regular action).
+static func _credit_lore(g: Dictionary, action_id: String) -> void:
+	g["loreByAction"][action_id] = float(g["loreByAction"].get(action_id, 0.0)) + 1.0
+
+## Credits ONE Lore to a RANDOM action's pool, chosen from lore_action_ids(g)
+## via g["rng"] -- the only remaining "random" routing case (a duplicate
+## CONDITION has no action of its own to credit). A no-op if the player
+## somehow owns zero lore-eligible actions (shouldn't happen in practice --
+## starter actions always exist by the time drops/pulls are reachable).
+static func _credit_random_lore(g: Dictionary) -> void:
+	var ids: Array = lore_action_ids(g)
+	if ids.is_empty():
+		return
+	_credit_lore(g, ids[g["rng"].next_int(ids.size())])
+
 ## ===== drop granting (mirrors grantDrops, farroad-ui.js:639) =====
-## Mutates g in place (actions/conditions/lore/equipInv unlocked or bumped);
-## returns a list of plain event Dictionaries describing what happened, for
-## a future UI layer to log/notify however it likes.
+## Mutates g in place (actions/conditions/loreByAction/equipInv unlocked or
+## bumped); returns a list of plain event Dictionaries describing what
+## happened, for a future UI layer to log/notify however it likes.
 
 static func grant_drops(g: Dictionary, w: int) -> Array:
 	if g["dropsGranted"].get(w):
@@ -1231,7 +1283,7 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 			if not dup:
 				g["actions"].append(d["id"])
 			else:
-				g["lore"] = g.get("lore", 0) + 1
+				_credit_lore(g, d["id"])
 			events.append({"kind": "action", "id": d["id"], "wave": w, "duplicate": dup,
 				"why": d.get("why") if curated else null})
 		elif kind == "charge":
@@ -1240,7 +1292,7 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 			if not dup_c:
 				g["mc"]["acquiredCharges"].append(d["id"])
 			else:
-				g["lore"] = g.get("lore", 0) + 1
+				_credit_lore(g, d["id"])
 			events.append({"kind": "charge", "id": d["id"], "wave": w, "duplicate": dup_c})
 		elif kind == "equip":
 			g["equipInv"][d["id"]] = g["equipInv"].get(d["id"], 0) + 1
@@ -1252,7 +1304,7 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 			if not dup2:
 				g["conditions"].append(d["id"])
 			else:
-				g["lore"] = g.get("lore", 0) + 1
+				_credit_random_lore(g)
 			events.append({"kind": "cond", "id": d["id"], "wave": w, "duplicate": dup2,
 				"why": d.get("why") if curated else null})
 	if not drops.is_empty():
@@ -1367,7 +1419,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 	return {
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
-		"aether": 0, "lore": 0, "marks": 0, "wipes": 0,
+		"aether": 0, "loreByAction": {}, "marks": 0, "wipes": 0,
 		"party": ["kesh"], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},

@@ -319,44 +319,43 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   P.MC_CHARGE_DROP_CHANCE>0 && P.MC_CHARGE_DROP_CHANCE<=0.10);
 })();
 
-/* =================== 8. PER-ACTION LINEAR LORE BONUS COST ==================
- * v2.9 rework: price is keyed to the ACTION's total upgrade count (every
- * non-broad bonus on it, combined), not any one bonus's own stack count — a
- * fresh action's first upgrade costs 1 Lore, and every further upgrade on
- * that SAME action costs one more than the last, whichever bonus type it is.
- * This must hold: stack 1 on a fresh action costs exactly 1; the price for
- * ANY bonus rises purely from how many upgrades the ACTION already has, so
- * buying bonus A then bonus B on the same action escalates B's price even
- * though B itself has zero stacks; broad stays flat and doesn't feed or pay
- * into that counter; and bonusSpend's closed-form total matches summing the
- * actual per-purchase prices in sequence. */
+/* =================== 8. FLAT PER-STACK LORE BONUS COST (v2.13) =============
+ * v2.9 introduced a triangular per-action cost (each further upgrade on the
+ * same action cost one more than the last) plus (v2.12) a rarity multiplier;
+ * v2.13 reverts BOTH per Ian's explicit request — every non-broad stack is
+ * now a flat 1 Lore, regardless of the action's own running total OR its
+ * rarity, and Broad stays a flat BONUS_COST_BROAD with no rarity scaling
+ * either. This must hold: EVERY non-broad purchase costs exactly 1,
+ * regardless of how many upgrades the action already has or which bonus
+ * type it is; Broad stays flat at BONUS_COST_BROAD; and bonusSpend's
+ * closed-form total matches a flat count*1 plus flat broad*BONUS_COST_BROAD,
+ * not a triangular sum. */
 (function(){
- var strike=C.ACTIONS.strike;
- ok('bonusPrice: a fresh action\'s first upgrade (total=0) costs exactly 1 Lore',
+ var strike=C.ACTIONS.strike,rare=C.ACTIONS.oath,legendary=C.ACTIONS.tidalsurge;
+ ok('bonusPrice: a fresh action\'s first upgrade costs exactly 1 Lore',
   C.bonusPrice(strike,'potent',0)===1);
- ok('bonusPrice: each further upgrade on the same action costs one more than the last',
-  C.bonusPrice(strike,'potent',1)===2 && C.bonusPrice(strike,'potent',2)===3 &&
-  C.bonusPrice(strike,'potent',9)===10);
- ok('bonusPrice: price depends on the ACTION\'s total, not the bonus\'s own stack count — '+
-  'a bonus with zero stacks of its own still costs more once the action has other upgrades',
-  C.bonusPrice(strike,'lasting',0)===1 && C.bonusPrice(strike,'lasting',3)===4);
+ ok('bonusPrice: every further upgrade on the same action ALSO costs exactly 1 (flat, not escalating)',
+  C.bonusPrice(strike,'potent',1)===1 && C.bonusPrice(strike,'potent',2)===1 &&
+  C.bonusPrice(strike,'potent',9)===1);
  ok('actionBonusTotal: sums every non-broad bonus on the action, excludes broad',
   C.actionBonusTotal({potent:2,lasting:1,broad:5})===3 && C.actionBonusTotal({broad:5})===0);
- /* Broad is a one-time unlock (applyBonuses flips single->multi target the
-    moment ONE stack exists; further stacks do nothing), so it stays exempt
-    from the linear counter — it should just cost its own flat price forever,
-    regardless of the action's other upgrades, and never inflate their price. */
  ok('bonusPrice: Broad is flat at BONUS_COST_BROAD regardless of the action\'s total',
   C.bonusPrice(strike,'broad',0)===C.BONUS_COST_BROAD &&
   C.bonusPrice(strike,'broad',10)===C.BONUS_COST_BROAD);
- ok('actionBonusTotal excludes broad from what OTHER bonuses escalate against',
-  C.bonusPrice(strike,'potent',C.actionBonusTotal({broad:7}))===1);
+ /* Rarity no longer scales EITHER branch -- a Rare/Legendary action's own
+    upgrades cost exactly the same as a Common action's. */
+ ok('bonusPrice: rarity no longer scales the non-broad price (reverted v2.12)',
+  rare && C.bonusPrice(rare,'potent',0)===1 &&
+  legendary && C.bonusPrice(legendary,'potent',0)===1);
+ ok('bonusPrice: rarity no longer scales the broad price either (reverted v2.12)',
+  rare && C.bonusPrice(rare,'broad',0)===C.BONUS_COST_BROAD &&
+  legendary && C.bonusPrice(legendary,'broad',0)===C.BONUS_COST_BROAD);
  var map={strike:{potent:2,lasting:1,broad:3}};
- var expectedLinear=1+2+3;                       /* 3 non-broad stacks total, triangular sum */
+ var expectedFlat=3;                              /* 3 non-broad stacks total, flat 1 each */
  var expectedBroad=3*C.BONUS_COST_BROAD;
- ok('bonusSpend: closed-form total matches the triangular sum of non-broad stacks plus flat broad',
-  C.bonusSpend(map)===expectedLinear+expectedBroad,
-  C.bonusSpend(map)+' vs '+(expectedLinear+expectedBroad));
+ ok('bonusSpend: flat count*1 plus flat broad*BONUS_COST_BROAD, not a triangular sum',
+  C.bonusSpend(map)===expectedFlat+expectedBroad,
+  C.bonusSpend(map)+' vs '+(expectedFlat+expectedBroad));
 })();
 
 /* =================== 9. ROSTER EXPANSION 5->10 (prereq for item 4) ========
@@ -456,14 +455,17 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   st&&st.hp>0&&st.atk>0&&st.spd>0);
 })();
 
-/* =================== 11. ENRAGE GATE IS BATTLE-WIDE (v2.9) =================
- * Was gated on each enemy's OWN turn count (grace of 8); now gated on the
- * battle's TOTAL turn count (b.beat, both sides combined, grace of 20) so a
- * fast enemy can no longer race to its own enrage threshold in real
- * fight-time regardless of how long the fight has actually run. Two
- * near-immortal units (huge HP/DEF, so the fight runs long enough to prove
- * the point) confirm: zero stacks while b.beat<=ENRAGE_AFTER, stacks
- * accumulate on the enemy's own subsequent turns once it's open. */
+/* =================== 11. ENRAGE GATE IS BATTLE-WIDE, GROWTH TOO (v2.13) ====
+ * Gated on the battle's TOTAL turn count (b.beat, both sides combined, grace
+ * of 20) so a fast enemy can no longer race to its own enrage threshold in
+ * real fight-time regardless of how long the fight has actually run. Growth
+ * is ALSO now counted off the total turn count (b.enrageN, any actor), not
+ * just the acting enemy's own turns -- two near-immortal units (huge HP/DEF,
+ * so the fight runs long enough to prove the point) confirm: zero stacks
+ * while b.beat<=ENRAGE_AFTER, stacks accumulate battle-wide once it's open
+ * (rising on the PARTY's turn too, not just the enemy's), and a foe that
+ * hasn't acted since a stack rose still catches all of it up on its own next
+ * turn (base.atk actually multiplies by the full pending amount at once). */
 (function(){
  /* HP is set absurdly high (not just DEF) so this doesn't depend on the
     mitigation formula or on C.setWave()'s ambient CURRENT_WAVE — an earlier
@@ -482,11 +484,24 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var guard=0;
  while(b.beat<C.ENRAGE_AFTER&&guard++<1000)C.step(b);
  ok('enrage: no stacks anywhere before the battle-wide gate opens',
-  C.enrageStacks(foe)===0, 'beat='+b.beat+' stacks='+C.enrageStacks(foe));
+  C.enrageStacks(b)===0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
+ /* One more beat, whoever's turn it is (party or enemy), should open the
+    gate and immediately produce a battle-wide stack -- proving growth is no
+    longer scoped to the enemy's own turn. */
+ C.step(b);
+ ok('enrage: a stack accumulates battle-wide the very next beat after the gate opens, regardless of whose turn it is',
+  b.beat>C.ENRAGE_AFTER && C.enrageStacks(b)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
  var guard2=0;
  while(b.beat<C.ENRAGE_AFTER+10&&guard2++<1000)C.step(b);
- ok('enrage: stacks accumulate on the enemy\'s own turns once the gate is open',
-  C.enrageStacks(foe)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(foe));
+ ok('enrage: stacks keep accumulating battle-wide as the fight continues',
+  C.enrageStacks(b)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
+ /* foe.enrageApplied can legitimately lag b.enrageN by however many stacks
+    have accumulated since the foe's OWN last turn (it only catches up on
+    its own turn) -- never ahead, and (since foe has had several turns in
+    this alternating 1v1 across 10 post-gate beats) not still zero either. */
+ ok('enrage: the foe has caught its own stats up on at least one of its own turns, never ahead of the shared count',
+  foe.enrageApplied>0 && foe.enrageApplied<=C.enrageStacks(b),
+  'enrageApplied='+foe.enrageApplied+' stacks='+C.enrageStacks(b));
 })();
 
 /* =================== 12. STAT-SCALING MC CHARGE ACTIONS (v2.9) ============
@@ -1119,9 +1134,10 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   return before===after;
  })());
 
- /* --- old save with banked keen stacks migrates to a G.lore refund ------- */
+ /* --- old save with banked keen stacks migrates to a per-action refund --- */
  (function(){
-  var fakeG5={seed:1,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,lore:10,marks:0,wipes:0,
+  var fakeG5={seed:1,rng:{calls:0},wave:1,farthest:1,bossesCleared:0,aether:0,
+   loreByAction:{strike:10},marks:0,wipes:0,
    party:['kesh'],actions:['strike','ember'],conditions:['none'],actionCounts:{},condCounts:{},
    bonuses:{strike:{keen:3,potent:2},ember:{keen:2}},
    recovery:{},loadout:{},hpCarry:{},touched:{},clearedWaves:{},dropsGranted:{},
@@ -1135,12 +1151,16 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    !!restored5&&!restored5.bonuses.strike.keen&&!restored5.bonuses.ember.keen);
   ok('non-keen stacks on the same action survive the migration untouched',
    !!restored5&&restored5.bonuses.strike.potent===2);
-  /* strike had {keen:3,potent:2} -> total 5, triangular cost 15; without
-     keen it's just {potent:2} -> total 2, cost 3; refund 12.
-     ember had {keen:2} -> total 2, cost 3; without keen, total 0, cost 0;
-     refund 3. Combined refund 15, on top of the original lore:10. */
-  ok('banked keen stacks refund the correct triangular-cost difference to G.lore',
-   !!restored5&&restored5.lore===25, restored5&&restored5.lore);
+  /* v2.13: flat 1-per-stack cost (no more triangular scaling), and the
+     refund now credits THAT ACTION's own loreByAction pool, not a shared
+     global. strike had {keen:3,potent:2} -> total 5, flat cost 5; without
+     keen it's just {potent:2} -> total 2, cost 2; refund 3, on top of the
+     pre-existing loreByAction.strike=10 -> 13. ember had {keen:2} -> total
+     2, cost 2; without keen, total 0, cost 0; refund 2, on top of ember's
+     own (previously absent, so starting at 0) pool -> 2. */
+  ok('banked keen stacks refund the correct flat-cost difference to that action\'s own loreByAction pool',
+   !!restored5&&restored5.loreByAction.strike===13&&restored5.loreByAction.ember===2,
+   restored5&&JSON.stringify(restored5.loreByAction));
  })();
 
  /* --- enrage scales MAG as well as ATK, in a real battle ----------------- */
@@ -1219,28 +1239,25 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   C.ACTIONS.reckoning.rarity==='legendary' && C.ACTIONS.hollowtoll.rarity==='legendary' &&
   C.ACTIONS.sunder.rarity==='rare' && C.ACTIONS.atk_reckless.rarity==='rare');
 
- /* --- bonusPrice/bonusSpend agree on a rarity-adjusted total (save round-trip) */
+ /* --- bonusPrice/bonusSpend are rarity-INDEPENDENT again (v2.13 revert) -- */
  (function(){
-  /* oath (rare, RARITY_COST_MUL 1.60) — 3 stacked Swift bonuses. bonusPrice
-     charges (n+1)*mul per stack (n=0,1,2 -> 1,2,3 lore before mul), so
-     buying 3 stacks costs (1+2+3)*1.60=9.6; bonusSpend must reconstruct the
-     same total from the resulting {swift:3} map alone. */
-  var mul=C.RARITY_COST_MUL.rare;
+  /* oath (rare) — v2.12 briefly scaled this by RARITY_COST_MUL.rare and
+     escalated per stack; v2.13 reverts both. 3 stacked Swift bonuses on a
+     Rare action must cost exactly 3 flat Lore, same as they would on a
+     Common action, and bonusSpend must reconstruct the same total from the
+     resulting {swift:3} map alone. */
   var p1=C.bonusPrice(C.ACTIONS.oath,'swift',0);
   var p2=C.bonusPrice(C.ACTIONS.oath,'swift',1);
   var p3=C.bonusPrice(C.ACTIONS.oath,'swift',2);
-  ok('bonusPrice on a Rare action is scaled by RARITY_COST_MUL.rare',
-   p1===Math.round(1*mul) && p2===Math.round(2*mul) && p3===Math.round(3*mul),
-   p1+','+p2+','+p3);
+  ok('bonusPrice on a Rare action is flat 1 per stack, no rarity scaling (v2.13 revert)',
+   p1===1 && p2===1 && p3===1, p1+','+p2+','+p3);
   var spent=C.bonusSpend({oath:{swift:3}});
-  ok('bonusSpend reconstructs the same rarity-adjusted total bonusPrice charged',
+  ok('bonusSpend reconstructs the same flat total bonusPrice charged',
    spent===p1+p2+p3, spent+' vs '+(p1+p2+p3));
-  /* legendary Broad on reckoning — bonusPrice's flat branch, not the
-     triangular one; bonusSpend's broad term must apply the same mul. */
-  var mulL=C.RARITY_COST_MUL.legendary;
+  /* legendary Broad on reckoning — flat BONUS_COST_BROAD, no rarity scaling. */
   var broadPrice=C.bonusPrice(C.ACTIONS.reckoning,'broad',0);
-  ok('bonusPrice broad-branch is scaled by RARITY_COST_MUL.legendary',
-   broadPrice===Math.round(C.BONUS_COST_BROAD*mulL));
+  ok('bonusPrice broad-branch is flat at BONUS_COST_BROAD, no rarity scaling (v2.13 revert)',
+   broadPrice===C.BONUS_COST_BROAD);
   var spentBroad=C.bonusSpend({reckoning:{broad:1}});
   ok('bonusSpend broad-branch agrees with bonusPrice on a Legendary action',
    spentBroad===broadPrice, spentBroad+' vs '+broadPrice);

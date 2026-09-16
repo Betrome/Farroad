@@ -44,7 +44,7 @@ var G;   /* game state */
    creation (see applyCustomMC below) — null keeps the hardcoded Kesh. */
 function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
-  aether:0, lore:0, marks:0, wipes:0,
+  aether:0, loreByAction:{}, marks:0, wipes:0,
   party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
   actionCounts:{}, condCounts:{}, bonuses:{}, recovery:{}, loadout:{}, hpCarry:{}, chargeCarry:{}, touched:{},
   /* v2.4: every reward keyed to a WAVE NUMBER rather than to progress is farmable
@@ -665,6 +665,42 @@ function renderDropNote(){
    (d.note?'<div class="dn-pair">'+d.note+'</div>':'')+'</div>';});
  host.innerHTML=h;
  var ok=$('#dnOk');if(ok)ok.onclick=function(){G.dropQueue=[];G.dropGains={lore:0,aether:0};renderDropNote();};}
+/* Tab pool for LORE (also the "which action gets a random duplicate-
+   CONDITION credit" pool, see creditRandomLore below): G.actions (every
+   loadout-slot basic the player has unlocked) plus any charge action
+   currently in play — those are NEVER entries in G.actions (a companion's
+   chargeAction is a fixed roster property, the MC's come from
+   G.mc.acquiredCharges, neither goes through the drop/pull unlock path
+   G.actions tracks), so they'd silently vanish without this. */
+function loreActionIds(){
+ var ids=G.actions.slice();
+ Object.keys(usedActions()).forEach(function(id){
+  if(ids.indexOf(id)<0&&C.ACTIONS[id]&&C.ACTIONS[id].isCharge)ids.push(id);});
+ return ids;}
+/* v2.13: credits ONE Lore to a specific action's own pool -- duplicate
+   REGULAR actions and duplicate CHARGE actions both route here (a charge-
+   action duplicate is "specific to itself," same as a regular action). */
+function creditLore(aid){G.loreByAction[aid]=(G.loreByAction[aid]||0)+1;}
+/* Credits ONE Lore to a RANDOM action's pool, chosen from loreActionIds()
+   -- the only remaining "random" routing case (a duplicate CONDITION has
+   no action of its own to credit). A no-op if the player somehow owns zero
+   lore-eligible actions (shouldn't happen in practice -- starter actions
+   always exist by the time drops/pulls are reachable). */
+function creditRandomLore(){
+ var ids=loreActionIds();
+ if(!ids.length)return;
+ creditLore(ids[G.rng.nextInt(ids.length)]);}
+/* Sum of every action's own Lore pool -- the simple aggregate the top purse
+   bar shows, distinct from any one action's own detail-view pool
+   (freeLoreFor below). */
+function totalLore(){
+ var t=0;Object.keys(G.loreByAction).forEach(function(aid){t+=G.loreByAction[aid]||0;});
+ return t;}
+/* "Free Lore to spend ON THIS ACTION" -- always derived live as that
+   action's own earned-minus-spent, mirroring freeLore's old global shape
+   but scoped per action now. */
+function freeLoreFor(aid){
+ return Math.max(0,(G.loreByAction[aid]||0)-C.bonusSpend({x:G.bonuses[aid]||{}}));}
 function grantDrops(w){
  /* FIRST ATTEMPT ONLY, not first CLEAR — v2.9 bugfix (see dropsGranted in
     newGame()). Gate runs BEFORE computing drops so a gated call doesn't
@@ -683,7 +719,7 @@ function grantDrops(w){
   if(d.kind==='action'){
    G.actionCounts[d.id]=(G.actionCounts[d.id]||0)+1;
    var dup=G.actions.indexOf(d.id)>=0;
-   if(!dup)G.actions.push(d.id); else G.lore+=1;
+   if(!dup)G.actions.push(d.id); else creditLore(d.id);
    var info=describeAction(d.id);
    if(dup){
     addDropGain(1,0);
@@ -696,7 +732,7 @@ function grantDrops(w){
   }else if(d.kind==='charge'){
    G.mc.acquiredCharges=G.mc.acquiredCharges||[];
    var dupC=G.mc.acquiredCharges.indexOf(d.id)>=0;
-   if(!dupC)G.mc.acquiredCharges.push(d.id); else G.lore+=1;
+   if(!dupC)G.mc.acquiredCharges.push(d.id); else creditLore(d.id);
    var infoC=describeAction(d.id);
    if(dupC){
     addDropGain(1,0);
@@ -725,7 +761,7 @@ function grantDrops(w){
   }else{
    G.condCounts[d.id]=(G.condCounts[d.id]||0)+1;
    var dup2=G.conditions.indexOf(d.id)>=0;
-   if(!dup2)G.conditions.push(d.id); else G.lore+=1;
+   if(!dup2)G.conditions.push(d.id); else creditRandomLore();
    var lab=C.condById(d.id).label;
    if(dup2){
     addDropGain(1,0);
@@ -1702,7 +1738,7 @@ function pills(u){var h='';for(var i=0;i<C.ST.length;i++){var id=C.ST[i];if(u.st
  h+='<span class="pill '+(f.k==='d'?'d':'b')+'">'+f.n+' '+u.st[id]+'</span>';}}return h;}
 function renderPurse(){
  $('#cAether').textContent=Math.floor(G.aether);
- $('#cLore').textContent=Math.floor(G.lore);
+ $('#cLore').textContent=Math.floor(totalLore());
  $('#cMarks').textContent=Math.floor(G.marks);
  /* v2.9: per-5-minutes with 2 decimals, not per-minute rounded to a whole
     number — at depth the per-minute Marks figure rounds to 0 and reads as
@@ -1750,14 +1786,14 @@ function renderUnits(){
      Math.round(recoveryOf(u.id)*100)+'%<span style="color:var(--dimmer)"> — HP regained between waves'+
      (recoveryMaxed(u.id)?' · at cap':'')+'</span></div>':'')+
    ((!u.isParty&&G.enrage)?(function(){
-     /* Gate is now battle-wide (G.battle.beat vs C.ENRAGE_AFTER), not this
-        unit's own turn count — see the ENRAGE comment in core.js's step().
-        Once open, an enemy that hasn't acted since still reads "calm" until
-        its own next turn actually applies a stack. */
-     var st=C.enrageStacks(u),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
+     /* Stacks are now battle-wide (G.battle.enrageN, rising once per turn
+        regardless of who acts — see the ENRAGE comment in core.js's step()),
+        not this unit's own turn count, so every enemy shows the SAME stack
+        count once the gate is open — an enemy simply hasn't caught its own
+        stats up to it yet if it hasn't acted since the count last rose. */
+     var st=C.enrageStacks(G.battle),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
      if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% damage, rising each of its turns</div>';
-     if(gateOpen)return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages on its next turn</div>';
+       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% damage, rising every turn</div>';
      return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
        ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
    '<div>'+pills(u)+'</div>';
@@ -2087,30 +2123,29 @@ function unitActiveActions(uid){
  return ids;}
 function renderLore(){
  var host=$('#loreView');host.innerHTML='';
- var spent=C.bonusSpend(G.bonuses),free=Math.max(0,G.lore-spent);
- if(!G.lore){host.innerHTML='<div class="tiny">No Lore yet. Lore comes from <b>duplicate</b> drops, '+
+ // v2.13: Lore became per-action -- no more single global G.lore/free pair
+ // computed once for the whole screen; the early "No Lore yet" check now
+ // looks at the total ACROSS every action, and each action's own free/spent
+ // is computed further down once the selected action is known.
+ if(!totalLore()){host.innerHTML='<div class="tiny">No Lore yet. Lore comes from <b>duplicate</b> drops, '+
   'and the curated sequence never repeats itself — so it stays at zero until drops turn random '+
   'after the wave-20 boss. That is by design, not a stall.</div>';return;}
  /* Bulk refund: only offered when it would actually do something, and shows
-    exactly how much Lore comes back before the player commits. */
+    exactly how much Lore comes back before the player commits. v2.13: flat
+    per-stack cost, no more triangular total*(total+1)/2 reconstruction --
+    reuses bonusSpend directly, same as freeLoreFor. */
  var used=usedActions();
  var unusedIds=Object.keys(G.bonuses).filter(function(aid){return !used[aid]&&G.bonuses[aid]&&
   Object.keys(G.bonuses[aid]).length;});
  var refundTotal=0;
- unusedIds.forEach(function(aid){var b=G.bonuses[aid],total=C.actionBonusTotal(b);
-  refundTotal+=total*(total+1)/2+(b.broad||0)*C.BONUS_COST_BROAD;});
- /* Tab pool starts as G.actions (every loadout-slot basic the player has
-    unlocked), plus any charge action currently in play — those are NEVER
-    entries in G.actions (a companion's chargeAction is a fixed roster
-    property, the MC's come from G.mc.acquiredCharges, neither goes through
-    the drop/pull unlock path G.actions tracks), so they'd silently vanish
-    from LORE without this — caught live: "charge actions aren't available
-    on the Lore tab now." `used` (usedActions(), computed above) already
-    scans exactly this same set for its own purposes, so reuse it rather
-    than re-deriving it. */
- var actionIds=G.actions.slice();
- Object.keys(used).forEach(function(id){
-  if(actionIds.indexOf(id)<0&&C.ACTIONS[id]&&C.ACTIONS[id].isCharge)actionIds.push(id);});
+ unusedIds.forEach(function(aid){refundTotal+=C.bonusSpend({x:G.bonuses[aid]});});
+ // Tab pool: loreActionIds() (extracted above, also used by
+ // grantDrops/doPull's own duplicate-CONDITION random-routing) --
+ // G.actions plus any charge action currently in play (a companion's
+ // chargeAction is a fixed roster property, the MC's come from
+ // G.mc.acquiredCharges, neither goes through the drop/pull unlock path
+ // G.actions tracks, so they'd silently vanish from LORE without this).
+ var actionIds=loreActionIds();
  /* active[] keys off ACTUALLY-equipped-right-now (actionHolders.active),
     not usedActions()'s broader "protected from refund" sense — those are
     different questions, and conflating them once produced "starred charge
@@ -2178,16 +2213,16 @@ function renderLore(){
    '<button class="mini" id="btnRefundLore" style="margin-bottom:8px">'+
    'Refund '+refundTotal+' Lore from '+unusedIds.length+' unused action'+
    (unusedIds.length===1?'':'s')+'</button>');}
- /* "let's also make how much lore I have available to level more
-    apparent" — was a single .tiny line easy to miss; now its own
-    prominent, colored line matching how AETHER/MARKS/LORE currencies read
-    in the purse bar up top. */
- host.insertAdjacentHTML('beforeend','<div style="margin-bottom:6px"><b style="color:var(--lore);font-size:15px">'+
-  free+'</b> <span class="tiny">of '+Math.floor(G.lore)+' Lore free — each action\'s next upgrade costs '+
-  'one more Lore than its last</span></div>');
  [currentSelectedAction(actionIds)].forEach(function(aid){
   var a=C.ACTIONS[aid];if(!a)return;var b=G.bonuses[aid]||{};
   var holders=actionHolders(aid);
+  // v2.13: Lore became per-action -- this line now shows THIS action's own
+  // earned/free pool, not a global total, and each upgrade costs a FLAT
+  // price (no more "costs one more than its last" triangular scaling).
+  var free=freeLoreFor(aid);
+  host.insertAdjacentHTML('beforeend','<div style="margin-bottom:6px"><b style="color:var(--lore);font-size:15px">'+
+   free+'</b> <span class="tiny">of '+Math.floor(G.loreByAction[aid]||0)+' Lore free for '+a.name+
+   ' — each non-broad upgrade costs a flat 1 Lore</span></div>');
   var box=document.createElement('div');box.className='bon';
   var totalBonus=bonusTotalSummary(aid);
   /* "let's list the descriptions for an action under their name when
@@ -2218,18 +2253,14 @@ function renderLore(){
      9, so the filtered list is short and self-explanatory, whereas greying six
      dead rows on every action is the noise this was meant to remove. */
   var live=Object.keys(C.BONUSES).filter(function(bid){return C.bonusApplies(a,bid);});
-  /* v2.9: price is now keyed to the ACTION's total upgrade count (every
-     non-broad bonus on it, combined — see actionBonusTotal in core.js), not
-     any one bonus's own stack count, so it's computed once per action and
-     reused for every bonus row below rather than per-bonus. */
-  var totalOnAction=C.actionBonusTotal(b);
+  /* v2.13: bonusPrice lost its rarity multiplier AND its triangular
+     per-stack scaling -- a non-broad stack is now a flat 1 Lore regardless
+     of rarity or how many are already owned, so totalOnAction no longer
+     needs computing here (still passed to bonusPrice for signature
+     compatibility, it just isn't read). */
   live.forEach(function(bid){
    var inf=C.BONUSES[bid],n=b[bid]||0;
-   var price=C.bonusPrice(a,bid,totalOnAction);
-   /* Broad is flat (see bonusPrice) and doesn't feed the counter above, so
-      it never reads as "escalated" — every other bonus does the moment this
-      action already has ANY upgrade on it, regardless of which bonus. */
-   var escalated=(bid!=='broad'&&totalOnAction>0);
+   var price=C.bonusPrice(a,bid,0);
    /* v2.9 LAYOUT: was a single flex row holding the name, a full sentence of
       description AND three controls. At 375px the description had no min-width:0
       so it refused to shrink, pushing the −/count/+ group off the edge. Now the
@@ -2237,10 +2268,7 @@ function renderLore(){
       which is also what makes the 44px touch targets fit. */
    h+='<div class="bslot">'+
     '<div class="bname">'+inf.n+' <b style="color:var(--crit)">'+price+' Lore</b></div>'+
-    '<div class="bdesc">'+inf.d+
-     (escalated?' <span style="color:var(--dimmer)">— this action\'s upgrade #'+(totalOnAction+1)+
-      '; every upgrade on the same action costs one more.</span>':'')+
-     '</div>'+
+    '<div class="bdesc">'+inf.d+'</div>'+
     '<div class="bctl">'+
      '<button class="mini bm" data-a="'+aid+'" data-b="'+bid+'"'+(n?'':' disabled')+'>−</button>'+
      '<span class="bstack">'+n+'</span>'+
@@ -2378,13 +2406,31 @@ function doPull(){
    why:nOwned2===1?'Equip it from the EQUIPMENT tab — no cost.':
     'You now own '+nOwned2+'× '+C.EQUIPMENT[eid].name+' — enough to equip it on more than one slot/unit at once.'});
  }else if(kind==='action'){
-  var id=P.weightedActionPick(G.rng,C.EQUIPPABLE);
+  /* v2.13: ALL charge actions are now pullable too, not just EQUIPPABLE --
+     the pool grows, the outcome branch dispatches on ACTIONS[id].isCharge. */
+  var pool=C.EQUIPPABLE.concat(C.CHARGE_ACTIONS);
+  var id=P.weightedActionPick(G.rng,pool);
   G.actionCounts[id]=(G.actionCounts[id]||0)+1;
   var d=describeAction(id);
-  if(G.actions.indexOf(id)<0){G.actions.push(id);
+  if(C.ACTIONS[id]&&C.ACTIONS[id].isCharge){
+   /* A pulled charge action credits the MC's own acquiredCharges list --
+      same destination a rare charge DROP already uses (grantDrops' own
+      'charge' branch). G.mc is always set by the time pulls unlock (wave
+      20+, well past mandatory character creation) -- defensive no-op
+      rather than crashing if somehow null. */
+   if(!G.mc){buildGambits();renderAll();return;}
+   G.mc.acquiredCharges=G.mc.acquiredCharges||[];
+   if(G.mc.acquiredCharges.indexOf(id)<0){G.mc.acquiredCharges.push(id);
+    pushDrop({name:d.name,kind:'PULL · NEW CHARGE ACTION',wave:G.wave,
+     body:d.body,note:'Swap to it any time from the GAMBITS tab — no cost.'});}
+   else{creditLore(id);
+    pushDrop({name:'+1 Lore',kind:'PULL · duplicate charge action',wave:G.wave,
+     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b> '+
+      'on '+d.name+' — spend it in the LORE tab to upgrade it.'});}
+  }else if(G.actions.indexOf(id)<0){G.actions.push(id);
    pushDrop({name:d.name,kind:'PULL · NEW ACTION',wave:G.wave,
     body:d.body,note:pairingHint(id)});}
-  else{G.lore+=1;
+  else{creditLore(id);
    pushDrop({name:'+1 Lore',kind:'PULL · duplicate action',wave:G.wave,
     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b> '+
      '— spend it in the LORE tab to upgrade an action you already use.'});}
@@ -2398,7 +2444,7 @@ function doPull(){
       c.group==='Ally'?'reads your own side':c.group==='Self'?'reads the acting unit':'always true')+
      '. Slot it in the GAMBITS tab to gate an action on it.',
     note:'A condition is only worth a slot if the action it gates is WORSE without it.'});}
-  else{G.lore+=1;
+  else{creditRandomLore();
    pushDrop({name:'+1 Lore',kind:'PULL · duplicate gambit',wave:G.wave,
     body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.'});}}
  buildGambits();renderAll();}
@@ -3116,7 +3162,7 @@ function smokeTest(waves){
   out.push('  actions held     '+G.actions.length);
   out.push('  conditions held  '+G.conditions.length);
   out.push('  aether / lore / marks   '+Math.floor(G.aether)+' / '+
-    Math.floor(G.lore)+' / '+Math.floor(G.marks));
+    Math.floor(totalLore())+' / '+Math.floor(G.marks));
   out.push('  highest-ever LV (ratchet R)  '+(G.maxLevelEver||levelOf('kesh')));}
  out.push('');
  out.push(errs?('RESULT: '+errs+' FAILURE(S) — do not ship'):'RESULT: PASS — build is playable');
