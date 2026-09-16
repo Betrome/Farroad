@@ -79,9 +79,15 @@ func _build_ui(parent: Node) -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	root_vbox.add_child(title)
 
+	# A horizontal-only ScrollContainer of its own -- see GambitsPanel.gd's
+	# own copy of this comment for why (the real source of "scrolling is
+	# inconsistent" across panels).
+	var tabs_scroll := ScrollContainer.new()
+	tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root_vbox.add_child(tabs_scroll)
 	unit_tabs_container = HBoxContainer.new()
 	unit_tabs_container.add_theme_constant_override("separation", 6)
-	root_vbox.add_child(unit_tabs_container)
+	tabs_scroll.add_child(unit_tabs_container)
 
 	card_container = VBoxContainer.new()
 	card_container.add_theme_constant_override("separation", 12)
@@ -118,6 +124,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	return btn
 
 func _on_toggle_pressed() -> void:
+	if _parent and _parent.has_method("_panel_opening"):
+		_parent.call("_panel_opening", self)
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 	_notify_battle_paused(true)
@@ -153,9 +161,28 @@ func _refresh_unit_tabs() -> void:
 		if not g["party"].has(uid):
 			label += " •"
 		btn.text = label
-		btn.disabled = (uid == selected_uid)
+		var selected: bool = (uid == selected_uid)
+		btn.disabled = selected
+		_style_unit_tab(btn, selected)
 		btn.pressed.connect(_on_unit_tab_pressed.bind(uid))
 		unit_tabs_container.add_child(btn)
+
+## An explicit gold border/background on the SELECTED unit's tab -- the
+## default theme's "disabled" dimming alone (still used to make
+## re-clicking the current tab a no-op) read as too subtle a way to show
+## who you're currently working with. Duplicated per sibling panel, same
+## no-shared-base convention as _style_purchase_button/_charge_style.
+func _style_unit_tab(btn: Button, selected: bool) -> void:
+	if not selected:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.32, 0.27, 0.08)
+	style.border_color = Color(0.85, 0.7, 0.15)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(6)
+	btn.add_theme_stylebox_override("disabled", style)
+	btn.add_theme_color_override("font_disabled_color", Color(1.0, 0.93, 0.72))
 
 func _on_unit_tab_pressed(uid: String) -> void:
 	selected_uid = uid
@@ -166,7 +193,17 @@ func _on_unit_tab_pressed(uid: String) -> void:
 ## real function lives in farroad-ui.js, not farroad-core.js), so it
 ## belongs here, not FarroadCore.gd/FarroadProgression.gd -- same split
 ## every other panel already follows for its own display helpers.
-func _describe_equipment(item_id: String) -> String:
+## `uid` is needed to show the item's affinity contribution as a real %
+## instead of a raw CSV point value -- affinity_mul's log curve is
+## nonlinear in the TOTAL raw affinity, not additive per-source, so an
+## item's own raw value can't just be run through affinity_mul in
+## isolation and called "this item's %". The well-defined number: the
+## MARGINAL % this item's own contribution is worth on top of the
+## unit's baseline+purchased affinity (deliberately excluding whatever
+## else is equipped, so items stay comparable to each other regardless
+## of loadout) -- affinity_mul(base+purchased+item) minus
+## affinity_mul(base+purchased), as a percentage-point delta.
+func _describe_equipment(item_id: String, uid: String) -> String:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null:
 		return ""
@@ -177,9 +214,16 @@ func _describe_equipment(item_id: String) -> String:
 	if item.get("evade"):
 		bits.append("Evade +%d%%" % roundi(item["evade"] * 100.0))
 	var affinity: Dictionary = item.get("affinity", {})
-	for ax in AFFINITY_AXIS_LABELS.keys():
-		if affinity.get(ax):
-			bits.append("%s affinity +%d" % [AFFINITY_AXIS_LABELS[ax], affinity[ax]])
+	if not affinity.is_empty():
+		var base := FarroadProgression.affinity_baseline(uid)
+		var purchased := FarroadProgression.affinity_purchased(g, uid)
+		for ax in AFFINITY_AXIS_LABELS.keys():
+			var item_ax: float = affinity.get(ax, 0.0)
+			if item_ax != 0.0:
+				var without: float = base.get(ax, 0.0) + purchased.get(ax, 0.0)
+				var with_item: float = without + item_ax
+				var delta_pct: float = (FarroadCore.affinity_mul(with_item) - FarroadCore.affinity_mul(without)) * 100.0
+				bits.append("%s affinity %+.0f%%" % [AFFINITY_AXIS_LABELS[ax], delta_pct])
 	var slot_label: String = item["slot"].capitalize()
 	return "%s · %s" % [slot_label, " · ".join(bits)] if not bits.is_empty() else slot_label
 
@@ -210,7 +254,7 @@ func _refresh_card() -> void:
 		var cur_id = g.get("equipped", {}).get(uid, {}).get(slot)
 		if cur_id != null:
 			var desc_lbl := Label.new()
-			desc_lbl.text = _describe_equipment(cur_id)
+			desc_lbl.text = _describe_equipment(cur_id, uid)
 			desc_lbl.modulate = Color(0.65, 0.7, 0.65)
 			desc_lbl.add_theme_font_size_override("font_size", 12)
 			row.add_child(desc_lbl)

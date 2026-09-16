@@ -24,7 +24,7 @@ S.VERSION=1;
    (farroad-ui.js) — no functions, no DOM handles, no circular refs. */
 var FIELDS=['wave','farthest','bossesCleared','aether','lore','marks','wipes',
  'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
- 'loadout','hpCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
+ 'loadout','hpCarry','chargeCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
  'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
  /* v2.11: {lore,aether} running total for the condensed duplicate-drop
     notice (addDropGain(), farroad-ui.js) — same lazy-init/no-explicit-
@@ -133,7 +133,7 @@ S.deserialize=function(snap,C){
  if(!G.party||!G.party.length)G.party=['kesh'];
  if(!G.actions||!G.actions.length)G.actions=['strike','ember'];
  if(!G.conditions||!G.conditions.length)G.conditions=['none'];
- ['actionCounts','condCounts','bonuses','recovery','loadout','hpCarry','touched',
+ ['actionCounts','condCounts','bonuses','recovery','loadout','hpCarry','chargeCarry','touched',
   'clearedWaves','lvl','bank','owned'].forEach(function(k){G[k]=G[k]||{};});
  /* v2.11 MIGRATION: Keen (crit) retired from Lore entirely (redundant once
     ATK/MAG Crit became directly Aether-investable) — a save with banked

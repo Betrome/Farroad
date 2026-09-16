@@ -239,7 +239,9 @@ const EQUIP_SPD_PENALTY_BASE := 1.5
 ## matches exactly). "none" excluded from drop pools by callers, same as
 ## the real JS's own `CONDITIONS.filter(c=>c.id!=='none')`.
 const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "foe_highest_hp",
-	"foe_hp_gte_70", "foe_hp_lte_30", "foe_armoured", "foe_warded", "foe_fast", "foe_3plus",
+	"foe_hp_gte_70", "foe_hp_lte_30", "foe_armoured", "foe_warded",
+	"foe_weak_fire", "foe_weak_water", "foe_weak_earth", "foe_weak_air", "foe_weak_light", "foe_weak_dark",
+	"foe_fast", "foe_3plus",
 	"foe_charging", "foe_softest_def", "foe_softest_res", "foe_most_dangerous", "foe_acts_next",
 	"foe_healer_present", "foe_pack_hurt", "foe_pack_healthy", "foe_mostly_weakened",
 	"foe_isolated", "foe_2plus", "foe_lacks_debuff", "foe_not_weakened", "ally_hp_lte_60",
@@ -760,13 +762,59 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			var t = by_highest_hp(foes(b, u))
 			return {"ok": t != null, "target": t}
 		"foe_armoured":
+			# Reworded from a caster-relative 1.4x-margin threshold to a
+			# plain self-relative comparison -- a foe whose own DEF simply
+			# outweighs its own RES, no margin, same shape as the
+			# Status-popup-only _def_res_hint (BattlePresenter.gd) just
+			# applied to the target instead of the caster.
 			for x in foes(b, u):
-				if eff_def(x) > 1.4 * eff_def(u):
+				if eff_def(x) > eff_res(x):
 					return {"ok": true, "target": x}
 			return {"ok": false, "target": null}
 		"foe_warded":
 			for x in foes(b, u):
-				if eff_res(x) > 1.4 * eff_res(u):
+				if eff_res(x) > eff_def(x):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		# "Weak to <element>" -- a NEGATIVE raw affinity on the TARGET's
+		# own affinity[element] is exactly what aff_term's
+		# (1-affinity_mul(def_raw)) factor reads as "takes more damage
+		# from this element" (a negative raw -> a negative affinity_mul
+		# -> defender factor > 1), so raw<0 is the correct, already-
+		# established sign convention for "weak to X", not a new one
+		# invented for this condition. Scoped to the 6 THEMED elemental
+		# axes (fire/water/earth/air/light/dark, the same set
+		# DIRECTION_CONFIG's own per-direction affinity theming already
+		# uses) -- body/spirit are generic physical/healing modifiers,
+		# not an elemental "weakness" in the same legible sense.
+		"foe_weak_fire":
+			for x in foes(b, u):
+				if x["affinity"]["fire"] < 0:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_weak_water":
+			for x in foes(b, u):
+				if x["affinity"]["water"] < 0:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_weak_earth":
+			for x in foes(b, u):
+				if x["affinity"]["earth"] < 0:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_weak_air":
+			for x in foes(b, u):
+				if x["affinity"]["air"] < 0:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_weak_light":
+			for x in foes(b, u):
+				if x["affinity"]["light"] < 0:
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_weak_dark":
+			for x in foes(b, u):
+				if x["affinity"]["dark"] < 0:
 					return {"ok": true, "target": x}
 			return {"ok": false, "target": null}
 		"foe_fast":
@@ -891,8 +939,14 @@ static func cond_label(cond_id: String) -> String:
 		"foe_any": return "Foe: any"
 		"foe_lowest_hp": return "Foe: lowest HP"
 		"foe_highest_hp": return "Foe: highest HP"
-		"foe_armoured": return "Foe: armoured (DEF > 1.4× yours)"
-		"foe_warded": return "Foe: resistant (RES > 1.4× yours)"
+		"foe_armoured": return "Foe: armoured (DEF > RES)"
+		"foe_warded": return "Foe: resistant (RES > DEF)"
+		"foe_weak_fire": return "Foe: weak to Fire"
+		"foe_weak_water": return "Foe: weak to Water"
+		"foe_weak_earth": return "Foe: weak to Earth"
+		"foe_weak_air": return "Foe: weak to Air"
+		"foe_weak_light": return "Foe: weak to Light"
+		"foe_weak_dark": return "Foe: weak to Dark"
 		"foe_fast": return "Foe: faster than you"
 		"foe_3plus": return "Foe: 3+ present"
 		"foe_charging": return "Foe: charge ≥ 70%"

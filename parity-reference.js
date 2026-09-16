@@ -429,6 +429,7 @@ if (mode === 'progression') {
       out.push(C.makeUnit({
         id: uid, name: def.name, isParty: true, level: 1, slotIndex: i, stats: st,
         maxHp: mh, hp: Math.min(hp, mh), row: def.row, chargeAction: def.chargeAction,
+        charge: g.chargeCarry[uid] || 0,
         affinity: effectiveAffinity(g, uid),
         slots: ensureLoadout(g, uid).map(function (s) { return { cond: s.cond, action: s.action }; })
       }));
@@ -443,8 +444,14 @@ if (mode === 'progression') {
     C.setWave(w);
     var S = C.waveScale(w), out = [];
     var isFirstBoss = boss && w === P.BOSS_WAVES[0];
+    var priestUsed = false;   // 1 healer max per wave -- mirrors buildEnemies (farroad-ui.js)
     for (var j = 0; j < n; j++) {
-      var key = boss ? 'ox' : P.archetypeFor(w, j), a = C.ARCH[key];
+      var key = boss ? 'ox' : P.archetypeFor(w, j);
+      if (key === 'priest') {
+        if (priestUsed) key = 'wolf';
+        else priestUsed = true;
+      }
+      var a = C.ARCH[key];
       var hpBase;
       if (boss) {
         var ref = C.ARCH.wolf;
@@ -549,7 +556,7 @@ if (mode === 'progression') {
     var events = [];
     var firstClear = !g.clearedWaves[g.wave];
     g.clearedWaves[g.wave] = 1;
-    g.units.forEach(function (u) { g.hpCarry[u.id] = u.hp / u.maxHp; });
+    g.units.forEach(function (u) { g.hpCarry[u.id] = u.hp / u.maxHp; g.chargeCarry[u.id] = u.charge; });
     var r = P.killReward(g.wave, g.enemies.length);
     var aetherMul = (g.wave <= P.TUTORIAL_AETHER_WAVES) ? P.TUTORIAL_AETHER_MUL : 1;
     g.aether += r.aether * aetherMul; g.marks += r.marks * P.marksMul(g);
@@ -583,6 +590,7 @@ if (mode === 'progression') {
     g.wipes++;
     var back = P.checkpoint(g.bossesCleared, g.farthest);
     g.hpCarry = {};
+    g.chargeCarry = {};
     var events = [{ kind: 'wipe', backTo: back }];
     events = events.concat(startWave(g, back));
     return events;
@@ -597,7 +605,7 @@ if (mode === 'progression') {
       seed: seed || 7, rng: C.makeRNG(seed || 7), wave: 0, farthest: 1, bossesCleared: 0,
       aether: 0, lore: 0, marks: 0, wipes: 0,
       party: ['kesh'], actions: P.STARTER_ACTIONS.slice(), conditions: ['none'],
-      actionCounts: {}, condCounts: {}, bonuses: {}, recovery: {}, loadout: {}, hpCarry: {}, touched: {},
+      actionCounts: {}, condCounts: {}, bonuses: {}, recovery: {}, loadout: {}, hpCarry: {}, chargeCarry: {}, touched: {},
       clearedWaves: {}, dropsGranted: {},
       lvl: { kesh: 1 }, bank: { kesh: 0 }, maxLevelEver: 1, owned: { kesh: 1 },
       affinities: { kesh: {} }, statInvest: { kesh: {} }, equipInv: {}, equipped: { kesh: {} },
@@ -1620,7 +1628,7 @@ if (mode === 'save') {
     party: ['kesh', 'ansa'], actions: ['strike', 'ember', 'sear'], conditions: ['none', 'foe_lowest_hp'],
     actionCounts: { sear: 1 }, condCounts: { foe_lowest_hp: 1 }, bonuses: { strike: { potent: 2 } },
     recovery: { kesh: 3 }, loadout: { kesh: [{ cond: 'none', action: 'strike' }] },
-    hpCarry: { kesh: 0.8 }, touched: { kesh: true }, clearedWaves: { 1: 1, 2: 1, 3: 1, 4: 1 },
+    hpCarry: { kesh: 0.8 }, chargeCarry: { kesh: 12.5 }, touched: { kesh: true }, clearedWaves: { 1: 1, 2: 1, 3: 1, 4: 1 },
     dropsGranted: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 },
     lvl: { kesh: 3, ansa: 1 }, bank: { kesh: 12, ansa: 0 }, maxLevelEver: 3, owned: { kesh: 1, ansa: 1 },
     enrage: true, idleAcc: 1.5, dropQueue: [{ name: 'Sear' }], dropHistory: [{ name: 'Sear' }],
@@ -1645,6 +1653,7 @@ if (mode === 'save') {
   out.restoredAffinities = restored.affinities;
   out.restoredEquipped = restored.equipped;
   out.restoredMc = restored.mc;
+  out.restoredChargeCarry = restored.chargeCarry;
   // Prove the RNG position round-trips: draw the same N values from both the
   // ORIGINAL (still-live) rng and the RESTORED one -- must match bit-exact.
   var origNext = [], restoredNext = [];

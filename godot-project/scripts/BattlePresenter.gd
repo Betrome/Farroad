@@ -177,26 +177,53 @@ func _reposition_units() -> void:
 func _unit_size() -> float:
 	return _vp.y * 0.05
 
+const JOIN_HOP_TIME := 0.5
+
 ## Called by GameController right after a PartyPanel bench/field edit --
-## `added` (from FarroadProgression.refresh_live_party's return) is every
-## unit that was JUST fielded into the live fight; a benched unit needs no
-## new view, only its existing one's HP bar refreshed (see below). Builds a
-## UnitView for each newly-fielded unit, re-runs _reposition_units() (which
-## already re-places EVERY currently-tracked view, existing ones included,
-## by row/side -- not _layout_units(), which would build a SECOND, orphaned
-## view for units already on the field), then refreshes every view's HP bar
-## so a just-benched unit (marked hp=0 by refresh_live_party, no combat hit
-## involved to trigger the usual per-hit update_hp() call) reflects it
-## immediately instead of waiting for its next unrelated hit.
-func sync_live_party(added: Array) -> void:
+## `added` (from FarroadProgression.refresh_live_party's own "added" key)
+## is every unit JUST fielded into the live fight; `removed` (its own
+## "removed" key) is every uid JUST benched (now actually gone from
+## g["units"]/g["battle"]["units"], not just zeroed -- see that function's
+## own comment for why). Builds a UnitView for each newly-fielded unit,
+## re-runs _reposition_units() (which already re-places EVERY currently-
+## tracked view, existing ones included, by row/side -- not
+## _layout_units(), which would build a SECOND, orphaned view for units
+## already on the field) to compute everyone's correct target position,
+## then -- rather than leaving a new unit snapped straight to that
+## position -- starts it off at the SAME Y but offscreen to the left and
+## tweens it in; a removed unit's existing view gets the mirror treatment
+## (tweened out to offscreen-left, THEN actually freed and untracked, not
+## just left dimmed in place). Matches this project's own established
+## hop/tween idiom (create_tween()/tween_property, same as the attack-hop
+## animation) rather than inventing a new one.
+func sync_live_party(added: Array, removed: Array = []) -> void:
 	var unit_size: float = _unit_size()
+	var new_views := []
 	for u in added:
 		var view := UnitView.new()
 		view.setup(u, unit_size)
 		add_child(view)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
-	_reposition_units()
+		new_views.append(view)
+	var leaving_views := []
+	for uid in removed:
+		var view: UnitView = unit_views_by_id.get(uid)
+		if view != null:
+			leaving_views.append(view)
+			unit_views_by_id.erase(uid)
+			unit_views_by_name.erase(view.unit["name"])
+	_reposition_units()   # computes + sets the correct final position for every REMAINING tracked view
+	for view in new_views:
+		var target: Vector2 = view.position
+		view.position = Vector2(-unit_size, target.y)
+		var tw := create_tween()
+		tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	for view in leaving_views:
+		var start_y: float = view.position.y
+		var tw := create_tween()
+		tw.tween_property(view, "position", Vector2(-unit_size, start_y), JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		tw.finished.connect(view.queue_free)
 	for view in unit_views_by_id.values():
 		view.update_hp()
 
@@ -991,6 +1018,17 @@ func _run_battle_loop() -> void:
 		_refresh_enrage()
 		if status_popup.visible:
 			_refresh_status_popup()
+	# Defensive: if the loop exited via the guard cap (a genuine stalemate
+	# running past 300 beats) or FarroadCore.step() returning null with
+	# battle["over"] never actually set, battle["over"] would otherwise
+	# still be null here -- emitting that into GameController's
+	# non-nullable String outcome parameter raises a type error that
+	# aborts the signal handler before any of its own cleanup runs,
+	# freezing the game with exactly this log line as the last visible
+	# sign of life. A real, if rare, stalemate is treated as a loss (the
+	# same safe fallback every non-"party" outcome already gets).
+	if battle["over"] == null:
+		battle["over"] = "draw"
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])

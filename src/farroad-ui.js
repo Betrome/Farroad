@@ -46,7 +46,7 @@ function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
   aether:0, lore:0, marks:0, wipes:0,
   party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
-  actionCounts:{}, condCounts:{}, bonuses:{}, recovery:{}, loadout:{}, hpCarry:{}, touched:{},
+  actionCounts:{}, condCounts:{}, bonuses:{}, recovery:{}, loadout:{}, hpCarry:{}, chargeCarry:{}, touched:{},
   /* v2.4: every reward keyed to a WAVE NUMBER rather than to progress is farmable
      by dying and replaying. This records which waves have ever been cleared. */
   clearedWaves:{},
@@ -376,8 +376,15 @@ function buildParty(){
   var carry=G.hpCarry[uid];
   if(carry!=null)carry=Math.min(1,carry+recoveryOf(uid));
   var hp=(carry==null)?mh:Math.max(1,Math.round(mh*carry));
+  /* Charge persists between Road waves too, same shape as hpCarry above --
+     carries forward as-is (no recovery-style decay/regen), 0 if this unit
+     was never fielded before (a fresh join, or a legacy pre-chargeCarry
+     save). Scoped to the Road's own buildParty only -- expeditions/side
+     battles (buildExpeditionParty) deliberately keep their own fresh-
+     start-each-time convention, a separate system. */
   out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
    maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
+   charge:G.chargeCarry[uid]||0,
    affinity:effectiveAffinity(uid),
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
  return out;}
@@ -396,8 +403,23 @@ function buildEnemies(w,quiet,superBossKey){
   ' <span class="tiny">· each at ×'+vMul.toFixed(2)+' strength</span>');
  C.setWave(w);                      /* K tracks the wave, not the level */
  var S=C.waveScale(w),out=[];       /* v2.0: one exponent for every enemy stat */
+ var priestUsed=false;              /* 1 healer max per wave -- see below */
  for(var j=0;j<n;j++){
-  var key=boss?'ox':P.archetypeFor(w,j), a=C.ARCH[key];
+  var key=boss?'ox':P.archetypeFor(w,j);
+  /* archetypeFor can hand back 'priest' more than once in the same wave
+     -- every WAVE_ARCH wave 1-19 uses ONE archetype for every slot (so a
+     multi-enemy wave 5-7 was previously all-healer), and post-19 ROT
+     (length 6) repeats once a wave rolls more than 6 enemies (possible
+     post-wave-100 via COUNT_WEIGHTS_HARD, up to 10). A wave full of
+     simultaneous healers can stall the fight indefinitely (the CSV's own
+     design note: "Only enemy that heals... Kill first or the fight
+     stalls") -- cap it at 1, deterministically, no extra RNG draw: the
+     first priest slot stays a priest, every later one falls back to
+     'wolf' (always defined, the safest/plainest archetype). */
+  if(key==='priest'){
+   if(priestUsed)key='wolf';
+   else priestUsed=true;}
+  var a=C.ARCH[key];
   var hpBase;
   /* The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
      2nd party member joins -- it alone uses the eased FIRST_BOSS_LEN/
@@ -814,7 +836,7 @@ function afterWaveCleared(){
     be farmed: curated drops, random drops, boss hoards and milestone companions. */
  var firstClear=!G.clearedWaves[G.wave];
  G.clearedWaves[G.wave]=1;
- G.units.forEach(function(u){G.hpCarry[u.id]=u.hp/u.maxHp;});
+ G.units.forEach(function(u){G.hpCarry[u.id]=u.hp/u.maxHp;G.chargeCarry[u.id]=u.charge;});
  var r=P.killReward(G.wave,G.enemies.length);
  var aetherMul=(G.wave<=P.TUTORIAL_AETHER_WAVES)?P.TUTORIAL_AETHER_MUL:1;
  G.aether+=r.aether*aetherMul;G.marks+=r.marks*P.marksMul(G);
@@ -910,6 +932,7 @@ function onWipe(){
   Math.max(0,G.wave-back)+' waves. Idle rate is unchanged: it keys off your farthest wave ('+
   G.farthest+'), so failure never costs income.</div>');
  G.hpCarry={};
+ G.chargeCarry={};
  startWave(back);}
 
 /* --------------------------------------------------------------- save --- */

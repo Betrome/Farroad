@@ -86,9 +86,17 @@ func _build_ui(parent: Node) -> void:
 	tabs_label.text = "Edit loadout for:"
 	root_vbox.add_child(tabs_label)
 
+	# A horizontal-only ScrollContainer of its own -- without this, once
+	# owned companions exceed the row's width, reaching the rest dragged
+	# the ENTIRE popup body sideways via the outer (vertical) scroll
+	# instead of just this row scrolling on its own, the real source of
+	# "scrolling is inconsistent" across panels.
+	var tabs_scroll := ScrollContainer.new()
+	tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root_vbox.add_child(tabs_scroll)
 	unit_tabs_container = HBoxContainer.new()
 	unit_tabs_container.add_theme_constant_override("separation", 6)
-	root_vbox.add_child(unit_tabs_container)
+	tabs_scroll.add_child(unit_tabs_container)
 
 	slots_container = VBoxContainer.new()
 	slots_container.add_theme_constant_override("separation", 10)
@@ -130,6 +138,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	return btn
 
 func _on_toggle_pressed() -> void:
+	if _parent and _parent.has_method("_panel_opening"):
+		_parent.call("_panel_opening", self)
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 	_notify_battle_paused(true)
@@ -169,9 +179,28 @@ func _refresh_unit_tabs() -> void:
 		if not g["party"].has(uid):
 			label += " •"
 		btn.text = label
-		btn.disabled = (uid == selected_uid)
+		var selected: bool = (uid == selected_uid)
+		btn.disabled = selected
+		_style_unit_tab(btn, selected)
 		btn.pressed.connect(_on_unit_tab_pressed.bind(uid))
 		unit_tabs_container.add_child(btn)
+
+## An explicit gold border/background on the SELECTED unit's tab -- the
+## default theme's "disabled" dimming alone (still used to make
+## re-clicking the current tab a no-op) read as too subtle a way to show
+## who you're currently working with. Duplicated per sibling panel, same
+## no-shared-base convention as _style_purchase_button/_charge_style.
+func _style_unit_tab(btn: Button, selected: bool) -> void:
+	if not selected:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.32, 0.27, 0.08)
+	style.border_color = Color(0.85, 0.7, 0.15)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(6)
+	btn.add_theme_stylebox_override("disabled", style)
+	btn.add_theme_color_override("font_disabled_color", Color(1.0, 0.93, 0.72))
 
 func _on_unit_tab_pressed(uid: String) -> void:
 	selected_uid = uid

@@ -47,6 +47,9 @@ var expedition_panel: Node
 var expedition_timer: Timer
 var quests_panel: Node
 var mc_panel: Node
+## Tracks whichever panel's own popup is currently open -- see
+## _panel_opening()'s own comment for why this exists.
+var open_panel: Node = null
 ## The side battle currently running (a quest attempt or a dungeon
 ## crawl), or null when none is active -- GameController's own equivalent
 ## of the real JS's reassignable G.battle pointer (see
@@ -57,9 +60,14 @@ var side_presenter: Node = null
 
 var wave_label: Label
 var currency_label: Label
+var idle_rate_label: Label
 var wave_popup: PanelContainer
 var wave_popup_label: Label
 var fade_overlay: ColorRect
+## Captured by _try_resume_save() (empty {} when no save existed, or the
+## real 5s no-op floor wasn't met) -- consumed once by _start_game() to
+## show the welcome-back popup (Group J, post-Milestone-3 batch).
+var _offline_summary: Dictionary = {}
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
@@ -80,6 +88,8 @@ func _ready() -> void:
 func _start_game() -> void:
 	_build_hud()
 	_refresh_hud()
+	if not _offline_summary.is_empty():
+		_show_welcome_back_popup()
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
 	gambits_panel.setup(g, _vp, self)
@@ -146,6 +156,8 @@ func _on_viewport_resized() -> void:
 	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
 	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
 	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
+	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	fade_overlay.size = _vp
 	# wave_popup itself needs no repositioning here -- _show_wave_popup()
 	# already computes its center fresh from _vp every time it's shown.
@@ -189,7 +201,7 @@ func _try_resume_save() -> bool:
 	# same reasoning as the real tryResumeSave()'s own call.
 	FarroadProgression.start_wave(g, resume_wave, true)
 	var now := Time.get_unix_time_from_system()
-	FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
+	_offline_summary = FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
 	FarroadProgression.resolve_all_expeditions(g, now)
 	return true
 
@@ -230,6 +242,16 @@ func _build_hud() -> void:
 	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	add_child(currency_label)
 
+	# Idle reward rate (Group I, post-Milestone-3 batch) -- a small line
+	# under the currency purse showing the ambient trickle rate feeding it
+	# (idle_per_sec already runs regardless of whether the player is
+	# actively fighting -- see simulate_offline_progress's own comment).
+	idle_rate_label = Label.new()
+	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
+	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	idle_rate_label.modulate = Color(0.65, 0.65, 0.65)
+	add_child(idle_rate_label)
+
 	# A full-screen overlay for the wipe-transition fade (see
 	# _fade_out()/_fade_in()) -- starts fully transparent and hidden;
 	# mouse_filter=IGNORE so it never blocks input while invisible (during
@@ -257,10 +279,96 @@ func _build_hud() -> void:
 	wave_popup_label.add_theme_font_size_override("font_size", int(_vp.y * 0.06))
 	wave_popup.add_child(wave_popup_label)
 
+## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
+## shown right after the HUD is built whenever a resumed save had a real
+## offline gap (_offline_summary is non-empty -- simulate_offline_progress's
+## own 5s no-op floor already filters out a trivial gap, so no further
+## threshold check is needed here). A genuine step back toward a real
+## separate modal versus the real JS's current pushDrop()-banner approach --
+## a deliberate, Ian-requested choice for this port specifically, not a
+## "fix" to match current real-JS behavior (see this batch's own Group J
+## plan). Same opaque-panel styling convention every sibling panel's own
+## _style_popup already uses, just with its own border tint (blue, distinct
+## from the wave popup's gold and every tab panel's grey) to read as its
+## own kind of moment.
+func _show_welcome_back_popup() -> void:
+	var s := _offline_summary
+	var elapsed_sec: float = s["elapsed_sec"]
+	var away_txt: String
+	if elapsed_sec >= 3600.0:
+		away_txt = "%.1f hours" % (elapsed_sec / 3600.0)
+	else:
+		away_txt = "%d minutes" % maxi(1, roundi(elapsed_sec / 60.0))
+	if elapsed_sec > FarroadProgression.OFFLINE_CAP_SEC:
+		away_txt += " (capped at %dh)" % int(FarroadProgression.OFFLINE_CAP_SEC / 3600)
+
+	var wave_delta: int = int(s["wave_after"]) - int(s["wave_before"])
+	var progress_txt: String
+	if wave_delta > 0:
+		progress_txt = "Cleared %d wave%s, now at wave %d." % [wave_delta, ("" if wave_delta == 1 else "s"), int(s["wave_after"])]
+	else:
+		progress_txt = "Not enough time passed to clear another wave."
+
+	var wipes_gained: int = int(s["wipes_gained"])
+	var wipe_txt := ""
+	if wipes_gained > 0:
+		wipe_txt = "\nWiped %d time%s — back to checkpoint." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
+
+	var popup := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
+	style.border_color = Color(0.35, 0.6, 0.85, 1.0)
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(_vp.y * 0.03))
+	popup.add_theme_stylebox_override("panel", style)
+	add_child(popup)
+	# _show_welcome_back_popup() is called synchronously from _start_game(),
+	# itself called synchronously from _ready() -- a freshly add_child()ed
+	# Window-derived node (PopupPanel is one) hasn't finished its own
+	# internal _ready() setup yet within that same frame, so calling
+	# popup_centered() immediately after add_child() can silently fail to
+	# actually show it. One frame is enough (same fix shape _show_wave_popup
+	# already uses for its own post-add sizing).
+	await get_tree().process_frame
+
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(_vp.x * 0.78, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "Welcome back!"
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = "Away %s.\n%s%s" % [away_txt, progress_txt, wipe_txt]
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(body)
+
+	var gained := Label.new()
+	gained.text = "+%d Aether, +%d Marks" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
+	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	gained.modulate = Color(0.85, 0.75, 0.4)
+	vbox.add_child(gained)
+
+	var got_it := Button.new()
+	got_it.text = "Got it"
+	got_it.pressed.connect(func():
+		popup.hide()
+		popup.queue_free())
+	vbox.add_child(got_it)
+
+	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.6))
+
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
 	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
 		roundi(g["aether"]), roundi(g["lore"]), roundi(g["marks"])]
+	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
+	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
+	idle_rate_label.text = "%.1f Aether/hr   %.1f Marks/hr" % [r["aether"] * 3600.0, marks_rate * 3600.0]
 
 ## Called by GambitsPanel/AetherPanel (dynamic has_method()+call(), same
 ## pattern as _notify_currency_changed) when either popup opens/closes --
@@ -271,6 +379,24 @@ func _set_battle_paused(paused: bool) -> void:
 	if current_presenter != null:
 		current_presenter.call("set_loop_paused", paused)
 
+## Called by every panel (dynamic has_method()+call()) at the very start
+## of its own _on_toggle_pressed, BEFORE opening its own popup -- closes
+## whichever OTHER panel's popup is currently open first. Godot's own
+## PopupPanel auto-dismisses on an outside click, but that SAME click
+## does not also pass through to whatever is underneath it -- tapping a
+## different tab's icon while another panel's popup is open would
+## otherwise just dismiss the old one (consuming that tap) and require a
+## second tap to actually open the new one, exactly the "switching tabs
+## sometimes just closes the current one" bug. Explicitly closing the
+## old popup here, from the NEW panel's own button-press handler (a
+## normal click on an always-visible sibling Control, never eaten by the
+## old popup's own dismiss handling), means the new popup still opens on
+## the SAME tap that closed the old one.
+func _panel_opening(panel: Node) -> void:
+	if open_panel != null and open_panel != panel and is_instance_valid(open_panel):
+		open_panel.popup.hide()
+	open_panel = panel
+
 ## Called by PartyPanel (dynamic has_method()+call(), same pattern as
 ## _set_battle_paused) right after a bench/field edit -- pushes the roster
 ## change onto the live fight immediately (see
@@ -279,8 +405,8 @@ func _set_battle_paused(paused: bool) -> void:
 func _sync_party_change() -> void:
 	if current_presenter == null:
 		return
-	var added: Array = FarroadProgression.refresh_live_party(g)
-	current_presenter.call("sync_live_party", added)
+	var result: Dictionary = FarroadProgression.refresh_live_party(g)
+	current_presenter.call("sync_live_party", result["added"], result["removed"])
 
 ## Guarded against a real race with side battles (Step 3i/3j fix): a Road
 ## win/wipe can already be mid-await (_show_wave_popup/_fade_out, both a
@@ -312,10 +438,14 @@ func _begin_next_fight() -> void:
 ## needs a separate start_wave(wave+1) call here.
 func _on_battle_finished(outcome: String) -> void:
 	if outcome == "party":
-		FarroadProgression.after_wave_cleared(g)
-		FarroadProgression.start_wave(g, g["wave"] + 1)
+		var aether_before: float = g.get("aether", 0.0)
+		var lore_before: float = g.get("lore", 0.0)
+		var marks_before: float = g.get("marks", 0.0)
+		var events: Array = FarroadProgression.after_wave_cleared(g)
+		events += FarroadProgression.start_wave(g, g["wave"] + 1)
 		_refresh_hud()
 		_save_game()
+		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
 		# The finished battlefield (units, HP bars, log/status buttons) stays
 		# on screen behind the popup -- only freed once the NEXT fight is
 		# actually being built, not the moment this one ends.
@@ -385,6 +515,99 @@ func _fade_in() -> void:
 	tw.tween_property(fade_overlay, "color:a", 0.0, FADE_HALF_SEC)
 	await tw.finished
 	fade_overlay.hide()
+
+## ===== Group H: wave-clear reward drop animation =====
+## Icon x-fractions duplicated from the target panels' own _build_icon_tab
+## calls (GambitsPanel.gd/PartyPanel.gd/EquipmentPanel.gd, all at
+## icon_size=0.11*vp.x, y=0.93*vp.y) -- same per-file duplication
+## convention this project already uses everywhere else, not a new pattern.
+const ICON_SIZE_FRAC := 0.11
+const ICON_Y_FRAC := 0.93
+const GAMBITS_ICON_X_FRAC := 0.0133
+const PARTY_ICON_X_FRAC := 0.1367
+const EQUIPMENT_ICON_X_FRAC := 0.5067
+
+const REWARD_FLYER_TIME := 0.7
+const REWARD_FLYER_STAGGER := 0.12
+
+func _icon_center(x_frac: float) -> Vector2:
+	var icon_size: float = _vp.x * ICON_SIZE_FRAC
+	return Vector2(_vp.x * x_frac + icon_size / 2.0, _vp.y * ICON_Y_FRAC + icon_size / 2.0)
+
+## Snapshotted aether/lore/marks BEFORE after_wave_cleared/start_wave ran,
+## diffed against the current (post-call) values -- covers every plain
+## per-wave Aether/Marks gain and duplicate-drop Lore conversion, which
+## have no dedicated event of their own, without adding new event kinds to
+## the engine layer (see this batch's own Group H plan for why a diff is
+## preferred over new events). Each captured typed event
+## (action/cond -> Gambits, equip -> Equipment, boss_companion(_roll) ->
+## Party) spawns its own flyer too. Fire-and-forget -- not awaited by the
+## caller, matching the established "small reusable helper, no bespoke
+## animation per reward kind" design.
+func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float, marks_before: float) -> void:
+	var start := Vector2(_vp.x / 2.0, _vp.y * (0.11 + 0.58) / 2.0)
+	var delay := 0.0
+	var aether_delta: float = g.get("aether", 0.0) - aether_before
+	if aether_delta >= 1.0:
+		_spawn_reward_flyer(start, currency_label.position, "+%d Aether" % roundi(aether_delta), delay)
+		delay += REWARD_FLYER_STAGGER
+	var lore_delta: float = g.get("lore", 0.0) - lore_before
+	if lore_delta >= 1.0:
+		_spawn_reward_flyer(start, currency_label.position, "+%d Lore" % roundi(lore_delta), delay)
+		delay += REWARD_FLYER_STAGGER
+	var marks_delta: float = g.get("marks", 0.0) - marks_before
+	if marks_delta >= 1.0:
+		_spawn_reward_flyer(start, currency_label.position, "+%d Marks" % roundi(marks_delta), delay)
+		delay += REWARD_FLYER_STAGGER
+	for e in events:
+		var target = _reward_icon_target(e)
+		if target == null:
+			continue
+		_spawn_reward_flyer(start, target, _reward_event_text(e), delay)
+		delay += REWARD_FLYER_STAGGER
+
+func _reward_icon_target(e: Dictionary) -> Variant:
+	match e.get("kind", ""):
+		"action", "cond":
+			return _icon_center(GAMBITS_ICON_X_FRAC)
+		"equip":
+			return _icon_center(EQUIPMENT_ICON_X_FRAC)
+		"boss_companion", "boss_companion_roll":
+			return _icon_center(PARTY_ICON_X_FRAC)
+		_:
+			return null
+
+func _reward_event_text(e: Dictionary) -> String:
+	match e.get("kind", ""):
+		"action":
+			return "Action (dup)" if e.get("duplicate", false) else "New action!"
+		"cond":
+			return "Gambit (dup)" if e.get("duplicate", false) else "New gambit!"
+		"equip":
+			return "New gear!"
+		"boss_companion", "boss_companion_roll":
+			return "New companion!"
+		_:
+			return ""
+
+## A small Label tweening from `start` to `end` while fading out near the
+## end, then freeing itself -- the reusable flyer every reward kind
+## (currency deltas and typed events alike) spawns through.
+func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: float) -> void:
+	if delay > 0.0:
+		await get_tree().create_timer(delay).timeout
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.028))
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	lbl.position = start
+	add_child(lbl)
+	move_child(lbl, get_child_count() - 1)
+	var tw := create_tween()
+	tw.tween_property(lbl, "position", end, REWARD_FLYER_TIME)
+	tw.parallel().tween_property(lbl, "modulate:a", 0.0, REWARD_FLYER_TIME).set_delay(REWARD_FLYER_TIME * 0.4)
+	await tw.finished
+	lbl.queue_free()
 
 ## ===== QUESTS side battles (Step 3i) =====
 ## Mirrors startSideBattle's presentation half (farroad-ui.js:1455-1466) --

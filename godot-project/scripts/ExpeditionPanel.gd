@@ -116,6 +116,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	return btn
 
 func _on_toggle_pressed() -> void:
+	if _parent and _parent.has_method("_panel_opening"):
+		_parent.call("_panel_opening", self)
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 

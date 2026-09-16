@@ -79,9 +79,15 @@ func _build_ui(parent: Node) -> void:
 	tabs_label.text = "Invest in:"
 	root_vbox.add_child(tabs_label)
 
+	# A horizontal-only ScrollContainer of its own -- see GambitsPanel.gd's
+	# own copy of this comment for why (the real source of "scrolling is
+	# inconsistent" across panels).
+	var tabs_scroll := ScrollContainer.new()
+	tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root_vbox.add_child(tabs_scroll)
 	unit_tabs_container = HBoxContainer.new()
 	unit_tabs_container.add_theme_constant_override("separation", 6)
-	root_vbox.add_child(unit_tabs_container)
+	tabs_scroll.add_child(unit_tabs_container)
 
 	card_container = VBoxContainer.new()
 	card_container.add_theme_constant_override("separation", 12)
@@ -121,6 +127,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	return btn
 
 func _on_toggle_pressed() -> void:
+	if _parent and _parent.has_method("_panel_opening"):
+		_parent.call("_panel_opening", self)
 	_refresh()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 	_notify_battle_paused(true)
@@ -156,9 +164,28 @@ func _refresh_unit_tabs() -> void:
 		if not g["party"].has(uid):
 			label += " •"
 		btn.text = label
-		btn.disabled = (uid == selected_uid)
+		var selected: bool = (uid == selected_uid)
+		btn.disabled = selected
+		_style_unit_tab(btn, selected)
 		btn.pressed.connect(_on_unit_tab_pressed.bind(uid))
 		unit_tabs_container.add_child(btn)
+
+## An explicit gold border/background on the SELECTED unit's tab -- the
+## default theme's "disabled" dimming alone (still used to make
+## re-clicking the current tab a no-op) read as too subtle a way to show
+## who you're currently working with. Duplicated per sibling panel, same
+## no-shared-base convention as _style_purchase_button/_charge_style.
+func _style_unit_tab(btn: Button, selected: bool) -> void:
+	if not selected:
+		return
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.32, 0.27, 0.08)
+	style.border_color = Color(0.85, 0.7, 0.15)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(6)
+	btn.add_theme_stylebox_override("disabled", style)
+	btn.add_theme_color_override("font_disabled_color", Color(1.0, 0.93, 0.72))
 
 func _on_unit_tab_pressed(uid: String) -> void:
 	selected_uid = uid
@@ -222,7 +249,8 @@ func _add_stat_cell(grid: GridContainer, label: String, value, growth, cell_widt
 ## overrides both cells' font size -- used by the Affinities grid to stay
 ## compact enough for two columns; every other section leaves it default.
 func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
-		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, desc_width_frac: float = 0.42) -> void:
+		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, desc_width_frac: float = 0.42,
+		show_cost_in_button: bool = true) -> void:
 	var desc_lbl := Label.new()
 	desc_lbl.text = desc
 	desc_lbl.custom_minimum_size.x = _vp.x * desc_width_frac
@@ -230,7 +258,7 @@ func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, co
 	if font_size > 0:
 		desc_lbl.add_theme_font_size_override("font_size", font_size)
 	grid.add_child(desc_lbl)
-	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac))
+	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac, show_cost_in_button))
 
 ## Same idea as _add_purchase_cells, but splits the description into a
 ## separate LABEL cell and VALUE cell (three direct children total: label,
@@ -261,9 +289,14 @@ func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: Stri
 	grid.add_child(value_lbl)
 	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac))
 
-func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: Callable, font_size: int, btn_width_frac: float) -> Button:
+func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: Callable, font_size: int, btn_width_frac: float, show_cost_in_button: bool = true) -> Button:
 	var btn := Button.new()
-	btn.text = "MAXED" if maxed else "%s (%d)" % [buy_text, cost]
+	if maxed:
+		btn.text = "MAXED"
+	elif show_cost_in_button:
+		btn.text = "%s (%d)" % [buy_text, cost]
+	else:
+		btn.text = buy_text
 	var available: bool = not maxed and g.get("aether", 0) >= cost
 	btn.disabled = not available
 	btn.pressed.connect(callback)
@@ -280,11 +313,18 @@ func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: 
 ## same cell-building logic (and therefore styling/width) as the grid-based
 ## sections below, colored to read as available/unavailable at a glance
 ## rather than relying on the default theme's flat grey for both states.
-func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable) -> Control:
+## `show_cost_in_button`, when false, leaves the cost out of the BUTTON's
+## own text entirely (the caller is expected to have put it in `desc`
+## instead) -- used by the Level-up row specifically, whose cost can run
+## into the thousands at high levels and was overflowing/clipping the
+## fixed-width button (Recovery/Evade/Crit/Affinity costs all stay small
+## enough that showing them on the button is fine, so they keep the
+## default).
+func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable, show_cost_in_button: bool = true) -> Control:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 14)
-	_add_purchase_cells(grid, desc, buy_text, cost, maxed, callback)
+	_add_purchase_cells(grid, desc, buy_text, cost, maxed, callback, 0, PURCHASE_BTN_WIDTH_FRAC, 0.42, show_cost_in_button)
 	return grid
 
 ## Available: warm gold (matches the real UI's own --aether color theme),
@@ -372,23 +412,23 @@ func _refresh_card() -> void:
 	# buttons were dropped, also per direct request.
 	var exact := maxi(0, int(ceil(need - have)))
 	card_container.add_child(_purchase_row(
-		"Level up", "→ LV %d" % (level + 1), exact, false, _on_feed_pressed.bind(uid, exact)))
+		"Level up — %d Aether" % exact, "→ LV %d" % (level + 1), exact, false,
+		_on_feed_pressed.bind(uid, exact), false))
 
 	# Recovery/Evade/Crit share the SAME label/value/button column widths
 	# (explicit floors, not auto-sized) even though Recovery has its own
 	# GridContainer separate from Evade/Crit's -- that's what actually puts
 	# all 4 buttons at the identical x position down the page, not just
 	# giving them the same WIDTH (which alone doesn't align them if the
-	# columns before the button differ between the two grids). Narrower than
-	# every other section's own defaults specifically so label+value+button+
-	# separations comfortably fit within the popup's real width with no
-	# horizontal scroll -- a real overflow this popup previously had once
-	# the value column was added, caught from a real screenshot, not
-	# something the earlier per-cell-only width check had actually verified
-	# against the TOTAL row width.
+	# columns before the button differ between the two grids).
+	# btn_col_frac measured directly against real worst-case button text
+	# (a 5-digit cost, "+1.5% (99999)") at the real default font/padding --
+	# the PRIOR 0.20 was narrower than that real text needed (~106px of
+	# text + 12px button padding vs. the 82px it was given), clipping it;
+	# 0.32 comfortably fits the measured worst case with room to spare.
 	var label_col_frac: float = 0.28
 	var value_col_frac: float = 0.11
-	var btn_col_frac: float = 0.20
+	var btn_col_frac: float = 0.30
 
 	# Recovery -- now second, after Level.
 	var recovery_grid := GridContainer.new()
@@ -445,7 +485,7 @@ func _refresh_card() -> void:
 			var cost := FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g, uid).get(axis, 0))
 			var maxed := FarroadProgression.affinity_maxed(g, uid, axis)
 			_add_labeled_purchase_cells(aff_grid, AFFINITY_AXIS_LABELS[axis], "%+.0f%%" % pct,
-				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08)
+				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.16, 0.09, 0.08)
 	card_container.add_child(aff_grid)
 
 ## GameController's own top-strip currency line (Aether/Lore/Marks) only

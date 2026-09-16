@@ -15,7 +15,7 @@ const VERSION := 1
 ## exactly, field-for-field, same order.
 const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "lore", "marks", "wipes",
 	"party", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
-	"loadout", "hpCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
+	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
 	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
 	"affinities", "statInvest", "equipInv", "equipped",
@@ -64,7 +64,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		g["actions"] = ["strike", "ember"]
 	if not g.get("conditions") or g["conditions"].is_empty():
 		g["conditions"] = ["none"]
-	for k in ["actionCounts", "condCounts", "bonuses", "recovery", "loadout", "hpCarry", "touched",
+	for k in ["actionCounts", "condCounts", "bonuses", "recovery", "loadout", "hpCarry", "chargeCarry", "touched",
 		"clearedWaves", "lvl", "bank", "owned"]:
 		g[k] = g.get(k) if g.get(k) != null else {}
 

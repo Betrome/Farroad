@@ -1030,9 +1030,16 @@ static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dic
 	if carry != null:
 		carry = minf(1.0, carry + recovery_of(g, uid))
 	var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
+	# Charge persists between Road waves too, same shape as hpCarry above --
+	# carries forward as-is (no recovery-style decay/regen), 0 if this unit
+	# was never fielded before (a fresh join, or a legacy pre-chargeCarry
+	# save). Scoped to build_party_unit only -- build_expedition_party
+	# deliberately keeps its own fresh-start-each-time convention, a
+	# separate system.
 	return FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
 		"slotIndex": slot_index, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
-		"chargeAction": def.get("chargeAction"), "affinity": effective_affinity(g, uid),
+		"chargeAction": def.get("chargeAction"), "charge": g["chargeCarry"].get(uid, 0.0),
+		"affinity": effective_affinity(g, uid),
 		"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})})
 
 static func build_party(g: Dictionary) -> Array:
@@ -1061,17 +1068,34 @@ static func build_party(g: Dictionary) -> Array:
 ## start_wave's own `party + enemies` concatenation) -- with its turn
 ## schedule seeded from the battle's CURRENT time (`battle["t"]`), not a
 ## fresh-battle-relative 0, so it takes its first turn in due course
-## instead of jumping the queue. Returns the newly-added unit dicts so the
-## presentation layer can build matching UnitViews for them.
-static func refresh_live_party(g: Dictionary) -> Array:
+## instead of jumping the queue. A benched party member is REMOVED from
+## both arrays outright (not just zeroed) -- Godot-only behavior, no real-
+## JS equivalent to mirror (benchUnit/fieldUnit, farroad-ui.js:2680-2691,
+## only ever touch G.party; the real game has no mid-fight live-sync at
+## all, this whole mechanism is a Godot-side enhancement, confirmed
+## untested by any parity mode). Removing outright (rather than the
+## earlier hp=0-in-place convention) is what lets the presentation layer
+## actually hop the sprite offscreen and free it, instead of leaving a
+## permanently-dimmed corpse standing in a slot that unit no longer
+## occupies. Safe against FarroadCore.step()'s own battle["units"]
+## iteration -- pick_next()/check_end() already skip/ignore anything not
+## found by id, nothing there assumes a fixed array length or indexes
+## positionally. Returns {"added": [unit dicts...], "removed": [uid
+## strings...]} so the presentation layer can build matching UnitViews
+## for additions and animate/free the ones removed.
+static func refresh_live_party(g: Dictionary) -> Dictionary:
 	if g.get("units") == null:
-		return []
+		return {"added": [], "removed": []}
 	var present_ids := {}
 	for u in g["units"]:
 		present_ids[u["id"]] = true
+	var removed := []
 	for u in g["units"]:
 		if u["isParty"] and not g["party"].has(u["id"]):
-			u["hp"] = 0.0
+			removed.append(u["id"])
+	if not removed.is_empty():
+		g["units"] = (g["units"] as Array).filter(func(u): return not removed.has(u["id"]))
+		g["battle"]["units"] = (g["battle"]["units"] as Array).filter(func(u): return not removed.has(u["id"]))
 	var added := []
 	for i in range(g["party"].size()):
 		var uid: String = g["party"][i]
@@ -1081,7 +1105,7 @@ static func refresh_live_party(g: Dictionary) -> Array:
 			g["units"].append(nu)
 			g["battle"]["units"].append(nu)
 			added.append(nu)
-	return added
+	return {"added": added, "removed": removed}
 
 ## @param quiet caller-side hook for a future variety-roll log line -- no log
 ## is built here (that's a UI concern), kept only so callers match the real
@@ -1094,8 +1118,25 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	FarroadCore.set_wave(w)
 	var s: float = FarroadCore.wave_scale(w)
 	var out := []
+	var priest_used := false   # 1 healer max per wave -- see below
 	for j in range(n):
 		var key: String = "ox" if boss else archetype_for(w, j)
+		# archetype_for can hand back "priest" more than once in the same
+		# wave -- every WAVE_ARCH wave 1-19 uses ONE archetype for every
+		# slot (so a multi-enemy wave 5-7 was previously all-healer), and
+		# post-19 ROT (length 6) repeats once a wave rolls more than 6
+		# enemies (possible post-wave-100 via COUNT_WEIGHTS_HARD, up to
+		# 10). A wave full of simultaneous healers can stall the fight
+		# indefinitely (the CSV's own design note: "Only enemy that
+		# heals... Kill first or the fight stalls") -- cap it at 1,
+		# deterministically, no extra RNG draw: the first priest slot
+		# stays a priest, every later one falls back to "wolf" (always
+		# defined, the safest/plainest archetype).
+		if key == "priest":
+			if priest_used:
+				key = "wolf"
+			else:
+				priest_used = true
 		var a: Dictionary = FarroadCore.ARCH[key]
 		# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before
 		# the 2nd party member joins -- it alone uses the eased
@@ -1260,6 +1301,7 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	g["clearedWaves"][g["wave"]] = 1
 	for u in g["units"]:
 		g["hpCarry"][u["id"]] = u["hp"] / u["maxHp"]
+		g["chargeCarry"][u["id"]] = u["charge"]
 	var r := kill_reward(g["wave"], g["enemies"].size())
 	var aether_mul: float = TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0
 	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul
@@ -1292,6 +1334,7 @@ static func on_wipe(g: Dictionary) -> Array:
 	g["wipes"] = g.get("wipes", 0) + 1
 	var back := checkpoint(g.get("bossesCleared", 0), g.get("farthest", 1))
 	g["hpCarry"] = {}
+	g["chargeCarry"] = {}
 	var events: Array = [{"kind": "wipe", "backTo": back}]
 	events.append_array(start_wave(g, back))
 	return events
@@ -1318,7 +1361,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"aether": 0, "lore": 0, "marks": 0, "wipes": 0,
 		"party": ["kesh"], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
-		"hpCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
+		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
 		"lvl": {"kesh": 1}, "bank": {"kesh": 0}, "maxLevelEver": 1, "owned": {"kesh": 1},
 		"affinities": {"kesh": {}}, "statInvest": {"kesh": {}},
 		"equipInv": {}, "equipped": {"kesh": {}},
@@ -1634,10 +1677,24 @@ static func collect_expedition(g: Dictionary, id: String) -> bool:
 ## never-wipes" choice. `saved_at` is the save envelope's own top-level
 ## timestamp (sibling to the FIELDS-derived g content), not anything
 ## inside `g` itself.
-static func simulate_offline_progress(g: Dictionary, saved_at, now) -> void:
+##
+## Godot-only signature change (Group J, post-Milestone-3 batch): returns a
+## summary Dictionary instead of void -- {} when the 5s floor wasn't met
+## (a real caller distinguishes "nothing happened" from "elapsed_sec: 0.0"
+## by checking is_empty(), same convention used elsewhere in this port),
+## else the same waveBefore/wipesBefore/aetherBefore/marksBefore locals the
+## real JS already computes via closure (it never needed a return value,
+## since pushDrop() is called from inside the same function) -- no
+## src/*.js edit needed, this is purely a Godot-side plumbing change so
+## GameController can show its own "welcome back" popup instead.
+static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionary:
 	var elapsed_sec: float = maxf(0.0, float(now) - float(saved_at if saved_at != null else now))
 	if elapsed_sec < 5.0:
-		return
+		return {}
+	var wave_before: int = int(g["wave"])
+	var wipes_before: int = int(g.get("wipes", 0))
+	var aether_before: float = float(g["aether"])
+	var marks_before: float = float(g["marks"])
 	var capped: float = minf(elapsed_sec, OFFLINE_CAP_SEC)
 	var r := idle_per_sec(g.get("farthest", 1))
 	g["aether"] = float(g["aether"]) + r["aether"] * capped
@@ -1664,6 +1721,14 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> void:
 		else:
 			break
 		remaining -= cost
+	return {
+		"elapsed_sec": elapsed_sec,
+		"wave_before": wave_before,
+		"wave_after": int(g["wave"]),
+		"aether_gained": g["aether"] - aether_before,
+		"marks_gained": g["marks"] - marks_before,
+		"wipes_gained": int(g.get("wipes", 0)) - wipes_before,
+	}
 
 ## ===== POWER LEVEL (Step 3i) =====
 ## Mirrors powerLevel (farroad-progression.js:1030-1058) -- a rollup of

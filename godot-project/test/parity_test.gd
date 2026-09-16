@@ -699,7 +699,7 @@ func _run_save_suite() -> void:
 		"party": ["kesh", "ansa"], "actions": ["strike", "ember", "sear"], "conditions": ["none", "foe_lowest_hp"],
 		"actionCounts": {"sear": 1}, "condCounts": {"foe_lowest_hp": 1}, "bonuses": {"strike": {"potent": 2}},
 		"recovery": {"kesh": 3}, "loadout": {"kesh": [{"cond": "none", "action": "strike"}]},
-		"hpCarry": {"kesh": 0.8}, "touched": {"kesh": true}, "clearedWaves": {1: 1, 2: 1, 3: 1, 4: 1},
+		"hpCarry": {"kesh": 0.8}, "chargeCarry": {"kesh": 12.5}, "touched": {"kesh": true}, "clearedWaves": {1: 1, 2: 1, 3: 1, 4: 1},
 		"dropsGranted": {1: 1, 2: 1, 3: 1, 4: 1, 5: 1},
 		"lvl": {"kesh": 3, "ansa": 1}, "bank": {"kesh": 12, "ansa": 0}, "maxLevelEver": 3, "owned": {"kesh": 1, "ansa": 1},
 		"enrage": true, "idleAcc": 1.5, "dropQueue": [{"name": "Sear"}], "dropHistory": [{"name": "Sear"}],
@@ -724,6 +724,7 @@ func _run_save_suite() -> void:
 	out["restoredAffinities"] = restored["affinities"]
 	out["restoredEquipped"] = restored["equipped"]
 	out["restoredMc"] = restored["mc"]
+	out["restoredChargeCarry"] = restored["chargeCarry"]
 	var orig_next := []
 	var restored_next := []
 	for j in range(10):

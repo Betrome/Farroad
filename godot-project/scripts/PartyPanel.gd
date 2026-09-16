@@ -106,6 +106,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	return btn
 
 func _on_toggle_pressed() -> void:
+	if _parent and _parent.has_method("_panel_opening"):
+		_parent.call("_panel_opening", self)
 	_refresh_roster()
 	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 	_notify_battle_paused(true)
@@ -137,7 +139,7 @@ func _refresh_roster() -> void:
 	party_header.modulate = Color(0.6, 0.75, 1.0)
 	roster_container.add_child(party_header)
 	for uid in g["party"]:
-		roster_container.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed))
+		roster_container.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed, true))
 
 	var bench_header := Label.new()
 	bench_header.text = "BENCHED"
@@ -152,19 +154,51 @@ func _refresh_roster() -> void:
 	for uid in avail:
 		roster_container.add_child(_roster_row(uid, "Field", g["party"].size() >= FarroadProgression.PARTY_CAP, _on_field_pressed))
 
-func _roster_row(uid: String, action_text: String, disabled: bool, callback: Callable) -> Control:
+func _roster_row(uid: String, action_text: String, disabled: bool, callback: Callable, show_row_toggle: bool = false) -> Control:
 	var row := HBoxContainer.new()
 	var name_lbl := Label.new()
 	var def = FarroadCore.roster_by_id(uid)
 	name_lbl.text = def["name"] if def else uid
 	name_lbl.custom_minimum_size = Vector2(_vp.x * 0.18, 0)
 	row.add_child(name_lbl)
+	# Front/Back toggle -- fielded units only (bench row placement has no
+	# effect until fielded anyway). `row` lives on the roster DEFINITION
+	# itself (FarroadCore.roster_by_id(uid)["row"]), mutated in place, the
+	# same technique apply_custom_mc already uses for kesh's own entry --
+	# not a new per-party-instance field.
+	if show_row_toggle and def != null:
+		var row_btn := Button.new()
+		var cur_row: String = def.get("row", "front")
+		row_btn.text = "Front" if cur_row == "front" else "Back"
+		row_btn.tooltip_text = "Tap to move to the %s row" % ("back" if cur_row == "front" else "front")
+		row_btn.pressed.connect(_on_row_toggle_pressed.bind(uid))
+		row.add_child(row_btn)
 	var btn := Button.new()
 	btn.text = action_text
 	btn.disabled = disabled
 	btn.pressed.connect(callback.bind(uid))
 	row.add_child(btn)
 	return row
+
+## Flips the roster definition's own row field (not a per-party-instance
+## copy) -- matches how the real JS's own row-toggle tag mutates BOTH the
+## live unit AND C.ROSTER's def (farroad-ui.js:1740-1745), a mechanic that
+## already existed in the real game but had no Godot UI surface until now.
+## Also pushed onto any matching LIVE g["units"] entry for correctness,
+## though (deliberately, scoped simply) the on-field sprite itself won't
+## visually reposition until the next wave's build_party() lays everyone
+## out fresh -- same "self-corrects within one wave" tradeoff this
+## project already accepted for a viewport-resize mid-fight.
+func _on_row_toggle_pressed(uid: String) -> void:
+	var def = FarroadCore.roster_by_id(uid)
+	if def == null:
+		return
+	var new_row: String = "back" if def.get("row", "front") == "front" else "front"
+	def["row"] = new_row
+	for u in g.get("units", []):
+		if u["id"] == uid:
+			u["row"] = new_row
+	_refresh_roster()
 
 func _on_bench_pressed(uid: String) -> void:
 	if FarroadProgression.bench_unit(g, uid):

@@ -554,10 +554,36 @@ var CONDITIONS=[
  C('foe_highest_hp','Foe: highest HP','Foe',function(u,b){var t=byHighestHp(foes(b,u));return {ok:!!t,target:t};}),
  C('foe_hp_gte_70','Foe: HP ≥ 70%','Foe',function(u,b){var f=foes(b,u);for(var i=0;i<f.length;i++)if(hpPct(f[i])>=.70)return {ok:true,target:f[i]};return {ok:false,target:null};}),
  C('foe_hp_lte_30','Foe: HP ≤ 30%','Foe',function(u,b){var f=foes(b,u);for(var i=0;i<f.length;i++)if(hpPct(f[i])<=.30)return {ok:true,target:f[i]};return {ok:false,target:null};}),
- C('foe_armoured','Foe: armoured (DEF > 1.4× yours)','Foe',function(u,b){var f=foes(b,u);
-   for(var i=0;i<f.length;i++)if(effDef(f[i])>1.4*effDef(u))return {ok:true,target:f[i]};return {ok:false,target:null};}),
- C('foe_warded','Foe: resistant (RES > 1.4× yours)','Foe',function(u,b){var f=foes(b,u);
-   for(var i=0;i<f.length;i++)if(effRes(f[i])>1.4*effRes(u))return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ /* Reworded from a caster-relative 1.4x-margin threshold to a plain
+    self-relative comparison -- a foe whose own DEF/RES simply outweighs
+    its own RES/DEF, no margin, same shape as the Status-popup-only
+    defResPair() just applied to the target instead of the caster. */
+ C('foe_armoured','Foe: armoured (DEF > RES)','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(effDef(f[i])>effRes(f[i]))return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_warded','Foe: resistant (RES > DEF)','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(effRes(f[i])>effDef(f[i]))return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ /* "Weak to <element>" -- a NEGATIVE raw affinity on the TARGET's own
+    affinity[element] is exactly what affTerm's (1-affinityMul(defRaw))
+    factor reads as "takes more damage from this element" (a negative
+    raw -> a negative affinityMul -> defender factor > 1), so raw<0 is
+    the correct, already-established sign convention for "weak to X",
+    not a new one invented for this condition. Scoped to the 6 THEMED
+    elemental axes (fire/water/earth/air/light/dark, the same set
+    DIRECTION_CONFIG's own per-direction affinity theming already uses)
+    -- body/spirit are generic physical/healing modifiers, not an
+    elemental "weakness" in the same legible sense. */
+ C('foe_weak_fire','Foe: weak to Fire','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.fire<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_weak_water','Foe: weak to Water','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.water<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_weak_earth','Foe: weak to Earth','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.earth<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_weak_air','Foe: weak to Air','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.air<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_weak_light','Foe: weak to Light','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.light<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
+ C('foe_weak_dark','Foe: weak to Dark','Foe',function(u,b){var f=foes(b,u);
+   for(var i=0;i<f.length;i++)if(f[i].affinity.dark<0)return {ok:true,target:f[i]};return {ok:false,target:null};}),
  C('foe_fast','Foe: faster than you','Foe',function(u,b){var f=foes(b,u);
    for(var i=0;i<f.length;i++)if(f[i].base.spd>u.base.spd)return {ok:true,target:f[i]};return {ok:false,target:null};}),
  C('foe_3plus','Foe: 3+ present','Foe',function(u,b){var f=foes(b,u);return {ok:f.length>=3,target:defFoe(b,u)};}),
