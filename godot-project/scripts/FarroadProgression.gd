@@ -1651,7 +1651,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			var target_tier: int = int(floor(float(dp["maxDepth"]) / float(FarroadCore.DIRECTION_CONFIG[exp["direction"]]["unlockEvery"])))
 			while target_tier > dp["dungeonsUnlocked"]:
 				dp["dungeonsUnlocked"] += 1
-				unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
+				var new_dungeon: Dictionary = unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
+				push_expedition_log(exp, "Found the way into %s — enter it from the QUESTS tab." % new_dungeon["name"], now)
 		else:
 			exp["hpFrac"] = 0.0
 		remaining -= cost

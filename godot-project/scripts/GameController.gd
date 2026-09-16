@@ -666,6 +666,47 @@ func _show_picker_overlay(title: String, populate: Callable) -> void:
 
 	await _finish_detail_overlay(o)
 
+## Ian: "give each expedition you send out its own button to pop up a log
+## showing battle, events, and dungeons they encounter." exp["log"]
+## (push_expedition_log, newest-first, 40-entry cap) already records every
+## one of those -- sent/heading-home/arrived, bonus-fight wins/losses
+## ("battle"), and now dungeon-unlock notices too (FarroadProgression.gd's
+## resolve_expedition) -- ExpeditionPanel's own card only ever showed the
+## single most recent entry inline; this shows the FULL history. Central,
+## GameController-owned overlay, same precedent every other detail popup
+## here already set, rather than a second top-level Window nested inside
+## ExpeditionPanel's own already-open popup (which Godot would silently
+## close -- see _overlay_host's own comment).
+func _show_expedition_log_popup(exp: Dictionary) -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var names := ""
+	for uid in exp["partyIds"]:
+		var def = FarroadCore.roster_by_id(uid)
+		names += ("" if names == "" else ", ") + (def["name"] if def else uid)
+	var title_lbl := Label.new()
+	title_lbl.text = "%s — %s" % [names, FarroadProgression.direction_label(exp["direction"])]
+	title_lbl.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(title_lbl)
+
+	var log: Array = exp.get("log", [])
+	if log.is_empty():
+		var none_lbl := Label.new()
+		none_lbl.text = "Nothing logged yet."
+		none_lbl.modulate = Color(0.55, 0.55, 0.55)
+		vbox.add_child(none_lbl)
+	for entry in log:
+		var dt := Time.get_datetime_dict_from_unix_time(int(entry.get("at", 0)))
+		var clock: String = "%02d:%02d" % [int(dt["hour"]), int(dt["minute"])]
+		var entry_lbl := Label.new()
+		entry_lbl.text = "[%s] %s" % [clock, String(entry.get("text", ""))]
+		entry_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		entry_lbl.modulate = Color(0.85, 0.85, 0.85)
+		vbox.add_child(entry_lbl)
+
+	await _finish_detail_overlay(o)
+
 ## A small "detailed stats" overlay for any action id -- shared by
 ## GambitsPanel's slot-editor info icon, LorePanel's unequipped-action
 ## dropdown, and CataloguePanel's Actions tab (a central, GameController-

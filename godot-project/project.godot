@@ -17,6 +17,20 @@ config/name="Farroad"
 config/features=PackedStringArray("4.7")
 run/main_scene="res://scenes/Game.tscn"
 
+[gui]
+
+; A project-wide DEFAULT theme, not a runtime `root.theme` assignment --
+; confirmed via a real headless test that GameController extends Node2D
+; (not Control/Window), and a Theme set at runtime on the root Window does
+; NOT propagate down through that Node2D gap into the PopupPanels every
+; tab window uses (a real, confirmed Godot behavior, not a guess). The
+; project's own default theme, by contrast, is a global fallback every
+; Control/Window resolves against independently, so it reaches every
+; button in every popup regardless of the Node2D ancestor. See
+; theme/default_theme.tres and Ian's "make buttons more visible distinct
+; from their backgrounds" ask.
+theme/custom="res://theme/default_theme.tres"
+
 [display]
 
 ; 360x800 is the DESIGN resolution, not a fixed output size -- meant to run

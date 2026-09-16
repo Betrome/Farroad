@@ -164,19 +164,30 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	for uid in exp["partyIds"]:
 		var def = FarroadCore.roster_by_id(uid)
 		names += ("" if names == "" else ", ") + (def["name"] if def else uid)
+	# Every Label below can carry an arbitrarily long/variable string (a
+	# full party's names, growing currency figures, a dungeon-unlock
+	# sentence) -- autowrap + SIZE_EXPAND_FILL keeps each one shrinkable to
+	# the card's own real width instead of forcing it (and everything else
+	# in this popup) wider, the horizontal-scroll bug this was reported for.
 	var header := Label.new()
 	header.text = "%s — %s" % [names, FarroadProgression.direction_label(exp["direction"])]
 	header.add_theme_font_size_override("font_size", 15)
+	header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(header)
 
 	var state_lbl := Label.new()
 	state_lbl.text = _state_text(exp, now)
 	state_lbl.modulate = Color(0.75, 0.8, 0.7)
+	state_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	state_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(state_lbl)
 
 	var bank_lbl := Label.new()
 	bank_lbl.text = "Banked %d Aether, %d Marks so far — reached wave %d." % [
 		roundi(exp["bank"]["aether"]), floori(exp["bank"]["marks"]), int(exp["ew"])]
+	bank_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	bank_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bank_lbl)
 
 	if exp.get("log") and not exp["log"].is_empty():
@@ -184,13 +195,28 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 		log_lbl.text = String(exp["log"][0]["text"])
 		log_lbl.modulate = Color(0.55, 0.55, 0.55)
 		log_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		log_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(log_lbl)
+
+	# Ian: "give each expedition you send out its own button to pop up a
+	# log showing battle, events, and dungeons they encounter" -- opens the
+	# FULL exp["log"] history (GameController._show_expedition_log_popup),
+	# distinct from the single most-recent-entry preview line just above.
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	var log_btn := Button.new()
+	log_btn.text = "Log"
+	log_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	log_btn.pressed.connect(_on_log_pressed.bind(exp))
+	btn_row.add_child(log_btn)
 
 	var arrived: bool = exp.get("arrivedAt") != null
 	var btn := Button.new()
 	btn.text = "Collect" if arrived else "Recall party"
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.pressed.connect(_on_collect_pressed.bind(exp["id"]) if arrived else _on_recall_pressed.bind(exp["id"]))
-	vbox.add_child(btn)
+	btn_row.add_child(btn)
+	vbox.add_child(btn_row)
 
 	return card
 
@@ -211,6 +237,10 @@ func _fmt_duration(sec: int) -> String:
 	if sec >= 60:
 		return "%dm %ds" % [sec / 60, sec % 60]
 	return "%ds" % sec
+
+func _on_log_pressed(exp: Dictionary) -> void:
+	if _parent and _parent.has_method("_show_expedition_log_popup"):
+		_parent.call("_show_expedition_log_popup", exp)
 
 func _on_recall_pressed(id: String) -> void:
 	FarroadProgression.recall_expedition(g, id, _now())

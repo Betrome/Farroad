@@ -1254,7 +1254,8 @@ function resolveExpedition(exp){
    var targetTier=Math.floor(dp.maxDepth/P.DIRECTION_CONFIG[exp.direction].unlockEvery);
    while(targetTier>dp.dungeonsUnlocked){
     dp.dungeonsUnlocked++;
-    unlockDirectionDungeon(exp.direction,dp.dungeonsUnlocked);}
+    var newDungeon=unlockDirectionDungeon(exp.direction,dp.dungeonsUnlocked);
+    pushExpeditionLog(exp,'Found the way into '+newDungeon.name+' — enter it from the QUESTS tab.');}
   }else{
    exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
   }
@@ -1369,7 +1370,8 @@ function unlockDirectionDungeon(dir,tier){
  pushDrop({name:dungeon.name,kind:'DUNGEON UNLOCKED',
   body:'A new dungeon has opened up to the '+label+' — '+baseWave+' depth reached.',
   why:'Repeatable any time from the QUESTS tab — '+(cfg.waveCount-1)+
-   ' wave'+(cfg.waveCount-1===1?'':'s')+' then a boss.'});}
+   ' wave'+(cfg.waveCount-1===1?'':'s')+' then a boss.'});
+ return dungeon;}
 /* v2.20: "found every 250 waves on the Road" — modeled directly on
    unlockDirectionDungeon just above, but keyed off G.farthest/SUPERBOSS_EVERY
    (a Road milestone) instead of a direction's own expedition depth, and a
