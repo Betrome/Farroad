@@ -252,8 +252,10 @@ func _on_collect_pressed(id: String) -> void:
 	_refresh()
 
 ## Mirrors the send picker: click-to-toggle benched units up to
-## PARTY_CAP, 8 direction buttons (disabled if occupied), a "Send
-## expedition (n/cap)" button. Shown whenever any sendable unit exists.
+## PARTY_CAP, a compass-style ExpeditionMap for direction selection (8
+## direction icons, disabled if occupied -- see ExpeditionMap.gd), a
+## "Send expedition (n/cap)" button. Shown whenever any sendable unit
+## exists.
 func _refresh_send_picker() -> void:
 	for c in send_container.get_children():
 		c.queue_free()
@@ -285,22 +287,18 @@ func _refresh_send_picker() -> void:
 		units_row.add_child(btn)
 	send_container.add_child(units_row)
 
-	var dir_row := HFlowContainer.new()
-	dir_row.add_theme_constant_override("h_separation", 6)
-	dir_row.add_theme_constant_override("v_separation", 6)
-	var occupied := {}
-	for exp in g["expeditions"]:
-		occupied[exp["direction"]] = true
-	for dir in FarroadProgression.direction_ids():
-		var btn := Button.new()
-		btn.text = FarroadProgression.direction_label(dir)
-		btn.custom_minimum_size = btn_min_size
-		btn.toggle_mode = true
-		btn.button_pressed = (selected_direction == dir)
-		btn.disabled = occupied.get(dir, false) and selected_direction != dir
-		btn.pressed.connect(_on_direction_selected.bind(dir))
-		dir_row.add_child(btn)
-	send_container.add_child(dir_row)
+	# Group K (20-item batch): a compass-style home-base map replacing the
+	# flat 8-direction-button row -- home base at center, each direction's
+	# own line radiating outward (fogged past g["directions"][dir]["maxDepth"]),
+	# active expeditions shown as dots along their own line (tap to open
+	# their existing Log popup), a tappable direction icon at each line's
+	# end still wired to the SAME _on_direction_selected(dir) handler below
+	# -- no new selection logic, just a new visual hit-target. Square, sized
+	# off the same popup content width _build_ui computes (popup_size.x - 40).
+	var map_size: float = _vp.x * 0.96 - 40.0
+	var exp_map := ExpeditionMap.new()
+	exp_map.setup(g, Vector2(map_size, map_size), selected_direction, _on_direction_selected, _on_log_pressed)
+	send_container.add_child(exp_map)
 
 	var send_btn := Button.new()
 	send_btn.text = "Send expedition (%d/%d)" % [selected_uids.size(), FarroadProgression.PARTY_CAP]
