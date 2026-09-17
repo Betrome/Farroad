@@ -801,13 +801,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
 	var target_txt: String = str(act.get("tk", "foe"))
 	var power_lbl := Label.new()
-	# Ian: replace the "power ×N" multiplier with what it actually scales
-	# with, e.g. "MAG ×1.0" or "avg. ATK + MAG ×2.3" -- matches
-	# stat_by_key's own real resolution (an explicit scaleStat, else ATK
-	# for a physical-camp action or MAG for a magic-camp one, mirroring
-	# resolve_hit's own default exactly).
-	power_lbl.text = "%s -- target: %s -- scales with %s ×%s -- rank %s" % [
-		camp_txt, target_txt, _scale_stat_label(act), str(act.get("power", 1.0)), str(act.get("rank", 1.0))]
+	power_lbl.text = "%s -- target: %s -- rank %s" % [camp_txt, target_txt, str(act.get("rank", 1.0))]
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	power_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(power_lbl)
@@ -858,22 +852,6 @@ func _show_action_detail_popup(action_id: String) -> void:
 		vbox.add_child(note_lbl)
 
 	await _finish_detail_overlay(o)
-
-## Ian: "change the power x multiplier at the top to say the stat it
-## scales with." Mirrors stat_by_key's own real resolution order exactly
-## (FarroadCore.gd/resolve_hit -- an explicit scaleStat always wins, else
-## ATK for a physical-camp action, MAG for a magic-camp one).
-func _scale_stat_label(act: Dictionary) -> String:
-	var key = act.get("scaleStat")
-	if key == null:
-		return "ATK" if act.get("camp") == "atk" else "MAG"
-	match str(key):
-		"mag": return "MAG"
-		"def": return "DEF"
-		"res": return "RES"
-		"spd": return "SPD"
-		"avgAtkMag": return "avg. ATK + MAG"
-		_: return str(key).to_upper()
 
 ## Ian: "say exactly what buffs and debuffs do." Every magnitude-based
 ## status reads its real number straight from FarroadCore.STATUS_BASE_MAG

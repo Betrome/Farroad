@@ -981,36 +981,45 @@ func _build_turn_order_ui() -> void:
 
 		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl})
 
-## Ian: "the turn order no longer changes, but the actions tied to them
-## will still change... I want actions to be locked in once they are on
-## the turn order." Root cause: _lock_upcoming_actors (below) already
-## protects what ACTUALLY fires in FarroadCore.step() once a unit's turn
-## arrives, but FarroadCore.preview() (called every refresh purely to
-## DRAW the rail) always reads each unit's CURRENT live `slots` -- so an
-## already-locked unit's card could still visibly show a freshly-edited
-## action for however long it stayed on the rail, even though step()
-## itself was always going to honor the OLD, locked one. Temporarily
-## swaps every currently-locked unit's `slots` for its locked snapshot
-## before calling the real preview() (restored immediately after), so
-## the DISPLAY and the eventual EXECUTION can never disagree. Turn ORDER
-## itself never depended on `slots` in the first place (preview()'s own
-## ordering compares nextActAt/isParty/spd/slotIndex only), so this only
-## ever changes which ACTION text a card shows, never who's shown or in
-## what order.
+## Ian: "I want actions to be locked in as soon as they appear on the
+## turn order... charge actions should only enter the turn order once
+## they're full, not appearing beforehand. The same should be true for
+## gambit conditions being met." FarroadCore.preview() itself no longer
+## projects charge/conditions forward at all (see its own comment) -- it
+## always resolves every slot against each unit's REAL, CURRENT state,
+## so "what's shown" already equals "what would happen if resolved this
+## instant" by construction. The only remaining gap: once a unit's
+## choice gets LOCKED (_lock_upcoming_actors, below) at the moment it
+## first appears, a LATER refresh's freshly-computed preview() could
+## still disagree with that frozen lock if real state has drifted since
+## (another unit's action changing this one's HP-based condition, etc.).
+## Overrides the display for any ALREADY-locked unit's card to show the
+## locked action instead of preview()'s fresh (and possibly now
+## different) recomputation, so the rail and the eventual execution can
+## never disagree. Turn ORDER itself never depended on action choice in
+## the first place (preview()'s own ordering compares nextActAt/isParty/
+## spd/slotIndex only), so this only ever changes which ACTION text a
+## card shows, never who's shown or in what order.
 func _preview_respecting_locks() -> Array:
+	var out: Array = FarroadCore.preview(battle, TURN_ORDER_COUNT)
 	var locked: Dictionary = battle.get("lockedActors", {})
 	if locked.is_empty():
-		return FarroadCore.preview(battle, TURN_ORDER_COUNT)
-	var originals := {}
-	for u in battle["units"]:
-		if locked.has(u["id"]):
-			originals[u["id"]] = u["slots"]
-			u["slots"] = locked[u["id"]]
-	var result: Array = FarroadCore.preview(battle, TURN_ORDER_COUNT)
-	for u in battle["units"]:
-		if originals.has(u["id"]):
-			u["slots"] = originals[u["id"]]
-	return result
+		return out
+	for p in out:
+		var view: UnitView = unit_views_by_name.get(p["unitName"])
+		if view == null:
+			continue
+		var uid: String = view.unit["id"]
+		if not locked.has(uid):
+			continue
+		var act = FarroadCore.ACTIONS.get(locked[uid])
+		if act == null:
+			continue
+		p["actionName"] = act["name"]
+		p["actionId"] = act["id"]
+		p["isCharge"] = bool(act.get("isCharge", false))
+		p["cost"] = FarroadCore.tc_of(view.unit, act["rank"])
+	return out
 
 ## Recomputes FarroadCore.preview() (a pure simulation, mutates nothing) and
 ## refreshes each card -- called once up front and again after every beat.
@@ -1034,26 +1043,32 @@ func _refresh_turn_order() -> void:
 		# is still used by the Log popup's own per-beat entries, unchanged.
 		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.014), max_w)
 
-## Post-Milestone-3 APK feedback (Group A2), broadened after later
-## feedback ("units still change actions even after they're listed on
-## the turn order" -- the original version only locked upcoming[0], the
-## very next actor; a unit shown further down the rail (slots 1+) stayed
-## fully editable right up until it became slot 0, so an edit made while
-## it was still, say, slot 2 silently changed what it did once its turn
-## actually arrived). Confirmed via direct reads of FarroadCore.gd's
-## choose_from/resolve_condition that action/target SELECTION is fully
-## deterministic and RNG-free (only later damage/evade/crit resolution
-## rolls) -- so freezing a unit's `slots` for its one upcoming decision is
-## 100% safe w.r.t. RNG/parity, no roll is skipped or added either way.
-## Writes battle["lockedActors"] (a new transient, unsaved battle field --
-## uid -> slots snapshot -- consumed/cleared per-uid by FarroadCore.step()/
-## farroad-core.js's own step()): every unit CURRENTLY visible anywhere in
-## the turn-order preview gets locked the FIRST time it appears there (not
-## re-snapshotted on later refreshes, so a lock always reflects the
-## moment a unit first became visible, not whatever it was edited to
-## since); a lock is dropped if its unit falls out of the visible window
-## entirely without acting (e.g. died), so a later real reappearance gets
-## a fresh snapshot rather than a stale leftover one.
+## Post-Milestone-3 APK feedback (Group A2), redesigned again after
+## further feedback ("I want actions to be locked in as soon as they
+## appear on the turn order... charge actions should only enter the
+## turn order once they're full, not appearing beforehand. The same
+## should be true for gambit conditions being met"). Locks the fully
+## RESOLVED action id, not the unit's `slots` -- `upcoming` (from
+## `_preview_respecting_locks`'s own fresh FarroadCore.preview() call)
+## already resolved every NOT-yet-locked unit's action against its REAL,
+## CURRENT charge/HP/conditions (preview() no longer projects any of
+## that forward -- see its own comment), so `p["actionId"]` already IS
+## exactly "what would happen if this unit's turn resolved right now" --
+## simply recording it is both correct and needs no separate probe call.
+## Confirmed via direct reads of FarroadCore.gd's choose_from/
+## resolve_condition that action/target SELECTION is fully deterministic
+## and RNG-free (only later damage/evade/crit resolution rolls), so
+## freezing a unit's resolved choice this way is 100% safe w.r.t. RNG/
+## parity -- no roll is skipped or added either way. Writes
+## battle["lockedActors"] (a new transient, unsaved battle field -- uid
+## -> action id -- consumed/cleared per-uid by FarroadCore.step()/
+## farroad-core.js's own step()): every unit CURRENTLY visible anywhere
+## in the turn-order preview gets locked the FIRST time it appears there
+## (not re-locked on later refreshes, so a lock always reflects the
+## moment a unit first became visible, not whatever real state has
+## drifted to since); a lock is dropped if its unit falls out of the
+## visible window entirely without acting (e.g. died), so a later real
+## reappearance gets a fresh resolution rather than a stale leftover one.
 func _lock_upcoming_actors(upcoming: Array) -> void:
 	if battle.get("lockedActors") == null:
 		battle["lockedActors"] = {}
@@ -1063,10 +1078,10 @@ func _lock_upcoming_actors(upcoming: Array) -> void:
 		var view: UnitView = unit_views_by_name.get(p["unitName"])
 		if view == null:
 			continue
-		var u: Dictionary = view.unit
-		visible_ids[u["id"]] = true
-		if not locked.has(u["id"]):
-			locked[u["id"]] = (u["slots"] as Array).duplicate(true)
+		var uid: String = view.unit["id"]
+		visible_ids[uid] = true
+		if not locked.has(uid):
+			locked[uid] = p["actionId"]
 	for uid in locked.keys().duplicate():
 		if not visible_ids.has(uid):
 			locked.erase(uid)

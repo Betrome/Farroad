@@ -1147,30 +1147,41 @@ static func step(b: Dictionary) -> Variant:
 		check_end(b)
 		return e
 	# Post-Milestone-3 APK feedback (Group A2), broadened per later
-	# feedback ("units still change actions even after they're listed on
-	# the turn order" -- the original fix only locked slot 0, the very
-	# next actor; every OTHER visible turn-order card (slots 1+) stayed
-	# unprotected, so editing one of THOSE units still changed what they
-	# did once their turn actually came up): if the turn-order preview UI
-	# already showed this unit ANYWHERE in its visible window, it
-	# snapshotted their `slots` at that moment (BattlePresenter.
-	# _lock_upcoming_actors) -- honor that snapshot here instead of
-	# whatever `u["slots"]` may have been edited to since, then consume
-	# (clear) this one unit's own lock entry. Godot-only WRITE site (only
-	# a live-watched fight ever sets it), but this READ/consume is
-	# engine-layer so headless callers (expedition/dungeon/offline
-	# catch-up) that never set it are unaffected -- `locked` stays empty
-	# and this is a pure no-op there.
+	# feedback, redesigned again after further feedback ("I want actions to
+	# be locked in as soon as they appear on the turn order... charge
+	# actions should only enter the turn order once they're full, not
+	# appearing beforehand. The same should be true for gambit conditions
+	# being met"): the ORIGINAL fix only froze a unit's `slots` (its
+	# loadout structure) -- but choose_from() still re-evaluates charge
+	# readiness and gambit-condition truth against WHATEVER live state
+	# exists at the moment it's actually called, so even a unit with
+	# frozen slots could still resolve a DIFFERENT action at real
+	# execution time than the one shown when it first appeared, if its
+	# charge/HP/conditions drifted in the meantime (from another unit's
+	# actions, not just a player edit). The fix now locks the fully
+	# RESOLVED action id itself (BattlePresenter._lock_upcoming_actors
+	# computes it via choose_from() against the unit's CURRENT real state
+	# the FIRST moment it appears in the rail, matching preview()'s own
+	# no-longer-projected-forward resolution exactly -- see preview()'s
+	# own comment) -- honor that locked id directly instead of calling
+	# choose()/choose_from() at all, then consume (clear) this one unit's
+	# own lock entry. `target` stays null exactly like the real engine's
+	# own "alternate" (no-condition) path already does, so resolve_target
+	# below still picks a fresh, definitely-still-valid target for this
+	# specific action at the ACTUAL moment it fires -- never a stale
+	# reference to a unit that may have died in the meantime. Godot-only
+	# WRITE site (only a live-watched fight ever sets it), but this READ/
+	# consume is engine-layer so headless callers (expedition/dungeon/
+	# offline catch-up) that never set it are unaffected -- `locked`
+	# stays empty and this is a pure no-op there.
 	var locked: Dictionary = b.get("lockedActors", {})
-	var original_slots = null
+	var ch: Dictionary
 	if locked.has(u["id"]):
-		original_slots = u["slots"]
-		u["slots"] = locked[u["id"]]
-	var ch := choose(u, b)
-	if original_slots != null:
-		u["slots"] = original_slots
-	if locked.has(u["id"]):
+		var locked_action_id: String = locked[u["id"]]
+		ch = {"actionId": locked_action_id, "target": null, "via": "locked -> %s" % locked_action_id}
 		locked.erase(u["id"])
+	else:
+		ch = choose(u, b)
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
 	e["actionId"] = act["id"]; e["actionName"] = act["name"]; e["via"] = ch["via"]
 	e["isCharge"] = bool(act.get("isCharge", false)); e["rank"] = act["rank"]
@@ -1271,17 +1282,30 @@ static func step(b: Dictionary) -> Variant:
 	return e
 
 ## ===== turn-order preview (mirrors preview(), farroad-core.js:843-859) =====
-## A non-mutating simulation of the next `count` turns -- clones each living
-## unit's {at,charge,alternateFlag} into `sim` and advances those COPIES via
-## choose_from()/tc_of(), never touching the real unit dicts (chooseFrom
-## itself never mutates a unit, only decides an action). Safe to call every
-## beat purely for display.
+## A non-mutating simulation of the next `count` turns' ORDER (who acts
+## when -- driven by real nextActAt/spd/slotIndex, cloned into `sim` and
+## advanced via tc_of only). Ian: "charge actions should only enter the
+## turn order once they're full, not appearing beforehand. The same
+## should be true for gambit conditions being met" -- ACTION CHOICE,
+## unlike order, is no longer projected forward at all: every slot,
+## including a fast unit's own further-out appearances within this same
+## window, resolves choose_from() against that unit's REAL, CURRENT
+## charge/HP/conditions (never a simulated future value) -- so a slot can
+## only ever show a charge action if it's genuinely full RIGHT NOW, and a
+## condition-gated action only if that condition is genuinely true RIGHT
+## NOW. This is also what makes the result safe to lock in verbatim the
+## instant it first appears (BattlePresenter._lock_upcoming_actors/
+## FarroadCore.step()'s own lockedActors consumption) -- "what's shown"
+## and "what would happen if resolved this instant" are the same
+## question by construction, never a speculative forecast. choose_from()
+## itself never mutates a unit (only the throwaway `state` dict passed
+## in), so this stays safe to call every beat purely for display.
 static func preview(b: Dictionary, count: int = 6) -> Array:
 	var sim := []
 	for u in b["units"]:
 		if u["hp"] <= 0:
 			continue
-		sim.append({"u": u, "at": u["nextActAt"], "charge": u["charge"], "alternateFlag": u["alternateFlag"]})
+		sim.append({"u": u, "at": u["nextActAt"]})
 	var out := []
 	for n in range(count):
 		if sim.is_empty():
@@ -1303,16 +1327,11 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 			if s["u"]["slotIndex"] < best["u"]["slotIndex"]:
 				best_idx = j
 		var best = sim[best_idx]
-		var st := {"charge": best["charge"], "alternateFlag": best["alternateFlag"]}
+		var st := {"charge": best["u"]["charge"], "alternateFlag": best["u"]["alternateFlag"]}
 		var ch := choose_from(best["u"], b, st)
 		var act = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
 		out.append({"unitName": best["u"]["name"], "isParty": best["u"]["isParty"], "at": best["at"],
 			"actionName": act["name"], "actionId": act["id"], "rank": act["rank"],
 			"isCharge": bool(act.get("isCharge", false)), "cost": tc_of(best["u"], act["rank"])})
 		best["at"] += tc_of(best["u"], act["rank"])
-		best["alternateFlag"] = st["alternateFlag"]
-		if act.get("isCharge"):
-			best["charge"] -= cost_of_charge(act)
-		else:
-			best["charge"] += act["charge"] * eff_charge_rate(best["u"])
 	return out

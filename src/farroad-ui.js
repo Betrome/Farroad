@@ -1861,17 +1861,23 @@ function renderUnits(){
    G.units.forEach(function(p){if(p.id===id)p.row=(p.row==='front')?'back':'front';});
    C.ROSTER.forEach(function(r){if(r.id===id)r.row=(r.row==='front')?'back':'front';});
    renderAll();};});}
-/* Post-Milestone-3 APK feedback (Group A2), broadened after later
-   feedback ("units still change actions even after they're listed on
-   the turn order" — the original version only locked slot 0, the very
-   next actor; a unit shown further down the rail stayed fully editable
-   until it became slot 0). Snapshot EVERY unit currently visible
-   anywhere in the rail's own preview window the FIRST time it appears
-   there (write side — see farroad-core.js's own step() for the
-   read/consume side and the full rationale). Mirrors the Godot port's
-   BattlePresenter._lock_upcoming_actors exactly. A lock is dropped once
-   its unit falls out of the visible window without acting (e.g. died),
-   so a later real reappearance gets a fresh snapshot. */
+/* Post-Milestone-3 APK feedback (Group A2), redesigned again after
+   further feedback ("I want actions to be locked in as soon as they
+   appear on the turn order... charge actions should only enter the
+   turn order once they're full, not appearing beforehand. The same
+   should be true for gambit conditions being met"). Locks the fully
+   RESOLVED action id, not the unit's slots — `pv` (from
+   previewRespectingLocks's own fresh C.preview() call) already resolved
+   every NOT-yet-locked unit's action against its REAL, CURRENT charge/
+   HP/conditions (preview() no longer projects any of that forward — see
+   its own comment), so p.actionId already IS exactly "what would happen
+   if this unit's turn resolved right now" — simply recording it is both
+   correct and needs no separate probe call. Write side — see
+   farroad-core.js's own step() for the read/consume side and the full
+   rationale. Mirrors the Godot port's BattlePresenter.
+   _lock_upcoming_actors exactly. A lock is dropped once its unit falls
+   out of the visible window without acting (e.g. died), so a later real
+   reappearance gets a fresh resolution rather than a stale one. */
 function lockUpcomingActors(pv){
  var locked=G.battle.lockedActors||(G.battle.lockedActors={});
  var visibleIds={};
@@ -1879,27 +1885,31 @@ function lockUpcomingActors(pv){
   var u=G.battle.units.find(function(x){return x.name===p.unitName;});
   if(!u)return;
   visibleIds[u.id]=true;
-  if(!locked[u.id])locked[u.id]=JSON.parse(JSON.stringify(u.slots));});
+  if(!locked[u.id])locked[u.id]=p.actionId;});
  Object.keys(locked).forEach(function(uid){if(!visibleIds[uid])delete locked[uid];});}
-/* Ian: "the turn order no longer changes, but the actions tied to them
-   will still change... I want actions to be locked in once they are on
-   the turn order." lockUpcomingActors already protects what ACTUALLY
-   fires in step() once a unit's turn arrives, but C.preview() always
-   read each unit's CURRENT live slots for DISPLAY -- so an already-
-   locked unit's rail chip could still show a freshly-edited action for
-   however long it stayed on the rail. Temporarily swaps every currently
-   -locked unit's slots for its locked snapshot before calling preview()
-   (restored immediately after), so the rail and the eventual execution
-   can never disagree. Mirrors the Godot port's
-   BattlePresenter._preview_respecting_locks exactly. */
+/* Ian: same request as lockUpcomingActors above. FarroadCore.preview()
+   itself no longer projects charge/conditions forward at all, so "what's
+   shown" already equals "what would happen if resolved this instant" by
+   construction. The only remaining gap: once a unit's choice gets
+   LOCKED at the moment it first appears, a LATER refresh's freshly-
+   computed preview() could still disagree with that frozen lock if real
+   state has drifted since (another unit's action changing this one's
+   HP-based condition, etc.). Overrides the display for any ALREADY-
+   locked unit's rail chip to show the locked action instead of
+   preview()'s fresh (and possibly now different) recomputation, so the
+   rail and the eventual execution can never disagree. Mirrors the Godot
+   port's BattlePresenter._preview_respecting_locks exactly. */
 function previewRespectingLocks(){
+ var out=C.preview(G.battle,6);
  var locked=G.battle.lockedActors||{};
- if(!Object.keys(locked).length)return C.preview(G.battle,6);
- var originals={};
- G.battle.units.forEach(function(u){if(locked[u.id]){originals[u.id]=u.slots;u.slots=locked[u.id];}});
- var result=C.preview(G.battle,6);
- G.battle.units.forEach(function(u){if(originals[u.id])u.slots=originals[u.id];});
- return result;}
+ if(!Object.keys(locked).length)return out;
+ out.forEach(function(p){
+  var u=G.battle.units.find(function(x){return x.name===p.unitName;});
+  if(!u||!locked[u.id])return;
+  var act=C.ACTIONS[locked[u.id]];
+  if(!act)return;
+  p.actionName=act.name;p.actionId=act.id;p.isCharge=!!act.isCharge;p.cost=C.tcOf(u,act.rank);});
+ return out;}
 function renderRail(){
  if(!G.battle)return;
  var pv=previewRespectingLocks();lockUpcomingActors(pv);var h=$('#rail');h.innerHTML='';

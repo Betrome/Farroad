@@ -813,25 +813,38 @@ function step(b){
  for(var si=0;si<ST.length;si++)if(u.st[ST[si]]>0)u.st[ST[si]]--;
  if(u.hp<=0){e.actionId='none';e.actionName='(burned out)';e.via='—';e.rank=1;e.chargeAfter=u.charge;
   b.log.push(e);checkEnd(b);return e;}
- /* Post-Milestone-3 APK feedback (Group A2), broadened after later
-    feedback ("units still change actions even after they're listed on
-    the turn order" — the original version only locked slot 0, the very
-    next actor; a unit shown further down the rail stayed fully editable
-    until it became slot 0). If the turn-order preview UI already showed
-    this unit ANYWHERE in its visible window, it snapshotted their slots
-    at that moment (see the Godot port's BattlePresenter
-    _lock_upcoming_actors for the reference implementation, and
-    farroad-ui.js's own lockUpcomingActors for this side's write site) —
-    honor that snapshot here instead of whatever u.slots may have been
-    edited to since, then consume (clear) this one unit's own lock entry.
-    chooseFrom/resolveCondition are fully deterministic/RNG-free (only
-    later damage/evade/crit resolution rolls), so this is 100% safe
-    w.r.t. RNG — no roll skipped or added. */
- var locked=b.lockedActors||{},originalSlots=null;
- if(locked[u.id]){originalSlots=u.slots;u.slots=locked[u.id];}
- var ch=choose(u,b);var act=ACTIONS[ch.actionId]||ACTIONS.strike;
- if(originalSlots)u.slots=originalSlots;
- if(locked[u.id])delete locked[u.id];
+ /* Post-Milestone-3 APK feedback (Group A2), redesigned again after
+    further feedback ("I want actions to be locked in as soon as they
+    appear on the turn order... charge actions should only enter the
+    turn order once they're full, not appearing beforehand. The same
+    should be true for gambit conditions being met"): the ORIGINAL fix
+    only froze a unit's slots — but chooseFrom still re-evaluates charge
+    readiness and gambit-condition truth against WHATEVER live state
+    exists at the moment it's actually called, so even a unit with frozen
+    slots could still resolve a DIFFERENT action at real execution time
+    than the one shown when it first appeared, if its charge/HP/
+    conditions drifted in the meantime (from another unit's actions, not
+    just a player edit). The fix now locks the fully RESOLVED action id
+    itself (farroad-ui.js's lockUpcomingActors computes it via
+    chooseFrom() against the unit's CURRENT real state the FIRST moment
+    it appears in the rail, matching preview()'s own no-longer-projected-
+    forward resolution exactly — see preview()'s own comment) — honor
+    that locked id directly instead of calling choose()/chooseFrom() at
+    all, then consume (clear) this one unit's own lock entry. `target`
+    stays null exactly like the real engine's own "alternate" (no-
+    condition) path already does, so resolveTarget below still picks a
+    fresh, definitely-still-valid target for this specific action at the
+    ACTUAL moment it fires — never a stale reference to a unit that may
+    have died in the meantime. */
+ var locked=b.lockedActors||{},ch;
+ if(locked[u.id]){
+  var lockedActionId=locked[u.id];
+  ch={actionId:lockedActionId,target:null,via:'locked -> '+lockedActionId};
+  delete locked[u.id];
+ }else{
+  ch=choose(u,b);
+ }
+ var act=ACTIONS[ch.actionId]||ACTIONS.strike;
  e.actionId=act.id;e.actionName=act.name;e.via=ch.via;e.isCharge=!!act.isCharge;e.rank=act.rank;
  e.tickCost=tcOf(u,act.rank);
  var primary=resolveTarget(act,ch.target,u,b);
@@ -905,9 +918,25 @@ function step(b){
 function checkEnd(b){var pa=false,fa=false;
  for(var i=0;i<b.units.length;i++)if(b.units[i].hp>0){if(b.units[i].isParty)pa=true;else fa=true;}
  if(!fa)b.over='party';else if(!pa)b.over='enemy';}
+/* Ian: "charge actions should only enter the turn order once they're
+   full, not appearing beforehand. The same should be true for gambit
+   conditions being met" — ACTION CHOICE, unlike turn ORDER, is no
+   longer projected forward at all: every slot, including a fast unit's
+   own further-out appearances within this same window, resolves
+   chooseFrom() against that unit's REAL, CURRENT charge/HP/conditions
+   (never a simulated future value) — so a slot can only ever show a
+   charge action if it's genuinely full RIGHT NOW, and a condition-gated
+   action only if that condition is genuinely true RIGHT NOW. This is
+   also what makes the result safe to lock in verbatim the instant it
+   first appears (farroad-ui.js's own lockUpcomingActors / step()'s own
+   lockedActors consumption) — "what's shown" and "what would happen if
+   resolved this instant" are the same question by construction, never a
+   speculative forecast. chooseFrom() itself never mutates a unit (only
+   the throwaway `state` object passed in), so this stays safe to call
+   every beat purely for display. */
 function preview(b,count){count=count||6;var sim=[];
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
-  sim.push({u:u,at:u.nextActAt,charge:u.charge,alternateFlag:u.alternateFlag});}
+  sim.push({u:u,at:u.nextActAt});}
  var out=[];
  for(var n=0;n<count&&sim.length;n++){var best=sim[0];
   for(var j=0;j<sim.length;j++){var s=sim[j];if(s===best)continue;
@@ -915,12 +944,11 @@ function preview(b,count){count=count||6;var sim=[];
    if(s.u.isParty!==best.u.isParty){if(s.u.isParty)best=s;continue;}
    if(s.u.base.spd!==best.u.base.spd){if(s.u.base.spd>best.u.base.spd)best=s;continue;}
    if(s.u.slotIndex<best.u.slotIndex)best=s;}
-  var st={charge:best.charge,alternateFlag:best.alternateFlag};
+  var st={charge:best.u.charge,alternateFlag:best.u.alternateFlag};
   var ch=chooseFrom(best.u,b,st);var act=ACTIONS[ch.actionId]||ACTIONS.strike;
   out.push({unitName:best.u.name,isParty:best.u.isParty,at:best.at,actionName:act.name,
    actionId:act.id,rank:act.rank,isCharge:!!act.isCharge,cost:tcOf(best.u,act.rank)});
-  best.at+=tcOf(best.u,act.rank);best.alternateFlag=st.alternateFlag;
-  best.charge=act.isCharge?best.charge-costOfCharge(act):best.charge+act.charge*effChargeRate(best.u);}
+  best.at+=tcOf(best.u,act.rank);}
  return out;}
 /* v1.0 RETUNE: the 65% global multiplier was a debug crutch, and one that switched
    off at wave 20 would have doubled enemy strength exactly as the player gained
