@@ -985,7 +985,7 @@ func _build_turn_order_ui() -> void:
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
 	var upcoming: Array = [] if battle["over"] != null else FarroadCore.preview(battle, TURN_ORDER_COUNT)
-	_lock_next_actor(upcoming)
+	_lock_upcoming_actors(upcoming)
 	# A small inset off the card's own width -- the true content width after
 	# the PanelContainer's own border/margins, not the full slot fraction.
 	var max_w: float = _turn_card_w - _vp.x * 0.02
@@ -1003,33 +1003,42 @@ func _refresh_turn_order() -> void:
 		# is still used by the Log popup's own per-beat entries, unchanged.
 		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.014), max_w)
 
-## Post-Milestone-3 APK feedback (Group A2): "once an action is in the
-## queue it shouldn't change" -- Ian confirmed this means the turn-order
-## preview's own slot 0 (the very next actor) could show one action, then
-## actually execute a different one if a GAMBITS edit landed in the
-## in-between window. Confirmed via direct reads of FarroadCore.gd's
+## Post-Milestone-3 APK feedback (Group A2), broadened after later
+## feedback ("units still change actions even after they're listed on
+## the turn order" -- the original version only locked upcoming[0], the
+## very next actor; a unit shown further down the rail (slots 1+) stayed
+## fully editable right up until it became slot 0, so an edit made while
+## it was still, say, slot 2 silently changed what it did once its turn
+## actually arrived). Confirmed via direct reads of FarroadCore.gd's
 ## choose_from/resolve_condition that action/target SELECTION is fully
 ## deterministic and RNG-free (only later damage/evade/crit resolution
-## rolls) -- so freezing one unit's `slots` for one beat's decision is 100%
-## safe w.r.t. RNG/parity, no roll is skipped or added either way.
-## Writes battle["lockedActor"] (a new transient, unsaved battle field,
-## consumed and cleared by FarroadCore.step()/farroad-core.js's own step())
-## the moment upcoming[0]'s unit changes from whichever was locked before --
-## snapshotting THAT unit's live `slots` at exactly the instant it becomes
-## the next actor, so any GAMBITS edit landing after this point can no
-## longer retroactively change what they're about to do.
-func _lock_next_actor(upcoming: Array) -> void:
-	if upcoming.is_empty():
-		return
-	var name: String = upcoming[0]["unitName"]
-	var view: UnitView = unit_views_by_name.get(name)
-	if view == null:
-		return
-	var u: Dictionary = view.unit
-	var locked = battle.get("lockedActor")
-	if locked != null and locked["uid"] == u["id"]:
-		return   # already locked for this same upcoming actor -- nothing to do
-	battle["lockedActor"] = {"uid": u["id"], "slots": (u["slots"] as Array).duplicate(true)}
+## rolls) -- so freezing a unit's `slots` for its one upcoming decision is
+## 100% safe w.r.t. RNG/parity, no roll is skipped or added either way.
+## Writes battle["lockedActors"] (a new transient, unsaved battle field --
+## uid -> slots snapshot -- consumed/cleared per-uid by FarroadCore.step()/
+## farroad-core.js's own step()): every unit CURRENTLY visible anywhere in
+## the turn-order preview gets locked the FIRST time it appears there (not
+## re-snapshotted on later refreshes, so a lock always reflects the
+## moment a unit first became visible, not whatever it was edited to
+## since); a lock is dropped if its unit falls out of the visible window
+## entirely without acting (e.g. died), so a later real reappearance gets
+## a fresh snapshot rather than a stale leftover one.
+func _lock_upcoming_actors(upcoming: Array) -> void:
+	if battle.get("lockedActors") == null:
+		battle["lockedActors"] = {}
+	var locked: Dictionary = battle["lockedActors"]
+	var visible_ids := {}
+	for p in upcoming:
+		var view: UnitView = unit_views_by_name.get(p["unitName"])
+		if view == null:
+			continue
+		var u: Dictionary = view.unit
+		visible_ids[u["id"]] = true
+		if not locked.has(u["id"]):
+			locked[u["id"]] = (u["slots"] as Array).duplicate(true)
+	for uid in locked.keys().duplicate():
+		if not visible_ids.has(uid):
+			locked.erase(uid)
 
 ## A long action/unit name (e.g. "Wayfarer's Oath") could otherwise draw past
 ## a turn-order card's own edge into its neighbor -- there's no Godot Label

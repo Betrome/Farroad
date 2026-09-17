@@ -798,6 +798,15 @@ P.FIRST_BOSS_HARD_EXTRA=1.05;
    so it touches damage only -- not HP, crit, spd, or anything else
    BOSS_HARD_EXTRA also feeds). */
 P.FIRST_BOSS_DMG_MUL=0.70;
+/* Ian: "add a flat 50% atk and mag debuff to the first 20 waves for
+   tutorial purposes" -- a blanket ease across the WHOLE solo pre-second-
+   companion stretch (waves 1-20 inclusive), distinct from and stacking
+   with the wave-20-boss-only softening above (FIRST_BOSS_LEN/
+   FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL, which only ever applied to
+   w===BOSS_WAVES[0]). Applied the same way FIRST_BOSS_DMG_MUL already is --
+   directly on the final atk/mag stat values in buildEnemies, so it touches
+   damage output only, not HP/crit/spd/anything else hardMul also feeds. */
+P.TUTORIAL_ATK_MAG_MUL=0.5;
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));

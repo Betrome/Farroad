@@ -1146,25 +1146,31 @@ static func step(b: Dictionary) -> Variant:
 		b["log"].append(e)
 		check_end(b)
 		return e
-	# Post-Milestone-3 APK feedback (Group A2): if the turn-order preview UI
-	# already announced this exact unit as the next actor, it snapshotted
-	# their `slots` at that moment (BattlePresenter._lock_next_actor) --
-	# honor that snapshot here instead of whatever `u["slots"]` may have
-	# been edited to since, then consume (clear) the lock. Godot-only WRITE
-	# site (only a live-watched fight ever sets it), but this READ/consume
-	# is engine-layer so headless callers (expedition/dungeon/offline
-	# catch-up) that never set it are unaffected -- `locked` stays null and
-	# this is a pure no-op there.
-	var locked = b.get("lockedActor")
+	# Post-Milestone-3 APK feedback (Group A2), broadened per later
+	# feedback ("units still change actions even after they're listed on
+	# the turn order" -- the original fix only locked slot 0, the very
+	# next actor; every OTHER visible turn-order card (slots 1+) stayed
+	# unprotected, so editing one of THOSE units still changed what they
+	# did once their turn actually came up): if the turn-order preview UI
+	# already showed this unit ANYWHERE in its visible window, it
+	# snapshotted their `slots` at that moment (BattlePresenter.
+	# _lock_upcoming_actors) -- honor that snapshot here instead of
+	# whatever `u["slots"]` may have been edited to since, then consume
+	# (clear) this one unit's own lock entry. Godot-only WRITE site (only
+	# a live-watched fight ever sets it), but this READ/consume is
+	# engine-layer so headless callers (expedition/dungeon/offline
+	# catch-up) that never set it are unaffected -- `locked` stays empty
+	# and this is a pure no-op there.
+	var locked: Dictionary = b.get("lockedActors", {})
 	var original_slots = null
-	if locked != null and locked["uid"] == u["id"]:
+	if locked.has(u["id"]):
 		original_slots = u["slots"]
-		u["slots"] = locked["slots"]
+		u["slots"] = locked[u["id"]]
 	var ch := choose(u, b)
 	if original_slots != null:
 		u["slots"] = original_slots
-	if locked != null and locked["uid"] == u["id"]:
-		b["lockedActor"] = null
+	if locked.has(u["id"]):
+		locked.erase(u["id"])
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
 	e["actionId"] = act["id"]; e["actionName"] = act["name"]; e["via"] = ch["via"]
 	e["isCharge"] = bool(act.get("isCharge", false)); e["rank"] = act["rank"]

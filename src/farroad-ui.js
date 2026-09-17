@@ -447,7 +447,7 @@ function buildEnemies(w,quiet,superBossKey){
   hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w));
   var hardAtkMul=P.hardMul(w)*(boss?(isFirstBoss?P.FIRST_BOSS_HARD_EXTRA:P.BOSS_HARD_EXTRA):1);
   var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul*hardAtkMul;
-  var dmgMul=isFirstBoss?P.FIRST_BOSS_DMG_MUL:1;
+  var dmgMul=(isFirstBoss?P.FIRST_BOSS_DMG_MUL:1)*(w<=20?P.TUTORIAL_ATK_MAG_MUL:1);
   /* ATK growth exponent 1.02 -> 0.80. At 1.02 enemy damage grew 3.10x by wave 20
      while a solo character grows 2.05x, so enemies outpaced the player by ~50%
      and the game was only survivable behind the 65% crutch. At 0.80 they track. */
@@ -1861,22 +1861,29 @@ function renderUnits(){
    G.units.forEach(function(p){if(p.id===id)p.row=(p.row==='front')?'back':'front';});
    C.ROSTER.forEach(function(r){if(r.id===id)r.row=(r.row==='front')?'back':'front';});
    renderAll();};});}
-/* Post-Milestone-3 APK feedback (Group A2): "once an action is in the
-   queue it shouldn't change" — the turn-order rail's own slot 0 is the
-   next actor; snapshot their `slots` the moment they BECOME slot 0 (write
-   side — see farroad-core.js's own step() for the read/consume side and
-   the full rationale). Mirrors the Godot port's
-   BattlePresenter._lock_next_actor exactly. */
-function lockNextActor(pv){
- if(!pv.length)return;
- var u=G.battle.units.find(function(x){return x.name===pv[0].unitName;});
- if(!u)return;
- var locked=G.battle.lockedActor;
- if(locked&&locked.uid===u.id)return;
- G.battle.lockedActor={uid:u.id,slots:JSON.parse(JSON.stringify(u.slots))};}
+/* Post-Milestone-3 APK feedback (Group A2), broadened after later
+   feedback ("units still change actions even after they're listed on
+   the turn order" — the original version only locked slot 0, the very
+   next actor; a unit shown further down the rail stayed fully editable
+   until it became slot 0). Snapshot EVERY unit currently visible
+   anywhere in the rail's own preview window the FIRST time it appears
+   there (write side — see farroad-core.js's own step() for the
+   read/consume side and the full rationale). Mirrors the Godot port's
+   BattlePresenter._lock_upcoming_actors exactly. A lock is dropped once
+   its unit falls out of the visible window without acting (e.g. died),
+   so a later real reappearance gets a fresh snapshot. */
+function lockUpcomingActors(pv){
+ var locked=G.battle.lockedActors||(G.battle.lockedActors={});
+ var visibleIds={};
+ pv.forEach(function(p){
+  var u=G.battle.units.find(function(x){return x.name===p.unitName;});
+  if(!u)return;
+  visibleIds[u.id]=true;
+  if(!locked[u.id])locked[u.id]=JSON.parse(JSON.stringify(u.slots));});
+ Object.keys(locked).forEach(function(uid){if(!visibleIds[uid])delete locked[uid];});}
 function renderRail(){
  if(!G.battle)return;
- var pv=C.preview(G.battle,6);lockNextActor(pv);var h=$('#rail');h.innerHTML='';
+ var pv=C.preview(G.battle,6);lockUpcomingActors(pv);var h=$('#rail');h.innerHTML='';
  pv.forEach(function(p,i){var el=document.createElement('div');
   el.className='chip '+(p.isParty?'p':'f')+(i===0?' now':'');
   var act=C.ACTIONS[p.actionId];var rk=(act||{}).rank||1;

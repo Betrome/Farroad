@@ -105,6 +105,15 @@ const FIRST_BOSS_HARD_EXTRA := 1.05
 # touches damage only -- not HP, crit, spd, or anything else BOSS_HARD_EXTRA
 # also feeds).
 const FIRST_BOSS_DMG_MUL := 0.70
+# Ian: "add a flat 50% atk and mag debuff to the first 20 waves for
+# tutorial purposes" -- a blanket ease across the WHOLE solo pre-second-
+# companion stretch (waves 1-20 inclusive), distinct from and stacking
+# with the wave-20-boss-only softening above (FIRST_BOSS_LEN/
+# FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL, which only ever applied to
+# w==BOSS_WAVES[0]). Applied the same way FIRST_BOSS_DMG_MUL already is --
+# directly on the final atk/mag stat values, so it touches damage output
+# only, not HP/crit/spd/anything else hard_mul also feeds.
+const TUTORIAL_ATK_MAG_MUL := 0.5
 const BOSS_SPD_FROM := 20.0
 const BOSS_SPD_REF := 800.0
 const BOSS_SPD_MAX_MUL := 2.2
@@ -1266,7 +1275,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w))
 		var hard_atk_mul: float = hard_mul(w) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
 		var atk_mul: float = (1.10 if boss else 1.0) * DIFFICULTY * v_mul * hard_atk_mul
-		var dmg_mul: float = FIRST_BOSS_DMG_MUL if is_first_boss else 1.0
+		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * (TUTORIAL_ATK_MAG_MUL if w <= 20 else 1.0)
 		out.append(FarroadCore.make_unit({
 			"id": "e%d" % j,
 			"name": ("ROADWARDEN" if boss else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
