@@ -897,6 +897,71 @@ func _show_action_detail_popup(action_id: String) -> void:
 
 	await _finish_detail_overlay(o)
 
+## Ian: "change the inventory section in the settings to be a button."
+## Same shared small-overlay shape every other detail popup already uses
+## (nests inside Settings' own already-open popup via _overlay_host).
+func _show_inventory_popup() -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Inventory"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var body := Label.new()
+	body.text = "Aether: %d\nMarks: %d\nLore (total): %d" % [
+		roundi(g.get("aether", 0.0)), roundi(g.get("marks", 0.0)), roundi(FarroadProgression.total_lore(g))]
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body)
+	await _finish_detail_overlay(o)
+
+## Ian: "add a button to change our main character's name." A LineEdit +
+## Save button inside the same shared overlay shape. FarroadProgression.
+## set_mc_name already patches g["mc"]/the roster template/any matching
+## live g["units"] entry -- this also pushes the rename onto whichever
+## BattlePresenter(s) are actually on screen right now (Road and/or a
+## side battle), so it's visible immediately, not just next wave.
+func _show_change_name_popup() -> void:
+	if g.get("mc") == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+
+	var title := Label.new()
+	title.text = "Change name"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+
+	var name_edit := LineEdit.new()
+	name_edit.max_length = 20
+	name_edit.text = str(g["mc"].get("name", ""))
+	vbox.add_child(name_edit)
+
+	var save_btn := Button.new()
+	save_btn.text = "Save"
+	save_btn.pressed.connect(func():
+		var sanitized := _sanitize_mc_name(name_edit.text)
+		if sanitized != "":
+			var old_name: String = str(g["mc"].get("name", ""))
+			FarroadProgression.set_mc_name(g, sanitized)
+			if current_presenter != null:
+				current_presenter.call("sync_mc_name", old_name, sanitized)
+			if side_presenter != null:
+				side_presenter.call("sync_mc_name", old_name, sanitized)
+			_save_game()
+		o["backdrop"].queue_free())
+	vbox.add_child(save_btn)
+
+	await _finish_detail_overlay(o)
+
+## Same sanitize rule McCreatePanel._sanitize_name uses -- small per-file
+## duplication (this project's own established convention) rather than a
+## shared base class for a 3-line regex.
+func _sanitize_mc_name(raw: String) -> String:
+	var re := RegEx.new()
+	re.compile("[<>&\"']")
+	return re.sub(raw, "", true).strip_edges().substr(0, 20)
+
 ## Ian: "say exactly what buffs and debuffs do." Every magnitude-based
 ## status reads its real number straight from FarroadCore.STATUS_BASE_MAG
 ## (the same table apply_status/eff_atk/eff_def/etc. actually use), so

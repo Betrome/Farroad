@@ -266,6 +266,24 @@ func hop_to_new_row(uid: String) -> void:
 	var tw := create_tween()
 	tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
+## Called by GameController right after a MC rename (post-batch feedback:
+## "add a button to change our main character's name") -- the live unit
+## dict's own "name" field is already updated by FarroadProgression.
+## set_mc_name (same shared-reference reasoning sync_loadout/
+## set_mc_charge_action rely on), but the on-field UnitView's own name
+## label was only ever set once at build time, and unit_views_by_name's
+## dict KEY would otherwise go stale -- a future event's target-name
+## lookup (e.g. _apply_status_notes) reads the unit's already-renamed
+## live name, which would miss the OLD key entirely.
+func sync_mc_name(old_name: String, new_name: String) -> void:
+	var view: UnitView = unit_views_by_id.get("kesh")
+	if view == null:
+		return
+	view.update_name(new_name)
+	if unit_views_by_name.get(old_name) == view:
+		unit_views_by_name.erase(old_name)
+	unit_views_by_name[new_name] = view
+
 func _layout_units(units: Array) -> void:
 	var party_front := []
 	var party_back := []
@@ -1066,7 +1084,7 @@ func _refresh_turn_order() -> void:
 		card["panel"].visible = true
 		var p = upcoming[i]
 		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.016), max_w)
-		card["name"].modulate = Palette.PARTY_BLUE if p["isParty"] else Palette.ENEMY_RED
+		card["name"].modulate = Palette.PARTY_BLUE_BRIGHT if p["isParty"] else Palette.ENEMY_RED_BRIGHT
 		# No camp/element glyph prefix and no speed (×N) line -- just who's
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.

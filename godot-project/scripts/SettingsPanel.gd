@@ -1,11 +1,18 @@
 extends Node
-## Post-Milestone-3 APK feedback (Group C2): the new "Settings" tab -- a
-## single "Reset Game" button behind a ConfirmationDialog (same reuse of
-## Godot's confirm-before-destructive-action pattern LorePanel's own refund
-## flow already established), deleting user://save.json and reloading the
-## scene so the player re-enters GameController._ready()'s own existing
-## boot gate (no save found -> character creation) rather than hand-rolling
-## a manual in-place teardown/rebuild of every panel and timer.
+## Post-Milestone-3 APK feedback (Group C2): the new "Settings" tab (bottom-
+## row label now "Menu", per Ian's own later ask -- the icon/button/popup
+## underneath is unchanged) -- a "Reset Game" button behind a
+## ConfirmationDialog (same reuse of Godot's confirm-before-destructive-
+## action pattern LorePanel's own refund flow already established),
+## deleting user://save.json and reloading the scene so the player
+## re-enters GameController._ready()'s own existing boot gate (no save
+## found -> character creation) rather than hand-rolling a manual in-place
+## teardown/rebuild of every panel and timer.
+##
+## Post-batch feedback: the inline Inventory readout became a button
+## (opens GameController._show_inventory_popup, the same shared small-
+## overlay shape every other detail popup uses), and a "Change Name"
+## button was added (GameController._show_change_name_popup).
 
 var g: Dictionary
 var _vp: Vector2
@@ -14,7 +21,6 @@ var _parent: Node
 var toggle_button: Button
 var popup: PopupPanel
 var confirm_dialog: ConfirmationDialog
-var inventory_lbl: Label
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -27,11 +33,11 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -49,18 +55,21 @@ func _build_ui(parent: Node) -> void:
 	vbox.add_child(title)
 
 	# Ian: "add an inventory tab to show aether, marks, and future
-	# currencies." A plain read-only section rather than a separate tab/
-	# popup of its own -- there's nothing to interact with here, just a
-	# live currency readout, so it lives directly in the existing Settings
-	# popup. Refreshed on every open (_on_toggle_pressed), same as every
-	# other panel's own "rebuild from live g on open" convention.
-	var inventory_header := Label.new()
-	inventory_header.text = "Inventory"
-	inventory_header.add_theme_font_size_override("font_size", 16)
-	vbox.add_child(inventory_header)
-	inventory_lbl = Label.new()
-	inventory_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(inventory_lbl)
+	# currencies" -- then later "change the inventory section to be a
+	# button." Opens the same shared small-overlay popup every other
+	# detail view uses (GameController._show_inventory_popup), which
+	# builds its own live readout fresh each time it's opened -- no local
+	# label to keep refreshed here anymore.
+	var inventory_btn := Button.new()
+	inventory_btn.text = "Inventory"
+	inventory_btn.pressed.connect(_on_inventory_pressed)
+	vbox.add_child(inventory_btn)
+
+	# Ian: "add a button to change our main character's name."
+	var change_name_btn := Button.new()
+	change_name_btn.text = "Change Name"
+	change_name_btn.pressed.connect(_on_change_name_pressed)
+	vbox.add_child(change_name_btn)
 
 	# Group H (20-item batch): Catalogue folded in here so it no longer
 	# needs its own bottom-row icon.
@@ -108,13 +117,8 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
-	_refresh_inventory()
 	popup.popup_centered(Vector2(_vp.x * 0.7, _vp.y * 0.3))
 	_notify_battle_paused(true)
-
-func _refresh_inventory() -> void:
-	inventory_lbl.text = "Aether: %d\nMarks: %d\nLore (total): %d" % [
-		roundi(g.get("aether", 0.0)), roundi(g.get("marks", 0.0)), roundi(FarroadProgression.total_lore(g))]
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):
@@ -123,6 +127,14 @@ func _notify_battle_paused(paused: bool) -> void:
 func _on_catalogue_pressed() -> void:
 	if _parent and _parent.has_method("_open_catalogue"):
 		_parent.call("_open_catalogue")
+
+func _on_inventory_pressed() -> void:
+	if _parent and _parent.has_method("_show_inventory_popup"):
+		_parent.call("_show_inventory_popup")
+
+func _on_change_name_pressed() -> void:
+	if _parent and _parent.has_method("_show_change_name_popup"):
+		_parent.call("_show_change_name_popup")
 
 func _on_reset_pressed() -> void:
 	confirm_dialog.popup_centered()

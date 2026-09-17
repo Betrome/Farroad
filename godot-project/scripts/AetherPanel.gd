@@ -30,6 +30,16 @@ var card_container: Container
 const AFFINITY_AXIS_LABELS := {"fire": "Fire", "water": "Water", "earth": "Earth", "air": "Air",
 	"light": "Light", "dark": "Dark", "body": "Body", "spirit": "Spirit"}
 const PCT_STAT_LABELS := {"evade": "Evade", "atkCrit": "ATK Crit", "magCrit": "MAG Crit"}
+
+## Ian: "add a small icon like with actions next to each of the stats and
+## affinities to pop-up a smaller window that states what the stat does."
+const LEVEL_INFO := "Feeds Aether to raise this unit's level -- increases every base stat and its own per-level growth, and unlocks more gambit slots at certain levels."
+const RECOVERY_INFO := "Raises the % of missing HP this unit carries over and heals between waves, up to a cap."
+const PCT_STAT_INFO := {
+	"evade": "Raises this unit's chance to dodge an incoming hit entirely.",
+	"atkCrit": "Raises this unit's chance to land a critical hit with physical (ATK-scaling) actions.",
+	"magCrit": "Raises this unit's chance to land a critical hit with magic (MAG-scaling) actions.",
+}
 # Every purchase button (Recovery/Level/Evade-Crit/Affinity) shares this
 # width so they all visually line up regardless of section -- see
 # _style_purchase_button.
@@ -50,6 +60,65 @@ func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	selected_uid = uid
 	card_container = container
 	_refresh_card()
+
+func _affinity_info(axis: String) -> String:
+	var label: String = AFFINITY_AXIS_LABELS[axis]
+	return "%s affinity boosts the power of this unit's own %s-aligned actions, and reduces incoming %s-aligned damage/effects from enemies." % [
+		label, label, label]
+
+## A small, lightweight popup anchored right next to the icon that opened
+## it -- deliberately NOT the shared full-screen detail overlay
+## (GameController._build_detail_overlay), which is centered/larger by
+## design; this reads as a small tooltip beside the exact stat inspected,
+## per Ian's own "keep it small" ask. Added as a child of the icon's own
+## Window (whatever popup this card currently lives inside -- UnitsPanel's,
+## via get_window()) so it layers correctly without needing to route
+## through GameController's own overlay-nesting machinery.
+func _show_stat_info_popup(anchor: Control, text: String) -> void:
+	var host: Window = anchor.get_window()
+	if host == null:
+		return
+	var p := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Palette.BG_PARCHMENT_DEEP
+	style.border_color = Palette.BORDER_LEATHER
+	style.set_border_width_all(2)
+	style.set_content_margin_all(8)
+	p.add_theme_stylebox_override("panel", style)
+	host.add_child(p)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	lbl.custom_minimum_size = Vector2(minf(_vp.x * 0.5, 220.0), 0)
+	p.add_child(lbl)
+	p.popup_hide.connect(p.queue_free)
+	await get_tree().process_frame   # let the panel size itself to lbl's real content before positioning
+	var pos := Vector2i(anchor.global_position) + Vector2i(int(anchor.size.x) + 6, -4)
+	pos.x = mini(pos.x, int(host.size.x - p.size.x - 4))
+	pos.y = clampi(pos.y, 4, int(host.size.y - p.size.y - 4))
+	p.popup(Rect2i(pos, p.size))
+
+## Small "ⓘ" button, same shape as every other info-icon in this project,
+## but with the project theme's own Button style (an 8px content margin
+## on ALL sides -- fine for a real button, way too much for a single
+## glyph shoehorned into an already-budgeted row) overridden down to a
+## minimal margin -- direct measurement at the real 412px width showed
+## even a custom_minimum_size-28 button was really costing ~44px once the
+## theme's own padding was counted, overflowing every row it touched.
+## compact=true shrinks it further still, for the 2-column Affinities
+## grid specifically, where the per-row budget is tightest of all.
+func _info_icon(info_text: String, compact: bool = false) -> Button:
+	var btn := Button.new()
+	btn.text = "ⓘ"
+	btn.custom_minimum_size = Vector2(14 if compact else 20, 0)
+	btn.add_theme_font_size_override("font_size", 9 if compact else 12)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Palette.BTN_NORMAL if state != "hover" else Palette.BTN_HOVER
+		style.set_content_margin_all(1 if compact else 2)
+		btn.add_theme_stylebox_override(state, style)
+	btn.pressed.connect(func(): _show_stat_info_popup(btn, info_text))
+	return btn
 
 func _section_label(text: String) -> Label:
 	var lbl := Label.new()
@@ -110,14 +179,21 @@ func _add_stat_cell(grid: GridContainer, label: String, value, growth, cell_widt
 ## compact enough for two columns; every other section leaves it default.
 func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
 		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, desc_width_frac: float = 0.42,
-		show_cost_in_button: bool = true) -> void:
+		show_cost_in_button: bool = true, info_text: String = "") -> void:
 	var desc_lbl := Label.new()
 	desc_lbl.text = desc
 	desc_lbl.custom_minimum_size.x = _vp.x * desc_width_frac
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if font_size > 0:
 		desc_lbl.add_theme_font_size_override("font_size", font_size)
-	grid.add_child(desc_lbl)
+	if info_text != "":
+		var desc_row := HBoxContainer.new()
+		desc_row.add_child(desc_lbl)
+		desc_row.add_child(_info_icon(info_text))
+		grid.add_child(desc_row)
+	else:
+		grid.add_child(desc_lbl)
 	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac, show_cost_in_button))
 
 ## Same idea as _add_purchase_cells, but splits the description into a
@@ -131,7 +207,8 @@ func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, co
 ## Affinities grid needs this; Evade/Crit's own natural auto-sizing already
 ## fits comfortably.
 func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
-		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, label_width_frac: float = 0.0, value_width_frac: float = 0.0) -> void:
+		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, label_width_frac: float = 0.0, value_width_frac: float = 0.0,
+		info_text: String = "") -> void:
 	var label_lbl := Label.new()
 	label_lbl.text = label
 	if label_width_frac > 0.0:
@@ -139,7 +216,17 @@ func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: Stri
 		label_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if font_size > 0:
 		label_lbl.add_theme_font_size_override("font_size", font_size)
-	grid.add_child(label_lbl)
+	if info_text != "":
+		var label_row := HBoxContainer.new()
+		label_row.add_theme_constant_override("separation", 1)
+		label_row.add_child(label_lbl)
+		# font_size>0 is what the compact 2-column Affinities grid always
+		# passes (every other section leaves it 0) -- reused here as the
+		# same signal to shrink the icon to match that grid's real budget.
+		label_row.add_child(_info_icon(info_text, font_size > 0))
+		grid.add_child(label_row)
+	else:
+		grid.add_child(label_lbl)
 	var value_lbl := Label.new()
 	value_lbl.text = value
 	if value_width_frac > 0.0:
@@ -180,11 +267,11 @@ func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: 
 ## fixed-width button (Recovery/Evade/Crit/Affinity costs all stay small
 ## enough that showing them on the button is fine, so they keep the
 ## default).
-func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable, show_cost_in_button: bool = true) -> Control:
+func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callback: Callable, show_cost_in_button: bool = true, info_text: String = "") -> Control:
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 14)
-	_add_purchase_cells(grid, desc, buy_text, cost, maxed, callback, 0, PURCHASE_BTN_WIDTH_FRAC, 0.42, show_cost_in_button)
+	_add_purchase_cells(grid, desc, buy_text, cost, maxed, callback, 0, PURCHASE_BTN_WIDTH_FRAC, 0.42, show_cost_in_button, info_text)
 	return grid
 
 ## Available: warm gold (matches the real UI's own --aether color theme),
@@ -273,7 +360,7 @@ func _refresh_card() -> void:
 	var exact := maxi(0, int(ceil(need - have)))
 	card_container.add_child(_purchase_row(
 		"Level up — %d Aether" % exact, "→ LV %d" % (level + 1), exact, false,
-		_on_feed_pressed.bind(uid, exact), false))
+		_on_feed_pressed.bind(uid, exact), false, LEVEL_INFO))
 
 	# Recovery/Evade/Crit share the SAME label/value/button column widths
 	# (explicit floors, not auto-sized) even though Recovery has its own
@@ -286,7 +373,12 @@ func _refresh_card() -> void:
 	# the PRIOR 0.20 was narrower than that real text needed (~106px of
 	# text + 12px button padding vs. the 82px it was given), clipping it;
 	# 0.32 comfortably fits the measured worst case with room to spare.
-	var label_col_frac: float = 0.28
+	# label_col_frac trimmed 0.28 -> 0.24 to make room for the new info icon
+	# (post-batch feedback) sharing this same column -- the label already
+	# autowraps at this floor (AUTOWRAP_WORD_SMART, set whenever a width
+	# floor is given), so a slightly narrower floor just wraps a long label
+	# like "Post-combat Recovery" a little earlier rather than overflowing.
+	var label_col_frac: float = 0.24
 	var value_col_frac: float = 0.11
 	var btn_col_frac: float = 0.30
 
@@ -298,7 +390,7 @@ func _refresh_card() -> void:
 		"%d%%" % roundi(FarroadProgression.recovery_of(g, uid) * 100),
 		"+%d%%" % roundi(FarroadProgression.REST_STEP * 100),
 		FarroadProgression.recovery_cost(g, uid), FarroadProgression.recovery_maxed(g, uid),
-		_on_recovery_pressed.bind(uid), 0, btn_col_frac, label_col_frac, value_col_frac)
+		_on_recovery_pressed.bind(uid), 0, btn_col_frac, label_col_frac, value_col_frac, RECOVERY_INFO)
 	card_container.add_child(recovery_grid)
 
 	# Evade / ATK-Crit / MAG-Crit -- one GridContainer, not 3 separate rows,
@@ -318,7 +410,7 @@ func _refresh_card() -> void:
 		_add_labeled_purchase_cells(pct_grid, PCT_STAT_LABELS[stat], "%s%%" % snapped(cur * 100.0, 0.1),
 			"+%s%%" % snapped(FarroadProgression.PCT_STAT[stat]["step"] * 100.0, 0.1),
 			cost, maxed, _on_pct_stat_pressed.bind(uid, stat), 0, btn_col_frac,
-			label_col_frac, value_col_frac)
+			label_col_frac, value_col_frac, PCT_STAT_INFO[stat])
 	card_container.add_child(pct_grid)
 
 	# Affinities -- two columns (left: fire/water/earth/air, right:
@@ -344,8 +436,11 @@ func _refresh_card() -> void:
 			var pct: float = FarroadCore.affinity_mul(raw) * 100.0
 			var cost := FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g, uid).get(axis, 0))
 			var maxed := FarroadProgression.affinity_maxed(g, uid, axis)
+			# btn_width_frac trimmed 0.16 -> 0.13 to make room for the new
+			# compact info icon sharing the label column (post-batch feedback)
+			# -- "+1 (999)" style button text stays comfortably short enough.
 			_add_labeled_purchase_cells(aff_grid, AFFINITY_AXIS_LABELS[axis], "%+.0f%%" % pct,
-				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.16, 0.09, 0.08)
+				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08, _affinity_info(axis))
 	card_container.add_child(aff_grid)
 
 ## GameController's own top-strip currency line (Aether/Lore/Marks) only

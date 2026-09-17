@@ -42,6 +42,13 @@ const GOLD_PRESSED := Color(0.55, 0.40, 0.08, 1.0) # selected-tab / pressed-acce
 ## ===== camps =====
 const PARTY_BLUE := Color(0.18, 0.34, 0.56, 1.0)
 const ENEMY_RED := Color(0.62, 0.20, 0.16, 1.0)
+## Ian: "add back in the brighter blue and red text on the turn order" --
+## PARTY_BLUE/ENEMY_RED above read as muted once darkened for legibility
+## project-wide; these are a louder, more saturated pair kept just dark
+## enough to still read on the light parchment card background, for the
+## turn-order rail's own ally/enemy name text specifically.
+const PARTY_BLUE_BRIGHT := Color(0.08, 0.32, 0.95, 1.0)
+const ENEMY_RED_BRIGHT := Color(0.88, 0.08, 0.08, 1.0)
 
 ## ===== status / feedback =====
 const GOOD_GREEN := Color(0.20, 0.46, 0.24, 1.0)

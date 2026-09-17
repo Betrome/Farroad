@@ -2364,6 +2364,25 @@ static func set_mc_charge_action(g: Dictionary, action_id: String) -> void:
 		if u["id"] == "kesh":
 			u["chargeAction"] = action_id
 
+## Post-batch feedback: "add a button to change our main character's
+## name." Same shape as set_mc_charge_action above -- mutate g["mc"],
+## re-apply onto the shared roster def via apply_custom_mc (already
+## correct/idempotent), then patch any matching live unit's own field
+## directly so a rename mid-fight takes effect immediately, not just next
+## wave. GameController is responsible for the on-field UnitView/
+## unit_views_by_name sync (BattlePresenter.sync_mc_name) -- this
+## function only touches g-level state, matching every other
+## FarroadProgression mutation's own scope.
+static func set_mc_name(g: Dictionary, new_name: String) -> void:
+	var mc = g.get("mc")
+	if mc == null:
+		return
+	mc["name"] = new_name
+	apply_custom_mc(g)
+	for u in g.get("units", []):
+		if u["id"] == "kesh":
+			u["name"] = new_name
+
 ## Mirrors mcName/withMcName (farroad-ui.js:178-181) -- reads the CURRENT
 ## FarroadCore.ROSTER "kesh" entry's name directly (not g["mc"]["name"]),
 ## exactly like the real mcName(), falling back to "Kesh" if that entry

@@ -28,6 +28,7 @@ var _hp_fg: ColorRect
 var _charge_bg: ColorRect
 var _charge_fg: ColorRect
 var _click_area: Area2D
+var _name_label: Label
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
@@ -95,11 +96,11 @@ func _build(unit_size: float) -> void:
 	# Group I: "space out units vertically so names aren't overlapping. Put
 	# names under the charge bar." -- moved from above the shape (its old
 	# spot) to directly below the charge bar, now the bottom-most element.
-	var name_label := Label.new()
-	name_label.text = unit["name"]
-	name_label.position = Vector2(-half, charge_y + charge_h + gap)
-	name_label.add_theme_font_size_override("font_size", int(size * 0.25))
-	add_child(name_label)
+	_name_label = Label.new()
+	_name_label.text = unit["name"]
+	_name_label.position = Vector2(-half, charge_y + charge_h + gap)
+	_name_label.add_theme_font_size_override("font_size", int(size * 0.25))
+	add_child(_name_label)
 
 	# Tap/click target -- a plain rectangle covering the shape's own bounds
 	# (not the whole footprint including bars/name, which would make
@@ -124,6 +125,12 @@ func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: 
 		tapped.emit()
 	elif event is InputEventScreenTouch and event.pressed:
 		tapped.emit()
+
+## Called by BattlePresenter.sync_mc_name right after a MC rename -- unlike
+## hp/charge, the unit dict's own "name" field isn't re-read every frame,
+## so the label needs an explicit push when it changes mid-fight.
+func update_name(new_name: String) -> void:
+	_name_label.text = new_name
 
 ## Re-reads unit["hp"]/["maxHp"] -- FarroadCore.step() mutates the unit dict
 ## in place, so this always reflects the live value, no separate sync needed.
