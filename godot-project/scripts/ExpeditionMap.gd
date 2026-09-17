@@ -29,6 +29,14 @@ const DIRECTION_ANGLES_DEG := {
 	"west": 180.0, "northwest": 225.0, "north": 270.0, "northeast": 315.0,
 }
 
+## Ian: real compass abbreviations for the direction-icon buttons -- the
+## old `.left(3)` truncation of the full label ("Nor", "Nort", "Sout")
+## read as cut-off text, not a real abbreviation.
+const DIRECTION_ABBREV := {
+	"west": "W", "northwest": "NW", "southwest": "SW", "north": "N",
+	"south": "S", "northeast": "NE", "southeast": "SE", "east": "E",
+}
+
 ## First-pass, adjustable: how much `ew` (an expedition's own depth along
 ## its direction) reads as "the full length of the line" -- deliberately
 ## NOT tied to g["directions"][dir]["maxDepth"] (which an expedition can
@@ -80,7 +88,7 @@ func _build_direction_buttons() -> void:
 	for dir in FarroadProgression.direction_ids():
 		var pos: Vector2 = _center + _dir_vec(dir) * _radius
 		var btn := Button.new()
-		btn.text = FarroadProgression.direction_label(dir).left(3)
+		btn.text = DIRECTION_ABBREV.get(dir, FarroadProgression.direction_label(dir).left(3))
 		btn.custom_minimum_size = Vector2(btn_size, btn_size)
 		btn.position = pos - Vector2(btn_size, btn_size) / 2.0
 		btn.clip_text = true

@@ -362,7 +362,7 @@ const STARTER_ACTIONS: Array[String] = ["strike", "ember"]
 const CURATED: Array = [
 	{"w": 2, "kind": "action", "id": "sear", "why": "first magic tool — takes reach-wave-8 from 3/10 to 10/10"},
 	{"w": 3, "kind": "cond", "id": "foe_lacks_debuff", "why": "gates Sear — Burning is wasted if reapplied"},
-	{"w": 4, "kind": "action", "id": "hex", "why": "Frail cuts RES before the armoured foe arrives"},
+	{"w": 4, "kind": "action", "id": "smother", "why": "Dulled cuts the Fen Priest's healing — ready before it (wave 5-7) arrives"},
 	{"w": 5, "kind": "cond", "id": "foe_armoured", "why": "Barrow Knight arrives — DEF 34, physical stalls"},
 	{"w": 6, "kind": "action", "id": "bulwark", "why": "Warded ×0.60; holds the 10th-percentile at wave 9"},
 	{"w": 7, "kind": "cond", "id": "ally_lacks_buff", "why": "gates Bulwark — do not overwrite a running buff"},
@@ -370,7 +370,7 @@ const CURATED: Array = [
 	{"w": 9, "kind": "cond", "id": "self_hp_lte_50", "why": "gates Mend — the highest-value rule in the game"},
 	{"w": 10, "kind": "action", "id": "cripple", "why": "Slowed ×1.50 turn cost = 33% fewer enemy turns"},
 	{"w": 11, "kind": "cond", "id": "foe_fast", "why": "gates Cripple — relative, so it survives stat scaling"},
-	{"w": 12, "kind": "action", "id": "smother", "why": "Dulled cuts the Fen Priest's healing"},
+	{"w": 12, "kind": "action", "id": "hex", "why": "Frail cuts RES on the tougher foes ahead"},
 	{"w": 13, "kind": "cond", "id": "ally_hp_lte_60", "why": "party-scale healing, ready for character 2"},
 	{"w": 14, "kind": "action", "id": "daunt", "why": "Enfeebled ×0.75 ATK as the count rises"},
 	{"w": 15, "kind": "cond", "id": "foe_lowest_hp", "why": "2 enemies begin — focus fire stops being degenerate"},

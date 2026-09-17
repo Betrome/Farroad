@@ -374,12 +374,27 @@ func _show_welcome_back_popup() -> void:
 	if wipes_gained > 0:
 		wipe_txt = "\nWiped %d time%s — back to checkpoint." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
 
+	# A real, reported bug: this popup used to size its own content margin
+	# as a fraction of _vp.y (int(_vp.y*0.03)) while its width budget was a
+	# fraction of _vp.x (popup 0.85*vp.x, vbox 0.78*vp.x, a mere 0.07*vp.x
+	# of slack) -- at this project's own portrait aspect ratio (vp.y/vp.x
+	# ~2.2), that margin alone (2*0.03*vp.y) already exceeds the entire
+	# width slack, so vbox's declared minimum width was GUARANTEED wider
+	# than the popup's real interior, and text/buttons visibly spilled
+	# past the popup's own right edge. Fixed with a small FIXED-pixel
+	# margin instead (matching every sibling popup's own fixed-pixel
+	# content margin -- _style_popup's 10px, _build_ui's 40px content-
+	# width subtraction -- none of which scale with screen height), and
+	# every Label below now gets the SAME autowrap+expand-fill treatment
+	# `body` alone used to have, so none of them can silently overflow
+	# instead of wrapping.
+	const POPUP_MARGIN := 16.0
 	var popup := PopupPanel.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
 	style.border_color = Color(0.35, 0.6, 0.85, 1.0)
 	style.set_border_width_all(3)
-	style.set_content_margin_all(int(_vp.y * 0.03))
+	style.set_content_margin_all(int(POPUP_MARGIN))
 	popup.add_theme_stylebox_override("panel", style)
 	add_child(popup)
 	# _show_welcome_back_popup() is called synchronously from _start_game(),
@@ -391,26 +406,32 @@ func _show_welcome_back_popup() -> void:
 	# already uses for its own post-add sizing).
 	await get_tree().process_frame
 
+	var popup_w: float = _vp.x * 0.85
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(_vp.x * 0.78, 0)
+	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
 	vbox.add_theme_constant_override("separation", 10)
 	popup.add_child(vbox)
 
 	var title := Label.new()
 	title.text = "Welcome back!"
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "Away %s.\n%s%s" % [away_txt, progress_txt, wipe_txt]
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
 	var gained := Label.new()
 	gained.text = "+%d Aether, +%d Marks from wave clears" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
 	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	gained.modulate = Color(0.85, 0.75, 0.4)
+	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
+	gained.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(gained)
 
 	# Ian: "don't add rewards from... idle until collected. Add a collect
@@ -424,6 +445,8 @@ func _show_welcome_back_popup() -> void:
 		idle_lbl.text = "+%d Aether, +%d Marks of idle income, pending" % [roundi(idle_aether), floori(idle_marks)]
 		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 		idle_lbl.modulate = Color(0.7, 0.8, 0.9)
+		idle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		idle_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(idle_lbl)
 
 		var collect_btn := Button.new()
@@ -442,7 +465,7 @@ func _show_welcome_back_popup() -> void:
 		popup.queue_free())
 	vbox.add_child(got_it)
 
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.65))
+	popup.popup_centered(Vector2(popup_w, _vp.y * 0.65))
 
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
@@ -659,7 +682,22 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	o["vbox"].add_child(close_btn)
 	await get_tree().process_frame
 	var box: PanelContainer = o["box"]
-	box.position = (o["host_size"] - box.size) / 2.0
+	# Ian: "in general, pop-ups aren't centered." Root cause, confirmed by
+	# direct measurement: when `host` is a STYLED PopupPanel (any tab
+	# popup already open -- the common case, since every info icon lives
+	# INSIDE one), Godot automatically insets a plain child Control added
+	# directly to it by the panel's own StyleBoxFlat content margin
+	# (_style_popup's 10px) -- so `backdrop`'s REAL rendered size ends up
+	# smaller than the `host_size` it was originally told to be (measured
+	# directly: 375x794 actual vs. 395x814 intended, exactly a 2×10px
+	# shrink). Centering `box` against the ORIGINAL, now-wrong `host_size`
+	# put it off by that same 10px on both axes -- reading as "not
+	# centered" since it's consistently offset toward the bottom-right.
+	# Using `backdrop`'s own ACTUAL post-layout size instead is correct
+	# either way: identical to host_size when host has no such inset
+	# (GameController itself, confirmed unaffected by direct measurement
+	# too), and self-correcting when it does.
+	box.position = (backdrop.size - box.size) / 2.0
 
 ## Post-Milestone-3 APK feedback (round 5): "I want to have the filters be
 ## in the actual drop downs when selecting the actions, not above them...
@@ -763,8 +801,15 @@ func _show_action_detail_popup(action_id: String) -> void:
 	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
 	var target_txt: String = str(act.get("tk", "foe"))
 	var power_lbl := Label.new()
-	power_lbl.text = "%s -- target: %s -- power ×%s -- rank %s" % [camp_txt, target_txt, str(act.get("power", 1.0)), str(act.get("rank", 1.0))]
+	# Ian: replace the "power ×N" multiplier with what it actually scales
+	# with, e.g. "MAG ×1.0" or "avg. ATK + MAG ×2.3" -- matches
+	# stat_by_key's own real resolution (an explicit scaleStat, else ATK
+	# for a physical-camp action or MAG for a magic-camp one, mirroring
+	# resolve_hit's own default exactly).
+	power_lbl.text = "%s -- target: %s -- scales with %s ×%s -- rank %s" % [
+		camp_txt, target_txt, _scale_stat_label(act), str(act.get("power", 1.0)), str(act.get("rank", 1.0))]
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	power_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(power_lbl)
 
 	var cost_lbl := Label.new()
@@ -772,12 +817,16 @@ func _show_action_detail_popup(action_id: String) -> void:
 		cost_lbl.text = "Charge action -- fills at %d per use of a non-charge action" % int(FarroadCore.cost_of_charge(act))
 	else:
 		cost_lbl.text = "Adds %d to the charge gauge" % int(act.get("charge", 0))
+	cost_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(cost_lbl)
 
 	if act.get("heal", false):
 		var heal_lbl := Label.new()
 		heal_lbl.text = "Heals its target(s) instead of dealing damage."
 		heal_lbl.modulate = Color(0.5, 0.85, 0.55)
+		heal_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		heal_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(heal_lbl)
 
 	if act.get("element"):
@@ -785,14 +834,73 @@ func _show_action_detail_popup(action_id: String) -> void:
 		elem_lbl.text = "Element: %s" % str(act["element"]).capitalize()
 		vbox.add_child(elem_lbl)
 
+	# Ian: "on action inspection, say exactly what buffs and debuffs do" --
+	# a real, numeric effect line (derived from FarroadCore's own
+	# STATUS_BASE_MAG where the status is magnitude-based, so this can
+	# never silently drift out of sync with the actual engine math),
+	# not just the bare status name.
+	if act.get("applies"):
+		var status_id: String = str(act["applies"])
+		var applies_lbl := Label.new()
+		var turns_txt: String = " for %d turns" % int(act["turns"]) if act.get("turns") else ""
+		applies_lbl.text = "Applies %s%s: %s" % [status_id.capitalize(), turns_txt, _status_description(status_id)]
+		applies_lbl.modulate = Color(0.5, 0.85, 1.0) if FarroadCore.is_buff_status(status_id) else Color(0.85, 0.5, 0.85)
+		applies_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		applies_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(applies_lbl)
+
 	if act.get("note"):
 		var note_lbl := Label.new()
 		note_lbl.text = str(act["note"])
 		note_lbl.modulate = Color(0.65, 0.65, 0.65)
 		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		note_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(note_lbl)
 
 	await _finish_detail_overlay(o)
+
+## Ian: "change the power x multiplier at the top to say the stat it
+## scales with." Mirrors stat_by_key's own real resolution order exactly
+## (FarroadCore.gd/resolve_hit -- an explicit scaleStat always wins, else
+## ATK for a physical-camp action, MAG for a magic-camp one).
+func _scale_stat_label(act: Dictionary) -> String:
+	var key = act.get("scaleStat")
+	if key == null:
+		return "ATK" if act.get("camp") == "atk" else "MAG"
+	match str(key):
+		"mag": return "MAG"
+		"def": return "DEF"
+		"res": return "RES"
+		"spd": return "SPD"
+		"avgAtkMag": return "avg. ATK + MAG"
+		_: return str(key).to_upper()
+
+## Ian: "say exactly what buffs and debuffs do." Every magnitude-based
+## status reads its real number straight from FarroadCore.STATUS_BASE_MAG
+## (the same table apply_status/eff_atk/eff_def/etc. actually use), so
+## this can never quietly drift out of sync with the real combat math.
+## "taunted" and "blinded" have no single named magnitude constant to
+## read (taunted is a pure behavioral flag; blinded's +30% evade-chance
+## bonus is a literal inline constant in resolve_hit, matching how the
+## engine itself defines it) -- their text is hand-written to match.
+func _status_description(status_id: String) -> String:
+	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0)
+	match status_id:
+		"enfeebled": return "ATK %+.0f%%" % (mag * 100.0)
+		"dulled": return "MAG %+.0f%%" % (mag * 100.0)
+		"bracing": return "DEF %+.0f%%" % (mag * 100.0)
+		"sundered": return "DEF %+.0f%%" % (mag * 100.0)
+		"frail": return "RES %+.0f%%" % (mag * 100.0)
+		"blurred": return "Evade %+.0f%%" % (mag * 100.0)
+		"warded": return "Incoming damage %+.0f%%" % (mag * 100.0)
+		"slowed": return "Turns take %.0f%% longer" % (mag * 100.0)
+		"hasted": return "Turns take %.0f%% less time" % (-mag * 100.0)
+		"surging": return "Charge rate %+.0f%%" % (mag * 100.0)
+		"burning": return "Loses %.0f%% max HP per turn" % (mag * 100.0)
+		"regen": return "Heals %.0f%% max HP per turn" % (mag * 100.0)
+		"taunted": return "Forces enemies to target this unit"
+		"blinded": return "Attacks are 30% more likely to be evaded"
+		_: return "%+.0f%%" % (mag * 100.0) if mag != 0.0 else ""
 
 ## Post-Milestone-3 APK feedback (round 3): "change enemies and equipment
 ## to have similar popups" -- shared by EquipmentPanel's per-slot info icon
@@ -818,6 +926,8 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 
 	var slot_lbl := Label.new()
 	slot_lbl.text = "Slot: %s" % str(item.get("slot", "")).capitalize()
+	slot_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	slot_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(slot_lbl)
 
 	var stat_bits: Array = []
@@ -829,6 +939,17 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 	if not stat_bits.is_empty():
 		var stat_lbl := Label.new()
 		stat_lbl.text = ", ".join(stat_bits)
+		# A real, reported overflow bug: this Label (like several others
+		# across this popup and the welcome-back/enemy-detail popups) was
+		# missing the same autowrap+expand-fill every SIBLING label here
+		# already had (aff_lbl, just below) -- its fixed-pixel-font text
+		# doesn't shrink with a narrower _vp.x the way this container's own
+		# fraction-based width does, so at the real portrait aspect ratio
+		# it was wider than its own available space, forcing an unwanted
+		# reflow that pushed the whole popup's content taller than it
+		# needed to be.
+		stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(stat_lbl)
 
 	var affinity: Dictionary = item.get("affinity", {})
@@ -890,7 +1011,38 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 	var stat_lbl := Label.new()
 	stat_lbl.text = "ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [
 		str(a.get("atk", 0)), str(a.get("mag", 0)), str(a.get("def", 0)), str(a.get("res", 0)), str(a.get("spd", 0))]
+	# A real, reported overflow bug: this line's fixed-pixel-font text
+	# doesn't shrink with a narrower _vp.x the way this overlay's own
+	# fraction-based width does (see _show_equipment_detail_popup's own
+	# stat_lbl fix for the full reasoning) -- measured directly at the
+	# real 412-wide portrait viewport: ~366px of unwrapped text against a
+	# ~313-330px available width, a genuine overflow this autowrap fixes.
+	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(stat_lbl)
+
+	# Ian: "show enemy growths" -- this archetype's own relative scaling
+	# multipliers (everything beyond the flat ATK/MAG/DEF/RES/SPD above):
+	# HP multiplier and effective tankiness (FarroadCore.dmg_taken_mul,
+	# the SAME real formula build_enemies itself uses -- how much more/
+	# less damage this archetype actually takes than the wolf baseline),
+	# crit rates, evade, and field size (only when notably non-default,
+	# matching content-pipeline.js's own "omit when default" convention
+	# for the `size` CSV field).
+	var growth_bits: Array = []
+	growth_bits.append("HP ×%.2f" % float(a.get("hpMul", 1.0)))
+	growth_bits.append("Takes %.0f%% dmg" % (FarroadCore.dmg_taken_mul(a) * 100.0))
+	growth_bits.append("ATK crit %.0f%%" % (float(a.get("atkCrit", 0.0)) * 100.0))
+	growth_bits.append("MAG crit %.0f%%" % (float(a.get("magCrit", 0.0)) * 100.0))
+	growth_bits.append("Evade %.0f%%" % (float(a.get("evade", 0.0)) * 100.0))
+	if a.get("size") and float(a["size"]) != 1.0:
+		growth_bits.append("Size ×%.2f" % float(a["size"]))
+	var growth_lbl := Label.new()
+	growth_lbl.text = "Growth: %s" % ", ".join(growth_bits)
+	growth_lbl.modulate = Color(0.6, 0.75, 0.6)
+	growth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	growth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(growth_lbl)
 
 	var affinity: Dictionary = a.get("affinity", {})
 	var aff_bits: Array = []
@@ -905,10 +1057,23 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 
 	if a.get("chargeAction"):
 		var cact = FarroadCore.ACTIONS.get(a["chargeAction"])
+		var charge_row := HBoxContainer.new()
 		var charge_lbl := Label.new()
 		charge_lbl.text = "⚡ Charge action: %s" % (cact["name"] if cact else a["chargeAction"])
 		charge_lbl.modulate = Color(0.85, 0.7, 0.15)
-		vbox.add_child(charge_lbl)
+		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		charge_row.add_child(charge_lbl)
+		# Ian: "charge actions (both ally and enemy) need inspect icons
+		# next to them." Opens as a second, sibling overlay on top of this
+		# one (see this function's own header comment).
+		var charge_action_id: String = a["chargeAction"]
+		var charge_info_btn := Button.new()
+		charge_info_btn.text = "ⓘ"
+		charge_info_btn.custom_minimum_size = Vector2(36, 0)
+		charge_info_btn.pressed.connect(_show_action_detail_popup.bind(charge_action_id))
+		charge_row.add_child(charge_info_btn)
+		vbox.add_child(charge_row)
 
 	var slots: Array = a.get("slots", [])
 	if not slots.is_empty():

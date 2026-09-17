@@ -868,30 +868,39 @@ function step(b){
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
  /* ENRAGE (v1.0, on by default; v2.9 gate reworked; v2.13 stack-source
-    reworked). Gate is the battle's TOTAL turn count (b.beat, both sides
-    combined, grace of 20). Growth is now ALSO counted off the battle's
-    total turn count, not just the acting enemy's own turns — b.enrageN
-    increments once per beat (any actor) once the gate is open, so the
-    fight-wide danger level rises in lockstep regardless of who's acting.
-    Each enemy tracks how many of those shared stacks are already baked
-    into its own base.atk/base.mag (u.enrageApplied) and, on its own turn,
-    catches up in one lump multiply (pow(1+ENRAGE_PCT, pending)) — same
-    total compounding as always, just no longer letting a slow enemy lag
-    behind a fast one in overall danger. */
+    reworked; v2.15 switched from compounding to LINEAR growth). Gate is
+    the battle's TOTAL turn count (b.beat, both sides combined, grace of
+    20). Growth is counted off the battle's total turn count, not just
+    the acting enemy's own turns — b.enrageN increments once per beat
+    (any actor) once the gate is open, so the fight-wide danger level
+    rises in lockstep regardless of who's acting. Each enemy tracks how
+    many of those shared stacks are already baked into its own
+    base.atk/base.mag (u.enrageApplied) and, on its own turn, catches up
+    in one lump multiply. Ian: "enraged damage scaling seems to be
+    compounding, not increasing at a linear rate" — the TOTAL multiplier
+    relative to a unit's true original (pre-enrage) base is now flat
+    1+ENRAGE_PCT*N, not (1+ENRAGE_PCT)^N. base.atk/mag are mutated
+    PERMANENTLY in place with no separate "original" kept elsewhere, so
+    catching up from applied_n to target_n needs the RATIO between the
+    two linear targets (both measured against the true original): base
+    already carries (1+PCT*applied_n) baked in, so multiplying by
+    (1+PCT*target_n)/(1+PCT*applied_n) lands exactly on
+    original*(1+PCT*target_n). */
  if(b.enrage&&b.beat>ENRAGE_AFTER)b.enrageN=(b.enrageN||0)+1;
  if(b.enrage&&!u.isParty&&u.hp>0){
   var pending=(b.enrageN||0)-(u.enrageApplied||0);
   if(pending>0){
-   var mul=Math.pow(1+ENRAGE_PCT,pending);
+   var appliedN=u.enrageApplied||0, targetN=b.enrageN||0;
+   var mul=(1+ENRAGE_PCT*targetN)/(1+ENRAGE_PCT*appliedN);
    /* v2.11: was ATK-only — a MAG-using enemy (Fen Priest, or any archetype
       with a real mag stat) got no stronger from enrage at all. Both damage
       stats scale now, matching the "enraged should increase damage, not
       just attack" ask. */
    u.base.atk=u.base.atk*mul;
    u.base.mag=u.base.mag*mul;
-   u.enrageApplied=b.enrageN||0;
-   e.enrageStacks=b.enrageN;
-   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round((Math.pow(1+ENRAGE_PCT,e.enrageStacks)-1)*100)+'% damage)');}}
+   u.enrageApplied=targetN;
+   e.enrageStacks=targetN;
+   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*targetN*100)+'% damage)');}}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
  for(var i=0;i<b.units.length;i++)if(b.units[i].hp>0){if(b.units[i].isParty)pa=true;else fa=true;}

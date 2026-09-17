@@ -161,14 +161,20 @@ func _refresh_card() -> void:
 			desc_lbl.text = _describe_equipment(cur_id, uid)
 			desc_lbl.modulate = Color(0.65, 0.7, 0.65)
 			desc_lbl.add_theme_font_size_override("font_size", 12)
+			# A stacked stat+affinity description (e.g. "Body -- ATK +5 --
+			# DEF +3 -- Fire affinity +12% -- Water affinity -8%") can run
+			# long -- same missing-autowrap overflow class as this batch's
+			# other reported popups.
+			desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+			desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(desc_lbl)
 
 		card_container.add_child(row)
 
 ## Mirrors the per-slot <select> build (farroad-ui.js:1968-1980) -- lists
 ## "— empty —" first, then every OWNED item matching this slot's kind
-## (equip_owned_count>0), each reading "<name><rarity tag> (owned N, M
-## available)". An option with equip_available_count<=0 is disabled (NOT
+## (equip_owned_count>0), each reading "<name><rarity tag> (M/N)" --
+## available/owned. An option with equip_available_count<=0 is disabled (NOT
 ## omitted -- the label text alone already explains why) unless it's this
 ## slot's own current occupant, the exact same "disable, don't hide" rule
 ## GAMBITS' own action <select> already uses for a held-elsewhere action.
@@ -187,8 +193,11 @@ func _build_slot_option(uid: String, slot: String) -> OptionButton:
 			continue
 		var is_cur: bool = item_id == cur_id
 		var available := FarroadProgression.equip_available_count(g, item_id)
-		var label: String = "%s (owned %d, %d available)" % [
-			item["name"], FarroadProgression.equip_owned_count(g, item_id), available]
+		# Ian: shorten "(owned N, M available)" to a compact "(M/N)" --
+		# available/owned, e.g. "(0/3)" -- meaningfully cuts each option
+		# row's own text length (this popup's own scroll-length complaint).
+		var label: String = "%s (%d/%d)" % [
+			item["name"], available, FarroadProgression.equip_owned_count(g, item_id)]
 		opt.add_icon_item(_rarity_icon(item.get("rarity", "common")), label, idx)
 		if available <= 0 and not is_cur:
 			opt.set_item_disabled(idx, true)

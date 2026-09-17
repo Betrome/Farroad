@@ -224,11 +224,32 @@ func _build_summary_card() -> void:
 	var base: Dictionary = u["base"]
 	stat_lbl.text = "ATK %d   MAG %d   DEF %d   RES %d   SPD %d" % [
 		roundi(base["atk"]), roundi(base["mag"]), roundi(base["def"]), roundi(base["res"]), roundi(base["spd"])]
+	# Same missing-autowrap overflow class as this batch's other reported
+	# popups (GameController's enemy-detail popup had the identical
+	# "ATK/MAG/DEF/RES/SPD" line) -- fixed-pixel-font text that doesn't
+	# shrink with a narrower _vp.x the way this container's fraction-based
+	# width does.
+	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content_container.add_child(stat_lbl)
 
 	if def.get("chargeAction"):
 		var act = FarroadCore.ACTIONS.get(def["chargeAction"])
+		var charge_row := HBoxContainer.new()
 		var charge_lbl := Label.new()
 		charge_lbl.text = "⚡ Charge action: %s" % (act["name"] if act else def["chargeAction"])
 		charge_lbl.modulate = Color(0.85, 0.7, 0.15)
-		content_container.add_child(charge_lbl)
+		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		charge_row.add_child(charge_lbl)
+		# Ian: "charge actions (both ally and enemy) need inspect icons
+		# next to them."
+		var charge_id: String = def["chargeAction"]
+		var charge_info_btn := Button.new()
+		charge_info_btn.text = "ⓘ"
+		charge_info_btn.custom_minimum_size = Vector2(36, 0)
+		charge_info_btn.pressed.connect(func():
+			if _parent and _parent.has_method("_show_action_detail_popup"):
+				_parent.call("_show_action_detail_popup", charge_id))
+		charge_row.add_child(charge_info_btn)
+		content_container.add_child(charge_row)

@@ -1246,12 +1246,26 @@ static func step(b: Dictionary) -> Variant:
 	if b["enrage"] and not u["isParty"] and u["hp"] > 0:
 		var pending: int = int(b.get("enrageN", 0)) - int(u.get("enrageApplied", 0))
 		if pending > 0:
-			var mul: float = pow(1 + ENRAGE_PCT, pending)
+			# Ian: "enraged damage scaling seems to be compounding, not
+			# increasing at a linear rate" -- switched from
+			# pow(1+ENRAGE_PCT, N) to a flat 1+ENRAGE_PCT*N. u["base"]["atk"]/
+			# ["mag"] are mutated PERMANENTLY in place (no separate
+			# "original, pre-enrage" value kept elsewhere), and a slow enemy
+			# can have several turns' worth of stacks pending at once -- so
+			# catching up from `applied_n` to `target_n` in one lump multiply
+			# needs the RATIO between the two linear targets (both measured
+			# against the true original), not the raw target multiplier
+			# itself: base_atk currently already carries (1+PCT*applied_n)
+			# baked in, so multiplying by (1+PCT*target_n)/(1+PCT*applied_n)
+			# lands it exactly on (original * (1+PCT*target_n)).
+			var applied_n: int = int(u.get("enrageApplied", 0))
+			var target_n: int = int(b.get("enrageN", 0))
+			var mul: float = (1.0 + ENRAGE_PCT * target_n) / (1.0 + ENRAGE_PCT * applied_n)
 			u["base"]["atk"] *= mul
 			u["base"]["mag"] *= mul
-			u["enrageApplied"] = b.get("enrageN", 0)
-			e["enrageStacks"] = b["enrageN"]
-			e["notes"].append("enraged ×%d (+%d%% damage)" % [e["enrageStacks"], round((pow(1 + ENRAGE_PCT, e["enrageStacks"]) - 1) * 100)])
+			u["enrageApplied"] = target_n
+			e["enrageStacks"] = target_n
+			e["notes"].append("enraged ×%d (+%d%% damage)" % [e["enrageStacks"], round(ENRAGE_PCT * target_n * 100)])
 	b["log"].append(e)
 	check_end(b)
 	return e

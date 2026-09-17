@@ -283,13 +283,27 @@ func _refresh_slots() -> void:
 			var swap_note := Label.new()
 			swap_note.text = "%d charge actions acquired -- swap freely, no cost." % acquired.size()
 			swap_note.modulate = Color(0.55, 0.55, 0.55)
+			swap_note.autowrap_mode = TextServer.AUTOWRAP_WORD
+			swap_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			slots_container.add_child(swap_note)
 		else:
 			var act = FarroadCore.ACTIONS.get(uid_def["chargeAction"])
+			var charge_row := HBoxContainer.new()
 			var charge_lbl := Label.new()
 			charge_lbl.text = "⚡ Charge action: %s" % (act["name"] if act else uid_def["chargeAction"])
 			charge_lbl.modulate = Color(0.85, 0.7, 0.15)
-			slots_container.add_child(charge_lbl)
+			charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+			charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			charge_row.add_child(charge_lbl)
+			# Ian: "charge actions (both ally and enemy) need inspect icons
+			# next to them" -- reuses the SAME _on_charge_info_pressed the
+			# swappable (acquired > 1) case above already had.
+			var charge_info_btn := Button.new()
+			charge_info_btn.text = "ⓘ"
+			charge_info_btn.custom_minimum_size = Vector2(36, 0)
+			charge_info_btn.pressed.connect(_on_charge_info_pressed)
+			charge_row.add_child(charge_info_btn)
+			slots_container.add_child(charge_row)
 
 ## Post-Milestone-3 APK feedback (round 5): opens a filterable picker
 ## overlay (GameController._show_picker_overlay) instead of a native

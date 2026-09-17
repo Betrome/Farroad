@@ -237,6 +237,8 @@ func _refresh_gambits() -> void:
 		if is_known:
 			var lbl := Label.new()
 			lbl.text = FarroadCore.cond_label(cid)
+			lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			list_container.add_child(lbl)
 		else:
 			list_container.add_child(_unknown_row())
@@ -279,8 +281,10 @@ func _refresh_enemies() -> void:
 		var a: Dictionary = FarroadCore.ARCH[key]
 		if seen.has(key):
 			var row := HBoxContainer.new()
-			var lbl := _rich_row("%s -- ATK %s  DEF %s  RES %s  SPD %s" % [
-				_rarity_name(a["name"], a.get("rarity", "common")), str(a["atk"]), str(a["def"]), str(a["res"]), str(a["spd"])])
+			# Ian: "don't list enemy stats on the main page, just when
+			# inspected" -- name (+ rarity color) only; the full stat/growth
+			# breakdown lives in _show_enemy_detail_popup now.
+			var lbl := _rich_row(_rarity_name(a["name"], a.get("rarity", "common")))
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)
 			var info_btn := Button.new()

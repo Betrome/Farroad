@@ -659,7 +659,7 @@ func _build_status_card(u: Dictionary) -> Control:
 		var enrage_text: String
 		if stacks > 0:
 			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage, rising every turn" % [
-				stacks, roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, stacks) - 1.0) * 100.0)]
+				stacks, roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)]
 		else:
 			enrage_text = "⏱ calm — enrages after turn %d" % FarroadCore.ENRAGE_AFTER
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
@@ -898,10 +898,10 @@ func _refresh_enrage() -> void:
 		# Stacks are battle-wide now (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- no more per-unit max scan needed.
 		var stacks: int = int(battle.get("enrageN", 0))
-		# Mirrors the JS display formula exactly (farroad-ui.js:1727) -- each
-		# stack multiplies the CURRENT (already-boosted) atk/mag, so N stacks
-		# compound to (1+ENRAGE_PCT)^N, not a flat N*ENRAGE_PCT.
-		var pct := roundi((pow(1.0 + FarroadCore.ENRAGE_PCT, stacks) - 1.0) * 100.0)
+		# Ian: enrage now scales LINEARLY (1+ENRAGE_PCT*N), not compounding --
+		# mirrors the JS display formula exactly (farroad-ui.js's own
+		# enrageStacks-driven label).
+		var pct := roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)
 		enrage_label.text = ("ENRAGED +%d%% dmg" % pct) if stacks > 0 else "ENRAGED"
 	else:
 		var turns_left: int = gate - beat + 1
@@ -981,10 +981,41 @@ func _build_turn_order_ui() -> void:
 
 		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl})
 
+## Ian: "the turn order no longer changes, but the actions tied to them
+## will still change... I want actions to be locked in once they are on
+## the turn order." Root cause: _lock_upcoming_actors (below) already
+## protects what ACTUALLY fires in FarroadCore.step() once a unit's turn
+## arrives, but FarroadCore.preview() (called every refresh purely to
+## DRAW the rail) always reads each unit's CURRENT live `slots` -- so an
+## already-locked unit's card could still visibly show a freshly-edited
+## action for however long it stayed on the rail, even though step()
+## itself was always going to honor the OLD, locked one. Temporarily
+## swaps every currently-locked unit's `slots` for its locked snapshot
+## before calling the real preview() (restored immediately after), so
+## the DISPLAY and the eventual EXECUTION can never disagree. Turn ORDER
+## itself never depended on `slots` in the first place (preview()'s own
+## ordering compares nextActAt/isParty/spd/slotIndex only), so this only
+## ever changes which ACTION text a card shows, never who's shown or in
+## what order.
+func _preview_respecting_locks() -> Array:
+	var locked: Dictionary = battle.get("lockedActors", {})
+	if locked.is_empty():
+		return FarroadCore.preview(battle, TURN_ORDER_COUNT)
+	var originals := {}
+	for u in battle["units"]:
+		if locked.has(u["id"]):
+			originals[u["id"]] = u["slots"]
+			u["slots"] = locked[u["id"]]
+	var result: Array = FarroadCore.preview(battle, TURN_ORDER_COUNT)
+	for u in battle["units"]:
+		if originals.has(u["id"]):
+			u["slots"] = originals[u["id"]]
+	return result
+
 ## Recomputes FarroadCore.preview() (a pure simulation, mutates nothing) and
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
-	var upcoming: Array = [] if battle["over"] != null else FarroadCore.preview(battle, TURN_ORDER_COUNT)
+	var upcoming: Array = [] if battle["over"] != null else _preview_respecting_locks()
 	_lock_upcoming_actors(upcoming)
 	# A small inset off the card's own width -- the true content width after
 	# the PanelContainer's own border/margins, not the full slot fraction.

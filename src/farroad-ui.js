@@ -1851,7 +1851,7 @@ function renderUnits(){
         stats up to it yet if it hasn't acted since the count last rose. */
      var st=C.enrageStacks(G.battle),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
      if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-       Math.round((Math.pow(1+C.ENRAGE_PCT,st)-1)*100)+'% damage, rising every turn</div>';
+       Math.round(C.ENRAGE_PCT*st*100)+'% damage, rising every turn</div>';
      return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
        ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
    '<div>'+pills(u)+'</div>';
@@ -1881,9 +1881,28 @@ function lockUpcomingActors(pv){
   visibleIds[u.id]=true;
   if(!locked[u.id])locked[u.id]=JSON.parse(JSON.stringify(u.slots));});
  Object.keys(locked).forEach(function(uid){if(!visibleIds[uid])delete locked[uid];});}
+/* Ian: "the turn order no longer changes, but the actions tied to them
+   will still change... I want actions to be locked in once they are on
+   the turn order." lockUpcomingActors already protects what ACTUALLY
+   fires in step() once a unit's turn arrives, but C.preview() always
+   read each unit's CURRENT live slots for DISPLAY -- so an already-
+   locked unit's rail chip could still show a freshly-edited action for
+   however long it stayed on the rail. Temporarily swaps every currently
+   -locked unit's slots for its locked snapshot before calling preview()
+   (restored immediately after), so the rail and the eventual execution
+   can never disagree. Mirrors the Godot port's
+   BattlePresenter._preview_respecting_locks exactly. */
+function previewRespectingLocks(){
+ var locked=G.battle.lockedActors||{};
+ if(!Object.keys(locked).length)return C.preview(G.battle,6);
+ var originals={};
+ G.battle.units.forEach(function(u){if(locked[u.id]){originals[u.id]=u.slots;u.slots=locked[u.id];}});
+ var result=C.preview(G.battle,6);
+ G.battle.units.forEach(function(u){if(originals[u.id])u.slots=originals[u.id];});
+ return result;}
 function renderRail(){
  if(!G.battle)return;
- var pv=C.preview(G.battle,6);lockUpcomingActors(pv);var h=$('#rail');h.innerHTML='';
+ var pv=previewRespectingLocks();lockUpcomingActors(pv);var h=$('#rail');h.innerHTML='';
  pv.forEach(function(p,i){var el=document.createElement('div');
   el.className='chip '+(p.isParty?'p':'f')+(i===0?' now':'');
   var act=C.ACTIONS[p.actionId];var rk=(act||{}).rank||1;
