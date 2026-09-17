@@ -54,6 +54,17 @@ var road_button: Button
 ## Tracks whichever panel's own popup is currently open -- see
 ## _panel_opening()'s own comment for why this exists.
 var open_panel: Node = null
+## Every currently-open self-hosted detail overlay (_build_detail_overlay's
+## own backdrop, built when _overlay_host() resolves to `self` -- i.e. no
+## tab panel is open to nest inside). A quest/dungeon result popup can stay
+## open indefinitely while the Road keeps running behind it, and a wave
+## clear/wipe during that window tears down and rebuilds current_presenter
+## (_begin_next_fight -- a brand-new sibling Control/Node2D, added AFTER
+## this backdrop was originally raised to the top), silently drawing the
+## new battle's units back over the still-open popup. Tracked here so
+## _raise_self_hosted_overlays() can re-raise them every time a new
+## presenter is added, instead of a one-time raise at build time.
+var _self_hosted_overlays: Array = []
 ## The side battle currently running (a quest attempt or a dungeon
 ## crawl), or null when none is active -- GameController's own equivalent
 ## of the real JS's reassignable G.battle pointer (see
@@ -284,8 +295,8 @@ func _build_hud() -> void:
 
 	wave_popup = PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.85, 0.7, 0.15, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.GOLD
 	style.set_border_width_all(3)
 	style.set_content_margin_all(int(_vp.y * 0.03))
 	wave_popup.add_theme_stylebox_override("panel", style)
@@ -325,9 +336,9 @@ func _build_road_button() -> void:
 	road_button.clip_text = true
 	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.45, 0.36, 0.08)
+	normal_style.bg_color = Palette.GOLD
 	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.55, 0.44, 0.1)
+	hover_style.bg_color = Palette.GOLD_LIGHT
 	road_button.add_theme_stylebox_override("normal", normal_style)
 	road_button.add_theme_stylebox_override("hover", hover_style)
 	road_button.add_theme_stylebox_override("pressed", hover_style)
@@ -391,8 +402,8 @@ func _show_welcome_back_popup() -> void:
 	const POPUP_MARGIN := 16.0
 	var popup := PopupPanel.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.35, 0.6, 0.85, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.PARTY_BLUE
 	style.set_border_width_all(3)
 	style.set_content_margin_all(int(POPUP_MARGIN))
 	popup.add_theme_stylebox_override("panel", style)
@@ -429,7 +440,7 @@ func _show_welcome_back_popup() -> void:
 	var gained := Label.new()
 	gained.text = "+%d Aether, +%d Marks from wave clears" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
 	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-	gained.modulate = Color(0.85, 0.75, 0.4)
+	gained.modulate = Palette.GOLD_PRESSED
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
 	gained.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(gained)
@@ -444,7 +455,7 @@ func _show_welcome_back_popup() -> void:
 		var idle_lbl := Label.new()
 		idle_lbl.text = "+%d Aether, +%d Marks of idle income, pending" % [roundi(idle_aether), floori(idle_marks)]
 		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-		idle_lbl.modulate = Color(0.7, 0.8, 0.9)
+		idle_lbl.modulate = Palette.PARTY_BLUE
 		idle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		idle_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(idle_lbl)
@@ -483,19 +494,19 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 	match kind:
 		"quest_cleared":
 			title_text = "Quest complete!" if event["questComplete"] else "Quest cleared!"
-			border_color = Color(0.35, 0.75, 0.4, 1.0)
+			border_color = Palette.GOOD_GREEN
 		"quest_failed":
 			title_text = "Quest failed"
-			border_color = Color(0.75, 0.35, 0.35, 1.0)
+			border_color = Palette.BAD_RED
 		"quest_abandoned":
 			title_text = "Quest abandoned"
-			border_color = Color(0.6, 0.6, 0.35, 1.0)
+			border_color = Color(0.55, 0.46, 0.16, 1.0)
 		"dungeon_cleared":
 			title_text = "Dungeon cleared!"
-			border_color = Color(0.35, 0.75, 0.4, 1.0)
+			border_color = Palette.GOOD_GREEN
 		"dungeon_failed":
 			title_text = "Dungeon failed"
-			border_color = Color(0.75, 0.35, 0.35, 1.0)
+			border_color = Palette.BAD_RED
 		_:
 			return
 
@@ -551,7 +562,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		gained.text = ("+%d Aether, +%d Marks" % [roundi(aether_gained), roundi(marks_gained)]) if marks_gained > 0.0 \
 			else "+%d Aether" % roundi(aether_gained)
 		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-		gained.modulate = Color(0.85, 0.75, 0.4)
+		gained.modulate = Palette.GOLD_PRESSED
 		vbox.add_child(gained)
 
 	await _finish_detail_overlay(o)
@@ -599,7 +610,7 @@ func _panel_opening(panel: Node) -> void:
 func _open_catalogue() -> void:
 	catalogue_panel.call("_on_toggle_pressed")
 
-const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 
 ## Post-Milestone-3 APK feedback: "closing the details of an action closes
 ## all popups." Root cause: _show_action_detail_popup used to add_child() a
@@ -613,6 +624,17 @@ const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55,
 ## open does not have this problem -- it just nests inside that SAME
 ## window, the same way the existing ScrollContainer/VBoxContainer content
 ## already does. _overlay_host() below resolves where to nest into.
+## Re-raises every still-open self-hosted overlay (see _self_hosted_overlays'
+## own comment) to the end of the child list -- called right after any new
+## BattlePresenter/side-battle presenter is added as a sibling, so a
+## still-open quest/dungeon result popup keeps drawing on top of it instead
+## of falling behind. Order among multiple stacked overlays is preserved
+## (each moved to the end in turn).
+func _raise_self_hosted_overlays() -> void:
+	for ov in _self_hosted_overlays:
+		if is_instance_valid(ov):
+			move_child(ov, get_child_count() - 1)
+
 func _overlay_host() -> Array:
 	if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		return [open_panel.popup, Vector2(open_panel.popup.size)]
@@ -626,7 +648,7 @@ func _overlay_host() -> Array:
 ## content into (o["vbox"]) and later finishes via _finish_detail_overlay
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
-func _build_detail_overlay(border_color: Color = Color(0.3, 0.3, 0.34, 1.0)) -> Dictionary:
+func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER) -> Dictionary:
 	var hs := _overlay_host()
 	var host: Node = hs[0]
 	var host_size: Vector2 = hs[1]
@@ -643,10 +665,16 @@ func _build_detail_overlay(border_color: Color = Color(0.3, 0.3, 0.34, 1.0)) -> 
 	# on top of the first, since both nest as siblings under the same host
 	# rather than inside one another.
 	host.move_child(backdrop, host.get_child_count() - 1)
+	# A self-hosted overlay (host==self -- no tab panel open to nest inside,
+	# the quest/dungeon-result popup's own case) can outlive the moment it
+	# was raised -- see _self_hosted_overlays' own comment.
+	if host == self:
+		_self_hosted_overlays.append(backdrop)
+		backdrop.tree_exiting.connect(func(): _self_hosted_overlays.erase(backdrop))
 
 	var box := PanelContainer.new()
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
 	style.border_color = border_color
 	style.set_border_width_all(2)
 	style.set_content_margin_all(int(_vp.y * 0.025))
@@ -765,7 +793,7 @@ func _show_expedition_log_popup(exp: Dictionary) -> void:
 	if log.is_empty():
 		var none_lbl := Label.new()
 		none_lbl.text = "Nothing logged yet."
-		none_lbl.modulate = Color(0.55, 0.55, 0.55)
+		none_lbl.modulate = Palette.TEXT_DIM
 		vbox.add_child(none_lbl)
 	for entry in log:
 		var dt := Time.get_datetime_dict_from_unix_time(int(entry.get("at", 0)))
@@ -773,7 +801,7 @@ func _show_expedition_log_popup(exp: Dictionary) -> void:
 		var entry_lbl := Label.new()
 		entry_lbl.text = "[%s] %s" % [clock, String(entry.get("text", ""))]
 		entry_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		entry_lbl.modulate = Color(0.85, 0.85, 0.85)
+		entry_lbl.modulate = Palette.TEXT_DIM
 		vbox.add_child(entry_lbl)
 
 	await _finish_detail_overlay(o)
@@ -818,7 +846,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	if act.get("heal", false):
 		var heal_lbl := Label.new()
 		heal_lbl.text = "Heals its target(s) instead of dealing damage."
-		heal_lbl.modulate = Color(0.5, 0.85, 0.55)
+		heal_lbl.modulate = Palette.GOOD_GREEN
 		heal_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		heal_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(heal_lbl)
@@ -838,7 +866,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 		var applies_lbl := Label.new()
 		var turns_txt: String = " for %d turns" % int(act["turns"]) if act.get("turns") else ""
 		applies_lbl.text = "Applies %s%s: %s" % [status_id.capitalize(), turns_txt, _status_description(status_id)]
-		applies_lbl.modulate = Color(0.5, 0.85, 1.0) if FarroadCore.is_buff_status(status_id) else Color(0.85, 0.5, 0.85)
+		applies_lbl.modulate = Palette.PARTY_BLUE if FarroadCore.is_buff_status(status_id) else Palette.NOTE_PURPLE
 		applies_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		applies_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(applies_lbl)
@@ -846,7 +874,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	if act.get("note"):
 		var note_lbl := Label.new()
 		note_lbl.text = str(act["note"])
-		note_lbl.modulate = Color(0.65, 0.65, 0.65)
+		note_lbl.modulate = Palette.TEXT_DIM
 		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		note_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(note_lbl)
@@ -956,7 +984,7 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 	if item.get("note"):
 		var note_lbl := Label.new()
 		note_lbl.text = str(item["note"])
-		note_lbl.modulate = Color(0.65, 0.65, 0.65)
+		note_lbl.modulate = Palette.TEXT_DIM
 		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vbox.add_child(note_lbl)
 
@@ -1017,7 +1045,7 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 		growth_bits.append("Size ×%.2f" % float(a["size"]))
 	var growth_lbl := Label.new()
 	growth_lbl.text = "Growth: %s" % ", ".join(growth_bits)
-	growth_lbl.modulate = Color(0.6, 0.75, 0.6)
+	growth_lbl.modulate = Palette.TEXT_DIM
 	growth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	growth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(growth_lbl)
@@ -1038,7 +1066,7 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 		var charge_row := HBoxContainer.new()
 		var charge_lbl := Label.new()
 		charge_lbl.text = "⚡ Charge action: %s" % (cact["name"] if cact else a["chargeAction"])
-		charge_lbl.modulate = Color(0.85, 0.7, 0.15)
+		charge_lbl.modulate = Palette.GOLD_PRESSED
 		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		charge_row.add_child(charge_lbl)
@@ -1057,7 +1085,7 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 	if not slots.is_empty():
 		var slots_header := Label.new()
 		slots_header.text = "Gambits:"
-		slots_header.modulate = Color(0.6, 0.75, 1.0)
+		slots_header.modulate = Palette.PARTY_BLUE
 		vbox.add_child(slots_header)
 		for s in slots:
 			var cond_id: String = s.get("cond", "none")
@@ -1142,6 +1170,7 @@ func _begin_next_fight() -> void:
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished)
 	add_child(presenter)
+	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
@@ -1357,6 +1386,7 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 	side_presenter = load("res://scripts/BattlePresenter.gd").new()
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	add_child(side_presenter)
+	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	side_presenter.start_battle(g["battle"], g["battle"]["units"])
 	wave_label.text = _side_battle_label_text(meta)
@@ -1414,6 +1444,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		side_presenter = load("res://scripts/BattlePresenter.gd").new()
 		side_presenter.battle_finished.connect(_on_side_battle_finished)
 		add_child(side_presenter)
+		_raise_self_hosted_overlays()
 		await get_tree().process_frame
 		side_presenter.start_battle(g["battle"], g["battle"]["units"])
 		wave_label.text = _side_battle_label_text(g["sideBattle"]["meta"])

@@ -47,11 +47,11 @@ const DIRECTION_ABBREV := {
 const EW_VISUAL_REF := 150.0
 const MEANDER_AMPLITUDE_FRAC := 0.09   # fraction of the map's own radius
 
-const LINE_COLOR := Color(0.45, 0.48, 0.55, 0.9)
-const LINE_COLOR_FOGGED := Color(0.45, 0.48, 0.55, 0.16)
-const HOME_COLOR := Color(0.85, 0.7, 0.15)
-const DOT_COLOR := Color(0.55, 0.85, 1.0)
-const DOT_ARRIVED_COLOR := Color(0.5, 0.95, 0.55)
+const LINE_COLOR := Color(0.42, 0.28, 0.17, 0.9)
+const LINE_COLOR_FOGGED := Color(0.42, 0.28, 0.17, 0.18)
+const HOME_COLOR := Color(0.66, 0.48, 0.10)
+const DOT_COLOR := Color(0.18, 0.34, 0.56)
+const DOT_ARRIVED_COLOR := Color(0.20, 0.46, 0.24)
 
 var g: Dictionary
 var selected_direction: String = ""
@@ -109,10 +109,10 @@ func _style_direction_button(btn: Button, dir: String) -> void:
 	btn.disabled = occupied and not is_selected
 	var radius_px: int = int(btn.custom_minimum_size.x / 2.0)
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.55, 0.44, 0.1) if is_selected else Color(0.24, 0.24, 0.29)
+	normal.bg_color = Palette.GOLD_PRESSED if is_selected else Palette.BTN_NORMAL
 	normal.set_corner_radius_all(radius_px)
 	var disabled_style := StyleBoxFlat.new()
-	disabled_style.bg_color = Color(0.18, 0.18, 0.2)
+	disabled_style.bg_color = Palette.BTN_DISABLED
 	disabled_style.set_corner_radius_all(radius_px)
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", normal)

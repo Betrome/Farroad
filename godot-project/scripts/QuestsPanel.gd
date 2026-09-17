@@ -75,8 +75,8 @@ func _build_ui(parent: Node) -> void:
 ## the default theme's PopupPanel background isn't fully opaque.
 func _style_popup(p: PopupPanel) -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.BORDER_LEATHER
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
@@ -91,9 +91,9 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	btn.clip_text = true
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	normal_style.bg_color = Palette.BTN_NORMAL
 	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	hover_style.bg_color = Palette.BTN_HOVER
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)
@@ -138,7 +138,7 @@ func _refresh_card() -> void:
 		var result_lbl := Label.new()
 		result_lbl.text = _describe_result(last_result)
 		result_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		result_lbl.modulate = Color(0.85, 0.85, 0.65)
+		result_lbl.modulate = Palette.TEXT_DIM
 		card_container.add_child(result_lbl)
 
 	var busy: bool = g.get("sideBattle") != null
@@ -152,7 +152,7 @@ func _refresh_card() -> void:
 	if dungeons.is_empty():
 		var none_lbl := Label.new()
 		none_lbl.text = "None discovered yet -- expeditions uncover them as your parties push deeper."
-		none_lbl.modulate = Color(0.65, 0.7, 0.65)
+		none_lbl.modulate = Palette.TEXT_DIM
 		none_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(none_lbl)
 	else:
@@ -182,7 +182,7 @@ func _refresh_card() -> void:
 	if not any_quest:
 		var none_lbl := Label.new()
 		none_lbl.text = "Every owned companion has finished their quest line."
-		none_lbl.modulate = Color(0.65, 0.7, 0.65)
+		none_lbl.modulate = Palette.TEXT_DIM
 		none_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(none_lbl)
 
@@ -201,7 +201,7 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	var total_waves: int = (d["waves"] as Array).size()
 	info_lbl.text = "%d waves (ends in a boss) · cleared %d time%s" % [
 		total_waves, int(d["clears"]), "" if int(d["clears"]) == 1 else "s"]
-	info_lbl.modulate = Color(0.65, 0.7, 0.65)
+	info_lbl.modulate = Palette.TEXT_DIM
 	box.add_child(info_lbl)
 
 	# Ian: "Dungeons: can only be completed once per day." Real UTC-
@@ -251,7 +251,7 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 	var info_lbl := Label.new()
 	info_lbl.text = "Quest line complete" if completed else \
 		"Stage %d of 5 · +%d Aether on clear" % [stage + 1, FarroadProgression.quest_stage_aether(stage)]
-	info_lbl.modulate = Color(0.65, 0.7, 0.65)
+	info_lbl.modulate = Palette.TEXT_DIM
 	box.add_child(info_lbl)
 
 	var side_battle: Dictionary = g.get("sideBattle") if g.get("sideBattle") != null else {}

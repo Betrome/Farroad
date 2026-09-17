@@ -78,8 +78,8 @@ func _build_ui(parent: Node) -> void:
 ## the default theme's PopupPanel background isn't fully opaque.
 func _style_popup(p: PopupPanel) -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.BORDER_LEATHER
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
@@ -94,9 +94,9 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	btn.clip_text = true
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	normal_style.bg_color = Palette.BTN_NORMAL
 	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	hover_style.bg_color = Palette.BTN_HOVER
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)
@@ -143,20 +143,20 @@ func _refresh_roster() -> void:
 
 	var party_header := Label.new()
 	party_header.text = "PARTY"
-	party_header.modulate = Color(0.6, 0.75, 1.0)
+	party_header.modulate = Palette.PARTY_BLUE
 	roster_container.add_child(party_header)
 	for uid in g["party"]:
 		roster_container.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed, true))
 
 	var bench_header := Label.new()
 	bench_header.text = "BENCHED"
-	bench_header.modulate = Color(0.6, 0.75, 1.0)
+	bench_header.modulate = Palette.PARTY_BLUE
 	roster_container.add_child(bench_header)
 	var avail: Array = FarroadProgression.available_for_party(g)
 	if avail.is_empty():
 		var none_lbl := Label.new()
 		none_lbl.text = "(none)"
-		none_lbl.modulate = Color(0.55, 0.55, 0.55)
+		none_lbl.modulate = Palette.TEXT_DIM
 		roster_container.add_child(none_lbl)
 	for uid in avail:
 		roster_container.add_child(_roster_row(uid, "Field", g["party"].size() >= FarroadProgression.PARTY_CAP, _on_field_pressed))

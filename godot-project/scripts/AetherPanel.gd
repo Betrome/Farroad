@@ -54,7 +54,7 @@ func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 func _section_label(text: String) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.modulate = Color(0.6, 0.75, 1.0)
+	lbl.modulate = Palette.PARTY_BLUE
 	return lbl
 
 ## Same small BBCode-label helper BattlePresenter._rich_line already
@@ -89,7 +89,7 @@ func _add_stat_cell(grid: GridContainer, label: String, value, growth, cell_widt
 	var growth_lbl := Label.new()
 	growth_lbl.text = "+%s/lvl" % growth
 	growth_lbl.add_theme_font_size_override("font_size", 10)
-	growth_lbl.modulate = Color(0.6, 0.6, 0.6)
+	growth_lbl.modulate = Palette.TEXT_DIM
 	cell.add_child(growth_lbl)
 	grid.add_child(cell)
 
@@ -264,7 +264,7 @@ func _refresh_card() -> void:
 	var next_slot = FarroadProgression.next_slot_at(level)
 	slots_lbl.text = "%d gambit slots%s" % [FarroadProgression.slots_at(level),
 		(" (next at LV %d)" % next_slot) if next_slot != null else " (max)"]
-	slots_lbl.modulate = Color(0.65, 0.7, 0.65)
+	slots_lbl.modulate = Palette.TEXT_DIM
 	card_container.add_child(slots_lbl)
 
 	# Feed / leveling -- moved above Recovery per direct request. Only the

@@ -44,7 +44,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(root)
 
 	var background := ColorRect.new()
-	background.color = Color(0.06, 0.06, 0.08, 1.0)
+	background.color = Palette.BG_PARCHMENT
 	background.position = Vector2.ZERO
 	background.size = _vp
 	root.add_child(background)
@@ -113,7 +113,7 @@ func _build_stats_block(parent: VBoxContainer) -> void:
 	footnote.text = ("ATK/MAG/DEF/RES/SPD/HP also raise that stat's growth per level. " +
 		"Block, Evade and the crit rates aren't offered here — like elemental affinities, " +
 		"you start neutral in all four and buy them up with Aether in the AETHER tab instead.")
-	footnote.modulate = Color(0.65, 0.7, 0.65)
+	footnote.modulate = Palette.TEXT_DIM
 	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(footnote)
 
@@ -183,7 +183,7 @@ func _build_charges_block(parent: VBoxContainer) -> void:
 
 	var footnote := Label.new()
 	footnote.text = "Fills as you act in battle and fires on its own for a big effect. Pick one."
-	footnote.modulate = Color(0.65, 0.7, 0.65)
+	footnote.modulate = Palette.TEXT_DIM
 	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(footnote)
 
@@ -231,8 +231,8 @@ func _refresh_charges() -> void:
 ## point is letting the player pick exactly one of three available options.
 func _charge_style(selected: bool) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.22, 0.20, 0.10) if selected else Color(0.14, 0.14, 0.17)
-	style.border_color = Color(0.85, 0.7, 0.15) if selected else Color(0.3, 0.3, 0.34)
+	style.bg_color = Palette.GOLD_PRESSED if selected else Palette.BG_PARCHMENT_DEEP
+	style.border_color = Palette.GOLD_LIGHT if selected else Palette.BORDER_LEATHER
 	style.set_border_width_all(2 if selected else 1)
 	style.set_content_margin_all(10)
 	return style

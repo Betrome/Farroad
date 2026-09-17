@@ -69,7 +69,7 @@ const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["char
 ## a Button (unlike an OptionButton's per-item text) can show ONE icon
 ## fine, so the picker trigger button and each row inside the picker both
 ## carry the action's own rarity color this way.
-const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 static var _rarity_icon_cache: Dictionary = {}
 
 static func _rarity_icon(rarity: String) -> Texture2D:
@@ -164,7 +164,7 @@ func _build_auto_set_row() -> void:
 	var row := HBoxContainer.new()
 	var lbl := Label.new()
 	lbl.text = "First-pass suggestion, not a true optimizer -- adjust freely."
-	lbl.modulate = Color(0.55, 0.55, 0.55)
+	lbl.modulate = Palette.TEXT_DIM
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	row.add_child(lbl)
@@ -189,7 +189,7 @@ func _refresh_slots() -> void:
 		var s: Dictionary = slots[i]
 		var card := PanelContainer.new()
 		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.1, 0.1, 0.12)
+		style.bg_color = Palette.BG_PARCHMENT_DEEP
 		style.set_content_margin_all(10)
 		card.add_theme_stylebox_override("panel", style)
 		slots_container.add_child(card)
@@ -216,7 +216,7 @@ func _refresh_slots() -> void:
 
 		var if_lbl := Label.new()
 		if_lbl.text = "IF"
-		if_lbl.modulate = Color(0.65, 0.7, 0.65)
+		if_lbl.modulate = Palette.TEXT_DIM
 		vbox.add_child(if_lbl)
 		var cond_btn := Button.new()
 		cond_btn.text = FarroadCore.cond_label(s["cond"])
@@ -225,7 +225,7 @@ func _refresh_slots() -> void:
 
 		var then_lbl := Label.new()
 		then_lbl.text = "THEN"
-		then_lbl.modulate = Color(0.65, 0.7, 0.65)
+		then_lbl.modulate = Palette.TEXT_DIM
 		vbox.add_child(then_lbl)
 		var action_row := HBoxContainer.new()
 		var cur_act = FarroadCore.ACTIONS.get(s["action"])
@@ -260,7 +260,7 @@ func _refresh_slots() -> void:
 			var swap_row := HBoxContainer.new()
 			var swap_lbl := Label.new()
 			swap_lbl.text = "⚡ Charge action:"
-			swap_lbl.modulate = Color(0.85, 0.7, 0.15)
+			swap_lbl.modulate = Palette.TEXT_DIM
 			swap_row.add_child(swap_lbl)
 			var opt := OptionButton.new()
 			for idx in range(acquired.size()):
@@ -282,7 +282,7 @@ func _refresh_slots() -> void:
 			slots_container.add_child(swap_row)
 			var swap_note := Label.new()
 			swap_note.text = "%d charge actions acquired -- swap freely, no cost." % acquired.size()
-			swap_note.modulate = Color(0.55, 0.55, 0.55)
+			swap_note.modulate = Palette.TEXT_DIM
 			swap_note.autowrap_mode = TextServer.AUTOWRAP_WORD
 			swap_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			slots_container.add_child(swap_note)
@@ -291,7 +291,7 @@ func _refresh_slots() -> void:
 			var charge_row := HBoxContainer.new()
 			var charge_lbl := Label.new()
 			charge_lbl.text = "⚡ Charge action: %s" % (act["name"] if act else uid_def["chargeAction"])
-			charge_lbl.modulate = Color(0.85, 0.7, 0.15)
+			charge_lbl.modulate = Palette.TEXT_DIM
 			charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 			charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			charge_row.add_child(charge_lbl)
@@ -335,7 +335,7 @@ func _populate_condition_picker(list_container: Container, backdrop: Node, i: in
 	var filter_row := HBoxContainer.new()
 	var lbl := Label.new()
 	lbl.text = "Filter:"
-	lbl.modulate = Color(0.55, 0.55, 0.55)
+	lbl.modulate = Palette.TEXT_DIM
 	filter_row.add_child(lbl)
 	filter_row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, cond_filter_group, func(v):
 		cond_filter_group = v
@@ -380,7 +380,7 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 	filter_row.add_theme_constant_override("v_separation", 4)
 	var lbl := Label.new()
 	lbl.text = "Filter:"
-	lbl.modulate = Color(0.55, 0.55, 0.55)
+	lbl.modulate = Palette.TEXT_DIM
 	filter_row.add_child(lbl)
 	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v):
 		action_filter_target = v

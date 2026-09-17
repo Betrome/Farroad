@@ -397,12 +397,12 @@ func _footprint_weights(views: Array) -> Array:
 		weights.append(_unit_footprint_height(view.size))
 	return weights
 
-const PARTY_COLOR := "5b9bd5"
-const ENEMY_COLOR := "e8825c"
-const BAD_COLOR := "e05c5c"
-const CRIT_COLOR := "ffb347"
-const DIM_COLOR := "888888"
-const NOTE_COLOR := "a8a0e0"
+const PARTY_COLOR := "2e578f"
+const ENEMY_COLOR := "9e3329"
+const BAD_COLOR := "9e3329"
+const CRIT_COLOR := "bd6b14"
+const DIM_COLOR := "786147"
+const NOTE_COLOR := "75578f"
 
 ## Display names/glyphs for FarroadCore.ST's 14 status ids -- purely
 ## presentation, mirrors nothing in the engine (FarroadCore.gd has no
@@ -443,8 +443,8 @@ var status_container: VBoxContainer
 ## default.
 func _style_popup(popup: PopupPanel) -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.BORDER_LEATHER
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	popup.add_theme_stylebox_override("panel", style)
@@ -469,9 +469,9 @@ func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Ca
 	btn.clip_text = true
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	normal_style.bg_color = Palette.BTN_NORMAL
 	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	hover_style.bg_color = Palette.BTN_HOVER
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)
@@ -538,14 +538,14 @@ func _build_status_card(u: Dictionary) -> Control:
 	var card := PanelContainer.new()
 	if u["id"] == active_unit_id:
 		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.1, 0.1, 0.12)
-		style.border_color = Color(1.0, 0.84, 0.0)
+		style.bg_color = Palette.BG_PARCHMENT_DEEP
+		style.border_color = Palette.GOLD_LIGHT
 		style.set_border_width_all(3)
 		style.set_content_margin_all(10)
 		card.add_theme_stylebox_override("panel", style)
 	else:
 		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.1, 0.1, 0.12)
+		style.bg_color = Palette.BG_PARCHMENT_DEEP
 		style.set_content_margin_all(10)
 		card.add_theme_stylebox_override("panel", style)
 
@@ -561,7 +561,7 @@ func _build_status_card(u: Dictionary) -> Control:
 	else:
 		row_tag = "boss" if u.get("isBoss") else PREF_TEXT.get(u.get("arch"), "")
 	var left := _rich_line("[b][color=#%s][font_size=20]%s[/font_size][/color][/b]  Lv%d%s" % [
-		color, u["name"], level, ("  [color=#ccc]%s[/color]" % row_tag) if row_tag != "" else ""])
+		color, u["name"], level, ("  [color=#382617]%s[/color]" % row_tag) if row_tag != "" else ""])
 	header.add_child(left)
 	var hp_lbl := Label.new()
 	hp_lbl.text = "%d / %d" % [max(0, roundi(u["hp"])), u["maxHp"]]
@@ -570,7 +570,7 @@ func _build_status_card(u: Dictionary) -> Control:
 
 	var hp_bg := ColorRect.new()
 	hp_bg.custom_minimum_size = Vector2(0, 10)
-	hp_bg.color = Color(0.15, 0.15, 0.15)
+	hp_bg.color = Palette.BORDER_LEATHER
 	box.add_child(hp_bg)
 	var hp_fg := ColorRect.new()
 	var hp_frac: float = clamp(float(u["hp"]) / float(u["maxHp"]), 0.0, 1.0)
@@ -580,7 +580,7 @@ func _build_status_card(u: Dictionary) -> Control:
 	# past the bar at high fractions. Anchors always match the true rect.
 	hp_fg.anchor_right = hp_frac
 	hp_fg.anchor_bottom = 1.0
-	hp_fg.color = Color(0.25, 0.85, 0.30)
+	hp_fg.color = Palette.GOOD_GREEN
 	hp_bg.add_child(hp_fg)
 
 	if u.get("chargeAction"):
@@ -597,7 +597,7 @@ func _build_status_card(u: Dictionary) -> Control:
 
 		var ch_bg := ColorRect.new()
 		ch_bg.custom_minimum_size = Vector2(0, 6)
-		ch_bg.color = Color(0.15, 0.15, 0.15)
+		ch_bg.color = Palette.BORDER_LEATHER
 		box.add_child(ch_bg)
 		var ch_fg := ColorRect.new()
 		# Matches the ORIGINAL UI's own display convention exactly (farroad-ui.js:1711):
@@ -609,7 +609,7 @@ func _build_status_card(u: Dictionary) -> Control:
 		# why a fixed-pixel width overflowed past the bar at high fractions.
 		ch_fg.anchor_right = ch_frac
 		ch_fg.anchor_bottom = 1.0
-		ch_fg.color = Color(0.85, 0.7, 0.15) if u["isParty"] else Color(0.85, 0.25, 0.25)
+		ch_fg.color = Palette.GOLD if u["isParty"] else Palette.BAD_RED
 		ch_bg.add_child(ch_fg)
 
 	# ATK/MAG/SPD and DEF/RES on one combined line -- DEF/RES still color the
@@ -620,8 +620,8 @@ func _build_status_card(u: Dictionary) -> Control:
 	box.add_child(_rich_line(
 		"[font_size=13]ATK %d MAG %d SPD %d [color=#%s]DEF %d[/color] [color=#%s]RES %d[/color][/font_size]" % [
 			roundi(FarroadCore.eff_atk(u)), roundi(FarroadCore.eff_mag(u)), roundi(u["base"]["spd"]),
-			(CRIT_COLOR if dr["flag_d"] else "cccccc"), roundi(dr["def"]),
-			(CRIT_COLOR if dr["flag_r"] else "cccccc"), roundi(dr["res"])]))
+			(CRIT_COLOR if dr["flag_d"] else "382617"), roundi(dr["def"]),
+			(CRIT_COLOR if dr["flag_r"] else "382617"), roundi(dr["res"])]))
 
 	# Active status effects (burning, bracing, enfeebled, etc.) -- one line
 	# per currently-active id (turns remaining > 0), reusing the same
@@ -648,7 +648,7 @@ func _build_status_card(u: Dictionary) -> Control:
 		# No progression/Aether-investment layer ported yet (out of this
 		# milestone's scope -- see the plan) -- shown honestly at its
 		# unmodified baseline rather than a fabricated number.
-		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY 0%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["8ec99a", DIM_COLOR]))
+		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY 0%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["336b28", DIM_COLOR]))
 	elif battle.get("enrage"):
 		# Stacks are battle-wide (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- every enemy shows the SAME stack count
@@ -825,8 +825,8 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 		btn.text = "tap for the damage breakdown"
 		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		btn.add_theme_font_size_override("font_size", 11)
-		btn.add_theme_color_override("font_color", Color(0.53, 0.53, 0.53))
-		btn.add_theme_color_override("font_hover_color", Color(0.75, 0.75, 0.75))
+		btn.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		btn.add_theme_color_override("font_hover_color", Palette.TEXT_INK)
 		box.add_child(btn)
 		var calc_line := _rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, entry["calc"]])
 		calc_line.visible = entry["expanded"]

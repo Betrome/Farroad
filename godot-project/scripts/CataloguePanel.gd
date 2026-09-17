@@ -26,7 +26,7 @@ var popup: PopupPanel
 var tab_buttons: Dictionary = {}
 var list_container: VBoxContainer
 
-const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 const TABS := [["units", "Units"], ["actions", "Actions"], ["gambits", "Gambits"], ["equipment", "Equipment"], ["enemies", "Enemies"]]
 
 ## Post-Milestone-3 APK feedback (round 2): "add filter options for gambits
@@ -102,8 +102,8 @@ func _build_ui(parent: Node) -> void:
 
 func _style_popup(p: PopupPanel) -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.BORDER_LEATHER
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
@@ -141,7 +141,7 @@ func _refresh() -> void:
 func _unknown_row() -> Label:
 	var lbl := Label.new()
 	lbl.text = "???"
-	lbl.modulate = Color(0.45, 0.45, 0.45)
+	lbl.modulate = Palette.TEXT_DIM
 	return lbl
 
 func _rarity_name(display_name: String, rarity: String) -> String:

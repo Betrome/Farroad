@@ -81,8 +81,8 @@ func _build_ui(parent: Node) -> void:
 ## the default theme's PopupPanel background isn't fully opaque.
 func _style_popup(p: PopupPanel) -> void:
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.06, 0.06, 0.08, 1.0)
-	style.border_color = Color(0.3, 0.3, 0.34, 1.0)
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.BORDER_LEATHER
 	style.set_border_width_all(2)
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
@@ -97,9 +97,9 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	btn.clip_text = true
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
+	normal_style.bg_color = Palette.BTN_NORMAL
 	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
+	hover_style.bg_color = Palette.BTN_HOVER
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)
@@ -164,7 +164,7 @@ func _build_locked_card() -> void:
 	explain_lbl.text = ("The curated run to wave %d hands you a specific tool every two waves in a " +
 		"designed order; random pulls arriving mid-sequence would cut across it. The bank opens the " +
 		"moment that sequence ends.") % FarroadProgression.MARKS_UNLOCK_WAVE
-	explain_lbl.modulate = Color(0.65, 0.7, 0.65)
+	explain_lbl.modulate = Palette.TEXT_DIM
 	explain_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(explain_lbl)
 
@@ -180,7 +180,7 @@ func _build_unlocked_card() -> void:
 	header.add_child(pull_lbl)
 	var cost_lbl := Label.new()
 	cost_lbl.text = "%d Marks each" % cost
-	cost_lbl.modulate = Color(0.65, 0.7, 0.65)
+	cost_lbl.modulate = Palette.TEXT_DIM
 	header.add_child(cost_lbl)
 	card_container.add_child(header)
 
@@ -224,7 +224,7 @@ func _build_unlocked_card() -> void:
 		roundi(FarroadProgression.PULL_ODDS["action"] * 100), roundi(FarroadProgression.PULL_ODDS["cond"] * 100),
 		roundi(FarroadProgression.PULL_ODDS["equip"] * 100), roundi(FarroadProgression.PULL_ODDS["unit"] * 100),
 		FarroadProgression.PULL_PITY_AT, pity_n, FarroadProgression.PULL_PITY_AT]
-	odds_lbl.modulate = Color(0.65, 0.7, 0.65)
+	odds_lbl.modulate = Palette.TEXT_DIM
 	odds_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(odds_lbl)
 
@@ -234,7 +234,7 @@ func _build_unlocked_card() -> void:
 		"you field, and extras stay benched but yours.") % FarroadProgression.PARTY_CAP
 	if g["party"].size() >= FarroadProgression.PARTY_CAP:
 		explain_lbl.text += " Party full — new units arrive benched."
-	explain_lbl.modulate = Color(0.65, 0.7, 0.65)
+	explain_lbl.modulate = Palette.TEXT_DIM
 	explain_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(explain_lbl)
 

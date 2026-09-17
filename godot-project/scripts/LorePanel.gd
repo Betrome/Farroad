@@ -67,7 +67,7 @@ const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width -- same convention A
 ## _rarity_icon below, same technique EquipmentPanel.gd's own copy uses).
 ## Every RichTextLabel site (the action detail card's own header) still
 ## uses RARITY_COLOR directly.
-const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 static var _rarity_icon_cache: Dictionary = {}
 
 static func _rarity_icon(rarity: String) -> Texture2D:
@@ -113,7 +113,7 @@ func build_into(container: Container, uid: String, host_popup: Window) -> void:
 func _section_label(text: String) -> Label:
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.modulate = Color(0.6, 0.75, 1.0)
+	lbl.modulate = Palette.PARTY_BLUE
 	return lbl
 
 ## Same small BBCode-label helper AetherPanel._rich_line already established --
@@ -274,7 +274,7 @@ func _refresh_card() -> void:
 	else:
 		var none_lbl := Label.new()
 		none_lbl.text = "%s has nothing equipped." % def["name"]
-		none_lbl.modulate = Color(0.6, 0.6, 0.6)
+		none_lbl.modulate = Palette.TEXT_DIM
 		card_container.add_child(none_lbl)
 
 	var unequipped_ids: Array = action_ids.filter(
@@ -346,14 +346,14 @@ func _refresh_card() -> void:
 		cost_text += "  ⚡ gauge %d" % roundi(FarroadCore.cost_of_charge(act))
 	var cost_lbl := Label.new()
 	cost_lbl.text = cost_text
-	cost_lbl.modulate = Color(0.7, 0.7, 0.7)
+	cost_lbl.modulate = Palette.TEXT_DIM
 	box.add_child(cost_lbl)
 
 	if act.get("note"):
 		var note_lbl := Label.new()
 		note_lbl.text = str(act["note"])
 		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		note_lbl.modulate = Color(0.75, 0.75, 0.75)
+		note_lbl.modulate = Palette.TEXT_DIM
 		box.add_child(note_lbl)
 
 	var scales_text := "scales with %s" % ("MAG" if act.get("camp") == "mag" else "ATK")
@@ -361,7 +361,7 @@ func _refresh_card() -> void:
 		scales_text += "  ·  power ×%.2f" % float(act["power"])
 	var scales_lbl := Label.new()
 	scales_lbl.text = scales_text
-	scales_lbl.modulate = Color(0.55, 0.55, 0.6)
+	scales_lbl.modulate = Palette.TEXT_DIM
 	box.add_child(scales_lbl)
 
 	var used: Dictionary = FarroadProgression.used_actions(g)
@@ -398,7 +398,7 @@ func _refresh_card() -> void:
 		var price: int = FarroadCore.bonus_price(act, bid, total_on_action)
 		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 0)
-		row.add_child(_rich_line("[b]%s[/b] [color=#ffb347]%d Lore[/color]" % [info["n"], price]))
+		row.add_child(_rich_line("[b]%s[/b] [color=#bd6b14]%d Lore[/color]" % [info["n"], price]))
 		row.add_child(_rich_line("[font_size=12][color=#999]%s[/color][/font_size]" % info["d"]))
 		var ctl := HBoxContainer.new()
 		ctl.add_theme_constant_override("separation", 10)

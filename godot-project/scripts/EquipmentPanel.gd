@@ -38,7 +38,7 @@ var card_container: Container
 ## replaced here with a small solid-color swatch icon instead, actually
 ## achieving "color instead of text" within a real dropdown rather than
 ## falling back to a text tag. _rarity_icon() below generates/caches these.
-const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
+const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 static var _rarity_icon_cache: Dictionary = {}
 
 static func _rarity_icon(rarity: String) -> Texture2D:
@@ -159,7 +159,7 @@ func _refresh_card() -> void:
 		if cur_id != null:
 			var desc_lbl := Label.new()
 			desc_lbl.text = _describe_equipment(cur_id, uid)
-			desc_lbl.modulate = Color(0.65, 0.7, 0.65)
+			desc_lbl.modulate = Palette.TEXT_DIM
 			desc_lbl.add_theme_font_size_override("font_size", 12)
 			# A stacked stat+affinity description (e.g. "Body -- ATK +5 --
 			# DEF +3 -- Fire affinity +12% -- Water affinity -8%") can run
