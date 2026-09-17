@@ -222,6 +222,43 @@ func _run_bonuses_suite() -> void:
 
 	out["piercingProof"] = {"unpierced": _dmg_against_high_res(false), "pierced": _dmg_against_high_res(true)}
 
+	# 20-item batch, Group D: stat_by_key('avgAtkMag') direct comparison,
+	# mirrors parity-reference.js's own 'avgAtkMag' check exactly.
+	var avg_u := FarroadCore.make_unit({"id": "avg", "name": "Avg", "isParty": true, "level": 1, "slotIndex": 0,
+		"stats": {"atk": 22, "mag": 48, "def": 15, "res": 15, "spd": 100}, "slots": [{"cond": "none", "action": "strike"}]})
+	out["avgAtkMag"] = {
+		"value": FarroadCore.stat_by_key(avg_u, "avgAtkMag"),
+		"effAtk": FarroadCore.eff_atk(avg_u), "effMag": FarroadCore.eff_mag(avg_u)}
+
+	# 20-item batch, Group F: the new caster-boost/target-resist debuff
+	# formula, mirrors parity-reference.js's own 'spiritResist' check exactly.
+	var debuff_low := FarroadCore.make_unit({"id": "s", "name": "S", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 100}, "slots": [{"cond": "none", "action": "strike"}]})
+	debuff_low["affinity"]["spirit"] = 0.0
+	var debuff_high := FarroadCore.make_unit({"id": "s", "name": "S", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 100}, "slots": [{"cond": "none", "action": "strike"}]})
+	debuff_high["affinity"]["spirit"] = 18.0
+	FarroadCore.apply_status(debuff_low, "enfeebled", 3, 0.0)
+	FarroadCore.apply_status(debuff_high, "enfeebled", 3, 0.0)
+	var buff_low := FarroadCore.make_unit({"id": "s", "name": "S", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 100}, "slots": [{"cond": "none", "action": "strike"}]})
+	buff_low["affinity"]["spirit"] = 0.0
+	var buff_high := FarroadCore.make_unit({"id": "s", "name": "S", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 100}, "slots": [{"cond": "none", "action": "strike"}]})
+	buff_high["affinity"]["spirit"] = 18.0
+	FarroadCore.apply_status(buff_low, "bracing", 3, 0.0)
+	FarroadCore.apply_status(buff_high, "bracing", 3, 0.0)
+	out["spiritResist"] = {
+		"debuffMagLowSpiritTarget": FarroadCore.mag_of(debuff_low, "enfeebled"),
+		"debuffMagHighSpiritTarget": FarroadCore.mag_of(debuff_high, "enfeebled"),
+		"debuffWeakerOnHighSpiritTarget": absf(FarroadCore.mag_of(debuff_high, "enfeebled")) < absf(FarroadCore.mag_of(debuff_low, "enfeebled")),
+		"buffMagLowSpiritTarget": FarroadCore.mag_of(buff_low, "bracing"),
+		"buffMagHighSpiritTarget": FarroadCore.mag_of(buff_high, "bracing"),
+		"buffStrongerOnHighSpiritTarget": absf(FarroadCore.mag_of(buff_high, "bracing")) > absf(FarroadCore.mag_of(buff_low, "bracing")),
+		"directFormulaCheck": {
+			"affBoostResist_caster0_target18": FarroadCore.aff_boost_resist(0.0, 18.0),
+			"affBoost_caster0_target18": FarroadCore.aff_boost(0.0, 18.0)}}
+
 	print(JSON.stringify(out))
 
 func _dmg_against_high_res(pierced: bool):
@@ -574,6 +611,14 @@ func _run_progression_suite() -> void:
 	exped["offlineAetherGained"] = g9["aether"] - aether_before9
 	exped["offlineWipes"] = g9["wipes"] - wipes_before9
 	exped["offlineRngCallsAfter"] = g9["rng"].calls
+	exped["offlineIdlePendingAfter"] = {"aether": g9.get("pendingIdleAether", 0.0), "marks": g9.get("pendingIdleMarks", 0.0)}
+	var aether_before9_collect: float = g9["aether"]
+	var marks_before9_collect: float = g9["marks"]
+	var idle_collected: Dictionary = FarroadProgression.collect_idle_reward(g9)
+	exped["offlineIdleCollectedAmount"] = idle_collected
+	exped["offlineAetherAfterIdleCollect"] = g9["aether"] - aether_before9_collect
+	exped["offlineMarksAfterIdleCollect"] = g9["marks"] - marks_before9_collect
+	exped["offlineIdlePendingAfterCollect"] = {"aether": g9.get("pendingIdleAether", 0.0), "marks": g9.get("pendingIdleMarks", 0.0)}
 	out["expedition"] = exped
 
 	# Step 3i: QUESTS/dungeons -- mirrors parity-reference.js's own
@@ -649,9 +694,14 @@ func _run_progression_suite() -> void:
 	while gq["battle"]["over"] == null and bg1 < 4000:
 		bg1 += 1
 		FarroadCore.step(gq["battle"])
-	var event_q := FarroadProgression.finish_side_battle(gq, gq["battle"]["over"], false)
+	var event_q := FarroadProgression.finish_side_battle(gq, gq["battle"]["over"], false, 1700000000)
 	qd["questCycleEvent"] = event_q
 	qd["questCycleAetherGain"] = gq["aether"] - aether_before_q
+	qd["questCyclePendingAfterClear"] = gq["quests"]["kesh"]["pendingAether"]
+	var collected_q: float = FarroadProgression.collect_quest_reward(gq, "kesh")
+	qd["questCycleCollectedAmount"] = collected_q
+	qd["questCycleAetherAfterCollect"] = gq["aether"] - aether_before_q
+	qd["questCyclePendingAfterCollect"] = gq["quests"]["kesh"]["pendingAether"]
 	qd["questCycleStageAfter"] = gq["quests"]["kesh"]["stage"]
 	qd["questCycleSideBattleCleared"] = gq["sideBattle"] == null and gq["roadBattle"] == null
 
@@ -661,7 +711,7 @@ func _run_progression_suite() -> void:
 	var aether_before_giveup: float = gg2["aether"]
 	var prep_gu := FarroadProgression.prep_quest_attempt(gg2, "kesh")
 	FarroadProgression.start_side_battle(gg2, prep_gu["enemies"], prep_gu["wave"], prep_gu["meta"])
-	var event_gu := FarroadProgression.finish_side_battle(gg2, "enemy", true)
+	var event_gu := FarroadProgression.finish_side_battle(gg2, "enemy", true, 1700000000)
 	qd["giveUpEvent"] = event_gu
 	qd["giveUpStageUnchanged"] = gg2["quests"]["kesh"]["stage"] == stage_before_giveup
 	qd["giveUpAetherUnchanged"] = gg2["aether"] == aether_before_giveup
@@ -669,7 +719,7 @@ func _run_progression_suite() -> void:
 	var gd_ := FarroadProgression.new_game(7, null)
 	FarroadProgression.start_wave(gd_, 1)
 	var dungeon_d := FarroadProgression.unlock_direction_dungeon(gd_, "west", 1, 1700000000)
-	var prep_d := FarroadProgression.prep_dungeon_attempt(gd_, dungeon_d["id"])
+	var prep_d := FarroadProgression.prep_dungeon_attempt(gd_, dungeon_d["id"], 1700000000)
 	FarroadProgression.start_side_battle(gd_, prep_d["enemies"], prep_d["wave"], prep_d["meta"])
 	var wave_advances := 0
 	var final_event_d := {}
@@ -680,7 +730,7 @@ func _run_progression_suite() -> void:
 		while gd_["battle"]["over"] == null and bg2 < 4000:
 			bg2 += 1
 			FarroadCore.step(gd_["battle"])
-		var ev_d := FarroadProgression.finish_side_battle(gd_, gd_["battle"]["over"], false)
+		var ev_d := FarroadProgression.finish_side_battle(gd_, gd_["battle"]["over"], false, 1700000000)
 		if ev_d["kind"] == "dungeon_wave_advance":
 			wave_advances += 1
 			continue
@@ -690,6 +740,35 @@ func _run_progression_suite() -> void:
 	qd["dungeonCycleFinalEvent"] = final_event_d
 	qd["dungeonCycleClears"] = dungeon_d["clears"]
 	qd["dungeonCycleSideBattleCleared"] = gd_["sideBattle"] == null
+	qd["dungeonCyclePendingAfterClear"] = {"aether": dungeon_d.get("pendingAether", 0.0), "marks": dungeon_d.get("pendingMarks", 0.0)}
+	var aether_before_d_collect: float = gd_["aether"]
+	var marks_before_d_collect: float = gd_["marks"]
+	var collected_d: Dictionary = FarroadProgression.collect_dungeon_reward(gd_, dungeon_d["id"])
+	qd["dungeonCycleCollectedAmount"] = collected_d
+	qd["dungeonCycleAetherAfterCollect"] = gd_["aether"] - aether_before_d_collect
+	qd["dungeonCycleMarksAfterCollect"] = gd_["marks"] - marks_before_d_collect
+	qd["dungeonCyclePendingAfterCollect"] = {"aether": dungeon_d.get("pendingAether", 0.0), "marks": dungeon_d.get("pendingMarks", 0.0)}
+
+	# dungeon_available's calendar-day cooldown: flips false immediately
+	# after a clear, stays false later the SAME UTC day, and flips back
+	# true once `now` crosses the UTC day boundary -- constructed directly
+	# (two timestamps straddling a real midnight) rather than waiting on
+	# a real clock. Mirrors parity-reference.js's own dungeonAvailableG
+	# section exactly.
+	var gca := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gca, 1)
+	var dungeon_ca := FarroadProgression.unlock_direction_dungeon(gca, "west", 1, 1700000000)
+	var midnight_utc := 1704067200 # 2024-01-01T00:00:00Z
+	var just_before_midnight := midnight_utc - 1 # 2023-12-31T23:59:59Z
+	dungeon_ca["lastClearedAt"] = just_before_midnight
+	qd["dungeonAvailableNeverCleared"] = FarroadProgression.dungeon_available({"lastClearedAt": null}, 1700000000)
+	qd["dungeonAvailableSameMoment"] = FarroadProgression.dungeon_available(dungeon_ca, just_before_midnight)
+	qd["dungeonAvailableSameDayLater"] = FarroadProgression.dungeon_available(dungeon_ca, midnight_utc - 30)
+	qd["dungeonAvailableAfterMidnight"] = FarroadProgression.dungeon_available(dungeon_ca, midnight_utc)
+	var prep_blocked := FarroadProgression.prep_dungeon_attempt(gca, dungeon_ca["id"], just_before_midnight)
+	qd["dungeonAvailablePrepBlocked"] = prep_blocked.is_empty()
+	var prep_allowed := FarroadProgression.prep_dungeon_attempt(gca, dungeon_ca["id"], midnight_utc)
+	qd["dungeonAvailablePrepAllowed"] = not prep_allowed.is_empty()
 
 	out["questsDungeons"] = qd
 

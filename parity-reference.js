@@ -294,6 +294,54 @@ if (mode === 'bonuses') {
   }
   out.piercingProof = { unpierced: dmgAgainstHighRes(false), pierced: dmgAgainstHighRes(true) };
 
+  // 20-item batch, Group D: statByKey('avgAtkMag') -- the new stat-lookup
+  // case the 2 new starter charge actions (wearingdown/ironresolve) rely
+  // on. Direct comparison (not routed through full combat noise) against
+  // a hand-built unit with distinct ATK/MAG values, proving it's a real
+  // average and not an alias for either stat alone.
+  const avgU = C.makeUnit({ id: 'avg', name: 'Avg', isParty: true, level: 1, slotIndex: 0,
+    stats: { atk: 22, mag: 48, def: 15, res: 15, spd: 100 }, slots: [{ cond: 'none', action: 'strike' }] });
+  out.avgAtkMag = {
+    value: C.statByKey(avgU, 'avgAtkMag'),
+    effAtk: C.effAtk(avgU), effMag: C.effMag(avgU)
+  };
+
+  // 20-item batch, Group F: the new caster-boost/target-resist debuff
+  // formula (affBoostResist), and confirmation that BUFFS are unaffected
+  // (still the original symmetric affBoost). Direct calls, not routed
+  // through combat RNG -- a precise, deterministic comparison.
+  function mkSpiritUnit(spirit) {
+    const u = C.makeUnit({ id: 's', name: 'S', isParty: false, level: 1, slotIndex: 10,
+      stats: { atk: 10, mag: 10, def: 10, res: 10, spd: 100 }, slots: [{ cond: 'none', action: 'strike' }] });
+    u.affinity.spirit = spirit;
+    return u;
+  }
+  const debuffLow = mkSpiritUnit(0);       // spirit-neutral target
+  const debuffHigh = mkSpiritUnit(18);     // BOSS_SPIRIT_BONUS-equivalent target
+  C.apply(debuffLow, 'enfeebled', 3, 0);   // neutral caster
+  C.apply(debuffHigh, 'enfeebled', 3, 0);
+  const buffLow = mkSpiritUnit(0);
+  const buffHigh = mkSpiritUnit(18);
+  C.apply(buffLow, 'bracing', 3, 0);
+  C.apply(buffHigh, 'bracing', 3, 0);
+  out.spiritResist = {
+    debuffMagLowSpiritTarget: C.magOf(debuffLow, 'enfeebled'),
+    debuffMagHighSpiritTarget: C.magOf(debuffHigh, 'enfeebled'),
+    // A higher-spirit TARGET must now resist the debuff more (smaller
+    // magnitude in absolute terms, since enfeebled's base is negative).
+    debuffWeakerOnHighSpiritTarget: Math.abs(C.magOf(debuffHigh, 'enfeebled')) < Math.abs(C.magOf(debuffLow, 'enfeebled')),
+    buffMagLowSpiritTarget: C.magOf(buffLow, 'bracing'),
+    buffMagHighSpiritTarget: C.magOf(buffHigh, 'bracing'),
+    // Buffs stay on the ORIGINAL symmetric formula -- a higher-spirit
+    // target should still receive a STRONGER buff, the opposite direction
+    // from the debuff case just above (regression-safe: this must NOT flip).
+    buffStrongerOnHighSpiritTarget: Math.abs(C.magOf(buffHigh, 'bracing')) > Math.abs(C.magOf(buffLow, 'bracing')),
+    directFormulaCheck: {
+      affBoostResist_caster0_target18: C.affBoostResist(0, 18),
+      affBoost_caster0_target18: C.affBoost(0, 18)
+    }
+  };
+
   console.log(JSON.stringify(out));
 }
 
@@ -1309,7 +1357,11 @@ if (mode === 'progression') {
     if (elapsedSec < 5) return;
     var capped = Math.min(elapsedSec, P.OFFLINE_CAP_SEC);
     var r = P.idlePerSec(gg.farthest);
-    gg.aether += r.aether * capped; gg.marks += r.marks * P.marksMul(gg) * capped;
+    // v2.14: banked, not credited -- mirrors the quest/dungeon pending-
+    // reward gate; accumulates across multiple uncollected resumes. The
+    // replayed-combat loop below stays auto-applied, unchanged.
+    gg.pendingIdleAether = (gg.pendingIdleAether || 0) + r.aether * capped;
+    gg.pendingIdleMarks = (gg.pendingIdleMarks || 0) + r.marks * P.marksMul(gg) * capped;
     var remaining = capped, guard = 0;
     while (remaining > 0 && guard++ < 200000) {
       if (!gg.battle) break;
@@ -1322,6 +1374,14 @@ if (mode === 'progression') {
       else break;
       remaining -= cost;
     }
+  }
+  // Mirrors collectIdleReward exactly.
+  function collectIdleRewardG(gg) {
+    var aether = gg.pendingIdleAether || 0, marks = gg.pendingIdleMarks || 0;
+    if (aether <= 0 && marks <= 0) return { aether: 0, marks: 0 };
+    gg.aether += aether; gg.marks += marks;
+    gg.pendingIdleAether = 0; gg.pendingIdleMarks = 0;
+    return { aether: aether, marks: marks };
   }
 
   // Step 3i: QUESTS/dungeons -- companion quest lines + direction
@@ -1435,10 +1495,23 @@ if (mode === 'progression') {
       meta: { kind: 'quest', uid: uid, stage: stage, name: def ? def.name : uid, story: withMcNameG(step.story) }
     };
   }
-  function prepDungeonAttemptG(gg, id) {
+  // Mirrors calendarDay/dungeonAvailable (farroad-ui.js:2661-2664). This
+  // harness's own `now` convention is SECONDS (matching Godot's
+  // Time.get_unix_time_from_system, not the real JS's Date.now() ms --
+  // see the file-level note on parity-reference.js's timestamp
+  // convention), so *1000 to feed a real JS Date.
+  function calendarDayG(ts) {
+    var d = new Date(ts * 1000);
+    return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
+  }
+  function dungeonAvailableG(dungeon, now) {
+    if (dungeon.lastClearedAt == null) return true;
+    return calendarDayG(now) !== calendarDayG(dungeon.lastClearedAt);
+  }
+  function prepDungeonAttemptG(gg, id, now) {
     if (gg.sideBattle) return {};
     var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === id) dungeon = d; });
-    if (!dungeon) return {};
+    if (!dungeon || !dungeonAvailableG(dungeon, now)) return {};
     var wave0 = dungeon.waves[0];
     return {
       enemies: unitsFromSnapshotsG(wave0.enemies), wave: wave0.wave,
@@ -1455,7 +1528,7 @@ if (mode === 'progression') {
     gg.sideBattle = { savedWave: savedWave, wave: wave, meta: meta };
     return true;
   }
-  function finishSideBattleG(gg, result, gaveUp) {
+  function finishSideBattleG(gg, result, gaveUp, now) {
     var sb = gg.sideBattle, meta = sb.meta;
     if (meta.kind === 'dungeon' && result === 'party' && meta.waveIndex < meta.totalWaves - 1) {
       var curDungeon = null; gg.dungeons.forEach(function (d) { if (d.id === meta.dungeonId) curDungeon = d; });
@@ -1474,7 +1547,9 @@ if (mode === 'progression') {
       if (result === 'party') {
         q.stage++;
         var reward = questStageAetherG(meta.stage);
-        gg.aether += reward;
+        // Banked, not credited (v2.14) -- mirrors collectExpedition's own
+        // bank/collect pattern; accumulates across uncollected clears.
+        q.pendingAether = (q.pendingAether || 0) + reward;
         return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, aether: reward };
       } else if (gaveUp) {
         return { kind: 'quest_abandoned', name: meta.name, stageNum: meta.stage + 1 };
@@ -1485,16 +1560,35 @@ if (mode === 'progression') {
       var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === meta.dungeonId) dungeon = d; });
       if (result === 'party' && dungeon) {
         dungeon.clears++;
+        dungeon.lastClearedAt = now;
         var rewardWave = meta.tier * P.DIRECTION_CONFIG[meta.direction].unlockEvery;
         var mul = directionMul(meta.direction);
         var r = P.killReward(rewardWave, meta.totalWaves);
         var dAether = r.aether * mul, dMarks = r.marks * P.marksMul(gg) * mul;
-        gg.aether += dAether; gg.marks += dMarks;
+        // Banked, not credited (v2.14) -- same reasoning as the quest
+        // branch above.
+        dungeon.pendingAether = (dungeon.pendingAether || 0) + dAether;
+        dungeon.pendingMarks = (dungeon.pendingMarks || 0) + dMarks;
         return { kind: 'dungeon_cleared', name: dungeon.name, aether: dAether, marks: dMarks };
       } else {
         return { kind: 'dungeon_failed', name: dungeon ? dungeon.name : 'Dungeon' };
       }
     }
+  }
+  // Mirrors collectQuestReward/collectDungeonReward exactly.
+  function collectQuestRewardG(gg, uid) {
+    var q = gg.quests[uid]; if (!q) return 0;
+    var amount = q.pendingAether || 0; if (amount <= 0) return 0;
+    gg.aether += amount; q.pendingAether = 0; return amount;
+  }
+  function collectDungeonRewardG(gg, dungeonId) {
+    var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === dungeonId) dungeon = d; });
+    if (!dungeon) return { aether: 0, marks: 0 };
+    var aether = dungeon.pendingAether || 0, marks = dungeon.pendingMarks || 0;
+    if (aether <= 0 && marks <= 0) return { aether: 0, marks: 0 };
+    gg.aether += aether; gg.marks += marks;
+    dungeon.pendingAether = 0; dungeon.pendingMarks = 0;
+    return { aether: aether, marks: marks };
   }
 
   var qd = {};
@@ -1553,9 +1647,19 @@ if (mode === 'progression') {
   var prepQ = prepQuestAttemptG(gq, 'kesh');
   startSideBattleG(gq, prepQ.enemies, prepQ.wave, prepQ.meta);
   var bg1 = 0; while (!gq.battle.over && bg1++ < 4000) C.step(gq.battle);
-  var eventQ = finishSideBattleG(gq, gq.battle.over, false);
+  var eventQ = finishSideBattleG(gq, gq.battle.over, false, 1700000000);
   qd.questCycleEvent = eventQ;
+  // v2.14: a quest reward is now banked (pendingAether), not credited --
+  // gg.aether stays untouched by the clear itself; the pending pool holds
+  // it until collectQuestRewardG. Confirms the pending amount matches the
+  // event's own reported reward, and that a real collect() round-trip
+  // credits gg.aether by exactly that amount, zeroing the pool after.
   qd.questCycleAetherGain = gq.aether - aetherBeforeQ;
+  qd.questCyclePendingAfterClear = gq.quests.kesh.pendingAether;
+  var collectedQ = collectQuestRewardG(gq, 'kesh');
+  qd.questCycleCollectedAmount = collectedQ;
+  qd.questCycleAetherAfterCollect = gq.aether - aetherBeforeQ;
+  qd.questCyclePendingAfterCollect = gq.quests.kesh.pendingAether;
   qd.questCycleStageAfter = gq.quests.kesh.stage;
   qd.questCycleSideBattleCleared = gq.sideBattle === null && gq.roadBattle === null;
 
@@ -1564,7 +1668,7 @@ if (mode === 'progression') {
   var stageBeforeGiveUp = gg2.quests.kesh.stage, aetherBeforeGiveUp = gg2.aether;
   var prepGu = prepQuestAttemptG(gg2, 'kesh');
   startSideBattleG(gg2, prepGu.enemies, prepGu.wave, prepGu.meta);
-  var eventGu = finishSideBattleG(gg2, 'enemy', true);
+  var eventGu = finishSideBattleG(gg2, 'enemy', true, 1700000000);
   qd.giveUpEvent = eventGu;
   qd.giveUpStageUnchanged = gg2.quests.kesh.stage === stageBeforeGiveUp;
   qd.giveUpAetherUnchanged = gg2.aether === aetherBeforeGiveUp;
@@ -1574,12 +1678,12 @@ if (mode === 'progression') {
   // exercises the SAME code path either way; we just record what happened).
   var gd = newGame(7, null); startWave(gd, 1);
   var dungeonD = unlockDirectionDungeonG(gd, 'west', 1, 1700000000);
-  var prepD = prepDungeonAttemptG(gd, dungeonD.id);
+  var prepD = prepDungeonAttemptG(gd, dungeonD.id, 1700000000);
   startSideBattleG(gd, prepD.enemies, prepD.wave, prepD.meta);
   var waveAdvances = 0, finalEventD = null, guardD = 0;
   while (guardD++ < 20) {
     var bg2 = 0; while (!gd.battle.over && bg2++ < 4000) C.step(gd.battle);
-    var evD = finishSideBattleG(gd, gd.battle.over, false);
+    var evD = finishSideBattleG(gd, gd.battle.over, false, 1700000000);
     if (evD.kind === 'dungeon_wave_advance') { waveAdvances++; continue; }
     finalEventD = evD; break;
   }
@@ -1587,6 +1691,33 @@ if (mode === 'progression') {
   qd.dungeonCycleFinalEvent = finalEventD;
   qd.dungeonCycleClears = dungeonD.clears;
   qd.dungeonCycleSideBattleCleared = gd.sideBattle === null;
+  // v2.14: same banked-then-collect check as the quest cycle above.
+  qd.dungeonCyclePendingAfterClear = { aether: dungeonD.pendingAether || 0, marks: dungeonD.pendingMarks || 0 };
+  var aetherBeforeDCollect = gd.aether, marksBeforeDCollect = gd.marks;
+  var collectedD = collectDungeonRewardG(gd, dungeonD.id);
+  qd.dungeonCycleCollectedAmount = collectedD;
+  qd.dungeonCycleAetherAfterCollect = gd.aether - aetherBeforeDCollect;
+  qd.dungeonCycleMarksAfterCollect = gd.marks - marksBeforeDCollect;
+  qd.dungeonCyclePendingAfterCollect = { aether: dungeonD.pendingAether || 0, marks: dungeonD.pendingMarks || 0 };
+
+  // dungeon_available's calendar-day cooldown: flips false immediately
+  // after a clear, stays false later the SAME UTC day, and flips back
+  // true once `now` crosses the UTC day boundary -- constructed directly
+  // (two timestamps straddling a real midnight) rather than waiting on
+  // a real clock.
+  var gca = newGame(7, null); startWave(gca, 1);
+  var dungeonCA = unlockDirectionDungeonG(gca, 'west', 1, 1700000000);
+  var midnightUtc = 1704067200; // 2024-01-01T00:00:00Z
+  var justBeforeMidnight = midnightUtc - 1; // 2023-12-31T23:59:59Z
+  dungeonCA.lastClearedAt = justBeforeMidnight;
+  qd.dungeonAvailableNeverCleared = dungeonAvailableG({ lastClearedAt: null }, 1700000000);
+  qd.dungeonAvailableSameMoment = dungeonAvailableG(dungeonCA, justBeforeMidnight);
+  qd.dungeonAvailableSameDayLater = dungeonAvailableG(dungeonCA, midnightUtc - 30);
+  qd.dungeonAvailableAfterMidnight = dungeonAvailableG(dungeonCA, midnightUtc);
+  var prepBlocked = prepDungeonAttemptG(gca, dungeonCA.id, justBeforeMidnight);
+  qd.dungeonAvailablePrepBlocked = Object.keys(prepBlocked).length === 0;
+  var prepAllowed = prepDungeonAttemptG(gca, dungeonCA.id, midnightUtc);
+  qd.dungeonAvailablePrepAllowed = Object.keys(prepAllowed).length > 0;
 
   out.questsDungeons = qd;
 
@@ -1672,9 +1803,19 @@ if (mode === 'progression') {
   var waveBefore9 = g9.wave, aetherBefore9 = g9.aether, wipesBefore9 = g9.wipes;
   simulateOfflineProgressG(g9, NOW0, NOW0 + 7200);
   exped7.offlineWaveDelta = g9.wave - waveBefore9;
+  // v2.14: offlineAetherGained now covers ONLY what the replayed combat
+  // itself already credited (kill_reward, never gated) -- the idle
+  // trickle is separately banked/collected, checked just below.
   exped7.offlineAetherGained = g9.aether - aetherBefore9;
   exped7.offlineWipes = g9.wipes - wipesBefore9;
   exped7.offlineRngCallsAfter = g9.rng.calls;
+  exped7.offlineIdlePendingAfter = { aether: g9.pendingIdleAether || 0, marks: g9.pendingIdleMarks || 0 };
+  var aetherBefore9Collect = g9.aether, marksBefore9Collect = g9.marks;
+  var idleCollected = collectIdleRewardG(g9);
+  exped7.offlineIdleCollectedAmount = idleCollected;
+  exped7.offlineAetherAfterIdleCollect = g9.aether - aetherBefore9Collect;
+  exped7.offlineMarksAfterIdleCollect = g9.marks - marksBefore9Collect;
+  exped7.offlineIdlePendingAfterCollect = { aether: g9.pendingIdleAether || 0, marks: g9.pendingIdleMarks || 0 };
 
   out.expedition = exped7;
 

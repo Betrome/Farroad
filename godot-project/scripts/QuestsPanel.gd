@@ -38,14 +38,14 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
-	# row's slots -- see MarksPanel.gd's own copy of this comment for the
-	# full new layout. This panel now sits at 0.6300 (was Marks' slot).
+	# 20-item batch's own Group H recomputed the (now 7-icon) bottom row --
+	# see MarksPanel.gd's own copy of this comment for the full layout.
+	# This panel now sits at 0.7225.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.6300, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -125,6 +125,11 @@ func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):
 		_parent.call("_set_battle_paused", paused)
 
+## Same real-wall-clock helper every sibling panel with a time-based gate
+## already uses (ExpeditionPanel.gd's own copy).
+func _now() -> float:
+	return Time.get_unix_time_from_system()
+
 func _refresh_card() -> void:
 	for c in card_container.get_children():
 		c.queue_free()
@@ -163,7 +168,14 @@ func _refresh_card() -> void:
 	var any_quest := false
 	for uid in owned:
 		var q: Dictionary = g.get("quests", {}).get(uid, {})
-		if q.is_empty() or int(q.get("stage", 0)) >= 5:
+		var completed: bool = int(q.get("stage", 0)) >= 5
+		var has_pending: bool = float(q.get("pendingAether", 0.0)) > 0.0
+		# A quest that just cleared its final stage still needs its card
+		# shown once more so the pending reward from THAT stage stays
+		# reachable via Collect -- otherwise clearing stage 5 would make
+		# its own reward permanently uncollectible the instant the card
+		# disappears from this list.
+		if q.is_empty() or (completed and not has_pending):
 			continue
 		any_quest = true
 		card_container.add_child(_build_quest_card(uid, q, busy))
@@ -192,14 +204,34 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	info_lbl.modulate = Color(0.65, 0.7, 0.65)
 	box.add_child(info_lbl)
 
+	# Ian: "Dungeons: can only be completed once per day." Real UTC-
+	# calendar-day gate (FarroadProgression.dungeon_available), not just a
+	# fixed 24h cooldown -- resets at midnight UTC regardless of when it
+	# was actually cleared.
+	var available: bool = FarroadProgression.dungeon_available(d, _now())
 	var enter_btn := Button.new()
 	enter_btn.text = "Enter"
-	enter_btn.disabled = busy
+	enter_btn.disabled = busy or not available
 	if busy:
 		enter_btn.tooltip_text = "A quest or dungeon attempt is already in progress."
+	elif not available:
+		enter_btn.tooltip_text = "Already cleared today -- resets at midnight UTC."
 	var id: String = d["id"]
 	enter_btn.pressed.connect(func(): _on_enter_dungeon_pressed(id))
 	box.add_child(enter_btn)
+
+	# Ian: "don't add rewards from quests, expedition, and idle until
+	# collected." A cleared dungeon's reward now sits in
+	# pendingAether/pendingMarks (FarroadProgression.finish_side_battle)
+	# until explicitly collected here -- mirrors ExpeditionPanel's own
+	# Collect button exactly.
+	var pending_aether: float = float(d.get("pendingAether", 0.0))
+	var pending_marks: float = float(d.get("pendingMarks", 0.0))
+	if pending_aether > 0.0 or pending_marks > 0.0:
+		var collect_btn := Button.new()
+		collect_btn.text = "Collect %d Aether, %d Marks" % [roundi(pending_aether), floori(pending_marks)]
+		collect_btn.pressed.connect(func(): _on_collect_dungeon_pressed(id))
+		box.add_child(collect_btn)
 	return card
 
 ## Mirrors renderQuests()'s companion-quest card (farroad-ui.js:2610-2634).
@@ -215,15 +247,21 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 	name_lbl.add_theme_font_size_override("font_size", 15)
 	box.add_child(name_lbl)
 
+	var completed: bool = stage >= 5
 	var info_lbl := Label.new()
-	info_lbl.text = "Stage %d of 5 · +%d Aether on clear" % [stage + 1, FarroadProgression.quest_stage_aether(stage)]
+	info_lbl.text = "Quest line complete" if completed else \
+		"Stage %d of 5 · +%d Aether on clear" % [stage + 1, FarroadProgression.quest_stage_aether(stage)]
 	info_lbl.modulate = Color(0.65, 0.7, 0.65)
 	box.add_child(info_lbl)
 
 	var side_battle: Dictionary = g.get("sideBattle") if g.get("sideBattle") != null else {}
 	var is_this_quest: bool = (not side_battle.is_empty()) and side_battle["meta"]["kind"] == "quest" and side_battle["meta"]["uid"] == uid
 
-	if is_this_quest:
+	# A completed quest line only ever shows here to surface a still-
+	# pending reward from its own final stage -- no Attempt/Give Up.
+	if completed:
+		pass
+	elif is_this_quest:
 		var give_up_btn := Button.new()
 		give_up_btn.text = "Give Up"
 		give_up_btn.pressed.connect(_on_give_up_pressed)
@@ -241,6 +279,14 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 		else:
 			attempt_btn.pressed.connect(func(): _on_attempt_quest_pressed(uid))
 		box.add_child(attempt_btn)
+
+	# Same pending-reward Collect pattern as the dungeon card above.
+	var pending_aether: float = float(q.get("pendingAether", 0.0))
+	if pending_aether > 0.0:
+		var collect_btn := Button.new()
+		collect_btn.text = "Collect %d Aether" % roundi(pending_aether)
+		collect_btn.pressed.connect(func(): _on_collect_quest_pressed(uid))
+		box.add_child(collect_btn)
 	return card
 
 func _on_enter_dungeon_pressed(id: String) -> void:
@@ -254,6 +300,21 @@ func _on_attempt_quest_pressed(uid: String) -> void:
 func _on_give_up_pressed() -> void:
 	if _parent and _parent.has_method("_give_up_quest"):
 		_parent.call("_give_up_quest")
+
+func _on_collect_dungeon_pressed(id: String) -> void:
+	var reward: Dictionary = FarroadProgression.collect_dungeon_reward(g, id)
+	if reward["aether"] > 0.0 or reward["marks"] > 0.0:
+		_notify_currency_changed()
+	_refresh_card()
+
+func _on_collect_quest_pressed(uid: String) -> void:
+	if FarroadProgression.collect_quest_reward(g, uid) > 0.0:
+		_notify_currency_changed()
+	_refresh_card()
+
+func _notify_currency_changed() -> void:
+	if _parent and _parent.has_method("_refresh_hud"):
+		_parent.call("_refresh_hud")
 
 ## Called by GameController once a side battle fully resolves -- stores the
 ## event and shows one plain text line at the top of the panel next time

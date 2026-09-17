@@ -773,6 +773,16 @@ P.hardMul=function(w){
  var t=Math.min(1,Math.sqrt((w-P.HARD_FROM)/(P.HARD_REF-P.HARD_FROM)));
  return 1+(P.HARD_MAX-1)*t;};
 P.BOSS_HARD_EXTRA=1.20;        /* additional boss-only ATK/MAG multiplier */
+/* 20-item batch, Group F: a flat addition to a boss's own affinity.spirit
+   (base archetypes all sit at spirit=0 today) — makes a boss concretely
+   resist incoming debuffs harder AND land its own debuffs harder, per the
+   new caster-boost/target-resist debuff formula (affBoostResist,
+   farroad-core.js). +18 puts affinityMul(18) at roughly +0.63, so
+   (1-0.63)=~0.37x a debuff's usual magnitude when landed on a boss by a
+   spirit-neutral caster — noticeably softened, not fully negated
+   (AFFINITY_CAP=40 is the max either side of the formula can reach, so a
+   high-Spirit party caster can still claw some of it back). */
+P.BOSS_SPIRIT_BONUS=18;
 /* Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
    the flat 1.10 boss ATK bonus in buildEnemies, the wave-20 boss's damage
    output drops from ~1.32x to ~1.16x a normal enemy's, without touching
@@ -942,7 +952,9 @@ P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
  * an equippable action or gambit condition except far less frequent (see
  * MC_CHARGE_DROP_CHANCE) and gated to the random-drop phase only (post
  * wave-20) so the curated tutorial sequence is never disturbed by one. */
-P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal'];
+/* 20-item batch, Group D: added wearingdown (debuff) and ironresolve
+   (buff), both scaling off avgAtkMag -- a 5-entry pool now, was 3. */
+P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal','wearingdown','ironresolve'];
 /* v2.9: +10 stat-scaling charge actions (one damage + one support per core
    stat — see the CHARGE_ACTIONS comment in core.js), same rare-drop pool as
    the original 8 corner charges, not the 3 generic starters. */

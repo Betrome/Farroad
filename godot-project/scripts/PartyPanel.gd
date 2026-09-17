@@ -38,18 +38,17 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Eight evenly-spaced 0.11x vp.x icons across the bottom row now (was
-	# seven at 0.12x): Gambits 0.0133, Party 0.1367, Aether 0.2600, Lore
-	# 0.3833, Equipment 0.5067, Marks 0.6300, Expedition 0.7533, Quests
-	# 0.8767 -- icon size shrank 0.12->0.11 when QuestsPanel's icon was
-	# added (Step 3i) so the gap didn't squeeze to a near-invisible sliver.
-	# The other panels' own x fractions were updated to match (duplicated
-	# per-file, no shared base).
+	# 20-item batch's own Group H recomputed this to a 7-icon row (Catalogue
+	# folded into Settings, Road recentered): Units 0.0288, this one 0.1675,
+	# Marks 0.3063, Road (GameController's own button, true center) 0.4450,
+	# Expedition 0.5838, Quests 0.7225, Settings 0.8613 -- same 0.11*vp.x
+	# icon size/0.93*vp.y row as before, just recomputed for 7 slots
+	# instead of 8 (duplicated per-file, no shared base).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

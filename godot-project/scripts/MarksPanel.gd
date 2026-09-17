@@ -24,7 +24,10 @@ var _parent: Node
 var toggle_button: Button
 var popup: PopupPanel
 var card_container: VBoxContainer
-var last_pull_result: Dictionary = {}
+## Always an Array now (even a single Pull stores a 1-entry array) --
+## Ian: "Pull x10 button for marks" needed a result shape that scales to
+## many pulls at once without a separate single-vs-batch data path.
+var last_pull_results: Array = []
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -39,17 +42,16 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
-	# row's slots after GAMBITS/AETHER/LORE/EQUIPMENT lost their own icons
-	# (folded into UnitsPanel): Units 0.0133, Party 0.1367, this one 0.2600,
-	# Road (GameController's own button, not a panel) 0.3833, Expedition
-	# 0.5067, Quests 0.6300, Catalogue 0.7533, Settings 0.8767 -- same
-	# 0.11*vp.x icon size/0.93*vp.y row as before, just reassigned.
+	# 20-item batch's own Group H recomputed the (now 7-icon, Catalogue
+	# folded into Settings) bottom row: Units 0.0288, Party 0.1675, this
+	# one 0.3063, Road (GameController's own button, not a panel, true
+	# center) 0.4450, Expedition 0.5838, Quests 0.7225, Settings 0.8613 --
+	# same 0.11*vp.x icon size/0.93*vp.y row as before, just recomputed.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -203,6 +205,19 @@ func _build_unlocked_card() -> void:
 	pull_btn.pressed.connect(_on_pull_pressed)
 	card_container.add_child(pull_btn)
 
+	# Ian: "Pull x10 button for marks." Gated on affording all 10 up front
+	# (same silent-refusal convention the single Pull button already uses
+	# via its own disabled state) -- never a partial bulk pull that leaves
+	# the player wondering why it only did some of them.
+	var cost_x10 := cost * 10
+	var available_x10: bool = marks >= cost_x10
+	var pull_x10_btn := Button.new()
+	pull_x10_btn.text = "PULL x10 — %d Marks" % cost_x10
+	pull_x10_btn.disabled = not available_x10
+	_style_pull_button(pull_x10_btn, available_x10)
+	pull_x10_btn.pressed.connect(_on_pull_x10_pressed)
+	card_container.add_child(pull_x10_btn)
+
 	var pity_n := int(g.get("pullsSinceUnit", 0))
 	var odds_lbl := Label.new()
 	odds_lbl.text = "Rolls across everything: %d%% action · %d%% gambit condition · %d%% equipment · %d%% companion — guaranteed a companion every %d pulls regardless of odds (%d/%d since your last one)." % [
@@ -223,9 +238,9 @@ func _build_unlocked_card() -> void:
 	explain_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(explain_lbl)
 
-	if not last_pull_result.is_empty():
+	if not last_pull_results.is_empty():
 		var result_lbl := Label.new()
-		result_lbl.text = "Last pull: %s" % _describe_pull_result(last_pull_result)
+		result_lbl.text = "Last pull: %s" % _describe_pull_results(last_pull_results)
 		result_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(result_lbl)
 
@@ -277,8 +292,78 @@ func _on_pull_pressed() -> void:
 	var result := FarroadProgression.do_pull(g)
 	if result.is_empty():
 		return
-	last_pull_result = result
+	last_pull_results = [result]
 	_notify_currency_changed()
 	if result["kind"] == "unit" and result.get("fielded"):
 		_notify_party_changed()
 	_refresh_card()
+
+func _on_pull_x10_pressed() -> void:
+	var results := []
+	var fielded_any := false
+	for i in range(10):
+		var result := FarroadProgression.do_pull(g)
+		if result.is_empty():
+			break
+		results.append(result)
+		if result["kind"] == "unit" and result.get("fielded"):
+			fielded_any = true
+	if results.is_empty():
+		return
+	last_pull_results = results
+	_notify_currency_changed()
+	if fielded_any:
+		_notify_party_changed()
+	_refresh_card()
+
+## Single pull: reuses the existing per-kind description exactly. Batch
+## pull: aggregate counts per kind (dedicated tallies for action/cond
+## duplicate-vs-new, since that distinction is the headline info there),
+## plus every NEW companion called out by name specifically -- those are
+## the outcomes worth reading individually even inside a batch summary.
+func _describe_pull_results(results: Array) -> String:
+	if results.size() == 1:
+		return _describe_pull_result(results[0])
+	var new_units: Array = []
+	var unit_dups := 0
+	var new_actions := 0
+	var dup_actions := 0
+	var new_conds := 0
+	var dup_conds := 0
+	var new_equip := 0
+	var dup_equip := 0
+	for r in results:
+		match r["kind"]:
+			"unit":
+				var def = FarroadCore.roster_by_id(r["id"])
+				new_units.append(def["name"] if def else r["id"])
+			"unit_dup":
+				unit_dups += 1
+			"action":
+				if r["duplicate"]:
+					dup_actions += 1
+				else:
+					new_actions += 1
+			"cond":
+				if r["duplicate"]:
+					dup_conds += 1
+				else:
+					new_conds += 1
+			"equip":
+				if r["duplicate"]:
+					dup_equip += 1
+				else:
+					new_equip += 1
+	var parts: Array = []
+	parts.append("%d pull%s" % [results.size(), "" if results.size() == 1 else "s"])
+	if not new_units.is_empty():
+		parts.append("new companion%s: %s" % ["" if new_units.size() == 1 else "s", ", ".join(new_units)])
+	if unit_dups > 0:
+		parts.append("%d duplicate companion%s -> Aether" % [unit_dups, "" if unit_dups == 1 else "s"])
+	if new_actions > 0 or dup_actions > 0:
+		parts.append("%d new / %d duplicate action%s" % [new_actions, dup_actions, "" if (new_actions + dup_actions) == 1 else "s"])
+	if new_conds > 0 or dup_conds > 0:
+		parts.append("%d new / %d duplicate gambit%s" % [new_conds, dup_conds, "" if (new_conds + dup_conds) == 1 else "s"])
+	if new_equip > 0 or dup_equip > 0:
+		parts.append("%d new / %d duplicate equipment" % [new_equip, dup_equip])
+	return "; ".join(parts) + "."

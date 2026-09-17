@@ -127,7 +127,7 @@ const MAG_CAMP: Array[String] = ["ember", "gale", "sear", "hex", "smother", "daz
 	"firebrand", "tidalsurge", "quakebolt", "zephyrbolt", "solarflare", "umbralbolt"]
 const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowofstone", "ashfall",
 	"bloodfury", "spellbrand", "wardcurse", "aegisstep", "quicksilver",
-	"heavystrike", "wildfire", "greatheal",
+	"heavystrike", "wildfire", "greatheal", "wearingdown", "ironresolve",
 	"tideturn", "lastlight", "sunder", "gravewind", "reckoning", "bulwarkoath", "emberglut", "hollowtoll",
 	"atk_reckless", "mag_lance", "def_slam", "res_strike", "spd_flurry",
 	"atk_cry", "mag_font", "def_bulwark", "res_ward", "spd_fleet",
@@ -434,6 +434,20 @@ static func aff_term(atk_raw: float, def_raw: float) -> float:
 static func aff_boost(a: float, b: float) -> float:
 	return min(AFFINITY_BOOST_CAP, (1 + affinity_mul(a)) * (1 + affinity_mul(b)))
 
+## 20-item batch, Group F: Ian's confirmed intent for spirit affinity is
+## an ASYMMETRIC formula, not aff_boost's symmetric one -- the CASTER's
+## own spirit still scales potency UP (unchanged direction), but the
+## TARGET's own spirit should now scale potency DOWN (more spirit-
+## resistant units shrug debuffs off more; more spirit-potent casters
+## land them harder on others). Same caster-boost/target-resist SHAPE
+## `aff_term` (below) already establishes for damage's own affinity
+## factor -- not a new pattern, applied here to status potency for
+## DEBUFFS specifically (apply_status branches on is_buff_status; buffs
+## keep the original symmetric aff_boost unchanged, since an ally
+## buffing a high-spirit teammate isn't what this ask was about).
+static func aff_boost_resist(caster_spirit: float, target_spirit: float) -> float:
+	return min(AFFINITY_BOOST_CAP, (1 + affinity_mul(caster_spirit)) * (1 - affinity_mul(target_spirit)))
+
 static func affinity_factor(src: Dictionary, tgt: Dictionary, act: Dictionary) -> float:
 	var m: float = 1.0
 	if act.get("camp") == "atk":
@@ -463,7 +477,12 @@ static func apply_status(u: Dictionary, id: String, t: int, caster_spirit) -> vo
 	if not STATUS_BASE_MAG.has(id):
 		return
 	var base: float = STATUS_BASE_MAG[id]
-	var mul: float = aff_boost(0.0 if caster_spirit == null else caster_spirit, u["affinity"]["spirit"])
+	var caster_spirit_f: float = 0.0 if caster_spirit == null else caster_spirit
+	var mul: float
+	if is_buff_status(id):
+		mul = aff_boost(caster_spirit_f, u["affinity"]["spirit"])
+	else:
+		mul = aff_boost_resist(caster_spirit_f, u["affinity"]["spirit"])
 	if not u.has("stMag") or u["stMag"] == null:
 		u["stMag"] = {}
 	u["stMag"][id] = base * mul
@@ -486,6 +505,10 @@ static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "def": return eff_def(u)
 	if key == "res": return eff_res(u)
 	if key == "spd": return u["base"]["spd"]
+	# Group D (20-item batch): the 2 new starter charge actions scale off
+	# the average of ATK and MAG, for a unit whose build doesn't lean
+	# hard into either camp.
+	if key == "avgAtkMag": return (eff_atk(u) + eff_mag(u)) / 2.0
 	return eff_atk(u)
 
 ## ===== tick cost / mitigation (mirrors farroad-core.js:152-186) =====

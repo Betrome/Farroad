@@ -26,11 +26,11 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Settings", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -46,6 +46,13 @@ func _build_ui(parent: Node) -> void:
 	title.text = "SETTINGS"
 	title.add_theme_font_size_override("font_size", 20)
 	vbox.add_child(title)
+
+	# Group H (20-item batch): Catalogue folded in here so it no longer
+	# needs its own bottom-row icon.
+	var catalogue_btn := Button.new()
+	catalogue_btn.text = "Catalogue"
+	catalogue_btn.pressed.connect(_on_catalogue_pressed)
+	vbox.add_child(catalogue_btn)
 
 	var reset_btn := Button.new()
 	reset_btn.text = "Reset Game"
@@ -92,6 +99,10 @@ func _on_toggle_pressed() -> void:
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):
 		_parent.call("_set_battle_paused", paused)
+
+func _on_catalogue_pressed() -> void:
+	if _parent and _parent.has_method("_open_catalogue"):
+		_parent.call("_open_catalogue")
 
 func _on_reset_pressed() -> void:
 	confirm_dialog.popup_centered()

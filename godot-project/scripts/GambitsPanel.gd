@@ -154,11 +154,36 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 
 ## Mirrors buildGambits' per-slot condition/action <select> pair
 ## (farroad-ui.js:2791-2840) plus the ▲/▼ reorder buttons.
+## Group J (20-item batch): rebuilt every refresh, same "just rebuild
+## everything" convention this panel already uses for its per-slot cards --
+## occupies slot 0 of slots_container, so every per-slot card index below
+## is offset by SLOT_CARD_OFFSET (see _on_reorder's own comment for why
+## that offset matters).
+const SLOT_CARD_OFFSET := 1
+func _build_auto_set_row() -> void:
+	var row := HBoxContainer.new()
+	var lbl := Label.new()
+	lbl.text = "First-pass suggestion, not a true optimizer -- adjust freely."
+	lbl.modulate = Color(0.55, 0.55, 0.55)
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	row.add_child(lbl)
+	var btn := Button.new()
+	btn.text = "Auto-set"
+	btn.pressed.connect(_on_auto_set_pressed)
+	row.add_child(btn)
+	slots_container.add_child(row)
+
+func _on_auto_set_pressed() -> void:
+	FarroadProgression.auto_assign_loadout(g, selected_uid)
+	_refresh_slots()
+
 func _refresh_slots() -> void:
 	for c in slots_container.get_children():
 		c.queue_free()
 	if selected_uid == "":
 		return
+	_build_auto_set_row()
 	var slots: Array = FarroadProgression.ensure_loadout(g, selected_uid)
 	for i in range(slots.size()):
 		var s: Dictionary = slots[i]
@@ -384,17 +409,44 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		row.add_child(row_info_btn)
 		list_container.add_child(row)
 
+const REORDER_TWEEN_TIME := 0.25
+
+## Group J (20-item batch): a reorder animation -- captures the two
+## affected slot cards' CURRENT screen Y (offset by SLOT_CARD_OFFSET,
+## since the Auto-set row now occupies slots_container's own child 0)
+## before the swap+rebuild, then after _refresh_slots() rebuilds fresh
+## cards, tweens the two cards now sitting at the swapped indices from
+## their old Y to their freshly laid-out resting Y. Relies on
+## slots_container (a plain VBoxContainer) NOT re-sorting children again
+## mid-tween -- nothing else here calls queue_sort() while the tween runs,
+## so the manual position override holds for its whole duration, the same
+## way this project's other tween-driven animations (BattlePresenter.gd's
+## hop/shake) already rely on nothing else touching the animated node's
+## position concurrently.
 func _on_reorder(i: int, delta: int) -> void:
 	var slots: Array = g["loadout"][selected_uid]
 	var j := i + delta
 	if j < 0 or j >= slots.size():
 		return
+	var old_y_i: float = slots_container.get_child(i + SLOT_CARD_OFFSET).position.y
+	var old_y_j: float = slots_container.get_child(j + SLOT_CARD_OFFSET).position.y
 	var tmp = slots[i]
 	slots[i] = slots[j]
 	slots[j] = tmp
 	g["touched"][selected_uid] = true
 	FarroadProgression.sync_loadout(g, selected_uid)
 	_refresh_slots()
+	await get_tree().process_frame   # let slots_container lay out the fresh cards before reading their real Y
+	var new_card_i: Control = slots_container.get_child(i + SLOT_CARD_OFFSET)
+	var new_card_j: Control = slots_container.get_child(j + SLOT_CARD_OFFSET)
+	var target_i: float = new_card_i.position.y
+	var target_j: float = new_card_j.position.y
+	new_card_i.position.y = old_y_j
+	new_card_j.position.y = old_y_i
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(new_card_i, "position:y", target_i, REORDER_TWEEN_TIME)
+	tw.tween_property(new_card_j, "position:y", target_j, REORDER_TWEEN_TIME)
 
 ## Post-Milestone-3 APK feedback (Group D) -- reads the slot's CURRENT
 ## action fresh at press-time (not a value bound at build-time).

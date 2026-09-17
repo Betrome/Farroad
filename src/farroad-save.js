@@ -104,7 +104,8 @@ var FIELDS=['wave','farthest','bossesCleared','aether','loreByAction','marks','w
     (see finishSideBattle()'s superboss branch). All three brand-new
     fields, plain default-fill below, no legacy shape — same precedent as
     'dungeons'/'directions'. */
- 'superBossQuests', 'superBossesUnlocked', 'superBossesCleared'];
+ 'superBossQuests', 'superBossesUnlocked', 'superBossesCleared',
+ 'pendingIdleAether', 'pendingIdleMarks'];
 
 function clone(v){return v===undefined?v:JSON.parse(JSON.stringify(v));}
 
@@ -175,6 +176,7 @@ S.deserialize=function(snap,C){
  G.maxLevelEver=G.maxLevelEver||1;
  G.wave=G.wave||0;G.farthest=G.farthest||1;G.bossesCleared=G.bossesCleared||0;
  G.aether=G.aether||0;G.loreByAction=G.loreByAction||{};G.marks=G.marks||0;G.wipes=G.wipes||0;
+ G.pendingIdleAether=G.pendingIdleAether||0;G.pendingIdleMarks=G.pendingIdleMarks||0;
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
  /* v2.9 MIGRATION: a save written before multi-expedition support has a
     singular 'expedition' object (possibly a real in-flight one) and a

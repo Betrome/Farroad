@@ -23,39 +23,55 @@ var _charge_fg: ColorRect
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
+	_build(unit_size)
+
+## Rebuilds this SAME UnitView at a new size, `unit` unchanged -- used by
+## BattlePresenter._place_weighted's overflow shrink (Group I, 20-item
+## batch: several large archetypes sharing one column can genuinely not
+## fit at their own natural size; shrinking the actual rendered size,
+## not just the reserved band, is what keeps the visual footprint honest).
+## Safe to call before this UnitView has ever been rendered a frame (the
+## normal case -- _layout_units/_place_weighted run synchronously before
+## the scene tree's first draw), since the old children's queue_free()
+## never gets a chance to show on screen either way.
+func resize(unit_size: float) -> void:
+	for c in get_children():
+		c.queue_free()
+	_build(unit_size)
+
+func _build(unit_size: float) -> void:
 	size = unit_size
 	var half := size / 2.0
 	var bar_h: float = max(4.0, size * 0.12)
 	var charge_h: float = max(2.0, bar_h * 0.5)
+	# Group I (20-item batch): tightened from the original bar_h-sized gaps
+	# (the bar's own height doubling as the gap between it and the next
+	# element) to a small, consistent gap -- shrinks each unit's total
+	# vertical footprint so adjacent units don't overlap at max occupancy.
+	var gap: float = max(1.0, size * 0.05)
 
 	shape = Polygon2D.new()
 	shape.polygon = PackedVector2Array([
 		Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half)])
-	shape.color = Color(0.30, 0.55, 0.95) if u["isParty"] else Color(0.85, 0.30, 0.28)
+	shape.color = Color(0.30, 0.55, 0.95) if unit["isParty"] else Color(0.85, 0.30, 0.28)
 	add_child(shape)
-
-	var name_label := Label.new()
-	name_label.text = u["name"]
-	name_label.position = Vector2(-half - size * 0.2, -half - size * 0.45)
-	name_label.add_theme_font_size_override("font_size", int(size * 0.25))
-	add_child(name_label)
 
 	_hp_bg = ColorRect.new()
 	_hp_bg.size = Vector2(size, bar_h)
-	_hp_bg.position = Vector2(-half, half + bar_h)
+	_hp_bg.position = Vector2(-half, half + gap)
 	_hp_bg.color = Color(0.15, 0.15, 0.15)
 	add_child(_hp_bg)
 
 	_hp_fg = ColorRect.new()
 	_hp_fg.size = Vector2(size, bar_h)
-	_hp_fg.position = Vector2(-half, half + bar_h)
+	_hp_fg.position = _hp_bg.position
 	_hp_fg.color = Color(0.25, 0.85, 0.30)
 	add_child(_hp_fg)
 
 	# Thin charge bar, directly below the HP bar -- fills toward whichever
 	# charge action the unit itself has (costOfCharge), or the generic
 	# CHARGE_FULL if it has none, so it never visually overflows past full.
-	var charge_y: float = half + bar_h * 2.0 + 2.0
+	var charge_y: float = _hp_bg.position.y + bar_h + gap
 	_charge_bg = ColorRect.new()
 	_charge_bg.size = Vector2(size, charge_h)
 	_charge_bg.position = Vector2(-half, charge_y)
@@ -67,6 +83,15 @@ func setup(u: Dictionary, unit_size: float) -> void:
 	_charge_fg.position = Vector2(-half, charge_y)
 	_charge_fg.color = Color(0.85, 0.7, 0.15)
 	add_child(_charge_fg)
+
+	# Group I: "space out units vertically so names aren't overlapping. Put
+	# names under the charge bar." -- moved from above the shape (its old
+	# spot) to directly below the charge bar, now the bottom-most element.
+	var name_label := Label.new()
+	name_label.text = unit["name"]
+	name_label.position = Vector2(-half, charge_y + charge_h + gap)
+	name_label.add_theme_font_size_override("font_size", int(size * 0.25))
+	add_child(name_label)
 
 	update_hp()
 	update_charge()

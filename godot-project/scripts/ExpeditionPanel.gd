@@ -42,14 +42,14 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# Post-Milestone-3 APK feedback (Group B1) reassigned the 8-icon bottom
-	# row's slots -- see MarksPanel.gd's own copy of this comment for the
-	# full new layout. This panel now sits at 0.5067 (was Equipment's slot).
+	# 20-item batch's own Group H recomputed the (now 7-icon) bottom row --
+	# see MarksPanel.gd's own copy of this comment for the full layout.
+	# This panel now sits at 0.5838.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5067, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

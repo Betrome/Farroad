@@ -109,6 +109,12 @@ function compileArch(rows) {
     };
     if (r.mag !== '') entry.mag = num(r.mag);
     if (num(r.thorns, 0) > 0) entry.thorns = num(r.thorns);
+    // 20-item batch's own Group I -- optional field-size multiplier, used
+    // only for presentation (BattlePresenter._unit_size()), never combat
+    // math. Omitted (blank cell) when the archetype is normal-sized, so
+    // most rows never carry this key at all -- matches the same
+    // omit-when-default convention every other optional field here uses.
+    if (num(r.size, 1.0) !== 1.0) entry.size = num(r.size, 1.0);
     if (r.charge_action) entry.chargeAction = r.charge_action;
     arch[r.key] = entry;
   });

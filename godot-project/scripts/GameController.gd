@@ -309,15 +309,18 @@ func _reset_game() -> void:
 		DirAccess.remove_absolute(SAVE_PATH)
 	get_tree().reload_current_scene()
 
-## Post-Milestone-3 APK feedback (Group B4) -- center of the 8-icon bottom
+## Post-Milestone-3 APK feedback (Group B4) -- center of the bottom icon
 ## row (same 0.11*vp.x icon size/0.93*vp.y row every tab panel's own icon
 ## uses), styled distinctly (a gold fill, not the flat grey every tab icon
 ## uses) so it reads as a different KIND of control, not just another tab.
+## Recomputed to the TRUE center of the now-7-icon row by the 20-item
+## batch's own Group H (Catalogue folded into Settings) -- see
+## MarksPanel.gd's own comment for the full 7-slot layout.
 func _build_road_button() -> void:
 	var icon_size: float = _vp.x * 0.11
 	road_button = Button.new()
 	road_button.text = "Road"
-	road_button.position = Vector2(_vp.x * 0.3833, _vp.y * 0.93)
+	road_button.position = Vector2(_vp.x * 0.4450, _vp.y * 0.93)
 	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
 	road_button.clip_text = true
 	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
@@ -333,7 +336,7 @@ func _build_road_button() -> void:
 
 func _reflow_road_button() -> void:
 	var icon_size: float = _vp.x * 0.11
-	road_button.position = Vector2(_vp.x * 0.3833, _vp.y * 0.93)
+	road_button.position = Vector2(_vp.x * 0.4450, _vp.y * 0.93)
 	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
 
 ## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
@@ -405,10 +408,32 @@ func _show_welcome_back_popup() -> void:
 	vbox.add_child(body)
 
 	var gained := Label.new()
-	gained.text = "+%d Aether, +%d Marks" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
+	gained.text = "+%d Aether, +%d Marks from wave clears" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
 	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	gained.modulate = Color(0.85, 0.75, 0.4)
 	vbox.add_child(gained)
+
+	# Ian: "don't add rewards from... idle until collected. Add a collect
+	# button." Idle's own flat trickle is banked into pendingIdleAether/
+	# pendingIdleMarks (simulate_offline_progress), distinct from the
+	# wave-clear gains above (which stay auto-applied, never gated).
+	var idle_aether: float = s.get("idle_aether_pending", 0.0)
+	var idle_marks: float = s.get("idle_marks_pending", 0.0)
+	if idle_aether > 0.0 or idle_marks > 0.0:
+		var idle_lbl := Label.new()
+		idle_lbl.text = "+%d Aether, +%d Marks of idle income, pending" % [roundi(idle_aether), floori(idle_marks)]
+		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+		idle_lbl.modulate = Color(0.7, 0.8, 0.9)
+		vbox.add_child(idle_lbl)
+
+		var collect_btn := Button.new()
+		collect_btn.text = "Collect idle income"
+		collect_btn.pressed.connect(func():
+			FarroadProgression.collect_idle_reward(g)
+			_refresh_hud()
+			idle_lbl.text = "Collected."
+			collect_btn.disabled = true)
+		vbox.add_child(collect_btn)
 
 	var got_it := Button.new()
 	got_it.text = "Got it"
@@ -417,7 +442,7 @@ func _show_welcome_back_popup() -> void:
 		popup.queue_free())
 	vbox.add_child(got_it)
 
-	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.6))
+	popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.65))
 
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
@@ -510,8 +535,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
-	currency_label.text = "Aether %d   Lore %d   Marks %d" % [
-		roundi(g["aether"]), roundi(FarroadProgression.total_lore(g)), roundi(g["marks"])]
+	currency_label.text = "Aether %d   Marks %d" % [roundi(g["aether"]), roundi(g["marks"])]
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
 	idle_rate_label.text = "%.1f Aether/hr   %.1f Marks/hr" % [r["aether"] * 3600.0, marks_rate * 3600.0]
@@ -542,6 +566,15 @@ func _panel_opening(panel: Node) -> void:
 	if open_panel != null and open_panel != panel and is_instance_valid(open_panel):
 		open_panel.popup.hide()
 	open_panel = panel
+
+## Group H (20-item batch): Catalogue folded out of the bottom icon row --
+## reached via a "Catalogue" button inside SettingsPanel's own popup
+## instead (dynamic dispatch, matching every other cross-panel trigger in
+## this project, e.g. _reset_game()). Just re-triggers Catalogue's own
+## existing open logic (_panel_opening + refresh + popup + battle-pause),
+## which already correctly closes Settings' own popup via _panel_opening.
+func _open_catalogue() -> void:
+	catalogue_panel.call("_on_toggle_pressed")
 
 const RARITY_COLOR := {"common": Color(1.0, 1.0, 1.0), "rare": Color(0.35, 0.55, 1.0), "legendary": Color(1.0, 0.62, 0.15)}
 
@@ -1059,14 +1092,17 @@ func _fade_in() -> void:
 
 ## ===== Group H: wave-clear reward drop animation =====
 ## Icon x-fractions duplicated from the target panels' own _build_icon_tab
-## calls (GambitsPanel.gd/PartyPanel.gd/EquipmentPanel.gd, all at
-## icon_size=0.11*vp.x, y=0.93*vp.y) -- same per-file duplication
-## convention this project already uses everywhere else, not a new pattern.
+## calls, all at icon_size=0.11*vp.x, y=0.93*vp.y -- same per-file
+## duplication convention this project already uses everywhere else, not
+## a new pattern. Renamed + recomputed for the 7-icon row (20-item batch's
+## own Group H: Road centered, Catalogue folded into Settings) -- UnitsPanel
+## 0.0288, PartyPanel 0.1675, ExpeditionPanel 0.5838, confirmed by reading
+## each panel's own current _build_ui.
 const ICON_SIZE_FRAC := 0.11
 const ICON_Y_FRAC := 0.93
-const GAMBITS_ICON_X_FRAC := 0.0133
-const PARTY_ICON_X_FRAC := 0.1367
-const EQUIPMENT_ICON_X_FRAC := 0.5067
+const UNITS_ICON_X_FRAC := 0.0288
+const PARTY_ICON_X_FRAC := 0.1675
+const EXPEDITION_ICON_X_FRAC := 0.5838
 
 const REWARD_FLYER_TIME := 0.7
 const REWARD_FLYER_STAGGER := 0.12
@@ -1094,7 +1130,11 @@ func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float
 		delay += REWARD_FLYER_STAGGER
 	var lore_delta: float = FarroadProgression.total_lore(g) - lore_before
 	if lore_delta >= 1.0:
-		_spawn_reward_flyer(start, currency_label.position, "+%d Lore" % roundi(lore_delta), delay)
+		# Lore's own HUD figure was removed (Ian: "remove lore total") --
+		# Lore is per-action now and lives under Units -> Lore, so the
+		# flyer's destination moves there instead of the (now Lore-less)
+		# currency_label.
+		_spawn_reward_flyer(start, _icon_center(UNITS_ICON_X_FRAC), "+%d Lore" % roundi(lore_delta), delay)
 		delay += REWARD_FLYER_STAGGER
 	var marks_delta: float = g.get("marks", 0.0) - marks_before
 	if marks_delta >= 1.0:
@@ -1110,9 +1150,9 @@ func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float
 func _reward_icon_target(e: Dictionary) -> Variant:
 	match e.get("kind", ""):
 		"action", "cond":
-			return _icon_center(GAMBITS_ICON_X_FRAC)
+			return _icon_center(UNITS_ICON_X_FRAC)
 		"equip":
-			return _icon_center(EQUIPMENT_ICON_X_FRAC)
+			return _icon_center(EXPEDITION_ICON_X_FRAC)
 		"boss_companion", "boss_companion_roll":
 			return _icon_center(PARTY_ICON_X_FRAC)
 		_:
@@ -1196,7 +1236,7 @@ func _attempt_quest(uid: String) -> void:
 	_enter_side_battle(prep["enemies"], prep["wave"], prep["meta"])
 
 func _enter_dungeon(id: String) -> void:
-	var prep := FarroadProgression.prep_dungeon_attempt(g, id)
+	var prep := FarroadProgression.prep_dungeon_attempt(g, id, Time.get_unix_time_from_system())
 	if prep.is_empty():
 		return
 	quests_panel.popup.hide()
@@ -1221,7 +1261,7 @@ func _give_up_quest() -> void:
 	_resolve_side_battle("enemy", true)
 
 func _resolve_side_battle(result: String, gave_up: bool) -> void:
-	var event := FarroadProgression.finish_side_battle(g, result, gave_up)
+	var event := FarroadProgression.finish_side_battle(g, result, gave_up, Time.get_unix_time_from_system())
 	if event["kind"] == "dungeon_wave_advance":
 		# Same fresh-instance-per-wave convention _begin_next_fight already
 		# uses for the Road -- BattlePresenter._layout_units() never frees

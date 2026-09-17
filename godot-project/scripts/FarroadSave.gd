@@ -23,7 +23,8 @@ const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "l
 	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
 	"affinities", "statInvest", "equipInv", "equipped",
-	"superBossQuests", "superBossesUnlocked", "superBossesCleared"]
+	"superBossQuests", "superBossesUnlocked", "superBossesCleared",
+	"pendingIdleAether", "pendingIdleMarks"]
 
 ## JSON round-trip is Godot's own equivalent of JS's `JSON.parse(JSON.stringify(v))`
 ## deep-clone -- values here are always plain Dictionaries/Arrays/primitives
@@ -116,6 +117,8 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["loreByAction"] = g.get("loreByAction") if g.get("loreByAction") else {}
 	g["marks"] = g.get("marks") if g.get("marks") else 0
 	g["wipes"] = g.get("wipes") if g.get("wipes") else 0
+	g["pendingIdleAether"] = g.get("pendingIdleAether") if g.get("pendingIdleAether") else 0.0
+	g["pendingIdleMarks"] = g.get("pendingIdleMarks") if g.get("pendingIdleMarks") else 0.0
 	g["idleAcc"] = g.get("idleAcc") if g.get("idleAcc") else 0
 	g["enrage"] = g.get("enrage") != false
 	g["seenArch"] = _clone(snap.get("seenArch")) if snap.get("seenArch") else {}

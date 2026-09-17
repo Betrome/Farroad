@@ -123,9 +123,24 @@ function affTerm(atkRaw,defRaw){return (1+affinityMul(atkRaw))*(1-affinityMul(de
  * caps out at EXACTLY -0.80 at the extreme — the same ±80% ceiling
  * AFFINITY_CAP already guarantees everywhere else in this feature, not an
  * arbitrary second number. Applies uniformly to healing too (healFor uses
- * this same helper) — a single shared bound, not a special case. */
+ * this same helper) — a single shared bound, not a special case.
+ *
+ * v2.14 UPDATE (20-item batch, Group F): the "symmetric, both sides boost"
+ * reasoning above still holds for BUFFS and for healing — unchanged. For
+ * DEBUFFS specifically, Ian's explicit ask flips the target side: a
+ * higher-Spirit unit should now RESIST incoming debuffs (not receive them
+ * harder), while a higher-Spirit CASTER still lands their own debuffs
+ * harder on others — a caster-boost/target-resist shape, not this
+ * function's own caster-boost/target-boost one. See affBoostResist below,
+ * which reuses affTerm's own already-established asymmetric shape (the
+ * SAME shape damage's own affinity factor already uses) rather than
+ * inventing a third pattern. apply()'s own call site now branches on
+ * isBuffStatus(id) to pick between the two — buffs/healing keep calling
+ * this function exactly as before. */
 var AFFINITY_BOOST_CAP=2.0;
 function affBoost(a,b){return Math.min(AFFINITY_BOOST_CAP,(1+affinityMul(a))*(1+affinityMul(b)));}
+function affBoostResist(casterSpirit,targetSpirit){
+ return Math.min(AFFINITY_BOOST_CAP,(1+affinityMul(casterSpirit))*(1-affinityMul(targetSpirit)));}
 /* Body always applies to a physical (camp==='atk') damage action — attacker's
    and defender's Body affinity. The action's own element (mandatory on every
    magic damage action, optional on physical, absent on heal/buff/debuff-only
@@ -236,7 +251,11 @@ function apply(u,id,t,casterSpirit){
  u.st[id]=t;
  var base=STATUS_BASE_MAG[id];
  if(base==null)return;
- var mul=affBoost(casterSpirit==null?0:casterSpirit,u.affinity.spirit);
+ var cs=casterSpirit==null?0:casterSpirit;
+ /* v2.14: debuffs use the caster-boost/target-RESIST shape
+    (affBoostResist) instead of the symmetric affBoost buffs/healing still
+    use — see affBoostResist's own comment for why. */
+ var mul=isBuffStatus(id)?affBoost(cs,u.affinity.spirit):affBoostResist(cs,u.affinity.spirit);
  u.stMag=u.stMag||{};
  u.stMag[id]=base*mul;}
 function effAtk(u){return u.base.atk*(1+(has(u,'enfeebled')?magOf(u,'enfeebled'):0));}
@@ -261,6 +280,10 @@ function statByKey(u,key){
  if(key==='def')return effDef(u);
  if(key==='res')return effRes(u);
  if(key==='spd')return u.base.spd;
+ /* Group D (20-item batch): the 2 new starter charge actions scale off
+    the average of ATK and MAG, for a unit whose build doesn't lean hard
+    into either camp. */
+ if(key==='avgAtkMag')return (effAtk(u)+effMag(u))/2;
  return effAtk(u);}
 function tcOf(u,rank){return tcRaw(u.base.spd*rowSpdMul(u),
  rank*(1+(has(u,'hasted')?magOf(u,'hasted'):0))*(1+(has(u,'slowed')?magOf(u,'slowed'):0)));}
@@ -308,7 +331,7 @@ var MAG_CAMP=['ember','gale','sear','hex','smother','dazzle','siphon','mend','re
 var EQUIPPABLE=ATK_CAMP.concat(MAG_CAMP);
 var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
  'bloodfury','spellbrand','wardcurse','aegisstep','quicksilver',
- 'heavystrike','wildfire','greatheal',
+ 'heavystrike','wildfire','greatheal','wearingdown','ironresolve',
  'tideturn','lastlight','sunder','gravewind','reckoning','bulwarkoath','emberglut','hollowtoll',
  'atk_reckless','mag_lance','def_slam','res_strike','spd_flurry',
  'atk_cry','mag_font','def_bulwark','res_ward','spd_fleet',
@@ -930,12 +953,13 @@ F.CAP_CRIT=CAP_CRIT;F.CRIT_MUL=CRIT_MUL;
    cross-module need F.CAP_CRIT above already exists for. */
 F.CAP_EVADE=CAP_EVADE;
 F.ST=ST;F.DEBUFFS=DEBUFFS;F.STATUS_INFO=STATUS_INFO;F.has=has;F.hpPct=hpPct;
-F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;
+F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;F.statByKey=statByKey;
 /* v2.10: exported for progression's affinity-cost curve and the UI's AETHER
    tab, which both need the exact same curve the combat formula itself uses
    (see the AFFINITY_CAP/affinityMul comment above for why this lives here
    rather than in progression.js). */
 F.affinityMul=affinityMul;F.AFFINITY_CAP=AFFINITY_CAP;F.defaultAffinity=defaultAffinity;
+F.affBoost=affBoost;F.affBoostResist=affBoostResist;F.isBuffStatus=isBuffStatus;F.apply=apply;F.magOf=magOf;
 F.AFFINITY_BOOST_CAP=AFFINITY_BOOST_CAP;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;
 F.BONUSES=BONUSES;F.applyBonuses=applyBonuses;F.bonusSpend=bonusSpend;

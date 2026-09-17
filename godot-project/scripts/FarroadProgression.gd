@@ -81,6 +81,15 @@ const HARD_FROM := 100
 const HARD_REF := 800.0
 const HARD_MAX := 20.0
 const BOSS_HARD_EXTRA := 1.20   # additional boss-only ATK/MAG multiplier
+## 20-item batch, Group F: a flat addition to a boss's own affinity.spirit
+## (base archetypes all sit at spirit=0 today) -- makes a boss concretely
+## resist incoming debuffs harder AND land its own debuffs harder, per the
+## new caster-boost/target-resist debuff formula. +18 puts affinity_mul(18)
+## at roughly +0.63, so (1-0.63)=~0.37x a debuff's usual magnitude when
+## landed on a boss by a spirit-neutral caster -- noticeably softened, not
+## fully negated (AFFINITY_CAP=40 is the max either side of the formula
+## can reach, so a high-Spirit party caster can still claw some of it back).
+const BOSS_SPIRIT_BONUS := 18.0
 # Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
 # the flat 1.10 boss ATK bonus in build_enemies, the wave-20 boss's damage
 # output drops from ~1.32x to ~1.16x a normal enemy's, without touching
@@ -817,6 +826,67 @@ static func sync_loadout(g: Dictionary, uid: String) -> void:
 		if u["id"] == uid:
 			u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
 
+## Group J (20-item batch): a first-pass heuristic auto-builder for a
+## unit's loadout, new Godot-only feature (no real-JS equivalent to
+## mirror). NOT a true optimizer -- ranks the unit's own owned actions
+## (g["actions"], the exact same eligible pool the real action picker
+## itself offers -- see GambitsPanel._populate_action_picker) toward
+## whichever camp (ATK/MAG) the unit's own CURRENT stats favor (via
+## build_party_unit, which already applies level/pct-stat/equipment
+## investment -- works for a benched unit too, no fielded requirement)
+## and higher rank/power, then pairs each slot with an owned condition
+## that fits the action's own target type where one exists (slot 0 always
+## "none", matching the real game's own convention that a unit's first
+## slot has no condition gate). Overwrites every slot -- an explicit,
+## all-at-once rebuild, not a partial fill.
+static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
+	var slots: Array = ensure_loadout(g, uid)
+	var probe := build_party_unit(g, uid, 0)
+	var dominant_camp: String = "mag" if float(probe["base"]["mag"]) > float(probe["base"]["atk"]) else "atk"
+
+	var candidates: Array = g["actions"].duplicate()
+	candidates.sort_custom(func(a, b):
+		var act_a = FarroadCore.ACTIONS.get(a)
+		var act_b = FarroadCore.ACTIONS.get(b)
+		if act_a == null or act_b == null:
+			return act_a != null
+		return _auto_assign_score(act_a, dominant_camp) > _auto_assign_score(act_b, dominant_camp))
+	if candidates.is_empty():
+		candidates = ["strike"]
+
+	for i in range(slots.size()):
+		var action_id: String = candidates[i % candidates.size()]
+		var act = FarroadCore.ACTIONS.get(action_id)
+		slots[i]["action"] = action_id
+		slots[i]["cond"] = ("none" if i == 0 or act == null else _auto_assign_condition(act, g["conditions"]))
+	g["touched"][uid] = true
+	sync_loadout(g, uid)
+
+static func _auto_assign_score(act: Dictionary, dominant_camp: String) -> float:
+	var camp_bonus: float = 10.0 if act.get("camp") == dominant_camp else 0.0
+	return camp_bonus + float(act.get("rank", 0.0)) + float(act.get("power", 0.0))
+
+## Best-fit owned condition for this action's own target type, else
+## "none" -- a heal/ally-targeting action prefers an HP-threshold ally
+## condition, a self-targeting action a self HP-threshold, everything
+## else (foe-targeting) a foe-focused condition, each list ordered
+## tightest-fit first.
+static func _auto_assign_condition(act: Dictionary, owned_conditions: Array) -> String:
+	var tk = act.get("tk", "foe")
+	var preferred: Array
+	if act.get("heal", false) or tk == "ally" or tk == "allAllies":
+		preferred = ["ally_hp_lte_50", "ally_hp_lte_60", "ally_hp_lte_80"]
+	elif tk == "self":
+		preferred = ["self_hp_lte_50", "self_hp_lte_60", "self_hp_lte_80"]
+	elif tk == "deadAlly":
+		preferred = []
+	else:
+		preferred = ["foe_lowest_hp", "foe_lacks_debuff", "foe_armoured"]
+	for cid in preferred:
+		if owned_conditions.has(cid):
+			return cid
+	return "none"
+
 ## Mirrors benchUnit (farroad-ui.js:2648-2652) -- refuses to empty the
 ## party. Deliberately does NOT touch g["loadout"][uid] -- a benched
 ## unit's loadout is preserved as-is, same as the real game.
@@ -1214,6 +1284,16 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 			"chargeAction": "wardensmaul" if boss else a.get("chargeAction"),
 			"affinity": a["affinity"],
 			"slots": a["slots"].map(func(sl): return {"cond": sl["cond"], "action": sl["action"]})}))
+		# 20-item batch, Group F: bosses get a flat Spirit bonus (own,
+		# freshly-constructed affinity dict -- make_unit already copies
+		# a["affinity"]'s values out into a NEW dict per unit, so this never
+		# touches the shared ARCH data) so their own debuffs land harder and
+		# incoming debuffs from the party resist harder, per the new
+		# caster-boost/target-resist debuff formula (apply_status/
+		# aff_boost_resist above).
+		if boss:
+			var boss_unit: Dictionary = out[out.size() - 1]
+			boss_unit["affinity"]["spirit"] = float(boss_unit["affinity"]["spirit"]) + BOSS_SPIRIT_BONUS
 	return out
 
 ## ===== random post-curated drops (mirrors randomDrop, farroad-ui.js:735) =====
@@ -1420,6 +1500,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
 		"aether": 0, "loreByAction": {}, "marks": 0, "wipes": 0,
+		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0,
 		"party": ["kesh"], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
@@ -1760,8 +1841,19 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 	var marks_before: float = float(g["marks"])
 	var capped: float = minf(elapsed_sec, OFFLINE_CAP_SEC)
 	var r := idle_per_sec(g.get("farthest", 1))
-	g["aether"] = float(g["aether"]) + r["aether"] * capped
-	g["marks"] = float(g["marks"]) + r["marks"] * marks_mul(g) * capped
+	# Ian: "don't add rewards from... idle until collected." Only the FLAT
+	# idle-trickle gain is held back here -- banked into pendingIdleAether/
+	# pendingIdleMarks (accumulates across multiple uncollected resumes,
+	# same as the quest/dungeon pending pools) until the welcome-back
+	# popup's own Collect button credits it. The REPLAYED COMBAT below
+	# (after_wave_cleared's own real per-wave kill_reward) is a different
+	# kind of event -- a wave clear, mechanically identical to one that
+	# happens while actively playing -- and stays auto-applied exactly as
+	# it always has, never gated.
+	var idle_aether_this_time: float = r["aether"] * capped
+	var idle_marks_this_time: float = r["marks"] * marks_mul(g) * capped
+	g["pendingIdleAether"] = float(g.get("pendingIdleAether", 0.0)) + idle_aether_this_time
+	g["pendingIdleMarks"] = float(g.get("pendingIdleMarks", 0.0)) + idle_marks_this_time
 	var remaining: float = capped
 	var guard := 0
 	while remaining > 0.0 and guard < 200000:
@@ -1788,10 +1880,31 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 		"elapsed_sec": elapsed_sec,
 		"wave_before": wave_before,
 		"wave_after": int(g["wave"]),
+		# aether_gained/marks_gained now cover ONLY what the replayed
+		# combat itself already credited (kill_reward, never gated) --
+		# idle_aether_pending/idle_marks_pending is the flat trickle this
+		# call just banked, awaiting the welcome-back popup's Collect tap.
 		"aether_gained": g["aether"] - aether_before,
 		"marks_gained": g["marks"] - marks_before,
+		"idle_aether_pending": idle_aether_this_time,
+		"idle_marks_pending": idle_marks_this_time,
 		"wipes_gained": int(g.get("wipes", 0)) - wipes_before,
 	}
+
+## Credits the accumulated-but-uncollected idle trickle to
+## g["aether"]/g["marks"], zeroing both pending pools -- same bank-then-
+## collect shape as collect_expedition/collect_quest_reward/
+## collect_dungeon_reward.
+static func collect_idle_reward(g: Dictionary) -> Dictionary:
+	var aether: float = float(g.get("pendingIdleAether", 0.0))
+	var marks: float = float(g.get("pendingIdleMarks", 0.0))
+	if aether <= 0.0 and marks <= 0.0:
+		return {"aether": 0.0, "marks": 0.0}
+	g["aether"] = float(g["aether"]) + aether
+	g["marks"] = float(g["marks"]) + marks
+	g["pendingIdleAether"] = 0.0
+	g["pendingIdleMarks"] = 0.0
+	return {"aether": aether, "marks": marks}
 
 ## ===== POWER LEVEL (Step 3i) =====
 ## Mirrors powerLevel (farroad-progression.js:1030-1058) -- a rollup of
@@ -1905,6 +2018,23 @@ static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now)
 	g["dungeons"].append(dungeon)
 	return dungeon
 
+## 20-item batch, Group G: "dungeons can only be completed once per day."
+## Real-world calendar-DAY boundary (UTC, since `now` is a plain unix
+## timestamp with no timezone anywhere in this project) -- "YYYY-MM-DD"
+## string comparison rather than a fixed 24h cooldown, so a dungeon
+## reliably resets at midnight UTC regardless of what time of day it was
+## first cleared, matching how a real daily-reset feature is normally
+## expected to behave (not "24h after your last clear, whenever that was").
+static func _calendar_day(ts) -> String:
+	var dt := Time.get_datetime_dict_from_unix_time(int(ts))
+	return "%04d-%02d-%02d" % [int(dt["year"]), int(dt["month"]), int(dt["day"])]
+
+static func dungeon_available(dungeon: Dictionary, now) -> bool:
+	var last = dungeon.get("lastClearedAt")
+	if last == null:
+		return true
+	return _calendar_day(now) != _calendar_day(last)
+
 ## Mirrors questStageWave/questStageAether (farroad-progression.js:1168-1203).
 static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
 	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
@@ -1948,14 +2078,17 @@ static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 			"name": (def["name"] if def else uid), "story": with_mc_name(step["story"])}}
 
 ## Mirrors enterDungeon (farroad-ui.js:2505-2513).
-static func prep_dungeon_attempt(g: Dictionary, id: String) -> Dictionary:
+## `now` (20-item batch, Group G): structural enforcement of the once-per-
+## day gate, not just QuestsPanel's own disable+tooltip UI polish on top --
+## a real game rule, not merely a UX nicety, so it's checked here too.
+static func prep_dungeon_attempt(g: Dictionary, id: String, now) -> Dictionary:
 	if g.get("sideBattle") != null:
 		return {}
 	var dungeon = null
 	for d in g["dungeons"]:
 		if d["id"] == id:
 			dungeon = d
-	if dungeon == null:
+	if dungeon == null or not dungeon_available(dungeon, now):
 		return {}
 	var wave0: Dictionary = dungeon["waves"][0]
 	return {"enemies": units_from_snapshots(wave0["enemies"]), "wave": wave0["wave"],
@@ -1990,7 +2123,12 @@ static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Di
 ##   "quest_abandoned"/"dungeon_cleared"/"dungeon_failed" once fully
 ##   resolved (g["sideBattle"]/g["roadBattle"] cleared, g["battle"]
 ##   restored to the Road's own battle).
-static func finish_side_battle(g: Dictionary, result: String, gave_up: bool) -> Dictionary:
+## `now` (20-item batch, Group G): a real timestamp, always caller-supplied
+## rather than read internally -- same discipline every other time-touching
+## function in this file already follows (see the EXPEDITIONS section's own
+## comment for why). Only consumed by the dungeon-clear branch below, to
+## stamp dungeon["lastClearedAt"] for the new once-per-day gate.
+static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now) -> Dictionary:
 	var sb: Dictionary = g["sideBattle"]
 	var meta: Dictionary = sb["meta"]
 	if meta["kind"] == "dungeon" and result == "party" and int(meta["waveIndex"]) < int(meta["totalWaves"]) - 1:
@@ -2017,7 +2155,12 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool) -> 
 		if result == "party":
 			q["stage"] = int(q["stage"]) + 1
 			var reward: int = quest_stage_aether(meta["stage"])
-			g["aether"] = float(g["aether"]) + reward
+			# Banked, not credited -- Ian: "don't add rewards from quests...
+			# until collected." Mirrors the expedition bank/collect pattern
+			# (exp["bank"]) already established. Accumulates across multiple
+			# uncollected clears rather than overwriting, since a unit can
+			# clear its next stage before the last one's reward is collected.
+			q["pendingAether"] = float(q.get("pendingAether", 0.0)) + float(reward)
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
 				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "aether": reward}
 		elif gave_up:
@@ -2031,16 +2174,55 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool) -> 
 				dungeon = d
 		if result == "party" and dungeon != null:
 			dungeon["clears"] = int(dungeon["clears"]) + 1
+			# 20-item batch, Group G: "dungeons can only be completed once
+			# per day" -- stamped on every real clear; dungeon_available()
+			# below is the actual gate (checked by QuestsPanel before
+			# offering Enter).
+			dungeon["lastClearedAt"] = now
 			var reward_wave: float = float(meta["tier"]) * float(FarroadCore.DIRECTION_CONFIG[meta["direction"]]["unlockEvery"])
 			var mul: float = direction_mul(meta["direction"])
 			var r := kill_reward(reward_wave, meta["totalWaves"])
 			var d_aether: float = r["aether"] * mul
 			var d_marks: float = r["marks"] * marks_mul(g) * mul
-			g["aether"] = float(g["aether"]) + d_aether
-			g["marks"] = float(g["marks"]) + d_marks
+			# Banked, not credited -- same reasoning/pattern as the quest
+			# branch above.
+			dungeon["pendingAether"] = float(dungeon.get("pendingAether", 0.0)) + d_aether
+			dungeon["pendingMarks"] = float(dungeon.get("pendingMarks", 0.0)) + d_marks
 			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
+
+## Credits a quest's own accumulated-but-uncollected Aether reward to
+## g["aether"], zeroing the pending pool -- mirrors collect_expedition's
+## own bank->collect shape exactly.
+static func collect_quest_reward(g: Dictionary, uid: String) -> float:
+	var q: Dictionary = g["quests"].get(uid, {})
+	var amount: float = float(q.get("pendingAether", 0.0))
+	if amount <= 0.0:
+		return 0.0
+	g["aether"] = float(g["aether"]) + amount
+	q["pendingAether"] = 0.0
+	return amount
+
+## Credits a dungeon's own accumulated-but-uncollected Aether/Marks reward,
+## zeroing both pending pools -- mirrors collect_expedition's own
+## bank->collect shape exactly.
+static func collect_dungeon_reward(g: Dictionary, dungeon_id: String) -> Dictionary:
+	var dungeon = null
+	for d in g["dungeons"]:
+		if d["id"] == dungeon_id:
+			dungeon = d
+	if dungeon == null:
+		return {"aether": 0.0, "marks": 0.0}
+	var aether: float = float(dungeon.get("pendingAether", 0.0))
+	var marks: float = float(dungeon.get("pendingMarks", 0.0))
+	if aether <= 0.0 and marks <= 0.0:
+		return {"aether": 0.0, "marks": 0.0}
+	g["aether"] = float(g["aether"]) + aether
+	g["marks"] = float(g["marks"]) + marks
+	dungeon["pendingAether"] = 0.0
+	dungeon["pendingMarks"] = 0.0
+	return {"aether": aether, "marks": marks}
 
 ## ===== Step 3j: character creation (MC point-buy + charge picker) =====
 ## Mirrors P.MC_STAT_RANGE/MC_GROWTH_RANGE/MC_STAT_KEYS/MC_POINT_MIN/MAX/
@@ -2064,10 +2246,12 @@ const MC_POINT_MAX := 15
 ## GDScript const-expressions can't call .size() at parse time; matches
 ## P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2 = 6*15/2 = 45).
 const MC_POINTS_TOTAL := 45
-## Mirrors P.MC_STARTER_CHARGES -- only the 3 generic starters offered at
+## Mirrors P.MC_STARTER_CHARGES -- the generic starters offered at
 ## creation; the 18-entry MC_CHARGE_DROP_POOL above is deliberately
-## withheld (a rare post-wave-20 drop instead).
-const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal"]
+## withheld (a rare post-wave-20 drop instead). 20-item batch, Group D:
+## added wearingdown (debuff) and ironresolve (buff), both scaling off
+## avgAtkMag -- a 5-entry pool now, was 3.
+const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal", "wearingdown", "ironresolve"]
 
 ## Mirrors P.mcLerp (farroad-progression.js:981-983).
 static func mc_lerp(range: Array, point: float) -> float:

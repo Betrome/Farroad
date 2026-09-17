@@ -312,9 +312,24 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   allChargeIds.every(function(id){return companionCharges.indexOf(id)<0;}));
  ok('starter charges have no overlap with the rare-drop pool (a starter pick is never a duplicate drop)',
   P.MC_STARTER_CHARGES.every(function(id){return P.MC_CHARGE_DROP_POOL.indexOf(id)<0;}));
- ok('every starter charge is plain: power present, no attached status/lifesteal/revive',
-  P.MC_STARTER_CHARGES.every(function(id){var a=C.ACTIONS[id];
+ // v2.14 (20-item batch, Group D): the original 3 starters are still
+ // plain (power only, no status); 2 new ones (wearingdown, ironresolve)
+ // deliberately apply a status on top of real power, scaling off the
+ // average of ATK/MAG for a build that doesn't lean hard into either camp.
+ ok('the 3 original starter charges are still plain: power present, no attached status/lifesteal/revive',
+  ['heavystrike','wildfire','greatheal'].every(function(id){var a=C.ACTIONS[id];
    return !!a.power && !a.applies && !a.lifesteal && !a.revive;}));
+ ok('every starter charge has real power (none are a hollow status-only pick)',
+  P.MC_STARTER_CHARGES.every(function(id){return !!C.ACTIONS[id].power;}));
+ ok('wearingdown/ironresolve scale off avgAtkMag and each apply a real status',
+  C.ACTIONS.wearingdown.scaleStat==='avgAtkMag' && C.ACTIONS.wearingdown.applies==='enfeebled' &&
+  C.ACTIONS.ironresolve.scaleStat==='avgAtkMag' && C.ACTIONS.ironresolve.applies==='bracing');
+ ok('statByKey(avgAtkMag) is the mean of effAtk/effMag, not an alias for either alone', (function(){
+  var u=C.makeUnit({id:'x',name:'X',isParty:true,level:1,slotIndex:0,
+   stats:{atk:20,mag:40,def:10,res:10,spd:100},maxHp:100,hp:100,slots:[{cond:'none',action:'strike'}]});
+  var avg=C.statByKey(u,'avgAtkMag');
+  return Math.abs(avg-(C.effAtk(u)+C.effMag(u))/2)<1e-9 && avg!==C.effAtk(u) && avg!==C.effMag(u);
+ })());
  ok('MC_CHARGE_DROP_CHANCE is a real probability, low enough to read as "rare"',
   P.MC_CHARGE_DROP_CHANCE>0 && P.MC_CHARGE_DROP_CHANCE<=0.10);
 })();

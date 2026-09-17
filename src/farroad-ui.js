@@ -44,7 +44,7 @@ var G;   /* game state */
    creation (see applyCustomMC below) — null keeps the hardcoded Kesh. */
 function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
-  aether:0, loreByAction:{}, marks:0, wipes:0,
+  aether:0, loreByAction:{}, marks:0, wipes:0, pendingIdleAether:0, pendingIdleMarks:0,
   party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
   actionCounts:{}, condCounts:{}, bonuses:{}, recovery:{}, loadout:{}, hpCarry:{}, chargeCarry:{}, touched:{},
   /* v2.4: every reward keyed to a WAVE NUMBER rather than to progress is farmable
@@ -496,7 +496,14 @@ function buildEnemies(w,quiet,superBossKey){
    /* No Aether-investment layer for enemies — straight off the archetype's
       own CSV-authored baseline (farroadenemies.csv), unmodified. */
    affinity:a.affinity,
-   slots:a.slots.map(function(s){return {cond:s.cond,action:s.action};})}));}
+   slots:a.slots.map(function(s){return {cond:s.cond,action:s.action};})}));
+  /* 20-item batch, Group F: bosses get a flat Spirit bonus (own, freshly-
+     constructed affinity dict — makeUnit already copies a.affinity's
+     values out into a NEW dict per unit, so this never touches the
+     shared ARCH data) so their own debuffs land harder and incoming
+     debuffs from the party resist harder, per the new caster-boost/
+     target-resist debuff formula (apply/affBoostResist, farroad-core.js). */
+  if(boss)out[out.length-1].affinity.spirit=(out[out.length-1].affinity.spirit||0)+P.BOSS_SPIRIT_BONUS;}
  return out;}
 
 function sysLog(html,cls){
@@ -1014,7 +1021,16 @@ function simulateOfflineProgress(snap){
     whether any individual wave is won, so it's credited for the full
     duration regardless of how many whole waves the loop below fits in. */
  var r=P.idlePerSec(G.farthest);
- G.aether+=r.aether*capped;G.marks+=r.marks*P.marksMul(G)*capped;
+ /* Banked, not credited — Ian: "don't add rewards from... idle until
+    collected." Mirrors the quest/dungeon pending-reward gate above;
+    accumulates across multiple uncollected resumes. The replayed-combat
+    loop below (afterWaveCleared's own real per-wave kill_reward) is a
+    different kind of event — a wave clear, mechanically identical to one
+    that happens while actively playing — and stays auto-applied exactly
+    as it always has, never gated. */
+ var idleAetherThisTime=r.aether*capped,idleMarksThisTime=r.marks*P.marksMul(G)*capped;
+ G.pendingIdleAether=(G.pendingIdleAether||0)+idleAetherThisTime;
+ G.pendingIdleMarks=(G.pendingIdleMarks||0)+idleMarksThisTime;
  var remaining=capped,guard=0;
  while(remaining>0&&guard++<200000){
   if(!G.battle)break;
@@ -1041,7 +1057,19 @@ function simulateOfflineProgress(snap){
   body:awayTxt+' away'+(elapsedSec>P.OFFLINE_CAP_SEC?' (capped at '+(P.OFFLINE_CAP_SEC/3600)+'h)':'')+
    ' — '+progressTxt+'.'+wipeTxt,
   why:'Earned <b style="color:var(--aether)">+'+aetherGain+' Aether</b> and '+
-   '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b>.'});}
+   '<b style="color:var(--marks)">+'+Math.floor(marksGain)+' Marks</b> from wave clears, plus '+
+   '<b style="color:var(--aether)">+'+Math.round(idleAetherThisTime)+' Aether</b> and '+
+   '<b style="color:var(--marks)">+'+Math.floor(idleMarksThisTime)+' Marks</b> of idle income '+
+   '(pending — collect it from the purse bar).'});}
+/* Credits the accumulated-but-uncollected idle trickle to G.aether/
+   G.marks, zeroing both pending pools — same bank-then-collect shape as
+   collectExpedition/collectQuestReward/collectDungeonReward. */
+function collectIdleReward(){
+ var aether=G.pendingIdleAether||0,marks=G.pendingIdleMarks||0;
+ if(aether<=0&&marks<=0)return {aether:0,marks:0};
+ G.aether+=aether;G.marks+=marks;
+ G.pendingIdleAether=0;G.pendingIdleMarks=0;
+ return {aether:aether,marks:marks};}
 
 /* ===== EXPEDITIONS (roadmap item 4, phase 1) =====
  * A benched party (1-5 units) can be sent exploring in real wall-clock time.
@@ -1114,6 +1142,24 @@ function collectExpedition(id){
   '<b style="color:var(--marks)">+'+Math.floor(exp.bank.marks)+' Marks</b> over '+exp.ew+' wave'+
   (exp.ew===1?'':'s')+'.</span>');
  G.expeditions=G.expeditions.filter(function(e){return e.id!==exp.id;});}
+/* Credits a quest's own accumulated-but-uncollected Aether reward to
+   G.aether, zeroing the pending pool — mirrors collectExpedition's own
+   bank->collect shape exactly. */
+function collectQuestReward(uid){
+ var q=G.quests[uid];if(!q)return 0;
+ var amount=q.pendingAether||0;if(amount<=0)return 0;
+ G.aether+=amount;q.pendingAether=0;return amount;}
+/* Credits a dungeon's own accumulated-but-uncollected Aether/Marks reward,
+   zeroing both pending pools — mirrors collectExpedition's own
+   bank->collect shape exactly. */
+function collectDungeonReward(dungeonId){
+ var dungeon=null;G.dungeons.forEach(function(d){if(d.id===dungeonId)dungeon=d;});
+ if(!dungeon)return {aether:0,marks:0};
+ var aether=dungeon.pendingAether||0,marks=dungeon.pendingMarks||0;
+ if(aether<=0&&marks<=0)return {aether:0,marks:0};
+ G.aether+=aether;G.marks+=marks;
+ dungeon.pendingAether=0;dungeon.pendingMarks=0;
+ return {aether:aether,marks:marks};}
 /* Turning back — whether the HP threshold tripped it or the player recalled
    the party — is not instant: the trip home takes HALF the real time the
    party has been out (measured from exp.startedAt to this decision
@@ -1564,7 +1610,10 @@ function finishSideBattle(result,gaveUp){
    /* v2.10: Aether reward, scaling 100 (stage 1) -> 500 (stage 5) — see
       P.questStageAether. meta.stage is the 0-based stage JUST cleared. */
    var reward=P.questStageAether(meta.stage);
-   G.aether+=reward;
+   /* Banked, not credited — mirrors the expedition bank/collect pattern
+      (exp.bank) already established. Accumulates across multiple
+      uncollected clears rather than overwriting. */
+   q.pendingAether=(q.pendingAether||0)+reward;
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
     why:(q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.')+
      ' +'+reward+' Aether.'});
@@ -1642,6 +1691,10 @@ function finishSideBattle(result,gaveUp){
   var dungeon=null;G.dungeons.forEach(function(d){if(d.id===meta.dungeonId)dungeon=d;});
   if(result==='party'&&dungeon){
    dungeon.clears++;
+   /* 20-item batch, Group G: "dungeons can only be completed once per
+      day" — stamped on every real clear; dungeonAvailable() below is the
+      actual gate (checked by enterDungeon before it's ever reachable). */
+   dungeon.lastClearedAt=Date.now();
    /* Reward is sized off the dungeon's own tier depth and direction —
       NOT any single internal wave's own numbers, since regular waves are
       all frozen at the same depth and the boss wave alone would
@@ -1650,7 +1703,10 @@ function finishSideBattle(result,gaveUp){
    var mul=P.directionMul(meta.direction);
    var r=P.killReward(rewardWave,meta.totalWaves);
    var dAether=r.aether*mul,dMarks=r.marks*P.marksMul(G)*mul;
-   G.aether+=dAether;G.marks+=dMarks;
+   /* Banked, not credited — same reasoning/pattern as the quest branch
+      above. */
+   dungeon.pendingAether=(dungeon.pendingAether||0)+dAether;
+   dungeon.pendingMarks=(dungeon.pendingMarks||0)+dMarks;
    pushDrop({name:dungeon.name,kind:'DUNGEON CLEARED',
     body:'Earned +'+Math.round(dAether)+' Aether and +'+Math.floor(dMarks)+' Marks.',
     why:'Cleared all '+meta.totalWaves+' waves, including the boss.'});
@@ -2595,10 +2651,21 @@ function updateExpeditionTimers(){
    dungeon and farming it forever would silently inflate with the road's
    own difficulty, defeating the point of a frozen fight. No cost to
    attempt, no penalty on a loss — just try again any time. */
+/* 20-item batch, Group G: real-world calendar-DAY boundary (UTC — same
+   as the Godot port's own Time.get_datetime_dict_from_unix_time, which
+   is UTC-based by default; picking UTC on both sides keeps the two
+   engines' "when does it reset" behavior identical rather than
+   diverging by the player's own local timezone), not a fixed 24h
+   cooldown — resets at UTC midnight regardless of what time of day the
+   dungeon was actually cleared. */
+function calendarDay(ts){var d=new Date(ts);return d.getUTCFullYear()+'-'+d.getUTCMonth()+'-'+d.getUTCDate();}
+function dungeonAvailable(dungeon,now){
+ if(dungeon.lastClearedAt==null)return true;
+ return calendarDay(now)!==calendarDay(dungeon.lastClearedAt);}
 function enterDungeon(id){
  if(G.sideBattle)return;
  var dungeon=null;G.dungeons.forEach(function(d){if(d.id===id)dungeon=d;});
- if(!dungeon)return;
+ if(!dungeon||!dungeonAvailable(dungeon,Date.now()))return;
  var wave0=dungeon.waves[0];
  startSideBattle(unitsFromSnapshots(wave0.enemies),wave0.wave,
   {kind:'dungeon',dungeonId:id,name:dungeon.name,direction:dungeon.direction,tier:dungeon.tier,

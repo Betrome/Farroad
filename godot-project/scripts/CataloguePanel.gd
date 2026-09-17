@@ -22,7 +22,6 @@ var _vp: Vector2
 var _parent: Node
 var current_tab: String = "units"
 
-var toggle_button: Button
 var popup: PopupPanel
 var tab_buttons: Dictionary = {}
 var list_container: VBoxContainer
@@ -56,16 +55,14 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	_build_ui(parent)
 
 func reflow(new_vp: Vector2) -> void:
+	# Group H (20-item batch): Catalogue no longer owns a bottom-row icon
+	# of its own -- it's reached via a "Catalogue" button inside
+	# SettingsPanel's popup (GameController._open_catalogue()) instead.
+	# _vp still needs to track resizes so a later _on_toggle_pressed()
+	# call sizes/positions the popup correctly.
 	_vp = new_vp
-	if toggle_button:
-		toggle_button.queue_free()
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Catalog", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Catalog", _on_toggle_pressed)
-
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
@@ -111,24 +108,9 @@ func _style_popup(p: PopupPanel) -> void:
 	style.set_content_margin_all(10)
 	p.add_theme_stylebox_override("panel", style)
 
-func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	btn.position = pos
-	btn.custom_minimum_size = Vector2(size, size)
-	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.24, 0.24, 0.29)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.32, 0.32, 0.38)
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.pressed.connect(callback)
-	parent.add_child(btn)
-	return btn
-
+## Called directly (GameController._open_catalogue(), dynamic dispatch --
+## SettingsPanel's own "Catalogue" button routes through it) now that this
+## panel has no bottom-row icon of its own to click.
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)

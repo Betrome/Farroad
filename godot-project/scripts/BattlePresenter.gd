@@ -169,13 +169,25 @@ func _reposition_units() -> void:
 			(party_front if u.get("row") == "front" else party_back).append(view)
 		else:
 			(enemy_front if u.get("row") == "front" else enemy_back).append(view)
-	_place_side(party_front, party_back, party_front_x, party_back_x)
-	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x)
+	_place_side(party_front, party_back, party_front_x, party_back_x, false)
+	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, true)
 
-## Smaller than the original desktop-tuned size -- a full party/enemy
-## roster (up to 5 + 10) needs to fit comfortably, not just a small demo.
-func _unit_size() -> float:
-	return _vp.y * 0.05
+## Group I (20-item batch): per-unit, not a single global constant -- a
+## boss (u["isBoss"]) reads BOSS_SIZE_MUL bigger, and an archetype's own
+## optional `size` CSV field (FarroadCore.ARCH[u["arch"]]["size"], default
+## 1.0 -- content-pipeline.js's compileArch, omitted when the archetype is
+## normal-sized) scales it further. A party member (no "arch") or an
+## archetype with no size override both fall back to the plain base size,
+## identical to every unit's size before this change.
+const BOSS_SIZE_MUL := 1.5
+func _unit_size(u: Dictionary) -> float:
+	var base: float = _vp.y * 0.05
+	var arch_mul: float = 1.0
+	var arch_key = u.get("arch")
+	if arch_key != null and FarroadCore.ARCH.has(arch_key):
+		arch_mul = float(FarroadCore.ARCH[arch_key].get("size", 1.0))
+	var boss_mul: float = BOSS_SIZE_MUL if u.get("isBoss", false) else 1.0
+	return base * arch_mul * boss_mul
 
 const JOIN_HOP_TIME := 0.5
 
@@ -197,11 +209,10 @@ const JOIN_HOP_TIME := 0.5
 ## hop/tween idiom (create_tween()/tween_property, same as the attack-hop
 ## animation) rather than inventing a new one.
 func sync_live_party(added: Array, removed: Array = []) -> void:
-	var unit_size: float = _unit_size()
 	var new_views := []
 	for u in added:
 		var view := UnitView.new()
-		view.setup(u, unit_size)
+		view.setup(u, _unit_size(u))
 		add_child(view)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
@@ -216,13 +227,13 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 	_reposition_units()   # computes + sets the correct final position for every REMAINING tracked view
 	for view in new_views:
 		var target: Vector2 = view.position
-		view.position = Vector2(-unit_size, target.y)
+		view.position = Vector2(-view.size, target.y)
 		var tw := create_tween()
 		tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	for view in leaving_views:
 		var start_y: float = view.position.y
 		var tw := create_tween()
-		tw.tween_property(view, "position", Vector2(-unit_size, start_y), JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		tw.tween_property(view, "position", Vector2(-view.size, start_y), JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 		tw.finished.connect(view.queue_free)
 	for view in unit_views_by_id.values():
 		view.update_hp()
@@ -251,14 +262,13 @@ func hop_to_new_row(uid: String) -> void:
 	tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 func _layout_units(units: Array) -> void:
-	var unit_size: float = _unit_size()
 	var party_front := []
 	var party_back := []
 	var enemy_front := []
 	var enemy_back := []
 	for u in units:
 		var view := UnitView.new()
-		view.setup(u, unit_size)
+		view.setup(u, _unit_size(u))
 		add_child(view)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
@@ -266,33 +276,126 @@ func _layout_units(units: Array) -> void:
 			(party_front if u.get("row") == "front" else party_back).append(view)
 		else:
 			(enemy_front if u.get("row") == "front" else enemy_back).append(view)
-	_place_side(party_front, party_back, party_front_x, party_back_x)
-	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x)
+	_place_side(party_front, party_back, party_front_x, party_back_x, false)
+	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, true)
 
-## Assigns every unit on ONE side (front + back combined) a DISTINCT Y slot
-## evenly spread across the field, interleaving front/back in the order they
-## get slots -- guarantees no two units on the same side ever share a row,
-## regardless of how the front/back split falls, scaling cleanly from 1 unit
-## up to the engine's real caps (5 party, 10 enemy: 5 front + 5 back). The
-## previous version gave front and back EACH their own independent column of
-## slots, so e.g. 1 front + 1 back (this demo's exact scenario) landed at
-## the identical Y -- directly in front of/behind each other.
-func _place_side(front: Array, back: Array, front_x: float, back_x: float) -> void:
-	var slots := []   # [{view, x}], in the Y order they'll be assigned
+## Assigns every unit on ONE side a Y position -- each reserving a vertical
+## band proportional to its own field size (_unit_size), not an equal
+## slice everyone shares regardless of how big they actually are (Group I,
+## 20-item batch: "make bosses bigger" needs the boss to actually GET more
+## room, not just draw a bigger shape squeezed into the same slot).
+##
+## allow_shared_rows=false (party) keeps the original no-two-units-ever-
+## share-a-row guarantee: front and back interleaved into ONE combined list
+## in the order they get slots, then laid out as one weighted column.
+## allow_shared_rows=true (enemies) instead lays front and back out as TWO
+## INDEPENDENT weighted columns, each spanning the full field height on its
+## own -- restores the pre-interleaving behavior specifically for enemies,
+## so e.g. a 1-front/1-back pair can land at the identical Y (directly
+## behind each other), freeing vertical room for a bigger boss sprite, per
+## Ian's own "saves space" reasoning.
+func _place_side(front: Array, back: Array, front_x: float, back_x: float, allow_shared_rows: bool) -> void:
+	if allow_shared_rows:
+		_place_column(front, front_x)
+		_place_column(back, back_x)
+		return
+	var views := []   # combined, in the Y order they'll be assigned
+	var xs := []
 	var fi := 0
 	var bi := 0
 	while fi < front.size() or bi < back.size():
 		if fi < front.size():
-			slots.append({"view": front[fi], "x": front_x}); fi += 1
+			views.append(front[fi]); xs.append(front_x); fi += 1
 		if bi < back.size():
-			slots.append({"view": back[bi], "x": back_x}); bi += 1
-	if slots.is_empty():
+			views.append(back[bi]); xs.append(back_x); bi += 1
+	_place_weighted(views, xs)
+
+## One row/back's own independent weighted column, all at the same X.
+func _place_column(views: Array, x: float) -> void:
+	var xs := []
+	for i in range(views.size()):
+		xs.append(x)
+	_place_weighted(views, xs)
+
+## Real vertical footprint a UnitView of this `size` actually occupies --
+## shape + HP bar + charge bar + name label, using the exact same gap/
+## bar_h/charge_h formula UnitView.setup() itself uses. A direct-
+## measurement debug script caught that weighting _place_weighted purely
+## by raw shape size (_unit_size()) badly underestimates a unit's true
+## on-screen footprint -- the bars/label add real height that does NOT
+## shrink proportionally with a smaller shape (a Label's own minimum line
+## height in particular isn't linear in font size), so a boss-sized unit
+## sharing a column with several normal ones measured as genuinely
+## overlapping its neighbor. Probing a real Label's own get_minimum_size()
+## (not added to the tree -- font metrics don't require that) rather than
+## hand-deriving a multiplier is the same "measure, don't guess" discipline
+## this project already applies everywhere else.
+func _unit_footprint_height(size: float) -> float:
+	var bar_h: float = max(4.0, size * 0.12)
+	var charge_h: float = max(2.0, bar_h * 0.5)
+	var gap: float = max(1.0, size * 0.05)
+	var probe := Label.new()
+	probe.add_theme_font_size_override("font_size", int(size * 0.25))
+	probe.text = "Wg"
+	var label_h: float = probe.get_minimum_size().y
+	probe.free()
+	return size + gap + bar_h + gap + charge_h + gap + label_h
+
+## Lays `views` out top-to-bottom across (field_top, field_bottom), each
+## reserving a vertical band proportional to its own real footprint
+## (_unit_footprint_height) -- NOT raw shape size -- so a bigger unit's
+## reserved band always covers its own actual on-screen extent, not just
+## a size-proportional slice of it (see _unit_footprint_height's own
+## comment for why raw size alone isn't safe here).
+##
+## If the column's total real footprint still exceeds the available field
+## height even at natural size (a direct-measurement debug script found a
+## real, reachable case: hard-mode's up-to-10-enemy rolls can put several
+## of the biggest non-boss archetype, e.g. 5x "ox" at 1.25x, in one
+## column) -- uniformly RESIZES every view in the column down by the
+## overflow ratio first (UnitView.resize(), not just a smaller reserved
+## band), then re-measures footprints at the new size before laying out,
+## so the reserved bands stay honest about what's actually on screen
+## rather than just packing oversized sprites into too-small slots.
+## Footprint isn't perfectly linear in size (the bar-height/gap floors and
+## a Label's own minimum-size metrics both flatten out at small sizes), so
+## one shrink pass alone can slightly undershoot -- iterates (capped, same
+## direct-measurement debug script confirmed 4 passes converges comfortably
+## from the worst realistic case) rather than trusting a single estimate.
+func _place_weighted(views: Array, xs: Array) -> void:
+	if views.is_empty():
 		return
-	var spacing: float = (field_bottom - field_top) / slots.size()
-	for i in range(slots.size()):
-		var pos := Vector2(slots[i]["x"], field_top + spacing * i + spacing / 2.0)
-		slots[i]["view"].position = pos
-		slots[i]["view"].rest_position = pos
+	var avail: float = field_bottom - field_top
+	var weights := _footprint_weights(views)
+	var total: float = 0.0
+	for w in weights:
+		total += w
+	var guard := 0
+	while total > avail and guard < 6:
+		guard += 1
+		# A slight extra nudge (0.99) past the exact ratio biases each pass
+		# toward converging from above rather than asymptotically
+		# approaching zero margin from below.
+		var shrink: float = (avail / total) * 0.99
+		for view in views:
+			view.resize(view.size * shrink)
+		weights = _footprint_weights(views)
+		total = 0.0
+		for w in weights:
+			total += w
+	var y := field_top
+	for i in range(views.size()):
+		var band: float = avail * (weights[i] / total)
+		var pos := Vector2(xs[i], y + band / 2.0)
+		views[i].position = pos
+		views[i].rest_position = pos
+		y += band
+
+func _footprint_weights(views: Array) -> Array:
+	var weights := []
+	for view in views:
+		weights.append(_unit_footprint_height(view.size))
+	return weights
 
 const PARTY_COLOR := "5b9bd5"
 const ENEMY_COLOR := "e8825c"
@@ -1100,6 +1203,17 @@ func _refresh_charge_bars() -> void:
 ## and settled back home. The earlier version applied them only after a
 ## physical attack's full there-and-back round trip, which visually
 ## disconnected the hit from the moment the attacker was actually there.
+## Group I (20-item batch): the field's own center point, in the same
+## world-space coordinates as a UnitView's own position/rest_position --
+## an AoE action's animation flies here instead of toward one arbitrary
+## target, since it actually hits every foe/ally at once. Same point
+## GameController._spawn_reward_drops already uses as its own flyer
+## start position (Vector2(_vp.x/2.0, _vp.y*(0.11+0.58)/2.0)), just
+## expressed via field_top/field_bottom directly rather than duplicating
+## the raw 0.11/0.58 constants.
+func _field_center() -> Vector2:
+	return Vector2(_vp.x / 2.0, (field_top + field_bottom) / 2.0)
+
 func _animate_beat(e: Dictionary) -> void:
 	var actor_view: UnitView = unit_views_by_id.get(e["actorId"])
 	if actor_view == null:
@@ -1113,18 +1227,27 @@ func _animate_beat(e: Dictionary) -> void:
 		await get_tree().create_timer(IDLE_PAUSE).timeout
 		return
 
+	# An AoE action's e["targetName"] still names just ONE (arbitrary)
+	# primary target -- every real target's own hit-effects (damage
+	# numbers, HP bar updates) still apply individually and correctly
+	# below regardless of where the visual itself flew, so redirecting
+	# ONLY the animation's destination here is safe and sufficient.
+	var is_aoe: bool = act != null and (act.get("tk") == "allFoes" or act.get("tk") == "allAllies")
+	var dest_rest: Vector2 = _field_center() if is_aoe else target_view.rest_position
+	var dest_world: Vector2 = _field_center() if is_aoe else target_view.position
+
 	if is_phys:
 		# A LOCAL offset from the actor's own rest position (its shape
 		# animates relative to itself -- see _hop's own comment), stopping
 		# HOP_STOP_SHORT of the target's rest position rather than closing
 		# the full gap.
-		var full_delta: Vector2 = target_view.rest_position - actor_view.rest_position
+		var full_delta: Vector2 = dest_rest - actor_view.rest_position
 		var approach_offset: Vector2 = full_delta - full_delta.normalized() * (_vp.x * HOP_STOP_SHORT)
 		await _hop(actor_view, Vector2.ZERO, approach_offset)
 		_apply_hit_effects(e)
 		await _hop(actor_view, actor_view.shape.position, Vector2.ZERO)
 	else:
-		await _animate_projectile(actor_view, target_view)
+		await _animate_projectile(actor_view, dest_world)
 		_apply_hit_effects(e)
 
 	await get_tree().create_timer(BEAT_PAUSE).timeout
@@ -1218,8 +1341,10 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2) -> void:
 		0.0, 1.0, HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
 
-## Magic/ranged attack (and heals): a projectile travels actor -> target.
-func _animate_projectile(actor: UnitView, target: UnitView) -> void:
+## Magic/ranged attack (and heals): a projectile travels actor -> a
+## world-space destination (the real target's own position, or the
+## field's center for an AoE action -- see _animate_beat's own dest_world).
+func _animate_projectile(actor: UnitView, dest: Vector2) -> void:
 	var bolt := Polygon2D.new()
 	var r: float = _vp.y * 0.008
 	bolt.polygon = PackedVector2Array([Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)])
@@ -1227,6 +1352,6 @@ func _animate_projectile(actor: UnitView, target: UnitView) -> void:
 	bolt.position = actor.position
 	add_child(bolt)
 	var tw := create_tween()
-	tw.tween_property(bolt, "position", target.position, PROJECTILE_TIME)
+	tw.tween_property(bolt, "position", dest, PROJECTILE_TIME)
 	await tw.finished
 	bolt.queue_free()
