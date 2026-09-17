@@ -693,11 +693,19 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER) -> Dict
 	# Tapping the dim area outside the box also dismisses it -- standard
 	# modal-overlay convention. box itself stops the click from reaching
 	# backdrop's own handler when the tap actually landed inside it.
+	# Ian: "scrolling all the way down on a pop-up box closes it" -- root
+	# cause: a mouse-wheel scroll is ALSO delivered as an InputEventMouseButton
+	# with pressed==true (wheel-up/down are just button indices), so once
+	# the inner ScrollContainer reached the bottom of its range and stopped
+	# consuming further wheel events, the same "click" check here matched
+	# the wheel event too and dismissed the popup. Restricted to real
+	# mouse buttons (left/right/middle) so a wheel scroll can never match.
+	const _DISMISS_BUTTONS := [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]
 	backdrop.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and ev.pressed:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index in _DISMISS_BUTTONS:
 			backdrop.queue_free())
 	box.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and ev.pressed:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index in _DISMISS_BUTTONS:
 			get_viewport().set_input_as_handled())
 
 	return {"vbox": vbox, "backdrop": backdrop, "box": box, "host_size": host_size}
@@ -828,8 +836,14 @@ func _show_action_detail_popup(action_id: String) -> void:
 
 	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
 	var target_txt: String = str(act.get("tk", "foe"))
+	# Ian: "actions say rank x0.87, not the stat(s) they scale with and the
+	# multiplier." Same "scales with X · power ×N" phrasing LorePanel's own
+	# action-detail card already uses, so both surfaces read consistently.
+	var scale_txt: String = "MAG" if act.get("camp") == "mag" else "ATK"
 	var power_lbl := Label.new()
-	power_lbl.text = "%s -- target: %s -- rank %s" % [camp_txt, target_txt, str(act.get("rank", 1.0))]
+	power_lbl.text = "%s -- target: %s -- scales with %s" % [camp_txt, target_txt, scale_txt]
+	if act.get("power"):
+		power_lbl.text += "  ·  power ×%.2f" % float(act["power"])
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	power_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(power_lbl)
@@ -838,7 +852,9 @@ func _show_action_detail_popup(action_id: String) -> void:
 	if act.get("isCharge", false):
 		cost_lbl.text = "Charge action -- fills at %d per use of a non-charge action" % int(FarroadCore.cost_of_charge(act))
 	else:
-		cost_lbl.text = "Adds %d to the charge gauge" % int(act.get("charge", 0))
+		# Ian: "shorten the charge bit to just Charge +x, where x is the
+		# current amount."
+		cost_lbl.text = "Charge +%d" % int(act.get("charge", 0))
 	cost_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(cost_lbl)

@@ -855,6 +855,14 @@ function step(b){
   var targets=[];
   if(act.tk==='allFoes')targets=foes(b,u);else if(act.tk==='allAllies')targets=allies(b,u);
   else if(act.tk==='self')targets=[u];else targets=[primary];
+  /* Ian: "if an attack is evaded, status effects don't occur" -- tracked
+     per-target here (id -> did at least one hit land / was any hit even
+     attempted against them), only ever populated by the pv>0 hit loop
+     below, so the applies block further down can skip a target that
+     dodged every hit from a combined damage+status action, while a pure
+     status/buff/heal action (no hits resolved here at all) stays
+     completely unaffected -- evasion is never rolled for those. */
+  var hitLanded={},hitAttempted={};
   if(act.revive){if(primary&&primary.hp<=0){primary.hp=Math.max(1,Math.floor(primary.maxHp*act.revive));primary.st=newSt();primary.stMag={};
     e.notes.push('revived '+primary.name);}}
   else if(act.heal){for(var i=0;i<targets.length;i++)e.heals.push(healFor(u,targets[i],act,b,pv));
@@ -863,6 +871,7 @@ function step(b){
   else if(pv>0){for(var h=0;h<(act.hits||1);h++){var tl=act.randomPerHit?[defFoe(b,u)]:targets;
     for(var ti=0;ti<tl.length;ti++){var tg=tl[ti];if(!tg||tg.hp<=0)continue;
      var r=resolveHit(u,tg,act,b,pv);e.hits.push(r);e.totalDamage+=r.damage;tg.hp=Math.max(0,tg.hp-r.damage);
+     hitAttempted[tg.id]=true;if(!r.evaded)hitLanded[tg.id]=true;
      /* v2.11: lifesteal/drain is healing — Spirit scales it same as any other
         heal, via the same affBoost helper healFor uses. Self-heal (the
         attacker is both caster and recipient), so both sides of affBoost
@@ -874,7 +883,9 @@ function step(b){
     if(act.tk==='allFoes'){var refl=0;
      for(var z=0;z<targets.length;z++)if(targets[z].thorns)refl+=Math.max(1,Math.round(targets[z].thorns*targets[z].maxHp));
      if(refl>0){u.hp=Math.max(0,u.hp-refl);e.thorns=refl;e.notes.push('thorns −'+refl);}}}
-  if(act.applies){for(var m=0;m<targets.length;m++){if(targets[m].hp>0){var already=has(targets[m],act.applies);
+  if(act.applies){for(var m=0;m<targets.length;m++){if(targets[m].hp>0){
+    if(hitAttempted[targets[m].id]&&!hitLanded[targets[m].id])continue;
+    var already=has(targets[m],act.applies);
     apply(targets[m],act.applies,act.turns,u.affinity.spirit);
     e.notes.push((already?'refreshed ':'applied ')+act.applies+' on '+targets[m].name);}}}
   if(act.selfTaunt){apply(u,'taunted',act.selfTaunt,u.affinity.spirit);e.notes.push('taunting');}}
@@ -937,6 +948,14 @@ function checkEnd(b){var pa=false,fa=false;
 function preview(b,count){count=count||6;var sim=[];
  for(var i=0;i<b.units.length;i++){var u=b.units[i];if(u.hp<=0)continue;
   sim.push({u:u,at:u.nextActAt});}
+ // Ian: "when a charge action is entered in the queue, consider it
+ // expended and only list it once." A fast unit can occupy multiple of
+ // the upcoming slots within one preview() call -- without this, every
+ // one of those slots re-reads the SAME still-full u.charge (real charge
+ // only ever decrements in step(), once the action truly executes), so
+ // the same full charge action would get listed again and again for that
+ // unit. Tracked per-unit, this preview() call only.
+ var chargeShown={};
  var out=[];
  for(var n=0;n<count&&sim.length;n++){var best=sim[0];
   for(var j=0;j<sim.length;j++){var s=sim[j];if(s===best)continue;
@@ -944,9 +963,12 @@ function preview(b,count){count=count||6;var sim=[];
    if(s.u.isParty!==best.u.isParty){if(s.u.isParty)best=s;continue;}
    if(s.u.base.spd!==best.u.base.spd){if(s.u.base.spd>best.u.base.spd)best=s;continue;}
    if(s.u.slotIndex<best.u.slotIndex)best=s;}
-  var st={charge:best.u.charge,alternateFlag:best.u.alternateFlag};
+  var uid=best.u.id;
+  var chargeVal=chargeShown[uid]?0:best.u.charge;
+  var st={charge:chargeVal,alternateFlag:best.u.alternateFlag};
   var ch=chooseFrom(best.u,b,st);var act=ACTIONS[ch.actionId]||ACTIONS.strike;
-  out.push({unitName:best.u.name,isParty:best.u.isParty,at:best.at,actionName:act.name,
+  if(act.isCharge)chargeShown[uid]=true;
+  out.push({unitName:best.u.name,unitId:uid,isParty:best.u.isParty,at:best.at,actionName:act.name,
    actionId:act.id,rank:act.rank,isCharge:!!act.isCharge,cost:tcOf(best.u,act.rank)});
   best.at+=tcOf(best.u,act.rank);}
  return out;}

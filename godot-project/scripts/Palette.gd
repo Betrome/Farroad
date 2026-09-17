@@ -19,6 +19,12 @@ const BORDER_LEATHER := Color(0.42, 0.28, 0.17, 1.0)    # popup/card borders
 const TEXT_INK := Color(0.22, 0.15, 0.09, 1.0)          # primary text (replaces default white)
 const TEXT_DIM := Color(0.47, 0.38, 0.28, 1.0)          # secondary/dim text
 const TEXT_FAINT := Color(0.62, 0.56, 0.47, 1.0)        # placeholder/very-dim text
+## Ian: "replace all of the white text with a dark green." The project
+## theme's own RichTextLabel/colors/default_color (theme/default_theme.tres)
+## must be kept in sync with this value by hand -- a .tres resource file
+## can't reference a GDScript const, same duplication convention already
+## established for the Button-style block below.
+const TEXT_GREEN := Color(0.12, 0.32, 0.15, 1.0)        # RichTextLabel default (was white)
 
 ## ===== buttons (also the project-wide default_theme.tres values) =====
 const BTN_NORMAL := Color(0.82, 0.72, 0.52, 1.0)

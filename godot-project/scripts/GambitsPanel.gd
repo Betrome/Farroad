@@ -62,8 +62,16 @@ var action_filter_effect: String = "any"
 const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", "Ally"], ["foe", "Foe"]]
 const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
 	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
-const ACTION_CAMP_OPTIONS := [["any", "Any type"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"]]
+## "camp" in the name/var is legacy -- this now filters on the action's
+## real EFFECTIVE scale stat (act.get("scaleStat"), falling back to the
+## camp-implied ATK/MAG when unset -- the exact resolution resolve_hit/
+## heal_for themselves use), not just the coarse phys/mag camp field, so
+## a DEF/RES/SPD-scaling action (an explicit scaleStat override) shows up
+## under its own real stat instead of being lumped into "Physical".
+const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
+	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
+const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
+	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
 
 ## Same swatch-icon technique EquipmentPanel.gd/LorePanel.gd already use --
 ## a Button (unlike an OptionButton's per-item text) can show ONE icon
@@ -132,13 +140,19 @@ func _sorted_owned_conditions() -> Array:
 func _action_passes_filter(act: Dictionary) -> bool:
 	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
 		return false
-	if action_filter_camp != "any" and act.get("camp") != action_filter_camp:
-		return false
+	if action_filter_camp != "any":
+		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
+		if eff_scale != action_filter_camp:
+			return false
 	if action_filter_effect == "heal" and not act.get("heal", false):
 		return false
 	if action_filter_effect == "charge" and not act.get("isCharge", false):
 		return false
 	if action_filter_effect == "element" and not act.get("element"):
+		return false
+	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
+		return false
+	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
 		return false
 	return true
 
@@ -403,7 +417,8 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		var blocked: bool = holder != null and aid != current_action
 		var row := HBoxContainer.new()
 		var row_btn := Button.new()
-		row_btn.text = (act["name"] if act else aid) + (" (used by %s)" % holder if blocked else "")
+		var level_tag: String = " Lv%d" % FarroadProgression.action_level(g, aid) if act != null else ""
+		row_btn.text = (act["name"] if act else aid) + level_tag + (" (used by %s)" % holder if blocked else "")
 		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
 		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row_btn.disabled = blocked or aid == current_action

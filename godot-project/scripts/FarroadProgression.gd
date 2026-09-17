@@ -854,6 +854,13 @@ static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
 	var dominant_camp: String = "mag" if float(probe["base"]["mag"]) > float(probe["base"]["atk"]) else "atk"
 
 	var candidates: Array = g["actions"].duplicate()
+	# Ian: "auto-set needs to account for actions other units have
+	# equipped" -- exclude anything already held by ANOTHER fielded party
+	# member (action_holder_in_party already exempts starter actions,
+	# which every unit can freely share), the exact same exclusivity rule
+	# the manual action picker (GambitsPanel._populate_action_picker)
+	# already enforces.
+	candidates = candidates.filter(func(aid): return action_holder_in_party(g, aid, uid) == null)
 	candidates.sort_custom(func(a, b):
 		var act_a = FarroadCore.ACTIONS.get(a)
 		var act_b = FarroadCore.ACTIONS.get(b)
@@ -1046,6 +1053,17 @@ static func total_lore(g: Dictionary) -> float:
 	for aid in g["loreByAction"].keys():
 		t += float(g["loreByAction"][aid])
 	return t
+
+## The "Lv%d" tag shown next to an action's name wherever a level makes
+## sense to show (originally LorePanel's own card only; post-batch
+## feedback asked for it on the GAMBITS action picker and Catalogue too,
+## so this moved here as the single shared source both now call) --
+## always equal to that action's own TOTAL LORE EARNED
+## (g["loreByAction"][aid], not just what's been spent on it), e.g. Lv. 4
+## once 4 total Lore has been earned for it, regardless of how many
+## upgrade stacks that Lore has actually bought.
+static func action_level(g: Dictionary, action_id: String) -> int:
+	return floori(g["loreByAction"].get(action_id, 0.0))
 
 ## Mirrors the inline unusedIds/refundTotal computation (farroad-ui.js:2051-2056)
 ## -- read-only preview, no mutation. Iterates g["bonuses"].keys() (every

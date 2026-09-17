@@ -1197,6 +1197,15 @@ static func step(b: Dictionary) -> Variant:
 		elif act.get("tk") == "allAllies": targets = allies(b, u)
 		elif act.get("tk") == "self": targets = [u]
 		else: targets = [primary]
+		# Ian: "if an attack is evaded, status effects don't occur" -- tracked
+		# per-target here (id -> did at least one hit land / was any hit even
+		# attempted against them), only ever populated by the pv>0 hit loop
+		# below, so the "applies" block further down can skip a target that
+		# dodged every hit from a combined damage+status action, while a
+		# pure status/buff/heal action (no hits resolved here at all) stays
+		# completely unaffected -- evasion is never rolled for those.
+		var hit_landed: Dictionary = {}
+		var hit_attempted: Dictionary = {}
 		if act.get("revive"):
 			if primary != null and primary["hp"] <= 0:
 				primary["hp"] = max(1, floori(primary["maxHp"] * act["revive"]))
@@ -1222,6 +1231,9 @@ static func step(b: Dictionary) -> Variant:
 					e["hits"].append(r)
 					e["totalDamage"] += r["damage"]
 					tg["hp"] = max(0, tg["hp"] - r["damage"])
+					hit_attempted[tg["id"]] = true
+					if not r["evaded"]:
+						hit_landed[tg["id"]] = true
 					if act.get("lifesteal") and r["damage"] > 0:
 						var hb = u["hp"]
 						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"])))
@@ -1239,6 +1251,8 @@ static func step(b: Dictionary) -> Variant:
 		if act.get("applies"):
 			for t in targets:
 				if t["hp"] > 0:
+					if hit_attempted.has(t["id"]) and not hit_landed.has(t["id"]):
+						continue
 					var already := has(t, act["applies"])
 					apply_status(t, act["applies"], act["turns"], u["affinity"]["spirit"])
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
@@ -1306,6 +1320,14 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 		if u["hp"] <= 0:
 			continue
 		sim.append({"u": u, "at": u["nextActAt"]})
+	# Ian: "when a charge action is entered in the queue, consider it
+	# expended and only list it once." A fast unit can occupy multiple of
+	# the upcoming slots within one preview() call -- without this, every
+	# one of those slots re-reads the SAME still-full u["charge"] (real
+	# charge only ever decrements in step(), once the action truly
+	# executes), so the same full charge action would get listed again
+	# and again for that unit. Tracked per-unit, this preview() call only.
+	var charge_shown: Dictionary = {}
 	var out := []
 	for n in range(count):
 		if sim.is_empty():
@@ -1327,10 +1349,14 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 			if s["u"]["slotIndex"] < best["u"]["slotIndex"]:
 				best_idx = j
 		var best = sim[best_idx]
-		var st := {"charge": best["u"]["charge"], "alternateFlag": best["u"]["alternateFlag"]}
+		var uid: String = best["u"]["id"]
+		var charge_val: float = 0.0 if charge_shown.has(uid) else best["u"]["charge"]
+		var st := {"charge": charge_val, "alternateFlag": best["u"]["alternateFlag"]}
 		var ch := choose_from(best["u"], b, st)
 		var act = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
-		out.append({"unitName": best["u"]["name"], "isParty": best["u"]["isParty"], "at": best["at"],
+		if act.get("isCharge", false):
+			charge_shown[uid] = true
+		out.append({"unitName": best["u"]["name"], "unitId": uid, "isParty": best["u"]["isParty"], "at": best["at"],
 			"actionName": act["name"], "actionId": act["id"], "rank": act["rank"],
 			"isCharge": bool(act.get("isCharge", false)), "cost": tc_of(best["u"], act["rank"])})
 		best["at"] += tc_of(best["u"], act["rank"])

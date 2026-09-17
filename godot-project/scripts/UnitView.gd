@@ -11,6 +11,13 @@ extends Node2D
 ## constant -- meant to run on phones, where the visible viewport varies by
 ## device aspect ratio (see BattlePresenter's stretch/aspect="expand" note).
 
+## Ian: "tapping on a unit in the battle should show its stats page,
+## live." Emitted on a real click/touch inside this unit's own bounding
+## square -- BattlePresenter connects one listener per view (at the same
+## two sites that already call setup()) and opens its Status popup
+## filtered to just this unit.
+signal tapped
+
 var unit: Dictionary
 var rest_position: Vector2
 var size: float
@@ -20,6 +27,7 @@ var _hp_bg: ColorRect
 var _hp_fg: ColorRect
 var _charge_bg: ColorRect
 var _charge_fg: ColorRect
+var _click_area: Area2D
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
@@ -93,8 +101,29 @@ func _build(unit_size: float) -> void:
 	name_label.add_theme_font_size_override("font_size", int(size * 0.25))
 	add_child(name_label)
 
+	# Tap/click target -- a plain rectangle covering the shape's own bounds
+	# (not the whole footprint including bars/name, which would make
+	# adjacent units' tap zones overlap at tight spacing). Area2D, not a
+	# Control, since this whole view is a Node2D tree positioned by
+	# BattlePresenter's own world-space layout math, not a Control layout.
+	_click_area = Area2D.new()
+	_click_area.input_pickable = true
+	var collision := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(size, size)
+	collision.shape = rect
+	_click_area.add_child(collision)
+	_click_area.input_event.connect(_on_click_area_input_event)
+	add_child(_click_area)
+
 	update_hp()
 	update_charge()
+
+func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		tapped.emit()
+	elif event is InputEventScreenTouch and event.pressed:
+		tapped.emit()
 
 ## Re-reads unit["hp"]/["maxHp"] -- FarroadCore.step() mutates the unit dict
 ## in place, so this always reflects the live value, no separate sync needed.

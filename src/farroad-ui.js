@@ -1875,18 +1875,26 @@ function renderUnits(){
    correct and needs no separate probe call. Write side — see
    farroad-core.js's own step() for the read/consume side and the full
    rationale. Mirrors the Godot port's BattlePresenter.
-   _lock_upcoming_actors exactly. A lock is dropped once its unit falls
-   out of the visible window without acting (e.g. died), so a later real
-   reappearance gets a fresh resolution rather than a stale one. */
+   _lock_upcoming_actors exactly.
+
+   Post-batch feedback: "turn order is still changing actions when they
+   enter the currently-activating box." Root cause — a lock used to be
+   dropped the instant its unit fell out of the small visible preview
+   window, even for one beat. Since a fast unit can occupy several of the
+   visible slots at once (see preview()'s own comment), a slower unit
+   gets squeezed out of view easily — and could reappear later, sometimes
+   landing directly at slot 0, freshly re-locked against whatever real
+   state had drifted to while it was invisible, visibly changing right as
+   it became the active actor. Fixed: a lock now ONLY ever clears by
+   actually being consumed in step(), or here if its unit has died (can
+   never act again) — never just for scrolling out of the visible rail. */
 function lockUpcomingActors(pv){
  var locked=G.battle.lockedActors||(G.battle.lockedActors={});
- var visibleIds={};
  pv.forEach(function(p){
-  var u=G.battle.units.find(function(x){return x.name===p.unitName;});
-  if(!u)return;
-  visibleIds[u.id]=true;
-  if(!locked[u.id])locked[u.id]=p.actionId;});
- Object.keys(locked).forEach(function(uid){if(!visibleIds[uid])delete locked[uid];});}
+  if(!locked[p.unitId])locked[p.unitId]=p.actionId;});
+ Object.keys(locked).forEach(function(uid){
+  var u=G.battle.units.find(function(x){return x.id===uid;});
+  if(!u||u.hp<=0)delete locked[uid];});}
 /* Ian: same request as lockUpcomingActors above. FarroadCore.preview()
    itself no longer projects charge/conditions forward at all, so "what's
    shown" already equals "what would happen if resolved this instant" by
@@ -1904,9 +1912,10 @@ function previewRespectingLocks(){
  var locked=G.battle.lockedActors||{};
  if(!Object.keys(locked).length)return out;
  out.forEach(function(p){
-  var u=G.battle.units.find(function(x){return x.name===p.unitName;});
-  if(!u||!locked[u.id])return;
-  var act=C.ACTIONS[locked[u.id]];
+  if(!locked[p.unitId])return;
+  var u=G.battle.units.find(function(x){return x.id===p.unitId;});
+  if(!u)return;
+  var act=C.ACTIONS[locked[p.unitId]];
   if(!act)return;
   p.actionName=act.name;p.actionId=act.id;p.isCharge=!!act.isCharge;p.cost=C.tcOf(u,act.rank);});
  return out;}

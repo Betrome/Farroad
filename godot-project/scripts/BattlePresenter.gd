@@ -54,6 +54,7 @@ var battle: Dictionary
 var unit_views_by_id: Dictionary = {}
 var unit_views_by_name: Dictionary = {}
 var active_unit_id: String = ""   # whichever unit's beat is currently animating -- drives the gold border in the Status popup too
+var status_filter_uid: String = ""   # "" shows every unit's card; set (via a battlefield tap) shows just one
 var log_lines: Array = []   # each entry: {head_bbcode, dmg_text, via_bbcode, note_bbcodes, calc, expanded}
 var log_popup: PopupPanel
 var log_container: VBoxContainer
@@ -99,6 +100,9 @@ func _recompute_field_fractions() -> void:
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
+	# Needed for UnitView's own Area2D.input_event (tap-a-unit-for-stats,
+	# post-batch feedback) to ever fire -- off by default project-wide.
+	get_viewport().physics_object_picking = true
 	_recompute_field_fractions()
 	_build_log_ui()
 	_build_status_ui()
@@ -216,6 +220,7 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 		add_child(view)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
+		view.tapped.connect(_on_unit_tapped.bind(u["id"]))
 		new_views.append(view)
 	var leaving_views := []
 	for uid in removed:
@@ -272,6 +277,7 @@ func _layout_units(units: Array) -> void:
 		add_child(view)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
+		view.tapped.connect(_on_unit_tapped.bind(u["id"]))
 		if u["isParty"]:
 			(party_front if u.get("row") == "front" else party_back).append(view)
 		else:
@@ -521,17 +527,33 @@ func _build_status_ui() -> void:
 	scroll.add_child(status_container)
 
 func _on_status_pressed() -> void:
+	status_filter_uid = ""
 	_refresh_status_popup()
 	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 
-## Rebuilds every card from LIVE battle data -- called on open, and then
+## Ian: "tapping on a unit in the battle should show its stats page,
+## live." Opens the SAME Status popup, just filtered down to the one
+## tapped unit -- reuses _refresh_status_popup's existing per-beat live
+## refresh (_run_battle_loop's own `if status_popup.visible:` calls),
+## so the single card keeps tracking the fight for as long as it's open,
+## same as the full list already did.
+func _on_unit_tapped(uid: String) -> void:
+	status_filter_uid = uid
+	_refresh_status_popup()
+	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+
+## Rebuilds card(s) from LIVE battle data -- called on open, and then
 ## every beat for as long as it stays open (see _run_battle_loop), so HP/
 ## charge/the active-unit border actually track the fight instead of
 ## freezing at whatever the battle looked like the moment it was opened.
+## status_filter_uid empty (the default, and what the Status button
+## always resets it to) shows every unit; set, shows just that one.
 func _refresh_status_popup() -> void:
 	for c in status_container.get_children():
 		c.queue_free()
 	for u in battle["units"]:
+		if status_filter_uid != "" and u["id"] != status_filter_uid:
+			continue
 		status_container.add_child(_build_status_card(u))
 
 func _build_status_card(u: Dictionary) -> Control:
@@ -934,8 +956,8 @@ func _build_turn_order_ui() -> void:
 	var frame_bottom: float = top + card_h + _vp.y * 0.01
 	turn_order_frame = Panel.new()
 	var frame_style := StyleBoxFlat.new()
-	frame_style.bg_color = Color(1.0, 1.0, 1.0, 0.03)
-	frame_style.border_color = Color(0.4, 0.43, 0.5)
+	frame_style.bg_color = Palette.BG_PARCHMENT_DEEP
+	frame_style.border_color = Palette.BORDER_LEATHER
 	frame_style.set_border_width_all(1)
 	turn_order_frame.add_theme_stylebox_override("panel", frame_style)
 	turn_order_frame.position = Vector2(margin - frame_pad, frame_top)
@@ -947,13 +969,22 @@ func _build_turn_order_ui() -> void:
 	turn_order_header.text = "TURN ORDER →"
 	turn_order_header.position = Vector2(_vp.x * 0.016, _vp.y * (TURN_ORDER_FRAME_TOP_FRAC + 0.01))
 	turn_order_header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	turn_order_header.modulate = Color(0.6, 0.65, 0.75)
+	turn_order_header.modulate = Palette.TEXT_DIM
 	add_child(turn_order_header)
 
 	for i in range(TURN_ORDER_COUNT):
 		var panel := PanelContainer.new()
 		panel.position = Vector2(margin + i * (card_w + gap), top)
 		panel.custom_minimum_size = Vector2(card_w, card_h)
+		# Every card gets the same light parchment background as the rest of
+		# the UI (previously left unstyled, silently falling back to the
+		# engine's own default dark PanelContainer look -- unreadable once
+		# the project theme's Label font_color turned dark project-wide,
+		# since that made these cards' own text dark-on-dark).
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Palette.BG_PARCHMENT_DEEP
+		card_style.border_color = Palette.BORDER_LEATHER
+		card_style.set_border_width_all(1)
 		if i == 0:
 			# Slot 0 always shows whoever's beat is currently resolving --
 			# _refresh_turn_order() is called right after a beat finishes,
@@ -961,11 +992,9 @@ func _build_turn_order_ui() -> void:
 			# logic step() itself uses, so by construction slot 0 stays
 			# accurate for the whole duration of that unit's animation. A
 			# permanent gold border here, set once, needs no per-beat toggling.
-			var active_style := StyleBoxFlat.new()
-			active_style.bg_color = Color(0.13, 0.13, 0.15)
-			active_style.border_color = Color(1.0, 0.84, 0.0)
-			active_style.set_border_width_all(3)
-			panel.add_theme_stylebox_override("panel", active_style)
+			card_style.border_color = Palette.GOLD_LIGHT
+			card_style.set_border_width_all(3)
+		panel.add_theme_stylebox_override("panel", card_style)
 		add_child(panel)
 
 		var vbox := VBoxContainer.new()
@@ -1006,11 +1035,11 @@ func _preview_respecting_locks() -> Array:
 	if locked.is_empty():
 		return out
 	for p in out:
-		var view: UnitView = unit_views_by_name.get(p["unitName"])
-		if view == null:
-			continue
-		var uid: String = view.unit["id"]
+		var uid: String = p["unitId"]
 		if not locked.has(uid):
+			continue
+		var view: UnitView = unit_views_by_id.get(uid)
+		if view == null:
 			continue
 		var act = FarroadCore.ACTIONS.get(locked[uid])
 		if act == null:
@@ -1037,7 +1066,7 @@ func _refresh_turn_order() -> void:
 		card["panel"].visible = true
 		var p = upcoming[i]
 		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.016), max_w)
-		card["name"].modulate = Color(0.45, 0.7, 1.0) if p["isParty"] else Color(1.0, 0.55, 0.4)
+		card["name"].modulate = Palette.PARTY_BLUE if p["isParty"] else Palette.ENEMY_RED
 		# No camp/element glyph prefix and no speed (×N) line -- just who's
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.
@@ -1066,24 +1095,31 @@ func _refresh_turn_order() -> void:
 ## in the turn-order preview gets locked the FIRST time it appears there
 ## (not re-locked on later refreshes, so a lock always reflects the
 ## moment a unit first became visible, not whatever real state has
-## drifted to since); a lock is dropped if its unit falls out of the
-## visible window entirely without acting (e.g. died), so a later real
-## reappearance gets a fresh resolution rather than a stale leftover one.
+## drifted to since).
+##
+## Post-batch feedback: "turn order is still changing actions when they
+## enter the currently-activating box." Root cause -- a lock used to be
+## dropped the instant its unit fell out of the small (TURN_ORDER_COUNT-
+## wide) visible window, even for one beat. Since a fast unit can occupy
+## several of the visible slots at once (see preview()'s own comment), a
+## slower unit gets squeezed out of view easily -- and could reappear
+## later, sometimes landing directly at slot 0, freshly re-locked
+## against whatever real state had drifted to while it was invisible,
+## visibly changing right as it became the active actor. Fixed: a lock
+## now ONLY ever clears by actually being consumed in step(), or here if
+## its unit has died (can never act again) -- never just for scrolling
+## out of the visible rail.
 func _lock_upcoming_actors(upcoming: Array) -> void:
 	if battle.get("lockedActors") == null:
 		battle["lockedActors"] = {}
 	var locked: Dictionary = battle["lockedActors"]
-	var visible_ids := {}
 	for p in upcoming:
-		var view: UnitView = unit_views_by_name.get(p["unitName"])
-		if view == null:
-			continue
-		var uid: String = view.unit["id"]
-		visible_ids[uid] = true
+		var uid: String = p["unitId"]
 		if not locked.has(uid):
 			locked[uid] = p["actionId"]
 	for uid in locked.keys().duplicate():
-		if not visible_ids.has(uid):
+		var view: UnitView = unit_views_by_id.get(uid)
+		if view == null or view.unit["hp"] <= 0:
 			locked.erase(uid)
 
 ## A long action/unit name (e.g. "Wayfarer's Oath") could otherwise draw past

@@ -28,12 +28,13 @@ extends Node
 ## nested-popup-closes-everything bug, plus Ian's explicit "show up
 ## beneath them, not as new windows" request). UnitsPanel is the sole
 ## popup owner now; this panel builds its existing card content directly
-## into whatever container UnitsPanel hands it (build_into). refund_dialog
-## is a real exception worth flagging: it's still a genuine Window
-## (ConfirmationDialog), but nested as a CHILD of whatever `host_popup`
-## build_into is given -- a child of an already-open Window layers
-## correctly (this is exactly how it worked before this panel had its own
-## popup too), unlike a SEPARATE top-level Window would.
+## into whatever container UnitsPanel hands it (build_into).
+##
+## Post-batch feedback: "remove the lore refund button, it's no longer
+## relevant" -- removed (the button, its ConfirmationDialog, and both
+## handlers). FarroadProgression.unused_lore_refund/claim_lore_refund
+## themselves are untouched -- still real, parity-tested engine functions,
+## just no longer exposed through this panel's own UI.
 
 var g: Dictionary
 var _vp: Vector2
@@ -42,8 +43,6 @@ var selected_uid: String = ""
 var selected_action_id: String = ""
 
 var card_container: Container
-var refund_dialog: ConfirmationDialog
-var _pending_refund_ids: Array = []
 
 ## Post-Milestone-3 APK feedback (round 3): "I need the filters all places
 ## actions and gambits show up" -- same dropdown-filter mechanism
@@ -54,8 +53,12 @@ var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
 const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
 	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
-const ACTION_CAMP_OPTIONS := [["any", "Any type"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"]]
+## "camp" in the name/var is legacy -- see GambitsPanel's own identical
+## copy of this comment for the full reasoning.
+const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
+	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
+const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
+	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
 
 const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width -- same convention AetherPanel.gd established
 ## Post-Milestone-3 APK feedback (Group B3): "have rarity text colors
@@ -89,25 +92,13 @@ func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
 
 ## Called by UnitsPanel every time the LORE sub-tab is shown. `host_popup`
-## is the Window this content now lives inside -- refund_dialog (a real
-## Window itself, ConfirmationDialog) needs to be reparented there (not
-## left on some earlier host, and never a sibling top-level Window) so it
-## layers correctly if a refund is triggered. Built once, lazily, on first
-## use; the confirmed signal is connected exactly ONCE (reading
-## _pending_refund_ids when it fires) rather than per-click -- a per-click
-## bind+CONNECT_ONE_SHOT looked simpler but doesn't actually disconnect on
-## CANCEL, only on confirm, so a cancel-then-reopen cycle would silently
-## stack a second live connection.
-func build_into(container: Container, uid: String, host_popup: Window) -> void:
+## is unused here (the refund button/dialog this used to reparent into it
+## was removed per Ian's ask) -- kept only for a consistent
+## build_into(container, uid, host_popup) signature across all folded
+## panels.
+func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	selected_uid = uid
 	card_container = container
-	if refund_dialog == null:
-		refund_dialog = ConfirmationDialog.new()
-		refund_dialog.confirmed.connect(_on_refund_confirmed)
-	if refund_dialog.get_parent() != host_popup:
-		if refund_dialog.get_parent() != null:
-			refund_dialog.get_parent().remove_child(refund_dialog)
-		host_popup.add_child(refund_dialog)
 	_refresh_card()
 
 func _section_label(text: String) -> Label:
@@ -163,12 +154,11 @@ func _build_purchase_button(buy_text: String, cost: int, aid: String, callback: 
 	btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return btn
 
-## The "Lv%d" tag shown next to an action's name: always equal to that
-## action's own TOTAL LORE EARNED (g["loreByAction"][aid], not just what's
-## been spent on it) -- e.g. Lv. 4 once 4 total Lore has been earned for it,
-## regardless of how many upgrade stacks that Lore has actually bought.
+## Thin wrapper -- see FarroadProgression.action_level's own comment for
+## the full explanation (promoted there so GambitsPanel/CataloguePanel can
+## share it too, per post-batch feedback).
 func _action_level(aid: String) -> int:
-	return floori(g["loreByAction"].get(aid, 0.0))
+	return FarroadProgression.action_level(g, aid)
 
 ## Dictionary.get(key, default) only applies `default` when the KEY IS
 ## ABSENT -- a real GDScript/JS-semantics mismatch already flagged elsewhere
@@ -310,14 +300,6 @@ func _refresh_card() -> void:
 		uneq_row.add_child(uneq_info_btn)
 		card_container.add_child(uneq_row)
 
-		var refund: Dictionary = FarroadProgression.unused_lore_refund(g)
-		if not (refund["ids"] as Array).is_empty():
-			var refund_btn := Button.new()
-			refund_btn.text = "Refund %d Lore from %d unused action%s" % [
-				refund["total"], (refund["ids"] as Array).size(), "" if (refund["ids"] as Array).size() == 1 else "s"]
-			refund_btn.pressed.connect(_on_refund_pressed.bind(refund))
-			card_container.add_child(refund_btn)
-
 	if selected_action_id == "":
 		return
 	var aid := selected_action_id
@@ -332,7 +314,7 @@ func _refresh_card() -> void:
 	# price (no more "costs one more than its last" triangular scaling).
 	var free := FarroadProgression.free_lore(g, aid)
 	card_container.add_child(_rich_line(
-		"[b][color=#c9a0ff]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
+		"[b][color=#75578f]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var box := VBoxContainer.new()
@@ -376,11 +358,11 @@ func _refresh_card() -> void:
 	else:
 		holders_text = "unused — refundable"
 	box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [
-		"8ec99a" if not (holders["active"] as Array).is_empty() else "888888", holders_text]))
+		"336b28" if not (holders["active"] as Array).is_empty() else "786147", holders_text]))
 
 	var summary := _bonus_total_summary(aid)
 	if summary != "":
-		box.add_child(_rich_line("[font_size=12][color=#c9a0ff]Lore total: %s[/color][/font_size]" % summary))
+		box.add_child(_rich_line("[font_size=12][color=#75578f]Lore total: %s[/color][/font_size]" % summary))
 	card_container.add_child(box)
 
 	# v2.4: show ONLY bonuses that can do something to this action --
@@ -399,7 +381,7 @@ func _refresh_card() -> void:
 		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 0)
 		row.add_child(_rich_line("[b]%s[/b] [color=#bd6b14]%d Lore[/color]" % [info["n"], price]))
-		row.add_child(_rich_line("[font_size=12][color=#999]%s[/color][/font_size]" % info["d"]))
+		row.add_child(_rich_line("[font_size=12][color=#786147]%s[/color][/font_size]" % info["d"]))
 		var ctl := HBoxContainer.new()
 		ctl.add_theme_constant_override("separation", 10)
 		var minus_btn := Button.new()
@@ -417,7 +399,7 @@ func _refresh_card() -> void:
 	card_container.add_child(bonus_list)
 
 	card_container.add_child(_rich_line(
-		"[font_size=11][color=#777]%d of %d upgrades apply to this action; the rest would do nothing.[/color][/font_size]" % [
+		"[font_size=11][color=#786147]%d of %d upgrades apply to this action; the rest would do nothing.[/color][/font_size]" % [
 			live_bids.size(), FarroadCore.BONUSES.size()]))
 
 func _on_action_selected(aid: String) -> void:
@@ -483,13 +465,19 @@ func _on_unequipped_info_pressed() -> void:
 func _action_passes_filter(act: Dictionary) -> bool:
 	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
 		return false
-	if action_filter_camp != "any" and act.get("camp") != action_filter_camp:
-		return false
+	if action_filter_camp != "any":
+		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
+		if eff_scale != action_filter_camp:
+			return false
 	if action_filter_effect == "heal" and not act.get("heal", false):
 		return false
 	if action_filter_effect == "charge" and not act.get("isCharge", false):
 		return false
 	if action_filter_effect == "element" and not act.get("element"):
+		return false
+	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
+		return false
+	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
 		return false
 	return true
 
@@ -509,14 +497,4 @@ func _on_buy_bonus(aid: String, bid: String) -> void:
 
 func _on_remove_bonus(aid: String, bid: String) -> void:
 	FarroadProgression.remove_bonus(g, aid, bid)
-	_refresh_card()
-
-func _on_refund_pressed(refund: Dictionary) -> void:
-	_pending_refund_ids = refund["ids"]
-	refund_dialog.dialog_text = "Refund %d Lore from %d action%s no one currently has equipped?" % [
-		refund["total"], _pending_refund_ids.size(), "" if _pending_refund_ids.size() == 1 else "s"]
-	refund_dialog.popup_centered()
-
-func _on_refund_confirmed() -> void:
-	FarroadProgression.claim_lore_refund(g, _pending_refund_ids)
 	_refresh_card()

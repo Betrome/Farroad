@@ -14,6 +14,7 @@ var _parent: Node
 var toggle_button: Button
 var popup: PopupPanel
 var confirm_dialog: ConfirmationDialog
+var inventory_lbl: Label
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -46,6 +47,20 @@ func _build_ui(parent: Node) -> void:
 	title.text = "SETTINGS"
 	title.add_theme_font_size_override("font_size", 20)
 	vbox.add_child(title)
+
+	# Ian: "add an inventory tab to show aether, marks, and future
+	# currencies." A plain read-only section rather than a separate tab/
+	# popup of its own -- there's nothing to interact with here, just a
+	# live currency readout, so it lives directly in the existing Settings
+	# popup. Refreshed on every open (_on_toggle_pressed), same as every
+	# other panel's own "rebuild from live g on open" convention.
+	var inventory_header := Label.new()
+	inventory_header.text = "Inventory"
+	inventory_header.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(inventory_header)
+	inventory_lbl = Label.new()
+	inventory_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(inventory_lbl)
 
 	# Group H (20-item batch): Catalogue folded in here so it no longer
 	# needs its own bottom-row icon.
@@ -93,8 +108,13 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
+	_refresh_inventory()
 	popup.popup_centered(Vector2(_vp.x * 0.7, _vp.y * 0.3))
 	_notify_battle_paused(true)
+
+func _refresh_inventory() -> void:
+	inventory_lbl.text = "Aether: %d\nMarks: %d\nLore (total): %d" % [
+		roundi(g.get("aether", 0.0)), roundi(g.get("marks", 0.0)), roundi(FarroadProgression.total_lore(g))]
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):

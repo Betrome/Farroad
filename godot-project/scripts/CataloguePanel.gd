@@ -44,8 +44,13 @@ var gambit_filter_group: String = "any"
 
 const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
 	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
-const ACTION_CAMP_OPTIONS := [["any", "Any type"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"]]
+## "camp" in the name/var is legacy -- see GambitsPanel's own identical
+## copy of this comment for the full reasoning (this filters the real
+## EFFECTIVE scale stat, not just the coarse phys/mag camp field).
+const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
+	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
+const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
+	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
 const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", "Ally"], ["foe", "Foe"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
@@ -176,11 +181,17 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 func _action_passes_filter(act: Dictionary) -> bool:
 	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
 		return false
-	if action_filter_camp != "any" and act.get("camp") != action_filter_camp:
-		return false
+	if action_filter_camp != "any":
+		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
+		if eff_scale != action_filter_camp:
+			return false
 	if action_filter_effect == "heal" and not act.get("heal", false):
 		return false
 	if action_filter_effect == "charge" and not act.get("isCharge", false):
+		return false
+	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
+		return false
+	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
 		return false
 	if action_filter_effect == "element" and not act.get("element"):
 		return false
@@ -204,7 +215,8 @@ func _refresh_actions() -> void:
 			continue
 		if is_known:
 			var row := HBoxContainer.new()
-			var lbl := _rich_row(_rarity_name(act["name"], act.get("rarity", "common")))
+			var lbl := _rich_row(_rarity_name(act["name"], act.get("rarity", "common")) +
+				" Lv%d" % FarroadProgression.action_level(g, aid))
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)
 			var info_btn := Button.new()
