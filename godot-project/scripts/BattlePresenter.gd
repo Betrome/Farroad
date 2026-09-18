@@ -151,7 +151,8 @@ func reveal_party(fade_duration: float = 0.5) -> void:
 			view.visible = true
 			view.fade_in_chrome(fade_duration)
 
-const ENEMY_RUN_IN_TIME := 1.0
+## Ian: "slow down the enemy movement into their positions" -- was 1.0.
+const ENEMY_RUN_IN_TIME := 1.6
 
 ## Ian, follow-up to the original "enemies run in" ask: "make it feel like
 ## the party stops because they see enemies coming, assuming battle

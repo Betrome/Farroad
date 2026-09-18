@@ -1319,8 +1319,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 const WAVE_RUN_TIME := 1.0
 ## Piece G: "have them move back over .25 seconds" -- the party's own
 ## "stop and settle" beat (see _on_battle_finished's own sequencing
-## comment for the full narrative this, STANCE_HOLD_TIME, and
-## ENEMY_RUN_IN_TIME together build).
+## comment for the full narrative this and ENEMY_RUN_IN_TIME together
+## build).
 const WAVE_RETREAT_TIME := 0.25
 ## Piece G: "move the background more as well" -- was 1.5x run_dx.
 const BG_RUN_MUL := 3.0
@@ -1330,17 +1330,9 @@ const CHROME_FADE_TIME := 0.5
 ## class_name, so it's not reachable as a qualified constant from here --
 ## same small-duplication convention this project already uses for icon
 ## x-fractions etc.) -- how long GameController waits after triggering
-## run_enemies_entering() before treating everyone as "assembled."
-const ENEMY_RUN_IN_TIME := 1.0
-## Ian, follow-up feedback: "make it feel like the party stops because
-## they see enemies coming, assuming battle stances, and THEN we see
-## enemies coming in from off-screen." A short held beat between the
-## party's retreat finishing and the enemies' own run-in starting, so
-## that "stop and notice" moment actually reads as its own beat instead
-## of enemies appearing the instant the party's tween ends. Deliberately
-## small -- "tighten that up" was itself part of the ask, so this isn't
-## meant to add slack, just prevent a same-frame cut.
-const STANCE_HOLD_TIME := 0.15
+## run_enemies_entering() before treating everyone as "assembled." Ian:
+## "slow down the enemy movement into their positions" -- was 1.0.
+const ENEMY_RUN_IN_TIME := 1.6
 
 ## background_layer's own position.x right before the current wave-clear
 ## run animation started -- captured so the retreat below can undo exactly
@@ -1434,9 +1426,13 @@ func _on_battle_finished(outcome: String) -> void:
 		# concurrent -- "the party stops because they see enemies coming,
 		# assuming battle stances, and THEN we see enemies coming in from
 		# off-screen. After everyone's assembled in their spot, then combat
-		# begins." (1) run right, (2) retreat/settle, (3) a short held beat,
-		# (4) enemies run in, (5) only once they've actually arrived does
-		# the battle loop start.
+		# begins." (1) run right, (2) retreat/settle (background_layer's own
+		# retreat tween is started in the SAME call, same WAVE_RETREAT_TIME
+		# duration, so it always stops at exactly the same moment the party
+		# does -- see _animate_wave_retreat), (3) enemies run in IMMEDIATELY
+		# once the party's stopped (Ian: "immediately followed by enemies
+		# entering" -- no held pause), (4) only once they've actually
+		# arrived does the battle loop start.
 		var old_presenter = current_presenter
 		_animate_wave_transition(old_presenter)
 		if old_presenter != null:
@@ -1455,9 +1451,6 @@ func _on_battle_finished(outcome: String) -> void:
 		await _begin_next_fight(true, true, false)
 		if current_presenter != null:
 			current_presenter.call("reveal_party", CHROME_FADE_TIME)
-
-		await get_tree().create_timer(STANCE_HOLD_TIME).timeout
-		if current_presenter != null:
 			current_presenter.call("run_enemies_entering")
 		await get_tree().create_timer(ENEMY_RUN_IN_TIME).timeout
 		if current_presenter != null:
