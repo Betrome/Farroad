@@ -1289,7 +1289,7 @@ func _sync_row_change(uid: String) -> void:
 ## visible "quests overlap with the road" bug this was written to fix.
 ## _resolve_side_battle's own restore path is what rebuilds the Road's
 ## presenter once it's actually safe again (see its own comment).
-func _begin_next_fight(animate_enemies_in: bool = false) -> void:
+func _begin_next_fight(animate_enemies_in: bool = false, hide_party_until_revealed: bool = false) -> void:
 	if g.get("sideBattle") != null:
 		return
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
@@ -1300,34 +1300,79 @@ func _begin_next_fight(animate_enemies_in: bool = false) -> void:
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
 		return
-	presenter.start_battle(g["battle"], g["units"] + g["enemies"], animate_enemies_in, g.get("clearedWaves", {}))
+	presenter.start_battle(g["battle"], g["units"] + g["enemies"], animate_enemies_in, g.get("clearedWaves", {}), hide_party_until_revealed)
 	current_presenter = presenter
 
 const WAVE_RUN_TIME := 1.0
+## Piece G: "have them move back over .25 seconds at the same time enemies
+## are running on screen" -- shorter than the run out, timed to finish
+## comfortably before ENEMY_RUN_IN_TIME (1.0s) does, since the enemies
+## keep arriving after the party has already settled back into place.
+const WAVE_RETREAT_TIME := 0.25
+## Piece G: "move the background more as well" -- was 1.5x run_dx.
+const BG_RUN_MUL := 3.0
+## Piece G: "fade in over .5 seconds when they stop moving."
+const CHROME_FADE_TIME := 0.5
+
+## background_layer's own position.x right before the current wave-clear
+## run animation started -- captured so the retreat below can undo exactly
+## that motion, rather than assuming it's always back at 0.0.
+var _bg_x_before_wave_run: float = 0.0
 
 ## Ian: "after clearing a wave, have units run towards the right...
-## maintain framing but have the background move behind them. Have it
-## last 1 second." Fire-and-forget (not awaited by the caller) -- runs
-## for the same ~1s _on_battle_finished now waits out directly (the
-## wave-announcement popup this used to overlap with is gone -- see
-## "get rid of the wave pop-up" below), so the pacing is unchanged even
-## though there's no longer a separate popup driving the pause.
-## Party units shift right by a modest amount ("framing maintained" --
-## they stay within their own band, not actually leaving the field) while
+## maintain framing but have the background move behind them." Party
+## units shift right by a modest amount ("framing maintained" -- they stay
+## within their own band, not actually leaving the field) while
 ## background_layer scrolls the opposite way underneath them, the classic
 ## runner-style parallax trick. A dead party member (dimmed, not removed)
 ## is skipped -- nothing to "run" for a unit that's down.
+##
+## Piece G additions: a defensive sweep force-hides any already-dead enemy
+## before the run starts ("make sure they disappear before the party runs
+## forward" -- update_hp() already hides a dead enemy the instant it dies,
+## well before this ever runs, but this costs nothing and removes any
+## doubt), and each moving party view's HP/charge/name chrome hides before
+## it starts moving (fading back in only happens once the WHOLE run+retreat
+## sequence stops -- see reveal_party(), called by _on_battle_finished once
+## the retreat below actually finishes).
 func _animate_wave_transition(old_presenter: Node) -> void:
 	if old_presenter == null:
 		return
+	for view in old_presenter.unit_views_by_id.values():
+		if not view.unit["isParty"] and view.unit["hp"] <= 0:
+			view.visible = false
 	var run_dx: float = _vp.x * 0.1
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
+			view.hide_chrome()
 			var tw := create_tween()
 			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME)
 	if background_layer != null:
+		_bg_x_before_wave_run = background_layer.position.x
 		var bg_tw := create_tween()
-		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * 1.5, WAVE_RUN_TIME)
+		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * BG_RUN_MUL, WAVE_RUN_TIME)
+
+## Piece G: "instead of having units snap back to their starting position,
+## have them move back over .25 seconds at the same time enemies are
+## running on screen." Runs on the OLD (about-to-be-freed) presenter,
+## started concurrently with _begin_next_fight's own enemy run-in (see
+## _on_battle_finished) -- tweens each living party view from its
+## "ran right" position back to its own original rest_position, and
+## background_layer back to where it sat before the run started. Chrome
+## stays hidden (hide_chrome() already ran in _animate_wave_transition) --
+## this presenter is freed the instant the retreat finishes, so fading its
+## own chrome back in would be wasted; the NEW presenter's reveal_party()
+## is what the player actually sees settle back into place.
+func _animate_wave_retreat(old_presenter: Node) -> void:
+	if old_presenter == null:
+		return
+	for view in old_presenter.unit_views_by_id.values():
+		if view.unit["isParty"] and view.unit["hp"] > 0:
+			var tw := create_tween()
+			tw.tween_property(view, "position", view.rest_position, WAVE_RETREAT_TIME)
+	if background_layer != null:
+		var bg_tw := create_tween()
+		bg_tw.tween_property(background_layer, "position:x", _bg_x_before_wave_run, WAVE_RETREAT_TIME)
 
 ## Mirrors the real doStep()'s post-battle branch (afterWaveCleared() on a
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the
@@ -1349,20 +1394,31 @@ func _on_battle_finished(outcome: String) -> void:
 		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
 		# Ian: "get rid of the wave pop-up." The finished battlefield (units,
 		# HP bars, log/status buttons) stays on screen through the run
-		# animation -- only freed once the NEXT fight is actually being
-		# built, not the moment this one ends. light_up_wave runs on this
-		# SAME (about-to-be-freed) presenter, so the circle glows during the
+		# animation -- only freed once its own retreat finishes, not the
+		# moment the fight ends. light_up_wave runs on this SAME
+		# (about-to-be-freed) presenter, so the circle glows during the
 		# run, matching "lights up... AS the party runs to the next
 		# encounter" -- the NEW presenter then opens already showing it lit,
 		# via the cleared_waves passed into its own start_battle call.
-		_animate_wave_transition(current_presenter)
-		if current_presenter != null:
-			current_presenter.call("light_up_wave", cleared_wave)
+		var old_presenter = current_presenter
+		_animate_wave_transition(old_presenter)
+		if old_presenter != null:
+			old_presenter.call("light_up_wave", cleared_wave)
 		await get_tree().create_timer(WAVE_RUN_TIME).timeout
+		# Piece G: build the NEXT presenter now (its own enemies start
+		# running in immediately) with its party hidden, WHILE old_presenter's
+		# party retreats over the same window -- "at the same time enemies
+		# are running on screen." Keeping the new party hidden until the old
+		# one is actually gone avoids ever showing two overlapping sets of
+		# party sprites in the same spot.
+		current_presenter = null
+		_animate_wave_retreat(old_presenter)
+		await _begin_next_fight(true, true)
+		await get_tree().create_timer(WAVE_RETREAT_TIME).timeout
+		if old_presenter != null:
+			old_presenter.queue_free()
 		if current_presenter != null:
-			current_presenter.queue_free()
-			current_presenter = null
-		_begin_next_fight(true)
+			current_presenter.call("reveal_party", CHROME_FADE_TIME)
 	else:
 		FarroadProgression.on_wipe(g)
 		_refresh_hud()

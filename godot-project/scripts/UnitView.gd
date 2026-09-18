@@ -196,6 +196,43 @@ func update_charge() -> void:
 func damage_spawn_position() -> Vector2:
 	return global_position + Vector2(0, -size / 2.0 - size * 0.18)
 
+## Piece G (wave-transition polish): "have the hp, charge bars, and names
+## disappear before party members and unit move." Hides the three "info"
+## elements instantly -- NOT `shape`, which stays visible and moving the
+## whole time. Called right before a view starts a run/retreat/entrance
+## tween.
+func hide_chrome() -> void:
+	_hp_bg.visible = false
+	_hp_fg.visible = false
+	_charge_bg.visible = false
+	_charge_fg.visible = false
+	_name_label.visible = false
+
+## "...and fade in over .5 seconds when they stop moving." Called once a
+## view's own movement tween has finished. Respects update_charge()'s own
+## rule that a unit with no chargeAction never shows a charge bar at all --
+## fading one in for such a unit would contradict its normal (non-transition)
+## state.
+func fade_in_chrome(duration: float = 0.5) -> void:
+	_hp_bg.visible = true
+	_hp_fg.visible = true
+	_hp_bg.modulate.a = 0.0
+	_hp_fg.modulate.a = 0.0
+	_name_label.visible = true
+	_name_label.modulate.a = 0.0
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(_hp_bg, "modulate:a", 1.0, duration)
+	tw.tween_property(_hp_fg, "modulate:a", 1.0, duration)
+	tw.tween_property(_name_label, "modulate:a", 1.0, duration)
+	if unit.get("chargeAction"):
+		_charge_bg.visible = true
+		_charge_fg.visible = true
+		_charge_bg.modulate.a = 0.0
+		_charge_fg.modulate.a = 0.0
+		tw.tween_property(_charge_bg, "modulate:a", 1.0, duration)
+		tw.tween_property(_charge_fg, "modulate:a", 1.0, duration)
+
 ## A quick decaying left-right shake -- played when this unit takes a
 ## non-evaded hit. Shakes only `shape` (the colored square), not the whole
 ## UnitView, so the name/HP/charge bars stay put instead of shaking along

@@ -114,15 +114,39 @@ func _ready() -> void:
 ## battle via FarroadProgression -- content is assumed already loaded and
 ## FarroadCore.set_wave() already called by build_enemies() itself, neither
 ## of which is this presenter's job anymore.
-func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false, cleared_waves: Dictionary = {}) -> void:
+## Piece G (wave-transition polish): `hide_party_until_revealed`, when true,
+## hides every party UnitView (chrome AND body) right after layout -- the
+## caller (GameController) is building this presenter WHILE the OLD one's
+## party is still visibly retreating to the same rest coordinates, so
+## showing this presenter's own already-settled party immediately would
+## briefly double-render both sets of sprites in the same spot. The caller
+## calls reveal_party() once the old presenter's retreat finishes.
+func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false, cleared_waves: Dictionary = {}, hide_party_until_revealed: bool = false) -> void:
 	battle = new_battle
 	_layout_units(units)
+	if hide_party_until_revealed:
+		for view in unit_views_by_id.values():
+			if view.unit["isParty"]:
+				view.hide_chrome()
+				view.visible = false
 	if animate_enemies_in:
 		_animate_enemies_entering()
 	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
 	_run_battle_loop()
+
+## Reveals a party hidden by start_battle's hide_party_until_revealed --
+## called by GameController once the OLD presenter's own retreat tween
+## finishes. This party was never actually moving (already laid out at
+## rest), but from the player's perspective it's the same party that just
+## retreated, so it gets the same "fade in over .5s once stopped moving"
+## treatment as a view that genuinely just finished a tween.
+func reveal_party(fade_duration: float = 0.5) -> void:
+	for view in unit_views_by_id.values():
+		if view.unit["isParty"]:
+			view.visible = true
+			view.fade_in_chrome(fade_duration)
 
 const ENEMY_RUN_IN_TIME := 1.0
 
@@ -143,8 +167,10 @@ func _animate_enemies_entering() -> void:
 			continue
 		var target: Vector2 = view.position
 		view.position = Vector2(_vp.x + view.size * 2.0, target.y)
+		view.hide_chrome()
 		var tw := create_tween()
 		tw.tween_property(view, "position", target, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.finished.connect(view.fade_in_chrome)
 
 ## Called by GameController when the viewport's real size changes (window
 ## resize, or a device with a different aspect ratio than assumed at
