@@ -507,9 +507,16 @@ func _style_popup(popup: PopupPanel) -> void:
 ## off it. `size` is in PIXELS (already resolved from a viewport fraction
 ## by the caller) and applied to both dimensions so it's always a true
 ## square regardless of the screen's aspect ratio.
-func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
+## icon, when provided, shows a real icon texture instead of/alongside
+## the placeholder text -- every EXISTING call site passes no icon
+## (unchanged behavior) until real button art exists (Ian: "prepare for
+## real button/icon assets").
+func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	var btn := Button.new()
 	btn.text = label_text
+	if icon != null:
+		btn.icon = icon
+		btn.expand_icon = true
 	btn.position = pos
 	btn.custom_minimum_size = Vector2(size, size)
 	btn.clip_text = true

@@ -10,6 +10,15 @@ extends Node2D
 ## Sized from the caller's OWN viewport-relative size, not a fixed pixel
 ## constant -- meant to run on phones, where the visible viewport varies by
 ## device aspect ratio (see BattlePresenter's stretch/aspect="expand" note).
+##
+## Ian: "I want to eventually replace the blocks with sprite assets... what
+## do we need to do now to prepare for that?" `shape` is a real Sprite2D (a
+## solid-white placeholder texture, generated once and reused, stretched
+## via `scale` to each unit's own computed size and tinted via `modulate`
+## the same way the old Polygon2D used `color`) rather than a vector shape,
+## so a real sprite sheet drops straight into `shape.texture` later with no
+## other code changes -- every hop/shake/run animation already tweens
+## `shape.position`/`.scale`, which work identically on a Sprite2D.
 
 ## Ian: "tapping on a unit in the battle should show its stats page,
 ## live." Emitted on a real click/touch inside this unit's own bounding
@@ -22,7 +31,23 @@ var unit: Dictionary
 var rest_position: Vector2
 var size: float
 
-var shape: Polygon2D   # public -- BattlePresenter animates ONLY this during a hop/shake, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position
+var shape: Sprite2D   # public -- BattlePresenter animates ONLY this during a hop/shake, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position
+
+## A single 1x1 white pixel, generated once and shared by every UnitView --
+## `shape.scale` stretches it to each unit's own computed size, `shape.
+## modulate` tints it party-blue/enemy-red. Swapping in a real sprite sheet
+## later means setting shape.texture per-unit (and adjusting the scale math
+## to that texture's native resolution) -- nothing else about this class
+## needs to change.
+const _PLACEHOLDER_TEX_SIZE := 1
+static var _placeholder_texture: Texture2D
+
+static func _get_placeholder_texture() -> Texture2D:
+	if _placeholder_texture == null:
+		var img := Image.create(_PLACEHOLDER_TEX_SIZE, _PLACEHOLDER_TEX_SIZE, false, Image.FORMAT_RGBA8)
+		img.fill(Color.WHITE)
+		_placeholder_texture = ImageTexture.create_from_image(img)
+	return _placeholder_texture
 var _hp_bg: ColorRect
 var _hp_fg: ColorRect
 var _charge_bg: ColorRect
@@ -59,10 +84,10 @@ func _build(unit_size: float) -> void:
 	# vertical footprint so adjacent units don't overlap at max occupancy.
 	var gap: float = max(1.0, size * 0.05)
 
-	shape = Polygon2D.new()
-	shape.polygon = PackedVector2Array([
-		Vector2(-half, -half), Vector2(half, -half), Vector2(half, half), Vector2(-half, half)])
-	shape.color = Color(0.30, 0.55, 0.95) if unit["isParty"] else Color(0.85, 0.30, 0.28)
+	shape = Sprite2D.new()
+	shape.texture = _get_placeholder_texture()
+	shape.scale = Vector2(size, size) / float(_PLACEHOLDER_TEX_SIZE)
+	shape.modulate = Color(0.30, 0.55, 0.95) if unit["isParty"] else Color(0.85, 0.30, 0.28)
 	add_child(shape)
 
 	_hp_bg = ColorRect.new()

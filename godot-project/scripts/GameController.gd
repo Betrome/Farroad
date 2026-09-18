@@ -74,7 +74,9 @@ var _self_hosted_overlays: Array = []
 var side_presenter: Node = null
 
 var wave_label: Label
-var currency_label: Label
+var currency_row: HBoxContainer
+var aether_cell: Label
+var marks_cell: Label
 var idle_rate_label: Label
 var wave_popup: PanelContainer
 var wave_popup_label: Label
@@ -180,8 +182,10 @@ func _on_viewport_resized() -> void:
 	_vp = get_viewport_rect().size
 	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
 	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
-	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
-	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
+	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
+	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
+	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	fade_overlay.size = _vp
@@ -304,10 +308,21 @@ func _build_hud() -> void:
 	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
 	add_child(wave_label)
 
-	currency_label = Label.new()
-	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
-	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	add_child(currency_label)
+	# Ian: "I want to replace some of the text like Aether and Marks with
+	# icons -- what do we need to do now to prepare for that?" Split what
+	# used to be one combined "Aether N   Marks N" Label into two separate
+	# cells in a row -- an icon can be inserted in front of just ONE
+	# currency's text later by changing only _build_currency_label (or
+	# just one cell's own build site) instead of hunting down a combined
+	# string. Each cell also gets its own real screen position, so a
+	# reward flyer can fly to the EXACT currency it's for (see
+	# _spawn_reward_drops) instead of a single shared combined-label spot.
+	currency_row = HBoxContainer.new()
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
+	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
+	add_child(currency_row)
+	aether_cell = _build_currency_label(currency_row)
+	marks_cell = _build_currency_label(currency_row)
 
 	# Idle reward rate (Group I, post-Milestone-3 batch) -- a small line
 	# under the currency purse showing the ambient trickle rate feeding it
@@ -347,6 +362,12 @@ func _build_hud() -> void:
 	wave_popup.add_child(wave_popup_label)
 
 	_build_road_button()
+
+func _build_currency_label(parent: Container) -> Label:
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
+	parent.add_child(lbl)
+	return lbl
 
 ## Called by SettingsPanel (dynamic has_method()+call()) after the player
 ## confirms the "Reset Game" prompt -- deletes the save file (first use of
@@ -610,7 +631,8 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 
 func _refresh_hud() -> void:
 	wave_label.text = "Wave %d" % g["wave"]
-	currency_label.text = "Aether %d   Marks %d" % [roundi(g["aether"]), roundi(g["marks"])]
+	aether_cell.text = "Aether %d" % roundi(g["aether"])
+	marks_cell.text = "Marks %d" % roundi(g["marks"])
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
 	idle_rate_label.text = "%.1f Aether/hr   %.1f Marks/hr" % [r["aether"] * 3600.0, marks_rate * 3600.0]
@@ -1446,19 +1468,21 @@ func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float
 	var delay := 0.0
 	var aether_delta: float = g.get("aether", 0.0) - aether_before
 	if aether_delta >= 1.0:
-		_spawn_reward_flyer(start, currency_label.position, "+%d Aether" % roundi(aether_delta), delay)
+		# Flies to aether_cell's own real position now (a real HBox cell of
+		# its own, not a single combined Aether+Marks Label) -- lands on
+		# the exact currency it's for.
+		_spawn_reward_flyer(start, aether_cell.global_position, "+%d Aether" % roundi(aether_delta), delay)
 		delay += REWARD_FLYER_STAGGER
 	var lore_delta: float = FarroadProgression.total_lore(g) - lore_before
 	if lore_delta >= 1.0:
 		# Lore's own HUD figure was removed (Ian: "remove lore total") --
 		# Lore is per-action now and lives under Units -> Lore, so the
-		# flyer's destination moves there instead of the (now Lore-less)
-		# currency_label.
+		# flyer's destination moves there instead of a currency cell.
 		_spawn_reward_flyer(start, _icon_center(UNITS_ICON_X_FRAC), "+%d Lore" % roundi(lore_delta), delay)
 		delay += REWARD_FLYER_STAGGER
 	var marks_delta: float = g.get("marks", 0.0) - marks_before
 	if marks_delta >= 1.0:
-		_spawn_reward_flyer(start, currency_label.position, "+%d Marks" % roundi(marks_delta), delay)
+		_spawn_reward_flyer(start, marks_cell.global_position, "+%d Marks" % roundi(marks_delta), delay)
 		delay += REWARD_FLYER_STAGGER
 	for e in events:
 		var target = _reward_icon_target(e)

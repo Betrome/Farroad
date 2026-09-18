@@ -89,9 +89,16 @@ func _style_popup(p: PopupPanel) -> void:
 
 ## Same icon-square style every sibling panel's own copy uses (duplicated
 ## here, different script, no shared base).
-func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable) -> Button:
+## icon, when provided, shows a real icon texture instead of/alongside
+## the placeholder text -- every EXISTING call site passes no icon
+## (unchanged behavior) until real button art exists (Ian: "prepare for
+## real button/icon assets").
+func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	var btn := Button.new()
 	btn.text = label_text
+	if icon != null:
+		btn.icon = icon
+		btn.expand_icon = true
 	btn.position = pos
 	btn.custom_minimum_size = Vector2(size, size)
 	btn.clip_text = true
