@@ -61,3 +61,11 @@ window/handheld/orientation=1
 [rendering]
 
 textures/vram_compression/import_etc2_astc=true
+; Ian: "make the background about 30% lighter, it's hard to see the aether,
+; mark, and wave text" -- the ROAD screen's HUD (currency_row/idle_rate_label/
+; power_level_cell/BattlePresenter's wave-progress label) floats directly
+; over this canvas clear color, with no parchment panel behind it (unlike
+; every popup). No override existed here before, so it was rendering at
+; Godot's own engine default (confirmed directly: 0.3, 0.3, 0.3) -- 30%
+; lighter (x1.3) is 0.39.
+environment/defaults/default_clear_color=Color(0.39, 0.39, 0.39, 1)

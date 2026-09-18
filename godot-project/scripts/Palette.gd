@@ -48,9 +48,17 @@ const ENEMY_RED := Color(0.62, 0.20, 0.16, 1.0)
 ## enough to still read on the light parchment card background, for the
 ## turn-order rail's own ally/enemy name text specifically.
 ## Ian: "make the enemy and unit colors on the turn order 30% brighter" --
-## each channel of the pair above, multiplied by 1.3 and clamped to 1.0.
-const PARTY_BLUE_BRIGHT := Color(0.104, 0.416, 1.0, 1.0)
-const ENEMY_RED_BRIGHT := Color(1.0, 0.104, 0.104, 1.0)
+## a first pass multiplied the pair above by 1.3 and clamped, but that was
+## nearly invisible on the blue (its blue channel was already 0.95, so
+## clamping ate almost the whole intended increase). Ian's follow-up:
+## "it doesn't look like the name of units... were updated... make the
+## text more saturated and brighter... easy at a glance to tell which is
+## an enemy and which is an ally." Replaced with near-maximally-saturated
+## pure hues instead -- vivid azure vs. pure red, opposite ends of the hue
+## wheel, both at full brightness, unmistakably distinct from each other
+## and from the muted PARTY_BLUE/ENEMY_RED pair used elsewhere.
+const PARTY_BLUE_BRIGHT := Color(0.0, 0.45, 1.0, 1.0)
+const ENEMY_RED_BRIGHT := Color(1.0, 0.0, 0.0, 1.0)
 
 ## ===== status / feedback =====
 const GOOD_GREEN := Color(0.20, 0.46, 0.24, 1.0)

@@ -115,13 +115,15 @@ func _ready() -> void:
 ## FarroadCore.set_wave() already called by build_enemies() itself, neither
 ## of which is this presenter's job anymore.
 ## Piece G (wave-transition polish): `hide_party_until_revealed`, when true,
-## hides every party UnitView (chrome AND body) right after layout -- the
-## caller (GameController) is building this presenter WHILE the OLD one's
-## party is still visibly retreating to the same rest coordinates, so
-## showing this presenter's own already-settled party immediately would
-## briefly double-render both sets of sprites in the same spot. The caller
-## calls reveal_party() once the old presenter's retreat finishes.
-func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false, cleared_waves: Dictionary = {}, hide_party_until_revealed: bool = false) -> void:
+## hides every party UnitView (chrome AND body) right after layout, revealed
+## later by reveal_party(). `stage_enemies_offscreen`, when true, snaps every
+## enemy view off-screen-right and hides its chrome (see _stage_enemies_
+## offscreen) WITHOUT starting their run-in tween yet -- that's a separate
+## call, run_enemies_entering(), so the caller controls exactly when they
+## start appearing (see its own comment for why). `auto_start_loop=false`
+## skips starting the battle loop here too -- the caller starts it later via
+## begin_combat(), once everyone's actually assembled.
+func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen: bool = false, cleared_waves: Dictionary = {}, hide_party_until_revealed: bool = false, auto_start_loop: bool = true) -> void:
 	battle = new_battle
 	_layout_units(units)
 	if hide_party_until_revealed:
@@ -129,12 +131,13 @@ func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool
 			if view.unit["isParty"]:
 				view.hide_chrome()
 				view.visible = false
-	if animate_enemies_in:
-		_animate_enemies_entering()
+	if stage_enemies_offscreen:
+		_stage_enemies_offscreen()
 	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
-	_run_battle_loop()
+	if auto_start_loop:
+		_run_battle_loop()
 
 ## Reveals a party hidden by start_battle's hide_party_until_revealed --
 ## called by GameController once the OLD presenter's own retreat tween
@@ -150,27 +153,42 @@ func reveal_party(fade_duration: float = 0.5) -> void:
 
 const ENEMY_RUN_IN_TIME := 1.0
 
-## Ian: "after clearing a wave, have enemies run in ... to meet units
-## for the next wave of combat" -- originally from the left, corrected
-## per direct feedback ("I need them to come in from the right") to
-## match enemies' own established resting side. Same offscreen-then-tween
-## idiom sync_live_party already uses for a newly-joining ally --
-## _layout_units() just above already placed every view (enemies
-## included) at its real final rest position SYNCHRONOUSLY, so snapping
-## each enemy view's start position off-screen here, before this function
-## (and therefore this frame) finishes, is invisible -- only the animated
-## return trip actually shows. Party views are left alone -- they're
-## already in position; only enemies "rush in."
-func _animate_enemies_entering() -> void:
+## Ian, follow-up to the original "enemies run in" ask: "make it feel like
+## the party stops because they see enemies coming, assuming battle
+## stances, and THEN we see enemies coming in from off-screen. After
+## everyone's assembled in their spot, then combat begins." That's a
+## strictly SEQUENCED beat (party settles -> enemies arrive -> combat
+## starts), not the earlier concurrent design -- split what used to be one
+## function into three so GameController can hold each stage until the
+## previous one has actually finished:
+##   1. _stage_enemies_offscreen() (below) -- snaps every enemy view
+##      off-screen-right and hides its chrome, called from start_battle
+##      BEFORE this frame ever draws (same "invisible snap" idiom
+##      _layout_units's own placement already relies on), so enemies exist
+##      in the scene but are nowhere visible yet.
+##   2. run_enemies_entering() -- actually starts each one's run-in tween.
+##      Called only once GameController has confirmed the party has fully
+##      stopped moving.
+##   3. begin_combat() -- starts the actual battle loop. Called only once
+##      GameController has waited out ENEMY_RUN_IN_TIME, so the first beat
+##      never animates while an enemy is still mid-arrival.
+func _stage_enemies_offscreen() -> void:
 	for view in unit_views_by_id.values():
 		if view.unit["isParty"]:
 			continue
-		var target: Vector2 = view.position
-		view.position = Vector2(_vp.x + view.size * 2.0, target.y)
+		view.position = Vector2(_vp.x + view.size * 2.0, view.rest_position.y)
 		view.hide_chrome()
+
+func run_enemies_entering() -> void:
+	for view in unit_views_by_id.values():
+		if view.unit["isParty"]:
+			continue
 		var tw := create_tween()
-		tw.tween_property(view, "position", target, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.finished.connect(view.fade_in_chrome)
+
+func begin_combat() -> void:
+	_run_battle_loop()
 
 ## Called by GameController when the viewport's real size changes (window
 ## resize, or a device with a different aspect ratio than assumed at
