@@ -47,8 +47,10 @@ const ENEMY_RED := Color(0.62, 0.20, 0.16, 1.0)
 ## project-wide; these are a louder, more saturated pair kept just dark
 ## enough to still read on the light parchment card background, for the
 ## turn-order rail's own ally/enemy name text specifically.
-const PARTY_BLUE_BRIGHT := Color(0.08, 0.32, 0.95, 1.0)
-const ENEMY_RED_BRIGHT := Color(0.88, 0.08, 0.08, 1.0)
+## Ian: "make the enemy and unit colors on the turn order 30% brighter" --
+## each channel of the pair above, multiplied by 1.3 and clamped to 1.0.
+const PARTY_BLUE_BRIGHT := Color(0.104, 0.416, 1.0, 1.0)
+const ENEMY_RED_BRIGHT := Color(1.0, 0.104, 0.104, 1.0)
 
 ## ===== status / feedback =====
 const GOOD_GREEN := Color(0.20, 0.46, 0.24, 1.0)

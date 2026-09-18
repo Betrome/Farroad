@@ -1395,27 +1395,23 @@ if (mode === 'progression') {
   // quest_stage_aether are plain pure functions, transcribed directly.
   var DUNGEON_LEN = 1.15;
   var QUEST_STAGE_AETHER_MIN = 100, QUEST_STAGE_AETHER_MAX = 500;
-  var POWER_PER_UNIT = 15, POWER_PER_LORE = 1, POWER_PER_AFFINITY_POINT = 0.5, POWER_PER_PCT_STAT_STEP = 0.5;
+  // Rescaled per later feedback: "combined units stats, total lore levels,
+  // furthest wave reached" -- mirrors P.powerLevel's own new body exactly.
+  var POWER_STAT_DIVISOR = 20, POWER_PER_LORE = 1;
   function powerLevelG(gg) {
-    var waveLevel = C.levelCurve(gg.wave || 1);
-    var unitLevels = 0, unitCount = 0;
-    Object.keys(gg.owned || {}).forEach(function (uid) { unitCount++; unitLevels += (gg.lvl && gg.lvl[uid]) || 1; });
+    var unitStatTotal = 0;
+    Object.keys(gg.owned || {}).forEach(function (uid) {
+      var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+      if (!def) return;
+      var st = P.statsAt(uid, def.stats, def.hp, (gg.lvl && gg.lvl[uid]) || 1);
+      unitStatTotal += st.atk + st.mag + st.def + st.res + st.spd + st.hp;
+    });
     var loreLevels = 0;
     Object.keys(gg.bonuses || {}).forEach(function (aid) {
       var b = gg.bonuses[aid]; loreLevels += C.actionBonusTotal(b) + (b.broad || 0);
     });
-    var affinityPoints = 0;
-    Object.keys(gg.affinities || {}).forEach(function (uid) {
-      var a = gg.affinities[uid]; if (!a) return;
-      Object.keys(a).forEach(function (axis) { affinityPoints += a[axis] || 0; });
-    });
-    var pctStatSteps = 0;
-    Object.keys(gg.statInvest || {}).forEach(function (uid) {
-      var s = gg.statInvest[uid]; if (!s) return;
-      Object.keys(s).forEach(function (stat) { pctStatSteps += s[stat] || 0; });
-    });
-    return Math.round(waveLevel + unitLevels + unitCount * POWER_PER_UNIT + loreLevels * POWER_PER_LORE +
-      affinityPoints * POWER_PER_AFFINITY_POINT + pctStatSteps * POWER_PER_PCT_STAT_STEP);
+    var waveLevel = C.levelCurve(gg.farthest || 1);
+    return Math.max(1, Math.round(unitStatTotal / POWER_STAT_DIVISOR + loreLevels * POWER_PER_LORE + waveLevel));
   }
   function questStageWaveG(gg, uid, stageIdx) {
     var frac = P.QUEST_LINES[uid][stageIdx].powerFraction;

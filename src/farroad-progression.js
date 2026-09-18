@@ -1012,71 +1012,46 @@ P.mcBuildStats=function(points){
  var hp=stats.hp;delete stats.hp;               /* hp is top-level on a unit, not under .stats */
  return {stats:stats,hp:hp,growth:growth};};
 
-/* ===== v2.9: POWER LEVEL =====
- * One number combining every investment axis into a single "how far along
- * am I" readout — roster depth, character levels, Lore, and wave reached.
- * Each term is put on a comparable, level-equivalent scale before summing,
- * so no one input silently dominates or vanishes at typical pace:
- *   - wave: run through C.levelCurve(), the SAME wave->level-equivalent
- *     curve waveScale()/enemy difficulty is already built from (and the
- *     same one the Road's per-enemy Lv tag uses) — reuses an already-
- *     calibrated conversion rather than inventing a second one.
- *   - unit levels: summed across every OWNED unit (not just fielded — a
- *     benched investment is still a real one), already level-scale by
- *     construction.
- *   - unit count: each owned unit worth a flat POWER_PER_UNIT on top of
- *     its own level term — recruiting a companion has value (roster
- *     depth, more gambit/action coverage) beyond just its current,
- *     possibly-low level.
- *   - Lore: summed actionBonusTotal() across every action with any
- *     investment — literally the sum of every LvN badge already visible
- *     on the LORE tabs, so the total is directly cross-checkable against
- *     what's on screen there.
- * POWER_PER_UNIT/POWER_PER_LORE are named, tunable constants rather than
- * inlined literals — this is a display metric, not balance-critical, so a
- * reasoned starting weighting (not a simulated one) is appropriate, but
- * kept easy to retune if it doesn't feel right in practice. */
-P.POWER_PER_UNIT=15;
+/* ===== v2.9: POWER LEVEL, rescaled per later feedback =====
+ * One number combining roster strength, Lore, and depth reached into a
+ * single "how far along am I" readout, shown in the always-visible header
+ * next to the currency purse (renderPowerLevel below).
+ *
+ * Ian: "have it scale with combined units stats, total lore levels, and
+ * furthest wave reached." Replaced the old unit-level/-count-based rollup
+ * with each owned unit's own level-scaled combat stats (atk/mag/def/res/
+ * spd/hp via P.statsAt — the same pure, already-exported curve buildParty
+ * itself starts from, before any equipment/pct-stat overlay, which this
+ * display metric doesn't need for a "how strong is my roster" readout),
+ * summed across every OWNED unit (not just fielded — a benched investment
+ * is still a real one) and divided down to a scale comparable to the other
+ * two terms. Lore term unchanged (already matched "total lore levels"
+ * exactly — the literal sum of every LvN badge visible on the LORE tabs).
+ * Wave term now reads g.farthest (the deepest wave ever reached) instead of
+ * g.wave (the current one), so a checkpoint-triggered retreat after a wipe
+ * doesn't make POWER LEVEL itself go backwards.
+ * POWER_STAT_DIVISOR/POWER_PER_LORE are named, tunable constants rather
+ * than inlined literals — this is a display metric, not balance-critical
+ * (questStageWave below is the one place it DOES feed real difficulty), so
+ * a reasoned starting weighting is appropriate, kept easy to retune if it
+ * doesn't feel right in practice. */
+P.POWER_STAT_DIVISOR=20;
 P.POWER_PER_LORE=1;
-/* v2.10: purchased affinity points (NOT a unit's authored baseline — see the
-   AFFINITY INVESTMENT comment below) count toward Power Level, same
-   treatment loreLevels already gets. Weighted below unitLevels/loreLevels'
-   effective 1-per-point rate: affinityCostToNext is a flat linear-escalation
-   curve (8/16/24 Aether...) against costToNext's ~L^2.8 curve, so a single
-   point is a far smaller investment than a level at any real depth — 0.5 is
-   a reasoned starting weight, not a simulated one (this is a display metric,
-   same caveat POWER_PER_UNIT/POWER_PER_LORE already carry), kept easy to
-   retune if it doesn't feel right in practice. */
-P.POWER_PER_AFFINITY_POINT=0.5;
 P.powerLevel=function(g){
- var waveLevel=C.levelCurve(g.wave||1);
- var unitLevels=0,unitCount=0;
+ var unitStatTotal=0;
  Object.keys(g.owned||{}).forEach(function(uid){
-  unitCount++;unitLevels+=(g.lvl&&g.lvl[uid])||1;});
+  var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+  if(!def)return;
+  var st=P.statsAt(uid,def.stats,def.hp,(g.lvl&&g.lvl[uid])||1);
+  unitStatTotal+=st.atk+st.mag+st.def+st.res+st.spd+st.hp;});
  /* v2.9: Broad now counts (matches actionLevel() in the UI layer — "leveling
     up broad does not level up the action; it should count towards its
     level"), so this stays the literal sum of every action's displayed LvN. */
  var loreLevels=0;
  Object.keys(g.bonuses||{}).forEach(function(aid){
   var b=g.bonuses[aid];loreLevels+=C.actionBonusTotal(b)+(b.broad||0);});
- /* v2.10: g.affinities[uid][axis] is PURCHASED POINTS ONLY (see the AETHER-
-    investment comment below) — a companion's own authored baseline does NOT
-    count here, exactly like unitLevels counting real level-ups rather than
-    a unit's starting stats. */
- var affinityPoints=0;
- Object.keys(g.affinities||{}).forEach(function(uid){
-  var a=g.affinities[uid];if(!a)return;
-  Object.keys(a).forEach(function(axis){affinityPoints+=a[axis]||0;});});
- /* v2.10: g.statInvest[uid][stat] is PURCHASED STEPS ONLY (Block/Evade/
-    ATK-Crit/MAG-Crit's own baseline — the CSV-authored atk_crit/mag_crit/
-    block/evade columns — does NOT count), same treatment affinityPoints
-    just got above. */
- var pctStatSteps=0;
- Object.keys(g.statInvest||{}).forEach(function(uid){
-  var s=g.statInvest[uid];if(!s)return;
-  Object.keys(s).forEach(function(stat){pctStatSteps+=s[stat]||0;});});
- return Math.round(waveLevel+unitLevels+unitCount*P.POWER_PER_UNIT+loreLevels*P.POWER_PER_LORE+
-  affinityPoints*P.POWER_PER_AFFINITY_POINT+pctStatSteps*P.POWER_PER_PCT_STAT_STEP);};
+ var waveLevel=C.levelCurve(g.farthest||1);
+ return Math.max(1,Math.round(unitStatTotal/P.POWER_STAT_DIVISOR+loreLevels*P.POWER_PER_LORE+waveLevel));};
 /* ===== AFFINITY INVESTMENT (v2.10) =====
  * Fire/Water/Earth/Air/Light/Dark/Body/Spirit — see farroad-core.js's own
  * comment (AFFINITY_CAP/affinityMul/affTerm) for the combat-facing half of
@@ -1182,11 +1157,6 @@ P.pctStatValue=function(baseline,stat,steps){var s=P.PCT_STAT[stat];
  return Math.min(s.cap,baseline+steps*s.step);};
 P.pctStatMaxed=function(baseline,stat,steps){
  return P.pctStatValue(baseline,stat,steps)>=P.PCT_STAT[stat].cap-1e-9;};
-
-/* v2.10: purchased Block/Evade/Crit steps count toward Power Level too, same
-   treatment affinity points already get (see P.POWER_PER_AFFINITY_POINT
-   above) — every real Aether-sink should count uniformly, and this is one. */
-P.POWER_PER_PCT_STAT_STEP=0.5;
 
 /* A companion quest stage's wave-equivalent: DIRECTLY proportional to the
    player's own current P.powerLevel — that stage's OWN powerFraction

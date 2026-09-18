@@ -222,7 +222,7 @@ function feedUnit(uid,amount){
  return gained;}
 /* ===== ELEMENTAL AFFINITIES (v2.10) ===== see farroad-core.js (AFFINITY_CAP/
    affinityMul/affTerm — the combat formula) and farroad-progression.js
-   (P.affinityCostToNext/P.POWER_PER_AFFINITY_POINT — the economy) for the
+   (P.affinityCostToNext — the economy) for the
    rest of this feature. This is the UI layer's slice: combining a unit's
    authored baseline with its purchased investment into the effective value
    combat reads, and the AETHER tab controls that spend Aether on it. */
@@ -1858,10 +1858,10 @@ function renderUnits(){
         not this unit's own turn count, so every enemy shows the SAME stack
         count once the gate is open — an enemy simply hasn't caught its own
         stats up to it yet if it hasn't acted since the count last rose. */
-     var st=C.enrageStacks(G.battle),beat=G.battle.beat,gateOpen=beat>C.ENRAGE_AFTER;
+     var st=C.enrageStacks(G.battle),beat=G.battle.beat,gateOpen=beat>=C.ENRAGE_AFTER;
      if(st>0)return '<div class="tiny" style="color:var(--bad)">⏱ ENRAGED ×'+st+' — +'+
-       Math.round(C.ENRAGE_PCT*st*100)+'% damage, rising every turn</div>';
-     return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages after turn '+C.ENRAGE_AFTER+
+       Math.round(C.ENRAGE_PCT*st*100)+'% damage/speed, rising every turn</div>';
+     return '<div class="tiny" style="color:var(--dimmer)">⏱ calm — enrages at turn '+C.ENRAGE_AFTER+
        ' <span style="color:var(--dim)">(now turn '+beat+')</span></div>';})():'')+
    '<div>'+pills(u)+'</div>';
   host.appendChild(d);});

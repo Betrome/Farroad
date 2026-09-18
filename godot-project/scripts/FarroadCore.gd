@@ -64,7 +64,7 @@ const ROW_PHYS := 0.70
 const ROW_SPD := 0.10
 const ROWMUL := {"front": 1.35, "back": 0.75}
 const ENRAGE_AFTER := 20
-const ENRAGE_PCT := 0.05
+const ENRAGE_PCT := 0.025
 const TICK_K := 10000.0
 const GAIN_RATIO := 12.5
 const K_BASE := 25.0
@@ -1128,10 +1128,6 @@ static func step(b: Dictionary) -> Variant:
 		"actionId": null, "actionName": null, "via": null, "isCharge": false,
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
-	if has(u, "burning"):
-		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
-		u["hp"] = max(0, u["hp"] - dot)
-		e["dot"] = dot
 	if has(u, "regen") and u["hp"] > 0:
 		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"]))
 		var bf = u["hp"]
@@ -1276,6 +1272,17 @@ static func step(b: Dictionary) -> Variant:
 		if act.get("selfTaunt"):
 			apply_status(u, "taunted", act["selfTaunt"], u["affinity"]["spirit"])
 			e["notes"].append("taunting")
+	# Ian: "sear triggers after the afflicted unit acts" -- burning's DOT
+	# tick used to fire at the very TOP of this unit's own turn, before
+	# they even chose an action (so a lethal DOT could burn a unit out
+	# before their turn ever happened). Now it ticks here instead, once
+	# this unit's own action has fully resolved -- still the same beat/
+	# event (e["actorId"] is still the afflicted unit either way), just
+	# ordered after rather than before.
+	if has(u, "burning"):
+		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
+		u["hp"] = max(0, u["hp"] - dot)
+		e["dot"] = dot
 	if act.get("isCharge"):
 		u["charge"] -= cost_of_charge(act)
 	else:
@@ -1283,7 +1290,7 @@ static func step(b: Dictionary) -> Variant:
 	e["chargeAfter"] = u["charge"]
 	u["turnsTaken"] += 1
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
-	if b["enrage"] and b["beat"] > ENRAGE_AFTER:
+	if b["enrage"] and b["beat"] >= ENRAGE_AFTER:
 		b["enrageN"] = b.get("enrageN", 0) + 1
 	if b["enrage"] and not u["isParty"] and u["hp"] > 0:
 		var pending: int = int(b.get("enrageN", 0)) - int(u.get("enrageApplied", 0))
@@ -1305,9 +1312,15 @@ static func step(b: Dictionary) -> Variant:
 			var mul: float = (1.0 + ENRAGE_PCT * target_n) / (1.0 + ENRAGE_PCT * applied_n)
 			u["base"]["atk"] *= mul
 			u["base"]["mag"] *= mul
+			# Ian: "have enrage increase speed as well." Same linear
+			# catch-up multiplier already applied to atk/mag -- spd is
+			# mutated permanently in place the same way, so a unit that's
+			# missed several stacks catches up to the same relative speed
+			# boost as atk/mag in one lump multiply, not applied N times.
+			u["base"]["spd"] *= mul
 			u["enrageApplied"] = target_n
 			e["enrageStacks"] = target_n
-			e["notes"].append("enraged ×%d (+%d%% damage)" % [e["enrageStacks"], round(ENRAGE_PCT * target_n * 100)])
+			e["notes"].append("enraged ×%d (+%d%% damage/speed)" % [e["enrageStacks"], round(ENRAGE_PCT * target_n * 100)])
 	b["log"].append(e)
 	check_end(b)
 	return e

@@ -1946,40 +1946,40 @@ static func collect_idle_reward(g: Dictionary) -> Dictionary:
 	g["pendingIdleMarks"] = 0.0
 	return {"aether": aether, "marks": marks}
 
-## ===== POWER LEVEL (Step 3i) =====
-## Mirrors powerLevel (farroad-progression.js:1030-1058) -- a rollup of
-## wave-implied level, owned-unit levels/count, Lore invested, and
-## affinity/pct-stat investment, used ONLY to scale companion quest
-## difficulty (questStageWave below) rather than reading G.wave directly,
-## so a late-acquired companion's quest line doesn't face the "wall" a
-## fixed wave-equivalent would create (the v2.9 correction the real source
-## comment describes).
-const POWER_PER_UNIT := 15.0
+## ===== POWER LEVEL (Step 3i, re-established + rescaled per later feedback) =====
+## Displayed in the HUD next to Aether/Marks (GameController._refresh_hud),
+## and also used to scale companion quest difficulty (questStageWave below)
+## rather than reading G.wave directly, so a late-acquired companion's quest
+## line doesn't face the "wall" a fixed wave-equivalent would create (the
+## v2.9 correction the real source comment describes).
+##
+## Ian: "have it scale with combined units stats, total lore levels, and
+## furthest wave reached." Replaced the old unit-level/-count-based rollup
+## with each owned unit's own level-scaled combat stats (atk/mag/def/res/
+## spd/hp via stats_at -- the same pure, already-ported curve build_party_unit
+## itself starts from, before any equipment/pct-stat overlay, which this
+## display metric doesn't need for a "how strong is my roster" readout),
+## summed across every owned unit (fielded or benched) and divided down to a
+## scale comparable to the other two terms. Lore term unchanged (already
+## matched "total lore levels" exactly). Wave term now reads g.farthest (the
+## deepest wave ever reached) instead of g.wave (the current one), so a
+## checkpoint-triggered retreat after a wipe doesn't make POWER LEVEL itself
+## go backwards.
+const POWER_STAT_DIVISOR := 20.0
 const POWER_PER_LORE := 1.0
-const POWER_PER_AFFINITY_POINT := 0.5
-const POWER_PER_PCT_STAT_STEP := 0.5
 
 static func power_level(g: Dictionary) -> int:
-	var wave_level: float = FarroadCore.level_curve(g.get("wave", 1))
-	var unit_levels := 0.0
-	var unit_count := 0
+	var unit_stat_total := 0.0
 	for uid in g.get("owned", {}).keys():
-		unit_count += 1
-		unit_levels += float(g["lvl"].get(uid, 1))
+		var def = FarroadCore.roster_by_id(uid)
+		var st: Dictionary = stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+		unit_stat_total += st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"]
 	var lore_levels := 0.0
 	for aid in g.get("bonuses", {}).keys():
 		var b: Dictionary = g["bonuses"][aid]
 		lore_levels += float(FarroadCore.action_bonus_total(b) + int(b.get("broad", 0)))
-	var affinity_points := 0.0
-	for uid in g.get("affinities", {}).keys():
-		for axis in (g["affinities"][uid] as Dictionary).keys():
-			affinity_points += float(g["affinities"][uid][axis])
-	var pct_stat_steps := 0.0
-	for uid in g.get("statInvest", {}).keys():
-		for stat in (g["statInvest"][uid] as Dictionary).keys():
-			pct_stat_steps += float(g["statInvest"][uid][stat])
-	return roundi(wave_level + unit_levels + unit_count * POWER_PER_UNIT + lore_levels * POWER_PER_LORE +
-		affinity_points * POWER_PER_AFFINITY_POINT + pct_stat_steps * POWER_PER_PCT_STAT_STEP)
+	var wave_level: float = FarroadCore.level_curve(g.get("farthest", 1))
+	return maxi(1, roundi(unit_stat_total / POWER_STAT_DIVISOR + lore_levels * POWER_PER_LORE + wave_level))
 
 ## ===== DUNGEONS/QUESTS (Step 3i) =====
 ## Mirrors farroad-ui.js:1213-1236/1284-1313/2505-2634 and

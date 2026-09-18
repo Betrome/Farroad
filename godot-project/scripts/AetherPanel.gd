@@ -61,7 +61,23 @@ func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	card_container = container
 	_refresh_card()
 
+## Ian: "Body and Spirit pop-up: mention physical attacks for body and
+## buffs/debuffs for spirit, not the generic affinity text the others use."
+## Body/Spirit don't work like the 6 elemental axes (no element-tagged
+## actions) -- confirmed against FarroadCore.gd's own actual usage:
+## affinity_factor only reads "body" when act.camp=="atk" (physical), and
+## apply_status/heal_for read "spirit" for buff/heal potency (symmetric
+## aff_boost) and, for debuffs specifically, an asymmetric caster-potency/
+## target-resist formula (aff_boost_resist) -- the other 6 axes' generic
+## "X-aligned actions" text would be actively wrong for either of these.
+const BODY_INFO := "Body affinity boosts the power of this unit's own physical attacks (on top of any element they also carry), and reduces incoming physical damage from enemies."
+const SPIRIT_INFO := "Spirit affinity boosts this unit's own healing (including drain/lifesteal) given and received, and how strongly its buffs and debuffs land, both as caster and as target. Doesn't affect Recovery, the separate between-wave stat."
+
 func _affinity_info(axis: String) -> String:
+	if axis == "body":
+		return BODY_INFO
+	if axis == "spirit":
+		return SPIRIT_INFO
 	var label: String = AFFINITY_AXIS_LABELS[axis]
 	return "%s affinity boosts the power of this unit's own %s-aligned actions, and reduces incoming %s-aligned damage/effects from enemies." % [
 		label, label, label]

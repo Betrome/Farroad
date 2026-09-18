@@ -76,6 +76,7 @@ var side_presenter: Node = null
 var currency_row: HBoxContainer
 var aether_cell: Label
 var marks_cell: Label
+var power_level_cell: Label
 var idle_rate_label: Label
 var fade_overlay: ColorRect
 var background_layer: Node2D
@@ -319,6 +320,12 @@ func _build_hud() -> void:
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
 	marks_cell = _build_currency_label(currency_row)
+	# Ian: "re-establish power level that is displayed at the top next to
+	# aether and marks" -- the real JS reference already shows this in its
+	# own always-visible header (farroad-ui.js's renderPowerLevel), right
+	# next to the currency purse; the Godot port never built the UI for it.
+	# Same row, third cell.
+	power_level_cell = _build_currency_label(currency_row)
 
 	# Idle reward rate (Group I, post-Milestone-3 batch) -- a small line
 	# under the currency purse showing the ambient trickle rate feeding it
@@ -613,9 +620,15 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 func _refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
+	power_level_cell.text = "Power %d" % FarroadProgression.power_level(g)
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
-	idle_rate_label.text = "%.1f Aether/hr   %.1f Marks/hr" % [r["aether"] * 3600.0, marks_rate * 3600.0]
+	# Ian: "idle rewards: show per 5 minutes, not per hour" -- matches the
+	# real JS reference's own already-established convention exactly
+	# (farroad-ui.js's renderIdleRate: x300/.toFixed(2), chosen there
+	# specifically because a per-hour/per-minute figure rounds to a
+	# misleading "0" at real depth long before the trickle actually stops).
+	idle_rate_label.text = "%.2f Aether/5min   %.2f Marks/5min" % [r["aether"] * 300.0, marks_rate * 300.0]
 
 ## Called by GambitsPanel/AetherPanel (dynamic has_method()+call(), same
 ## pattern as _notify_currency_changed) when either popup opens/closes --

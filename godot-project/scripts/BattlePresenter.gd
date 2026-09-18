@@ -662,6 +662,13 @@ func _build_status_card(u: Dictionary) -> Control:
 	var header := HBoxContainer.new()
 	var color: String = PARTY_COLOR if u["isParty"] else ENEMY_COLOR
 	var level: int = u["level"] if u["isParty"] else roundi(FarroadCore.level_curve(FarroadCore.current_wave))
+	# Ian: "reduce First boss level to 10." Display-only override, scoped
+	# exactly like FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL
+	# (the wave-20 boss's own dedicated softening constants) -- the
+	# underlying level_curve/waveScale stat math is untouched, only the
+	# number shown on this card for that one specific fight.
+	if not u["isParty"] and u.get("isBoss") and FarroadCore.current_wave == FarroadProgression.BOSS_WAVES[0]:
+		level = 10
 	var row_tag: String = ""
 	if u["isParty"]:
 		row_tag = "FRONT" if u.get("row") == "front" else "BACK"
@@ -765,10 +772,10 @@ func _build_status_card(u: Dictionary) -> Control:
 		var beat: int = battle["beat"]
 		var enrage_text: String
 		if stacks > 0:
-			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage, rising every turn" % [
+			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage/speed, rising every turn" % [
 				stacks, roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)]
 		else:
-			enrage_text = "⏱ calm — enrages after turn %d" % FarroadCore.ENRAGE_AFTER
+			enrage_text = "⏱ calm — enrages at turn %d" % FarroadCore.ENRAGE_AFTER
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
 
 	return card
@@ -1101,7 +1108,10 @@ func _refresh_enrage() -> void:
 	var gate: int = FarroadCore.ENRAGE_AFTER
 	var frac: float = clamp(float(beat) / float(gate), 0.0, 1.0)
 	enrage_fg.size = Vector2(enrage_bg.size.x * frac, enrage_bg.size.y)
-	if beat > gate:
+	# Ian: "enrage should start at 20 turns, not 21" -- gate is now
+	# beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER), matching step()'s own
+	# corrected gate check exactly.
+	if beat >= gate:
 		# Stacks are battle-wide now (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- no more per-unit max scan needed.
 		var stacks: int = int(battle.get("enrageN", 0))
@@ -1109,9 +1119,9 @@ func _refresh_enrage() -> void:
 		# mirrors the JS display formula exactly (farroad-ui.js's own
 		# enrageStacks-driven label).
 		var pct := roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)
-		enrage_label.text = ("ENRAGED +%d%% dmg" % pct) if stacks > 0 else "ENRAGED"
+		enrage_label.text = ("ENRAGED +%d%% dmg/spd" % pct) if stacks > 0 else "ENRAGED"
 	else:
-		var turns_left: int = gate - beat + 1
+		var turns_left: int = gate - beat
 		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]
 
 ## "TURN ORDER ->" strip -- mirrors the JS version's preview()-powered strip
@@ -1611,6 +1621,15 @@ func _apply_hit_effects(e: Dictionary) -> void:
 	var primary_view: UnitView = unit_views_by_name.get(e.get("targetName"))
 	if primary_view != null:
 		primary_view.update_hp()
+	# Ian: "charge bar update on hit, not on return to starting position" --
+	# was only ever refreshed by the post-beat _refresh_charge_bars() sweep,
+	# AFTER a physical attacker's full there-and-back hop completed. This
+	# unit's own charge already changed (spent or gained) by the time
+	# step() returned this event, so update it right here, at the same
+	# "impact" moment hits/heals already resolve at.
+	var actor_view: UnitView = unit_views_by_id.get(e.get("actorId"))
+	if actor_view != null:
+		actor_view.update_charge()
 	var stagger: Dictionary = {}
 	for h in e["hits"]:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])
@@ -1633,6 +1652,17 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var n: int = stagger.get(h["targetName"], 0)
 		stagger[h["targetName"]] = n + 1
 		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5), n)
+	# Ian: "sear triggers after the afflicted unit acts and show the
+	# amount" -- step() already moved burning's DOT tick to fire after this
+	# unit's own action resolves (still this same beat/event); this is the
+	# "show" half, giving it a floating number on the afflicted unit's own
+	# field position, same as any other damage source. The log popup's own
+	# "🔥 -N" note (BattlePresenter's log-building code) is unchanged.
+	if actor_view != null and e.get("dot", 0) > 0:
+		actor_view.update_hp()
+		var an: int = stagger.get(e.get("actorName"), 0)
+		stagger[e.get("actorName")] = an + 1
+		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), Color(1.0, 0.45, 0.15), an)
 	_apply_status_notes(e, stagger)
 
 ## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/

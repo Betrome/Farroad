@@ -497,15 +497,19 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   slots:[{cond:'none',action:'strike'}]});
  var b=C.makeBattle([tank,foe],{rng:rng,enrage:true});
  var guard=0;
- while(b.beat<C.ENRAGE_AFTER&&guard++<1000)C.step(b);
+ /* Ian: "enrage should start at 20 turns, not 21" -- gate is now
+    beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER), so "before the gate opens"
+    now means strictly less than ENRAGE_AFTER, not less-than-or-equal. */
+ while(b.beat<C.ENRAGE_AFTER-1&&guard++<1000)C.step(b);
  ok('enrage: no stacks anywhere before the battle-wide gate opens',
   C.enrageStacks(b)===0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
- /* One more beat, whoever's turn it is (party or enemy), should open the
-    gate and immediately produce a battle-wide stack -- proving growth is no
-    longer scoped to the enemy's own turn. */
+ /* One more beat, whoever's turn it is (party or enemy), should land
+    EXACTLY on ENRAGE_AFTER and immediately produce a battle-wide stack --
+    proving growth is no longer scoped to the enemy's own turn, and that
+    the gate opens ON turn 20 itself, not turn 21. */
  C.step(b);
- ok('enrage: a stack accumulates battle-wide the very next beat after the gate opens, regardless of whose turn it is',
-  b.beat>C.ENRAGE_AFTER && C.enrageStacks(b)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
+ ok('enrage: a stack accumulates battle-wide the moment beat reaches ENRAGE_AFTER, regardless of whose turn it is',
+  b.beat===C.ENRAGE_AFTER && C.enrageStacks(b)>0, 'beat='+b.beat+' stacks='+C.enrageStacks(b));
  var guard2=0;
  while(b.beat<C.ENRAGE_AFTER+10&&guard2++<1000)C.step(b);
  ok('enrage: stacks keep accumulating battle-wide as the fight continues',
@@ -658,25 +662,29 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  * Checks the formula responds to each of the four inputs independently and
  * produces a sane baseline. */
 (function(){
- var base={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{}};
+ var base={farthest:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{}};
  var basePower=P.powerLevel(base);
  ok('powerLevel is a positive finite number', isFinite(basePower)&&basePower>0, String(basePower));
 
- var higherWave=P.powerLevel({wave:500,owned:{kesh:1},lvl:{kesh:1},bonuses:{}});
- ok('powerLevel increases with wave', higherWave>basePower);
+ var higherFarthest=P.powerLevel({farthest:500,owned:{kesh:1},lvl:{kesh:1},bonuses:{}});
+ ok('powerLevel increases with farthest wave reached', higherFarthest>basePower);
 
- var higherLevel=P.powerLevel({wave:1,owned:{kesh:1},lvl:{kesh:50},bonuses:{}});
+ var higherLevel=P.powerLevel({farthest:1,owned:{kesh:1},lvl:{kesh:50},bonuses:{}});
  ok('powerLevel increases with unit level', higherLevel>basePower);
 
- var moreUnits=P.powerLevel({wave:1,owned:{kesh:1,ansa:1},lvl:{kesh:1,ansa:1},bonuses:{}});
+ var moreUnits=P.powerLevel({farthest:1,owned:{kesh:1,ansa:1},lvl:{kesh:1,ansa:1},bonuses:{}});
  ok('powerLevel increases with roster size', moreUnits>basePower);
 
- var moreLore=P.powerLevel({wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{strike:{potent:5}}});
+ var moreLore=P.powerLevel({farthest:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{strike:{potent:5}}});
  ok('powerLevel increases with Lore levels', moreLore>basePower);
 
  ok('powerLevel matches the sum of its own documented terms', (function(){
-  var g={wave:150,owned:{kesh:1,ansa:1},lvl:{kesh:20,ansa:10},bonuses:{strike:{potent:3},ember:{swift:2}}};
-  var expected=Math.round(C.levelCurve(150)+30+2*P.POWER_PER_UNIT+5*P.POWER_PER_LORE);
+  var g={farthest:150,owned:{kesh:1},lvl:{kesh:20},bonuses:{strike:{potent:3},ember:{swift:2}}};
+  var keshDef=null;C.ROSTER.forEach(function(r){if(r.id==='kesh')keshDef=r;});
+  var st=P.statsAt('kesh',keshDef.stats,keshDef.hp,20);
+  var unitStatTotal=st.atk+st.mag+st.def+st.res+st.spd+st.hp;
+  var loreLevels=C.actionBonusTotal({potent:3})+C.actionBonusTotal({swift:2});
+  var expected=Math.round(unitStatTotal/P.POWER_STAT_DIVISOR+loreLevels*P.POWER_PER_LORE+C.levelCurve(150));
   return P.powerLevel(g)===expected;
  })());
 })();
@@ -774,7 +782,7 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
     that back through the curve overshoots the wave by roughly the
     square of that factor). Stage 5 (frac 1.0) must equal powerLevel
     exactly; stages rise monotonically 1->5 for a fixed player state. --- */
- var questG={wave:200,owned:{kesh:1,ansa:1},lvl:{kesh:30,ansa:20},bonuses:{strike:{potent:2}}};
+ var questG={wave:200,farthest:200,owned:{kesh:1,ansa:1},lvl:{kesh:30,ansa:20},bonuses:{strike:{potent:2}}};
  var myPower=P.powerLevel(questG);
  var stage5Wave=P.questStageWave(questG,'kesh',4);
  ok('questStageWave stage 5 (frac 1.0) equals the player\'s own power level exactly',
@@ -1094,17 +1102,18 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('Block no longer exists as a purchasable stat',
   !P.PCT_STAT.block && C.CAP_BLOCK===undefined);
 
- /* --- Power Level responds to purchased steps, baseline excluded --------- */
- var baseG={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},statInvest:{}};
+ /* --- Power Level (rescaled per later feedback): scales with combined
+    units stats/total lore levels/furthest wave reached ONLY -- purchased
+    Evade/Crit steps and raw affinity points are deliberately no longer
+    separate terms (dropped along with unit-count/unit-level, per Ian's
+    own literal 3-item list), so investing in either should NOT move the
+    number -- confirms that's the case by construction, not a regression. */
+ var baseG={farthest:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},statInvest:{}};
  var basePower=P.powerLevel(baseG);
- var investedG={wave:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},
+ var investedG={farthest:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{},affinities:{},
   statInvest:{kesh:{atkCrit:4,evade:2}}};
- ok('powerLevel increases with purchased Evade/Crit steps',
-  P.powerLevel(investedG)>basePower);
- ok('powerLevel matches the sum of its own documented pctStatSteps term', (function(){
-  var expected=Math.round(P.powerLevel(baseG)+6*P.POWER_PER_PCT_STAT_STEP);
-  return P.powerLevel(investedG)===expected;
- })());
+ ok('powerLevel is unaffected by purchased Evade/Crit steps (dropped from the new formula)',
+  P.powerLevel(investedG)===basePower);
 
  /* --- G.statInvest round-trips through save/load, old-save default-fill - */
  (function(){
@@ -1178,7 +1187,7 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    restored5&&JSON.stringify(restored5.loreByAction));
  })();
 
- /* --- enrage scales MAG as well as ATK, in a real battle ----------------- */
+ /* --- enrage scales MAG and SPD as well as ATK, in a real battle --------- */
  (function(){
   C.setWave(1);
   var rng=C.makeRNG(4242);
@@ -1188,13 +1197,15 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   var caster=C.makeUnit({id:'e1',name:'Caster',isParty:false,level:1,slotIndex:10,
    stats:{atk:1,mag:50,def:9999,res:9999,spd:100,evade:0},maxHp:1e9,hp:1e9,
    slots:[{cond:'none',action:'ember'}]});
-  var magBefore=caster.base.mag,atkBefore=caster.base.atk;
+  var magBefore=caster.base.mag,atkBefore=caster.base.atk,spdBefore=caster.base.spd;
   var b=C.makeBattle([tank,caster],{rng:rng,enrage:true});
   var guard=0;
   while(b.beat<C.ENRAGE_AFTER+10&&guard++<1000)C.step(b);
   ok('enrage raises MAG as well as ATK on a real enemy',
    caster.base.mag>magBefore&&caster.base.atk>atkBefore,
    'mag '+magBefore+'->'+caster.base.mag+' atk '+atkBefore+'->'+caster.base.atk);
+  ok('enrage raises SPD too (Ian: "have enrage increase speed as well")',
+   caster.base.spd>spdBefore, 'spd '+spdBefore+'->'+caster.base.spd);
  })();
 
  /* --- lifesteal scales with the attacker's own Spirit --------------------- */

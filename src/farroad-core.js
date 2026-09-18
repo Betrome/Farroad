@@ -153,7 +153,7 @@ function affinityFactor(src,tgt,act){
  if(act.element)m*=affTerm(src.affinity[act.element],tgt.affinity[act.element]);
  return m;}
 var ROW_PHYS=0.70,ROW_SPD=0.10,ROWMUL={front:1.35,back:0.75};
-var ENRAGE_AFTER=20, ENRAGE_PCT=0.05;   /* grace in TOTAL battle turns (both sides), then +5%/turn */
+var ENRAGE_AFTER=20, ENRAGE_PCT=0.025;   /* grace in TOTAL battle turns (both sides), then +2.5%/turn */
 /* v2.10: Block removed entirely (Body affinity already covers physical
    damage reduction — a second, overlapping stat was redundant). Evade's
    old per-camp asymmetry (physical at half strength, magic at full —
@@ -808,7 +808,6 @@ function step(b){
  b.t=u.nextActAt;b.beat+=1;var ms=beatMs(b.beat);b.elapsedMs+=ms;
  var e={beat:b.beat,t:b.t,ms:ms,actorId:u.id,actorName:u.name,isParty:u.isParty,
   chargeBefore:u.charge,hits:[],heals:[],totalDamage:0,notes:[],dot:0,regen:0,thorns:0};
- if(has(u,'burning')){var dot=Math.max(1,Math.ceil(magOf(u,'burning')*u.maxHp));u.hp=Math.max(0,u.hp-dot);e.dot=dot;}
  if(has(u,'regen')&&u.hp>0){var rg=Math.max(1,Math.ceil(magOf(u,'regen')*u.maxHp)),bf=u.hp;u.hp=Math.min(u.maxHp,u.hp+rg);e.regen=u.hp-bf;}
  for(var si=0;si<ST.length;si++)if(u.st[ST[si]]>0)u.st[ST[si]]--;
  if(u.hp<=0){e.actionId='none';e.actionName='(burned out)';e.via='—';e.rank=1;e.chargeAfter=u.charge;
@@ -904,6 +903,12 @@ function step(b){
     apply(targets[m],act.applies,act.turns,u.affinity.spirit);
     e.notes.push((already?'refreshed ':'applied ')+act.applies+' on '+targets[m].name);}}}
   if(act.selfTaunt){apply(u,'taunted',act.selfTaunt,u.affinity.spirit);e.notes.push('taunting');}}
+ /* Ian: "sear triggers after the afflicted unit acts" -- burning's DOT tick
+    used to fire at the very TOP of this unit's own turn, before they even
+    chose an action. Now it ticks here instead, once this unit's own action
+    has fully resolved -- still the same beat/event (e.actorId is still the
+    afflicted unit either way), just ordered after rather than before. */
+ if(has(u,'burning')){var dot=Math.max(1,Math.ceil(magOf(u,'burning')*u.maxHp));u.hp=Math.max(0,u.hp-dot);e.dot=dot;}
  if(act.isCharge)u.charge-=costOfCharge(act);else u.charge+=act.charge*effChargeRate(u);
  e.chargeAfter=u.charge;u.turnsTaken+=1;u.nextActAt=b.t+tcOf(u,act.rank);
  /* ENRAGE (v1.0, on by default; v2.9 gate reworked; v2.13 stack-source
@@ -925,7 +930,9 @@ function step(b){
     already carries (1+PCT*applied_n) baked in, so multiplying by
     (1+PCT*target_n)/(1+PCT*applied_n) lands exactly on
     original*(1+PCT*target_n). */
- if(b.enrage&&b.beat>ENRAGE_AFTER)b.enrageN=(b.enrageN||0)+1;
+ /* Ian: "enrage should start at 20 turns, not 21" -- gate is now
+    beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER). */
+ if(b.enrage&&b.beat>=ENRAGE_AFTER)b.enrageN=(b.enrageN||0)+1;
  if(b.enrage&&!u.isParty&&u.hp>0){
   var pending=(b.enrageN||0)-(u.enrageApplied||0);
   if(pending>0){
@@ -937,9 +944,12 @@ function step(b){
       just attack" ask. */
    u.base.atk=u.base.atk*mul;
    u.base.mag=u.base.mag*mul;
+   /* Ian: "have enrage increase speed as well." Same linear catch-up
+      multiplier already applied to atk/mag. */
+   u.base.spd=u.base.spd*mul;
    u.enrageApplied=targetN;
    e.enrageStacks=targetN;
-   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*targetN*100)+'% damage)');}}
+   e.notes.push('enraged ×'+e.enrageStacks+' (+'+Math.round(ENRAGE_PCT*targetN*100)+'% damage/speed)');}}
  b.log.push(e);checkEnd(b);return e;}
 function checkEnd(b){var pa=false,fa=false;
  for(var i=0;i<b.units.length;i++)if(b.units[i].hp>0){if(b.units[i].isParty)pa=true;else fa=true;}
