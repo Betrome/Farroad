@@ -397,7 +397,16 @@ function buildEnemies(w,quiet,superBossKey){
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
  var n=boss?1:(variety?P.rollCount(G.rng,w):P.enemyCount(w));
- var vMul=variety?(P.countStrength(n)*P.bandRoll(G.rng)):1;
+ /* Ian: "make waves with fewer enemies stronger." countStrength(n) was
+    already exactly this compensation curve, but only ever applied once
+    enemy count starts being RANDOMLY rolled (w>VARIETY_FROM). Extended to
+    every wave from UNIT_WAVES[0] (20) onward, where enemyCount(w) already
+    varies smoothly with party size even before the roll kicks in.
+    Deliberately NOT extended back into waves 1-19 (the single-character
+    tutorial stretch, always exactly 1 enemy) -- that range was already
+    hand-tuned down specifically to be beatable solo. */
+ var countMul=w>=P.UNIT_WAVES[0]?P.countStrength(n):1;
+ var vMul=variety?(countMul*P.bandRoll(G.rng)):countMul;
  if(variety&&!quiet)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
   (n===1?' foe — <b style="color:var(--boss)">ELITE</b>':' foes')+
   ' <span class="tiny">· each at ×'+vMul.toFixed(2)+' strength</span>');

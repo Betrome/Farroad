@@ -105,8 +105,10 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Palette.BTN_NORMAL
+	normal_style.set_corner_radius_all(int(size / 2.0))
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.BTN_HOVER
+	hover_style.set_corner_radius_all(int(size / 2.0))
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)

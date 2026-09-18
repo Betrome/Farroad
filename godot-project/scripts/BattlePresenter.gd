@@ -113,12 +113,34 @@ func _ready() -> void:
 ## battle via FarroadProgression -- content is assumed already loaded and
 ## FarroadCore.set_wave() already called by build_enemies() itself, neither
 ## of which is this presenter's job anymore.
-func start_battle(new_battle: Dictionary, units: Array) -> void:
+func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false) -> void:
 	battle = new_battle
 	_layout_units(units)
+	if animate_enemies_in:
+		_animate_enemies_entering()
 	_refresh_turn_order()
 	_refresh_enrage()
 	_run_battle_loop()
+
+const ENEMY_RUN_IN_TIME := 1.0
+
+## Ian: "after clearing a wave, have enemies run in from the left to
+## meet units for the next wave of combat. Preparation for assets and
+## animation." Same offscreen-then-tween idiom sync_live_party already
+## uses for a newly-joining ally -- _layout_units() just above already
+## placed every view (enemies included) at its real final rest position
+## SYNCHRONOUSLY, so snapping each enemy view's start position off-screen
+## here, before this function (and therefore this frame) finishes, is
+## invisible -- only the animated return trip actually shows. Party views
+## are left alone -- they're already in position; only enemies "rush in."
+func _animate_enemies_entering() -> void:
+	for view in unit_views_by_id.values():
+		if view.unit["isParty"]:
+			continue
+		var target: Vector2 = view.position
+		view.position = Vector2(-view.size * 2.0, target.y)
+		var tw := create_tween()
+		tw.tween_property(view, "position", target, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 ## Called by GameController when the viewport's real size changes (window
 ## resize, or a device with a different aspect ratio than assumed at
@@ -494,8 +516,10 @@ func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Ca
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Palette.BTN_NORMAL
+	normal_style.set_corner_radius_all(int(size / 2.0))
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.BTN_HOVER
+	hover_style.set_corner_radius_all(int(size / 2.0))
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)

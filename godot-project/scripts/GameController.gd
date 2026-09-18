@@ -79,6 +79,7 @@ var idle_rate_label: Label
 var wave_popup: PanelContainer
 var wave_popup_label: Label
 var fade_overlay: ColorRect
+var background_layer: Node2D
 ## Captured by _try_resume_save() (empty {} when no save existed, or the
 ## real 5s no-op floor wasn't met) -- consumed once by _start_game() to
 ## show the welcome-back popup (Group J, post-Milestone-3 batch).
@@ -101,6 +102,7 @@ func _ready() -> void:
 ## or a freshly confirmed character), run only once `g` is guaranteed
 ## fully built either way.
 func _start_game() -> void:
+	_build_background_layer()
 	_build_hud()
 	_refresh_hud()
 	if not _offline_summary.is_empty():
@@ -177,12 +179,15 @@ func _on_expedition_tick() -> void:
 func _on_viewport_resized() -> void:
 	_vp = get_viewport_rect().size
 	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
-	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
 	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
-	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	fade_overlay.size = _vp
+	if background_layer != null:
+		background_layer.position.x = 0.0
+		_rebuild_background_marks()
 	# wave_popup itself needs no repositioning here -- _show_wave_popup()
 	# already computes its center fresh from _vp every time it's shown.
 	if current_presenter != null:
@@ -253,6 +258,38 @@ func _save_game() -> void:
 	f.store_string(JSON.stringify(snap))
 	f.close()
 
+## Ian (batch): "I want to eventually replace the blank background with
+## illustrations and locales along the road... what do we need to do now
+## to prepare for that?" -- this IS that preparation: a dedicated Node2D
+## layer, added first (drawn behind the battle field/HUD), spanning a
+## band 3x screen width so a wave-transition scroll never reveals a bare
+## edge. Placeholder content only (simple ground marks, no art yet) --
+## real illustration/locale sprites drop in as children of this SAME node
+## later with no other code changes needed. Also what
+## _animate_wave_transition scrolls during the post-wave-clear "run".
+func _build_background_layer() -> void:
+	background_layer = Node2D.new()
+	add_child(background_layer)
+	move_child(background_layer, 0)
+	_rebuild_background_marks()
+
+func _rebuild_background_marks() -> void:
+	for c in background_layer.get_children():
+		c.queue_free()
+	var band_bottom: float = _vp.y * 0.58
+	var mark_w: float = _vp.x * 0.03
+	var mark_h: float = _vp.y * 0.012
+	var gap: float = _vp.x * 0.09
+	var span: float = _vp.x * 3.0
+	var x: float = -span / 2.0
+	while x < span / 2.0:
+		var mark := ColorRect.new()
+		mark.color = Palette.BG_PARCHMENT_DEEP
+		mark.size = Vector2(mark_w, mark_h)
+		mark.position = Vector2(x, band_bottom - mark_h)
+		background_layer.add_child(mark)
+		x += gap
+
 ## A minimal top strip (currency purse + wave number) above the existing
 ## battle view -- not a full tab bar yet, since there's only one screen to
 ## navigate to until Step 3c. Between waves, a centered "Wave N" popup
@@ -260,14 +297,16 @@ func _save_game() -> void:
 ## it announces the upcoming wave for a second, then the next fight starts
 ## on its own, no button to press.
 func _build_hud() -> void:
+	# Ian: "reduce size of ... total Aether, Marks, and Wave # by 30%."
+	# 0.035 -> 0.0245, 0.025 -> 0.0175 (both *0.7). Positions unchanged.
 	wave_label = Label.new()
 	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
-	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
 	add_child(wave_label)
 
 	currency_label = Label.new()
 	currency_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
-	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	currency_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	add_child(currency_label)
 
 	# Idle reward rate (Group I, post-Milestone-3 batch) -- a small line
@@ -337,8 +376,10 @@ func _build_road_button() -> void:
 	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Palette.GOLD
+	normal_style.set_corner_radius_all(int(icon_size / 2.0))
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.GOLD_LIGHT
+	hover_style.set_corner_radius_all(int(icon_size / 2.0))
 	road_button.add_theme_stylebox_override("normal", normal_style)
 	road_button.add_theme_stylebox_override("hover", hover_style)
 	road_button.add_theme_stylebox_override("pressed", hover_style)
@@ -1245,7 +1286,7 @@ func _sync_row_change(uid: String) -> void:
 ## visible "quests overlap with the road" bug this was written to fix.
 ## _resolve_side_battle's own restore path is what rebuilds the Road's
 ## presenter once it's actually safe again (see its own comment).
-func _begin_next_fight() -> void:
+func _begin_next_fight(animate_enemies_in: bool = false) -> void:
 	if g.get("sideBattle") != null:
 		return
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
@@ -1256,8 +1297,33 @@ func _begin_next_fight() -> void:
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
 		return
-	presenter.start_battle(g["battle"], g["units"] + g["enemies"])
+	presenter.start_battle(g["battle"], g["units"] + g["enemies"], animate_enemies_in)
 	current_presenter = presenter
+
+const WAVE_RUN_TIME := 1.0
+
+## Ian: "after clearing a wave, have units run towards the right...
+## maintain framing but have the background move behind them. Have it
+## last 1 second. Preparation for assets and animation." Fire-and-forget
+## (not awaited by the caller) -- runs for the same ~1s _show_wave_popup
+## already holds its "Wave N" announcement, so this fills that existing
+## pause with motion instead of adding a separate delay on top of it.
+## Party units shift right by a modest amount ("framing maintained" --
+## they stay within their own band, not actually leaving the field) while
+## background_layer scrolls the opposite way underneath them, the classic
+## runner-style parallax trick. A dead party member (dimmed, not removed)
+## is skipped -- nothing to "run" for a unit that's down.
+func _animate_wave_transition(old_presenter: Node) -> void:
+	if old_presenter == null:
+		return
+	var run_dx: float = _vp.x * 0.1
+	for view in old_presenter.unit_views_by_id.values():
+		if view.unit["isParty"] and view.unit["hp"] > 0:
+			var tw := create_tween()
+			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME)
+	if background_layer != null:
+		var bg_tw := create_tween()
+		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * 1.5, WAVE_RUN_TIME)
 
 ## Mirrors the real doStep()'s post-battle branch (afterWaveCleared() on a
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the
@@ -1276,11 +1342,12 @@ func _on_battle_finished(outcome: String) -> void:
 		# The finished battlefield (units, HP bars, log/status buttons) stays
 		# on screen behind the popup -- only freed once the NEXT fight is
 		# actually being built, not the moment this one ends.
+		_animate_wave_transition(current_presenter)
 		await _show_wave_popup(g["wave"])
 		if current_presenter != null:
 			current_presenter.queue_free()
 			current_presenter = null
-		_begin_next_fight()
+		_begin_next_fight(true)
 	else:
 		FarroadProgression.on_wipe(g)
 		_refresh_hud()
@@ -1432,7 +1499,7 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 		await get_tree().create_timer(delay).timeout
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.028))
+	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.0196))
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	lbl.position = start
 	add_child(lbl)

@@ -52,7 +52,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.89)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.80)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -92,8 +92,10 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Palette.BTN_NORMAL
+	normal_style.set_corner_radius_all(int(size / 2.0))
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.BTN_HOVER
+	hover_style.set_corner_radius_all(int(size / 2.0))
 	btn.add_theme_stylebox_override("normal", normal_style)
 	btn.add_theme_stylebox_override("hover", hover_style)
 	btn.add_theme_stylebox_override("pressed", hover_style)
@@ -105,7 +107,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.02), Vector2i(_vp.x * 0.96, _vp.y * 0.89)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.11), Vector2i(_vp.x * 0.96, _vp.y * 0.80)))
 	_notify_battle_paused(true)
 
 ## Also called by GameController (dynamic has_method()+call()) after a

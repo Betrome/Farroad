@@ -506,7 +506,8 @@ if (mode === 'progression') {
     var boss = P.isBossWave(w) || !!superBossKey;
     var variety = (!boss && w > P.VARIETY_FROM);
     var n = boss ? 1 : (variety ? P.rollCount(g.rng, w) : P.enemyCount(w));
-    var vMul = variety ? (P.countStrength(n) * P.bandRoll(g.rng)) : 1;
+    var countMul = w >= P.UNIT_WAVES[0] ? P.countStrength(n) : 1;
+    var vMul = variety ? (countMul * P.bandRoll(g.rng)) : countMul;
     C.setWave(w);
     var S = C.waveScale(w), out = [];
     var isFirstBoss = boss && w === P.BOSS_WAVES[0];

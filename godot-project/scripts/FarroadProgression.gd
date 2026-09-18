@@ -1244,7 +1244,20 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	var boss: bool = is_boss_wave(w) or super_boss_key != ""
 	var variety: bool = (not boss) and w > VARIETY_FROM
 	var n: int = 1 if boss else (roll_count(g["rng"], w) if variety else enemy_count(w))
-	var v_mul: float = (count_strength(n) * band_roll(g["rng"])) if variety else 1.0
+	# Ian: "make waves with fewer enemies stronger." count_strength(n) was
+	# already exactly this compensation curve (n=1 -> x1.85 per enemy down
+	# to n=10 -> x0.29), but only ever applied once enemy count starts
+	# being RANDOMLY rolled (w > VARIETY_FROM). Extended to every wave from
+	# UNIT_WAVES[0] (20) onward, where enemy_count(w) already varies
+	# smoothly with party size even before the roll kicks in -- so a
+	# 2-enemy wave 25 now compensates the same way a 2-enemy roll on wave
+	# 45 already did. Deliberately NOT extended back into waves 1-19 (the
+	# single-character tutorial stretch, always exactly 1 enemy) -- that
+	# range was already hand-tuned down (TUTORIAL_ATK_MAG_MUL, the wave
+	# 1-20 death-loop fix) specifically to be beatable solo, and blanket-
+	# applying count_strength(1)=1.85 there would undo that work overnight.
+	var count_mul: float = count_strength(n) if w >= UNIT_WAVES[0] else 1.0
+	var v_mul: float = (count_mul * band_roll(g["rng"])) if variety else count_mul
 	FarroadCore.set_wave(w)
 	var s: float = FarroadCore.wave_scale(w)
 	var out := []
