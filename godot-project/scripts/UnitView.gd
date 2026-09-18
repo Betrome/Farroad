@@ -12,13 +12,19 @@ extends Node2D
 ## device aspect ratio (see BattlePresenter's stretch/aspect="expand" note).
 ##
 ## Ian: "I want to eventually replace the blocks with sprite assets... what
-## do we need to do now to prepare for that?" `shape` is a real Sprite2D (a
-## solid-white placeholder texture, generated once and reused, stretched
-## via `scale` to each unit's own computed size and tinted via `modulate`
-## the same way the old Polygon2D used `color`) rather than a vector shape,
-## so a real sprite sheet drops straight into `shape.texture` later with no
-## other code changes -- every hop/shake/run animation already tweens
-## `shape.position`/`.scale`, which work identically on a Sprite2D.
+## do we need to do now to prepare for that?" `shape` is a real Sprite2D
+## rather than a vector shape, so a real sprite sheet drops straight into
+## `shape.texture` later with no other code changes -- every hop/shake/run
+## animation already tweens `shape.position`/`.scale`, which work
+## identically on a Sprite2D.
+##
+## Ian: "do a procedural polish pass" (a stopgap ahead of real art) --
+## `shape.texture` is now one of a small set of PROCEDURALLY-DRAWN shape
+## textures (see _get_shape_texture), keyed by archetype/party-role, each
+## baked with its own tint and a soft vertical shade for a sense of volume
+## instead of one flat-colored square for every unit in the game. Still a
+## placeholder (still just `shape.texture`, still swapped for real art with
+## zero other code changes) -- just a more legible one.
 
 ## Ian: "tapping on a unit in the battle should show its stats page,
 ## live." Emitted on a real click/touch inside this unit's own bounding
@@ -32,22 +38,109 @@ var rest_position: Vector2
 var size: float
 
 var shape: Sprite2D   # public -- BattlePresenter animates ONLY this during a hop/shake, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position
+var _boss_ring: Sprite2D   # only built for isBoss units -- a bigger, darker copy of the same shape, drawn BEHIND it
 
-## A single 1x1 white pixel, generated once and shared by every UnitView --
-## `shape.scale` stretches it to each unit's own computed size, `shape.
-## modulate` tints it party-blue/enemy-red. Swapping in a real sprite sheet
-## later means setting shape.texture per-unit (and adjusting the scale math
-## to that texture's native resolution) -- nothing else about this class
-## needs to change.
-const _PLACEHOLDER_TEX_SIZE := 1
-static var _placeholder_texture: Texture2D
+## Procedural placeholder shapes, one per archetype (party units all share
+## CIRCLE) -- baked at a fixed resolution regardless of final on-screen
+## size (shape.scale stretches it, same as the old flat-color texture did)
+## so edges stay smooth rather than blocky.
+enum ShapeKind { CIRCLE, DIAMOND, HEX, SQUARE, TRIANGLE_UP, TRIANGLE_DOWN }
+const _SHAPE_TEX_SIZE := 64
 
-static func _get_placeholder_texture() -> Texture2D:
-	if _placeholder_texture == null:
-		var img := Image.create(_PLACEHOLDER_TEX_SIZE, _PLACEHOLDER_TEX_SIZE, false, Image.FORMAT_RGBA8)
-		img.fill(Color.WHITE)
-		_placeholder_texture = ImageTexture.create_from_image(img)
-	return _placeholder_texture
+## Enemy archetype -> {shape, tint}. All 6 real archetypes (confirmed via
+## farroadenemies.csv's own `key` column -- "boss" is a modifier applied to
+## a rotation archetype, not a 7th real one, so a boss unit's own `arch`
+## still points at one of these 6 and picks up its shape/tint normally; the
+## boss-only ring below is what marks it as a boss). Shapes chosen to read
+## as loosely thematic (knight=armoured/blocky, ox=bulky, wolf/shrike=feral/
+## swift, priest=mystical, hound=fast) without needing real art; tints stay
+## in the same red family as ENEMY_RED/ENEMY_RED_BRIGHT so every enemy still
+## reads as "enemy" at a glance, just individually distinguishable.
+const _ENEMY_ARCH_STYLE := {
+	"wolf": {"shape": ShapeKind.TRIANGLE_UP, "tint": Color(0.80, 0.35, 0.15)},
+	"knight": {"shape": ShapeKind.SQUARE, "tint": Color(0.55, 0.12, 0.12)},
+	"hound": {"shape": ShapeKind.CIRCLE, "tint": Color(0.60, 0.28, 0.15)},
+	"ox": {"shape": ShapeKind.HEX, "tint": Color(0.45, 0.10, 0.10)},
+	"priest": {"shape": ShapeKind.DIAMOND, "tint": Color(0.65, 0.15, 0.35)},
+	"shrike": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.80, 0.20, 0.35)},
+}
+const _ENEMY_DEFAULT_STYLE := {"shape": ShapeKind.SQUARE, "tint": Color(0.85, 0.30, 0.28)}   # unrecognized/absent arch -- the old flat enemy-red
+
+## Party members all use CIRCLE ("friendly, rounded" vs. enemies' more
+## angular assortment); the exact hue is picked per roster id (hashed, so
+## it's automatic for any current or future roster entry -- no per-unit
+## hardcoding to maintain) from a small family of cool, ally-coded hues.
+const _PARTY_HUES := [
+	Color(0.08, 0.38, 0.88),   # blue -- the original party color, stays first/most common
+	Color(0.10, 0.50, 0.55),   # teal
+	Color(0.32, 0.28, 0.78),   # indigo
+	Color(0.12, 0.55, 0.40),   # green-teal
+	Color(0.20, 0.45, 0.85),   # sky blue
+]
+
+static var _shape_texture_cache: Dictionary = {}   # "<ShapeKind>|<html color>" -> Texture2D
+
+## Draws one shape into a _SHAPE_TEX_SIZE^2 RGBA image: an analytic
+## inside/outside test per pixel (no polygon-fill API on Image itself),
+## 1px of edge antialiasing, and a soft vertical shade (lighter near the
+## top, darker near the bottom) for a sense of volume instead of one flat
+## fill. Cached per (shape, tint) pair -- generated once, shared by every
+## unit of that archetype/party-hue for the life of the process.
+static func _get_shape_texture(kind: int, tint: Color) -> Texture2D:
+	var key: String = "%d|%s" % [kind, tint.to_html(false)]
+	if _shape_texture_cache.has(key):
+		return _shape_texture_cache[key]
+	var n := _SHAPE_TEX_SIZE
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var center := Vector2(n / 2.0, n / 2.0)
+	var r := n / 2.0 - 1.0
+	for y in range(n):
+		for x in range(n):
+			var p := Vector2(x + 0.5, y + 0.5)
+			var d: Vector2 = p - center
+			var edge_dist := -1.0   # >0 inside the shape, magnitude ~= distance from its edge
+			match kind:
+				ShapeKind.CIRCLE:
+					edge_dist = r - d.length()
+				ShapeKind.DIAMOND:
+					edge_dist = r - (absf(d.x) + absf(d.y))
+				ShapeKind.SQUARE:
+					edge_dist = r - maxf(absf(d.x), absf(d.y))
+				ShapeKind.HEX:
+					# An octagon (square intersected with a wider diamond,
+					# clipping just the corners) -- reads as "armored/bulky"
+					# without needing a full hexagon distance formula.
+					var square_d: float = r - maxf(absf(d.x), absf(d.y))
+					var diamond_d: float = r * 1.3 - (absf(d.x) + absf(d.y))
+					edge_dist = minf(square_d, diamond_d)
+				ShapeKind.TRIANGLE_UP:
+					var ny: float = (d.y + r) / (2.0 * r)   # 0 at top point, 1 at base
+					edge_dist = minf(ny * r - absf(d.x), minf(d.y + r, r - d.y))
+				ShapeKind.TRIANGLE_DOWN:
+					var ny2: float = (r - d.y) / (2.0 * r)   # 0 at bottom point, 1 at base
+					edge_dist = minf(ny2 * r - absf(d.x), minf(d.y + r, r - d.y))
+			var alpha: float = clampf(edge_dist, 0.0, 1.0)
+			var shade_t: float = clampf(p.y / float(n), 0.0, 1.0)
+			var shaded: Color = tint.lerp(Color(1, 1, 1), 0.22 * (1.0 - shade_t)).lerp(Color(0, 0, 0), 0.20 * shade_t)
+			img.set_pixel(x, y, Color(shaded.r, shaded.g, shaded.b, alpha))
+	var tex := ImageTexture.create_from_image(img)
+	_shape_texture_cache[key] = tex
+	return tex
+
+## Resolves which shape/tint a unit gets -- archetype for enemies (falling
+## back to the old flat enemy-red square if `arch` is absent/unrecognized),
+## a hashed hue for party members. Boss-ness is NOT part of this (bosses
+## keep their rotation archetype's own shape/tint) -- see _boss_ring below
+## for what actually marks a boss visually.
+static func _style_for(u: Dictionary) -> Dictionary:
+	if u["isParty"]:
+		var hue: Color = _PARTY_HUES[hash(String(u["id"])) % _PARTY_HUES.size()]
+		return {"shape": ShapeKind.CIRCLE, "tint": hue}
+	var arch = u.get("arch")
+	if arch != null and _ENEMY_ARCH_STYLE.has(arch):
+		return _ENEMY_ARCH_STYLE[arch]
+	return _ENEMY_DEFAULT_STYLE
+
 var _hp_bg: ColorRect
 var _hp_fg: ColorRect
 var _charge_bg: ColorRect
@@ -84,11 +177,27 @@ func _build(unit_size: float) -> void:
 	# vertical footprint so adjacent units don't overlap at max occupancy.
 	var gap: float = max(1.0, size * 0.05)
 
+	var style: Dictionary = _style_for(unit)
+
 	shape = Sprite2D.new()
-	shape.texture = _get_placeholder_texture()
-	shape.scale = Vector2(size, size) / float(_PLACEHOLDER_TEX_SIZE)
-	shape.modulate = Color(0.30, 0.55, 0.95) if unit["isParty"] else Color(0.85, 0.30, 0.28)
+	shape.texture = _get_shape_texture(style["shape"], style["tint"])
+	shape.scale = Vector2(size, size) / float(_SHAPE_TEX_SIZE)
 	add_child(shape)
+
+	# A bigger, darker copy of the SAME shape drawn behind it -- the only
+	# thing that visually marks a boss (its own rotation archetype's
+	# shape/tint are otherwise unchanged), a cheap stand-in for a real
+	# "this one's dangerous" silhouette treatment later. A CHILD of `shape`
+	# itself (not a sibling) specifically so it inherits every hop/shake/
+	# run tween that already animates shape.position/.scale for free --
+	# z_index=-1 keeps it drawn behind shape despite being its child.
+	_boss_ring = null
+	if unit.get("isBoss"):
+		_boss_ring = Sprite2D.new()
+		_boss_ring.texture = _get_shape_texture(style["shape"], (style["tint"] as Color).darkened(0.55))
+		_boss_ring.scale = Vector2(1.22, 1.22)
+		_boss_ring.z_index = -1
+		shape.add_child(_boss_ring)
 
 	_hp_bg = ColorRect.new()
 	_hp_bg.size = Vector2(size, bar_h)

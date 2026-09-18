@@ -274,22 +274,64 @@ func _build_background_layer() -> void:
 	move_child(background_layer, 0)
 	_rebuild_background_marks()
 
+## Ian: "do a procedural polish pass" -- a soft vertical gradient (a warm
+## "sky" tone fading into the existing parchment tone) generated once and
+## shared by every rebuild, standing in for real illustrated background
+## art (same "still just a texture swap later" placeholder discipline
+## UnitView's own procedural shapes follow).
+const _SKY_GRADIENT_TEX_H := 64
+static var _sky_gradient_texture: Texture2D
+
+static func _get_sky_gradient_texture() -> Texture2D:
+	if _sky_gradient_texture == null:
+		var img := Image.create(1, _SKY_GRADIENT_TEX_H, false, Image.FORMAT_RGBA8)
+		var top := Color(0.97, 0.92, 0.80, 1.0)
+		var bottom: Color = Palette.BG_PARCHMENT_DEEP
+		for y in range(_SKY_GRADIENT_TEX_H):
+			img.set_pixel(0, y, top.lerp(bottom, float(y) / float(_SKY_GRADIENT_TEX_H - 1)))
+		_sky_gradient_texture = ImageTexture.create_from_image(img)
+	return _sky_gradient_texture
+
+## Ian: "do a procedural polish pass." Was a single flat-colored row of
+## identical rects -- now a soft sky gradient behind everything, a "road"
+## band along the bottom, and per-mark size/tone/spacing jitter (a FIXED
+## seed, not real randomness, so a rebuild -- e.g. on resize -- reproduces
+## the exact same layout rather than reshuffling every time) so the row
+## reads as varied ground clutter instead of one shape stamped on repeat.
 func _rebuild_background_marks() -> void:
 	for c in background_layer.get_children():
 		c.queue_free()
 	var band_bottom: float = _vp.y * 0.58
+	var span: float = _vp.x * 3.0
+
+	var sky := Sprite2D.new()
+	sky.texture = _get_sky_gradient_texture()
+	sky.centered = false
+	sky.position = Vector2(-span / 2.0, 0.0)
+	sky.scale = Vector2(span, band_bottom) / Vector2(1.0, float(_SKY_GRADIENT_TEX_H))
+	background_layer.add_child(sky)
+
+	var road_h: float = _vp.y * 0.02
+	var road := ColorRect.new()
+	road.color = Palette.BORDER_LEATHER.lerp(Palette.BG_PARCHMENT_DEEP, 0.55)
+	road.size = Vector2(span, road_h)
+	road.position = Vector2(-span / 2.0, band_bottom - road_h)
+	background_layer.add_child(road)
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20260101   # fixed -- see comment above for why
 	var mark_w: float = _vp.x * 0.03
 	var mark_h: float = _vp.y * 0.012
 	var gap: float = _vp.x * 0.09
-	var span: float = _vp.x * 3.0
 	var x: float = -span / 2.0
 	while x < span / 2.0:
+		var j: float = rng.randf_range(-0.5, 0.5)
 		var mark := ColorRect.new()
-		mark.color = Palette.BG_PARCHMENT_DEEP
-		mark.size = Vector2(mark_w, mark_h)
-		mark.position = Vector2(x, band_bottom - mark_h)
+		mark.color = Palette.BG_PARCHMENT_DEEP.lerp(Palette.BORDER_LEATHER, 0.15 + 0.15 * absf(j))
+		mark.size = Vector2(mark_w * (0.75 + 0.5 * (j + 0.5)), mark_h)
+		mark.position = Vector2(x, band_bottom - road_h - mark_h * (1.0 + 0.5 * j))
 		background_layer.add_child(mark)
-		x += gap
+		x += gap * (0.8 + 0.4 * (j + 0.5))
 
 ## A minimal top strip (currency purse) above the existing battle view --
 ## not a full tab bar yet, since there's only one screen to navigate to
