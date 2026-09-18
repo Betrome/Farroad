@@ -114,6 +114,22 @@ const FIRST_BOSS_DMG_MUL := 0.70
 # directly on the final atk/mag stat values, so it touches damage output
 # only, not HP/crit/spd/anything else hard_mul also feeds.
 const TUTORIAL_ATK_MAG_MUL := 0.5
+# Ian follow-up: "halve enemy levels through level 20... from 20-100,
+# slowly increase the difficulty to normal levels." Was a flat 0.5x for
+# w<=20 then an abrupt cliff straight back to 1.0x at w==21 -- now a
+# smooth linear ramp from 0.5x (w<=20) back up to 1.0x (w>=100), so
+# difficulty eases back in gradually across the wave 20-100 stretch
+# instead of snapping back all at once.
+const TUTORIAL_RAMP_END_WAVE := 100
+
+static func tutorial_atk_mag_mul(w: int) -> float:
+	if w <= 20:
+		return TUTORIAL_ATK_MAG_MUL
+	if w >= TUTORIAL_RAMP_END_WAVE:
+		return 1.0
+	var t: float = float(w - 20) / float(TUTORIAL_RAMP_END_WAVE - 20)
+	return lerpf(TUTORIAL_ATK_MAG_MUL, 1.0, t)
+
 const BOSS_SPD_FROM := 20.0
 const BOSS_SPD_REF := 800.0
 const BOSS_SPD_MAX_MUL := 2.2
@@ -1144,6 +1160,7 @@ static func refresh_live_stats(g: Dictionary) -> void:
 		var fr: float = float(u["hp"]) / float(u["maxHp"])
 		u["maxHp"] = st["hp"]
 		u["hp"] = maxf(1.0, round(st["hp"] * fr))
+		u["level"] = level_of(g, u["id"])
 		u["affinity"] = effective_affinity(g, u["id"])
 		u["slots"] = ensure_loadout(g, u["id"]).map(func(s): return {"cond": s["cond"], "action": s["action"]})
 
@@ -1152,7 +1169,8 @@ static func refresh_live_stats(g: Dictionary) -> void:
 ## same way, without re-running the whole party's construction.
 static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dictionary:
 	var def = FarroadCore.roster_by_id(uid)
-	var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+	var lvl: int = level_of(g, uid)
+	var st := stats_at(uid, def["stats"], def["hp"], lvl)
 	apply_pct_stat_investment(g, uid, st)
 	apply_equipment_stats(g, uid, st)
 	var mh: float = st["hp"]
@@ -1166,7 +1184,14 @@ static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dic
 	# save). Scoped to build_party_unit only -- build_expedition_party
 	# deliberately keeps its own fresh-start-each-time convention, a
 	# separate system.
-	return FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
+	# Ian: "the status log is not updating unit levels" -- this was
+	# hardcoded to 1 (matching a real hardcode the JS reference itself
+	# has -- combat math never reads u.level, only stats_at's OWN level
+	# param above does), but the Status popup's own level line DOES read
+	# u["level"] for a party unit. The real JS's equivalent card sidesteps
+	# this by reading levelOf(u.id) live instead of u.level -- simpler
+	# here to just make u["level"] itself correct at construction.
+	return FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": lvl,
 		"slotIndex": slot_index, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
 		"chargeAction": def.get("chargeAction"), "charge": g["chargeCarry"].get(uid, 0.0),
 		"affinity": effective_affinity(g, uid),
@@ -1306,7 +1331,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w))
 		var hard_atk_mul: float = hard_mul(w) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
 		var atk_mul: float = (1.10 if boss else 1.0) * DIFFICULTY * v_mul * hard_atk_mul
-		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * (TUTORIAL_ATK_MAG_MUL if w <= 20 else 1.0)
+		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * tutorial_atk_mag_mul(w)
 		out.append(FarroadCore.make_unit({
 			"id": "e%d" % j,
 			"name": ("ROADWARDEN" if boss else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
@@ -1643,13 +1668,14 @@ static func build_expedition_party(g: Dictionary, party_ids: Array, hp_frac) -> 
 	for i in range(party_ids.size()):
 		var uid: String = party_ids[i]
 		var def = FarroadCore.roster_by_id(uid)
-		var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+		var lvl: int = level_of(g, uid)
+		var st := stats_at(uid, def["stats"], def["hp"], lvl)
 		apply_pct_stat_investment(g, uid, st)
 		apply_equipment_stats(g, uid, st)
 		var mh: float = st["hp"]
 		var frac: float = 1.0 if hp_frac == null else minf(1.0, float(hp_frac) + recovery_of(g, uid))
 		var hp: float = maxf(1.0, round(mh * frac))
-		out.append(FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": 1,
+		out.append(FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": lvl,
 			"slotIndex": i, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
 			"chargeAction": def.get("chargeAction"), "affinity": effective_affinity(g, uid),
 			"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})}))
@@ -2076,9 +2102,16 @@ static func dungeon_available(dungeon: Dictionary, now) -> bool:
 	return _calendar_day(now) != _calendar_day(last)
 
 ## Mirrors questStageWave/questStageAether (farroad-progression.js:1168-1203).
+## Ian: "reduce new unit quests difficulty to about 50% of current." A
+## companion quest's frozen fight was scaled to the player's FULL current
+## power_level -- halved so a freshly-acquired companion's own quest line
+## reads as approachable rather than as hard as the player's actual
+## current build.
+const QUEST_DIFFICULTY_MUL := 0.5
+
 static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
 	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
-	return maxi(1, roundi(frac * power_level(g)))
+	return maxi(1, roundi(frac * QUEST_DIFFICULTY_MUL * power_level(g)))
 
 static func quest_stage_aether(stage_idx: int) -> int:
 	return roundi(QUEST_STAGE_AETHER_MIN + stage_idx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4.0)

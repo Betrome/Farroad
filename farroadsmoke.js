@@ -785,14 +785,19 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var questG={wave:200,farthest:200,owned:{kesh:1,ansa:1},lvl:{kesh:30,ansa:20},bonuses:{strike:{potent:2}}};
  var myPower=P.powerLevel(questG);
  var stage5Wave=P.questStageWave(questG,'kesh',4);
- ok('questStageWave stage 5 (frac 1.0) equals the player\'s own power level exactly',
-  stage5Wave===myPower, stage5Wave+' vs '+myPower);
+ // Ian: "reduce new unit quests difficulty to about 50% of current" --
+ // stage 5 (frac 1.0) now equals HALF the player's own power level, not
+ // the full figure; QUEST_DIFFICULTY_MUL is the named constant that scaling
+ // lives on, so these compare against it explicitly rather than hardcoding
+ // "half" a second time.
+ ok('questStageWave stage 5 (frac 1.0) equals QUEST_DIFFICULTY_MUL of the player\'s own power level',
+  stage5Wave===Math.round(P.QUEST_DIFFICULTY_MUL*myPower), stage5Wave+' vs '+Math.round(P.QUEST_DIFFICULTY_MUL*myPower));
  var stageWaves=[0,1,2,3,4].map(function(s){return P.questStageWave(questG,'kesh',s);});
  ok('questStageWave rises monotonically across stages 1-5 for a fixed player state',
   stageWaves.every(function(w,i){return i===0||w>stageWaves[i-1];}), stageWaves.join(','));
- ok('questStageWave stage 1 matches kesh\'s own stage-1 powerFraction of the player\'s power',
-  Math.abs(stageWaves[0]-Math.round(P.QUEST_LINES.kesh[0].powerFraction*myPower))<=1,
-  stageWaves[0]+' vs expected='+Math.round(P.QUEST_LINES.kesh[0].powerFraction*myPower));
+ ok('questStageWave stage 1 matches kesh\'s own stage-1 powerFraction of QUEST_DIFFICULTY_MUL of the player\'s power',
+  Math.abs(stageWaves[0]-Math.round(P.QUEST_LINES.kesh[0].powerFraction*P.QUEST_DIFFICULTY_MUL*myPower))<=1,
+  stageWaves[0]+' vs expected='+Math.round(P.QUEST_LINES.kesh[0].powerFraction*P.QUEST_DIFFICULTY_MUL*myPower));
  var strongerG={wave:2000,owned:{kesh:1,ansa:1,dorrek:1},lvl:{kesh:150,ansa:150,dorrek:150},bonuses:{}};
  ok('questStageWave scales up for a stronger player at the same stage',
   P.questStageWave(strongerG,'kesh',0)>P.questStageWave(questG,'kesh',0));
@@ -1708,6 +1713,45 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    return Math.abs(superHp/normalWaveHp-3.0)<1e-9 && Math.abs(superHp/(normalWaveHp*P.BOSS_LEN)-3.0/P.BOSS_LEN)<1e-9;
   })());
  ok('P.SUPERBOSS_EVERY matches "every 250 waves"', P.SUPERBOSS_EVERY===250);
+})();
+
+/* --- tutorialAtkMagMul: halved through wave 20, smooth ramp to normal by
+   wave 100 (Ian follow-up: the original flat cliff at w===21 was replaced
+   with a gradual ease back in) --------------------------------------- */
+(function(){
+ ok('tutorialAtkMagMul is exactly halved at wave 20 (the tutorial boss)',
+  P.tutorialAtkMagMul(20)===0.5);
+ ok('tutorialAtkMagMul stays halved for every wave 1-20, not just the boss',
+  P.tutorialAtkMagMul(1)===0.5 && P.tutorialAtkMagMul(10)===0.5);
+ ok('tutorialAtkMagMul is back to exactly 1.0 at wave 100 and beyond',
+  P.tutorialAtkMagMul(100)===1 && P.tutorialAtkMagMul(150)===1);
+ ok('tutorialAtkMagMul rises monotonically and smoothly across 20-100, no cliff',
+  (function(){
+   var prev=P.tutorialAtkMagMul(20);
+   for(var w=21;w<=100;w++){
+    var cur=P.tutorialAtkMagMul(w);
+    if(cur<prev-1e-9)return false;          // must never decrease
+    if(cur-prev>0.02)return false;           // no single-wave jump bigger than 2%
+    prev=cur;
+   }
+   return true;
+  })());
+ ok('tutorialAtkMagMul at the wave-60 midpoint sits at exactly the halfway point (0.75)',
+  Math.abs(P.tutorialAtkMagMul(60)-0.75)<1e-9);
+})();
+
+/* --- questStageWave: halved per Ian's "reduce new unit quests difficulty
+   to about 50% of current" --------------------------------------------- */
+(function(){
+ var g={farthest:1,owned:{kesh:1},lvl:{kesh:1},bonuses:{}};
+ var rosterId=Object.keys(P.QUEST_LINES)[0];
+ var frac=P.QUEST_LINES[rosterId][4].powerFraction;   // stage 5, frac should be 1.0
+ var expectedFull=Math.max(1,Math.round(frac*P.powerLevel(g)));
+ var expectedHalved=Math.max(1,Math.round(frac*P.QUEST_DIFFICULTY_MUL*P.powerLevel(g)));
+ ok('P.QUEST_DIFFICULTY_MUL is exactly 0.5', P.QUEST_DIFFICULTY_MUL===0.5);
+ ok('questStageWave stage 5 now returns roughly half of the un-reduced power level',
+  P.questStageWave(g,rosterId,4)===expectedHalved && expectedHalved<expectedFull,
+  expectedHalved+' vs full '+expectedFull);
 })();
 
 /* ------------------------------- report ---------------------------------- */

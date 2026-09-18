@@ -1376,18 +1376,14 @@ const CHROME_FADE_TIME := 0.5
 ## "slow down the enemy movement into their positions" -- was 1.0.
 const ENEMY_RUN_IN_TIME := 1.6
 
-## background_layer's own position.x right before the current wave-clear
-## run animation started -- captured so the retreat below can undo exactly
-## that motion, rather than assuming it's always back at 0.0.
-var _bg_x_before_wave_run: float = 0.0
-
 ## Ian: "after clearing a wave, have units run towards the right...
 ## maintain framing but have the background move behind them." Party
 ## units shift right by a modest amount ("framing maintained" -- they stay
-## within their own band, not actually leaving the field) while
-## background_layer scrolls the opposite way underneath them, the classic
-## runner-style parallax trick. A dead party member (dimmed, not removed)
-## is skipped -- nothing to "run" for a unit that's down.
+## within their own band, not actually leaving the field). background_layer
+## itself does NOT move during this leg -- see _animate_wave_retreat's own
+## comment for why all of its motion happens there instead. A dead party
+## member (dimmed, not removed) is skipped -- nothing to "run" for a unit
+## that's down.
 ##
 ## Piece G additions: a defensive sweep force-hides any already-dead enemy
 ## before the run starts ("make sure they disappear before the party runs
@@ -1409,23 +1405,29 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 			view.hide_chrome()
 			var tw := create_tween()
 			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME)
-	if background_layer != null:
-		_bg_x_before_wave_run = background_layer.position.x
-		var bg_tw := create_tween()
-		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * BG_RUN_MUL, WAVE_RUN_TIME)
 
-## Piece G: "instead of having units snap back to their starting position,
-## have them move back over .25 seconds" -- the party's own "stop because
-## they see enemies coming" beat (follow-up feedback moved this from
-## running concurrently with the enemies' own entrance to strictly BEFORE
-## it -- see _on_battle_finished's own sequencing comment). Runs on the
-## OLD (about-to-be-freed) presenter -- tweens each living party view from
-## its "ran right" position back to its own original rest_position, and
-## background_layer back to where it sat before the run started. Chrome
-## stays hidden (hide_chrome() already ran in _animate_wave_transition) --
-## this presenter is freed the instant the retreat finishes, so fading its
-## own chrome back in would be wasted; the NEW presenter's reveal_party()
-## is what the player actually sees settle back into place.
+## Ian follow-up: "the Background moves backwards with units when they
+## stop. It should move forward still, and stop when the units are at
+## their starting positions. It shouldn't start moving until the units
+## are at their 'running' positions as well. Enemies shouldn't run in
+## until the background stops."
+## The background used to scroll DURING the run-right leg, then reverse
+## (scroll back the other way) during this retreat leg to literally undo
+## itself -- visually that read as the party moonwalking while the world
+## also lurched into reverse. Now the background stays completely still
+## during the run-right leg (_animate_wave_transition no longer touches it
+## at all) and does ALL of its scrolling here instead, continuing in the
+## SAME forward direction every time (never reversing, so distance keeps
+## accumulating wave over wave, exactly like genuine continuous travel) --
+## starting the instant the party begins its own retreat (i.e. only once
+## they've reached their "running" position) and stopping exactly when the
+## party finishes settling back at its starting position. _on_battle_finished
+## awaits this SAME WAVE_RETREAT_TIME duration before ever calling
+## run_enemies_entering(), so enemies are guaranteed not to start arriving
+## until this motion has actually stopped. The party's own "shift right
+## then return to center" is just a framing trick; the background is what
+## actually sells continuous forward travel down the road, so it should
+## only ever move the one way.
 func _animate_wave_retreat(old_presenter: Node) -> void:
 	if old_presenter == null:
 		return
@@ -1434,8 +1436,9 @@ func _animate_wave_retreat(old_presenter: Node) -> void:
 			var tw := create_tween()
 			tw.tween_property(view, "position", view.rest_position, WAVE_RETREAT_TIME)
 	if background_layer != null:
+		var run_dx: float = _vp.x * 0.1
 		var bg_tw := create_tween()
-		bg_tw.tween_property(background_layer, "position:x", _bg_x_before_wave_run, WAVE_RETREAT_TIME)
+		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * BG_RUN_MUL, WAVE_RETREAT_TIME)
 
 ## Mirrors the real doStep()'s post-battle branch (afterWaveCleared() on a
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the

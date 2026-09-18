@@ -382,7 +382,13 @@ function buildParty(){
      save). Scoped to the Road's own buildParty only -- expeditions/side
      battles (buildExpeditionParty) deliberately keep their own fresh-
      start-each-time convention, a separate system. */
-  out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
+  /* Ian (Godot-side report -- mirrored back here for parity): the live
+     unit's own level field was always literally 1, never levelOf(uid) --
+     harmless for combat math (statsAt above already took the real level
+     directly) but a real trap for ANY future display code that reads
+     u.level instead of levelOf(u.id) the way this file's own renderUnits
+     already does. */
+  out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:levelOf(uid),slotIndex:i,stats:st,
    maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
    charge:G.chargeCarry[uid]||0,
    affinity:effectiveAffinity(uid),
@@ -456,7 +462,7 @@ function buildEnemies(w,quiet,superBossKey){
   hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w));
   var hardAtkMul=P.hardMul(w)*(boss?(isFirstBoss?P.FIRST_BOSS_HARD_EXTRA:P.BOSS_HARD_EXTRA):1);
   var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul*hardAtkMul;
-  var dmgMul=(isFirstBoss?P.FIRST_BOSS_DMG_MUL:1)*(w<=20?P.TUTORIAL_ATK_MAG_MUL:1);
+  var dmgMul=(isFirstBoss?P.FIRST_BOSS_DMG_MUL:1)*P.tutorialAtkMagMul(w);
   /* ATK growth exponent 1.02 -> 0.80. At 1.02 enemy damage grew 3.10x by wave 20
      while a solo character grows 2.05x, so enemies outpaced the player by ~50%
      and the game was only survivable behind the 65% crutch. At 0.80 they track. */
@@ -1122,7 +1128,7 @@ function buildExpeditionParty(partyIds,hpFrac){
   var mh=st.hp;
   var frac=(hpFrac==null)?1:Math.min(1,hpFrac+recoveryOf(uid));
   var hp=Math.max(1,Math.round(mh*frac));
-  out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:1,slotIndex:i,stats:st,
+  out.push(C.makeUnit({id:uid,name:def.name,isParty:true,level:levelOf(uid),slotIndex:i,stats:st,
    maxHp:mh,hp:Math.min(hp,mh),row:def.row,chargeAction:def.chargeAction,
    affinity:effectiveAffinity(uid),
    slots:ensureLoadout(uid).map(function(s){return {cond:s.cond,action:s.action};})}));});
@@ -2238,6 +2244,7 @@ function refreshLiveStats(){
   u.base.atk=st.atk;u.base.mag=st.mag;u.base.def=st.def;u.base.res=st.res;u.base.spd=st.spd;
   u.base.evade=st.evade;u.base.atkCrit=st.atkCrit;u.base.magCrit=st.magCrit;
   var fr=u.hp/u.maxHp;u.maxHp=st.hp;u.hp=Math.max(1,Math.round(st.hp*fr));
+  u.level=levelOf(u.id);
   u.affinity=effectiveAffinity(u.id);
   u.slots=ensureLoadout(u.id).map(function(s){return {cond:s.cond,action:s.action};});});}
 /* v2.9: which actions currently matter — anyone owned's loadout slots plus

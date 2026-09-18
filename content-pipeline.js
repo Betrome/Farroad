@@ -147,7 +147,20 @@ function compileActions(rows) {
     if (r.revive !== '') e.revive = num(r.revive);
     if (r.cleanse !== '') e.cleanse = num(r.cleanse);
     if (r.self_taunt !== '') e.selfTaunt = num(r.self_taunt);
-    if (r.kind === 'charge') e.isCharge = true;
+    // Ian: "the mire hound gets stuck in a loop using quickened howl."
+    // Root cause: 'enemy_charge' (every enemy/boss-only charge action --
+    // wardensmaul/sunderingroar/quickenedhowl) was never recognized as a
+    // charge action at all, only the player-facing 'charge' kind was --
+    // so step()'s own `if(act.isCharge) u.charge-=costOfCharge(act)` never
+    // fired for them, and with no charge EVER deducted, `choose_from`'s
+    // "charge full -> override" check stayed permanently true forever
+    // once charge first crossed the threshold (confirmed directly: a
+    // 120-beat simulated fight cast quickenedhowl 84 times, charge frozen
+    // at the exact same value every single cast). CHARGE_ACTIONS (the
+    // player pull-pool whitelist) is a separate, hardcoded id list, not
+    // derived from isCharge, so this fix can't leak enemy-only actions
+    // into anything player-facing.
+    if (r.kind === 'charge' || r.kind === 'enemy_charge') e.isCharge = true;
     if (r.kind === 'inert') e.inert = true;
     if (r.design_note) e.note = r.design_note;
     e.rarity = compileRarity(r);

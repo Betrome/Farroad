@@ -528,7 +528,7 @@ if (mode === 'progression') {
       hpBase *= P.DIFFICULTY * vMul * Math.sqrt(P.hardMul(w));
       var hardAtkMul = P.hardMul(w) * (boss ? (isFirstBoss ? P.FIRST_BOSS_HARD_EXTRA : P.BOSS_HARD_EXTRA) : 1);
       var atkMul = (boss ? 1.10 : 1) * P.DIFFICULTY * vMul * hardAtkMul;
-      var dmgMul = (isFirstBoss ? P.FIRST_BOSS_DMG_MUL : 1) * (w <= 20 ? P.TUTORIAL_ATK_MAG_MUL : 1);
+      var dmgMul = (isFirstBoss ? P.FIRST_BOSS_DMG_MUL : 1) * P.tutorialAtkMagMul(w);
       out.push(C.makeUnit({
         id: 'e' + j, name: (boss ? 'ROADWARDEN' : a.name) + (n > 1 ? ' ' + (j + 1) : ''),
         isParty: false, level: 1, slotIndex: 10 + j, arch: key, thorns: a.thorns || 0, isBoss: boss,
@@ -1415,7 +1415,7 @@ if (mode === 'progression') {
   }
   function questStageWaveG(gg, uid, stageIdx) {
     var frac = P.QUEST_LINES[uid][stageIdx].powerFraction;
-    return Math.max(1, Math.round(frac * powerLevelG(gg)));
+    return Math.max(1, Math.round(frac * P.QUEST_DIFFICULTY_MUL * powerLevelG(gg)));
   }
   function questStageAetherG(stageIdx) {
     return Math.round(QUEST_STAGE_AETHER_MIN + stageIdx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4);

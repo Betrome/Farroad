@@ -807,6 +807,18 @@ P.FIRST_BOSS_DMG_MUL=0.70;
    directly on the final atk/mag stat values in buildEnemies, so it touches
    damage output only, not HP/crit/spd/anything else hardMul also feeds. */
 P.TUTORIAL_ATK_MAG_MUL=0.5;
+/* Ian follow-up: "halve enemy levels through level 20... from 20-100,
+   slowly increase the difficulty to normal levels." Was a flat 0.5x for
+   w<=20 then an abrupt cliff straight back to 1.0x at w===21 -- now a
+   smooth linear ramp from 0.5x (w<=20) back up to 1.0x (w>=100), so
+   difficulty eases back in gradually across the wave 20-100 stretch
+   instead of snapping back all at once. */
+P.TUTORIAL_RAMP_END_WAVE=100;
+P.tutorialAtkMagMul=function(w){
+ if(w<=20)return P.TUTORIAL_ATK_MAG_MUL;
+ if(w>=P.TUTORIAL_RAMP_END_WAVE)return 1;
+ var t=(w-20)/(P.TUTORIAL_RAMP_END_WAVE-20);
+ return P.TUTORIAL_ATK_MAG_MUL+(1-P.TUTORIAL_ATK_MAG_MUL)*t;};
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));
@@ -1176,9 +1188,15 @@ P.pctStatMaxed=function(baseline,stat,steps){
    trivial stage 1 rising to a real, losable-but-fair stage 5 (7/20 and
    3/20 win rates for early/mid-game parties respectively, at their
    OWN power — a real capstone, not a wall). */
+/* Ian: "reduce new unit quests difficulty to about 50% of current." A
+   companion quest's frozen fight was scaled to the player's FULL current
+   powerLevel -- halved so a freshly-acquired companion's own quest line
+   reads as approachable rather than as hard as the player's actual
+   current build. */
+P.QUEST_DIFFICULTY_MUL=0.5;
 P.questStageWave=function(g,uid,stageIdx){
  var frac=P.QUEST_LINES[uid][stageIdx].powerFraction;
- return Math.max(1,Math.round(frac*P.powerLevel(g)));};
+ return Math.max(1,Math.round(frac*P.QUEST_DIFFICULTY_MUL*P.powerLevel(g)));};
 /* v2.10: clearing a companion quest stage now pays Aether — was nothing at
    all (the reward was purely the story beat + the next stage unlocking).
    Linear across the 5 stages, stage 1 (stageIdx 0) at the floor and stage
