@@ -1290,7 +1290,14 @@ func _refresh_turn_order() -> void:
 		card["panel"].visible = true
 		var p = upcoming[i]
 		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.016), max_w)
-		card["name"].modulate = Palette.PARTY_BLUE_BRIGHT if p["isParty"] else Palette.ENEMY_RED_BRIGHT
+		# Ian: "they aren't the colors I specified" -- `.modulate` MULTIPLIES
+		# against the project theme's own Label font_color (a dark ink,
+		# Color(0.22,0.15,0.09)), not replaces it, so #1462e0 modulated
+		# through that ink rendered as a near-black smudge instead of the
+		# actual vivid blue. A theme color override REPLACES the font color
+		# outright, which is what was actually wanted here.
+		card["name"].add_theme_color_override("font_color",
+			Palette.PARTY_BLUE_BRIGHT if p["isParty"] else Palette.ENEMY_RED_BRIGHT)
 		# No camp/element glyph prefix and no speed (×N) line -- just who's
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.
@@ -1610,12 +1617,38 @@ func _animate_beat(e: Dictionary) -> void:
 		# the full gap.
 		var full_delta: Vector2 = dest_rest - actor_view.rest_position
 		var approach_offset: Vector2 = full_delta - full_delta.normalized() * (_vp.x * HOP_STOP_SHORT)
-		await _hop(actor_view, Vector2.ZERO, approach_offset)
+		# Ian: "jumping to attack can stay the default, but have the option
+		# for units to use... running instead." Per-unit, derived from
+		# whether THIS unit's own SpriteFrames actually has a "run"
+		# animation -- a fallback-shape unit always answers false, so this
+		# branch is a no-op change for every unit without real art yet.
+		var use_run: bool = actor_view.prefers_run_approach()
+		actor_view.play_state("run" if use_run else "jump")
+		if use_run:
+			await _run_to(actor_view, Vector2.ZERO, approach_offset)
+		else:
+			await _hop(actor_view, Vector2.ZERO, approach_offset)
+		actor_view.play_state("attack")
 		_apply_hit_effects(e)
-		await _hop(actor_view, actor_view.shape.position, Vector2.ZERO)
+		# Ian: "sear triggers after the afflicted unit acts" -- _apply_hit_
+		# effects' own DOT handling can kill the ACTOR on their own turn.
+		# update_hp() already set "dead" for that case; don't stomp it back
+		# to jump/idle right after.
+		var actor_still_alive: bool = float(actor_view.unit["hp"]) > 0.0
+		if actor_still_alive:
+			actor_view.play_state("run" if use_run else "jump")
+		if use_run:
+			await _run_to(actor_view, actor_view.shape.position, Vector2.ZERO)
+		else:
+			await _hop(actor_view, actor_view.shape.position, Vector2.ZERO)
+		if actor_still_alive:
+			actor_view.play_state("idle")
 	else:
+		actor_view.play_state("cast")
 		await _animate_projectile(actor_view, dest_world)
 		_apply_hit_effects(e)
+		if float(actor_view.unit["hp"]) > 0.0:
+			actor_view.play_state("idle")
 
 	await get_tree().create_timer(BEAT_PAUSE).timeout
 
@@ -1726,6 +1759,21 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2) -> void:
 	var tw := create_tween()
 	tw.tween_method(func(t: float): actor.shape.position = from.lerp(to, t) + Vector2(0, -height * sin(t * PI)),
 		0.0, 1.0, HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	await tw.finished
+
+## Ian: "have the option for units to use a different animation such as
+## running (which would mean having a straight line to their target
+## instead of the current hop)." Same signature/local-offset convention as
+## _hop() -- only used for a unit whose own SpriteFrames has a "run"
+## animation (see prefers_run_approach()) -- no arc height, a direct line.
+## RUN_TIME is a first-pass guess (no real run art to time it against
+## yet), deliberately quicker than a HOP_TIME round trip since a run
+## reads as brisker than an arcing jump.
+const RUN_TIME := 0.35
+func _run_to(actor: UnitView, from: Vector2, to: Vector2) -> void:
+	actor.shape.position = from
+	var tw := create_tween()
+	tw.tween_property(actor.shape, "position", to, RUN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
 
 ## Magic/ranged attack (and heals): a projectile travels actor -> a

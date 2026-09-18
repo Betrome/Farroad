@@ -25,6 +25,29 @@ extends Node2D
 ## instead of one flat-colored square for every unit in the game. Still a
 ## placeholder (still just `shape.texture`, still swapped for real art with
 ## zero other code changes) -- just a more legible one.
+##
+## Ian: real animations, added "unit by unit" -- `shape` is now typed
+## Node2D (the nearest common ancestor) rather than strictly Sprite2D,
+## because it's built as ONE of two things depending on whether real art
+## exists for this specific unit yet:
+##   - a real AnimatedSprite2D, if a SpriteFrames resource exists at this
+##     unit's own expected path (see _sprite_frames_path_for) -- self-serve
+##     for Ian: drop a .tres at that exact path and it activates with no
+##     code change, per-unit or per-archetype.
+##   - otherwise the SAME procedural placeholder Sprite2D as before.
+## Every existing hop/shake/run tween already only touches
+## shape.position/.scale/.modulate, which both node types share as
+## Node2D/CanvasItem, so none of that needed to change. The one thing that
+## DOES differ is which named ANIMATION plays and when -- see play_state()
+## and prefers_run_approach() below, which are the only two entry points
+## BattlePresenter needs to know about; a fallback-shape unit's calls to
+## either are safe, cheap no-ops.
+## Named animations, when present: idle / hurt / dead / jump / run /
+## attack / cast. "jump" (a sine-arc hop, the existing default) and "run"
+## (a straight-line dash) are alternate styles for a physical action's
+## approach+return -- a unit uses "run" only if its own SpriteFrames
+## actually HAS a "run" animation (prefers_run_approach()), otherwise it
+## always falls back to "jump", exactly like today.
 
 ## Ian: "tapping on a unit in the battle should show its stats page,
 ## live." Emitted on a real click/touch inside this unit's own bounding
@@ -37,8 +60,9 @@ var unit: Dictionary
 var rest_position: Vector2
 var size: float
 
-var shape: Sprite2D   # public -- BattlePresenter animates ONLY this during a hop/shake, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position
-var _boss_ring: Sprite2D   # only built for isBoss units -- a bigger, darker copy of the same shape, drawn BEHIND it
+var shape: Node2D   # public -- BattlePresenter animates ONLY this during a hop/shake/run, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position. Either an AnimatedSprite2D (real art) or a Sprite2D (procedural fallback) -- see play_state()/prefers_run_approach() for the only two ways callers should ever care which.
+var _boss_ring: Sprite2D   # only built for a boss STILL ON the procedural fallback shape -- a bigger, darker copy of the same shape, drawn BEHIND it. Not yet extended to real animated boss art (flagged, revisit once that exists).
+var _played_dead_state: bool = false   # guards play_state("dead") to fire only once per death, not on every subsequent update_hp() refresh while already dead
 
 ## Procedural placeholder shapes, one per archetype (party units all share
 ## CIRCLE) -- baked at a fixed resolution regardless of final on-screen
@@ -46,6 +70,11 @@ var _boss_ring: Sprite2D   # only built for isBoss units -- a bigger, darker cop
 ## so edges stay smooth rather than blocky.
 enum ShapeKind { CIRCLE, DIAMOND, HEX, SQUARE, TRIANGLE_UP, TRIANGLE_DOWN }
 const _SHAPE_TEX_SIZE := 64
+
+## How long an animated (real SpriteFrames) enemy's "dead" animation gets
+## to actually play before the view disappears -- a first-pass guess,
+## easy to retune once there's real death art to time it against.
+const DEAD_HOLD_TIME := 0.6
 
 ## Enemy archetype -> {shape, tint}. All 6 real archetypes (confirmed via
 ## farroadenemies.csv's own `key` column -- "boss" is a modifier applied to
@@ -141,6 +170,42 @@ static func _style_for(u: Dictionary) -> Dictionary:
 		return _ENEMY_ARCH_STYLE[arch]
 	return _ENEMY_DEFAULT_STYLE
 
+## Fixed path convention so a new SpriteFrames resource activates with no
+## code change: party units at "res://sprites/units/<uid>.tres", enemies
+## at "res://sprites/units/arch_<archetype>.tres" (shared across every
+## enemy of that archetype, same granularity the procedural shapes/tints
+## already use). An enemy with no `arch` at all (shouldn't normally
+## happen) has no path to check and always falls back.
+static func _sprite_frames_path_for(u: Dictionary) -> String:
+	if u["isParty"]:
+		return "res://sprites/units/%s.tres" % u["id"]
+	var arch = u.get("arch")
+	if arch == null:
+		return ""
+	return "res://sprites/units/arch_%s.tres" % arch
+
+## path -> SpriteFrames, or `false` for a path already confirmed to have
+## nothing there -- checked once per unique path for the life of the
+## process (ResourceLoader.exists() is cheap but not free, and this can be
+## queried once per unit built).
+static var _sprite_frames_cache: Dictionary = {}
+
+static func _load_sprite_frames(path: String) -> SpriteFrames:
+	if path == "":
+		return null
+	if _sprite_frames_cache.has(path):
+		var cached = _sprite_frames_cache[path]
+		return cached if cached is SpriteFrames else null
+	if not ResourceLoader.exists(path):
+		_sprite_frames_cache[path] = false
+		return null
+	var res := ResourceLoader.load(path)
+	if res is SpriteFrames:
+		_sprite_frames_cache[path] = res
+		return res
+	_sprite_frames_cache[path] = false
+	return null
+
 var _hp_bg: ColorRect
 var _hp_fg: ColorRect
 var _charge_bg: ColorRect
@@ -178,26 +243,44 @@ func _build(unit_size: float) -> void:
 	var gap: float = max(1.0, size * 0.05)
 
 	var style: Dictionary = _style_for(unit)
-
-	shape = Sprite2D.new()
-	shape.texture = _get_shape_texture(style["shape"], style["tint"])
-	shape.scale = Vector2(size, size) / float(_SHAPE_TEX_SIZE)
-	add_child(shape)
-
-	# A bigger, darker copy of the SAME shape drawn behind it -- the only
-	# thing that visually marks a boss (its own rotation archetype's
-	# shape/tint are otherwise unchanged), a cheap stand-in for a real
-	# "this one's dangerous" silhouette treatment later. A CHILD of `shape`
-	# itself (not a sibling) specifically so it inherits every hop/shake/
-	# run tween that already animates shape.position/.scale for free --
-	# z_index=-1 keeps it drawn behind shape despite being its child.
+	var frames: SpriteFrames = _load_sprite_frames(_sprite_frames_path_for(unit))
 	_boss_ring = null
-	if unit.get("isBoss"):
-		_boss_ring = Sprite2D.new()
-		_boss_ring.texture = _get_shape_texture(style["shape"], (style["tint"] as Color).darkened(0.55))
-		_boss_ring.scale = Vector2(1.22, 1.22)
-		_boss_ring.z_index = -1
-		shape.add_child(_boss_ring)
+
+	if frames != null:
+		var anim := AnimatedSprite2D.new()
+		anim.sprite_frames = frames
+		var anim_names: PackedStringArray = frames.get_animation_names()
+		var start_anim: String = "idle" if frames.has_animation("idle") else (anim_names[0] if anim_names.size() > 0 else "")
+		if start_anim != "":
+			anim.play(start_anim)
+			var frame_tex: Texture2D = frames.get_frame_texture(start_anim, 0)
+			var largest: float = maxf(frame_tex.get_size().x, frame_tex.get_size().y) if frame_tex != null else 0.0
+			var s: float = size / largest if largest > 0.0 else 1.0
+			anim.scale = Vector2(s, s)
+		shape = anim
+		add_child(shape)
+	else:
+		var sp := Sprite2D.new()
+		sp.texture = _get_shape_texture(style["shape"], style["tint"])
+		sp.scale = Vector2(size, size) / float(_SHAPE_TEX_SIZE)
+		shape = sp
+		add_child(shape)
+
+		# A bigger, darker copy of the SAME shape drawn behind it -- the only
+		# thing that visually marks a boss (its own rotation archetype's
+		# shape/tint are otherwise unchanged), a cheap stand-in for a real
+		# "this one's dangerous" silhouette treatment later -- procedural
+		# fallback only for now (flagged: not yet extended to real animated
+		# boss art). A CHILD of `shape` itself (not a sibling) specifically
+		# so it inherits every hop/shake/run tween that already animates
+		# shape.position/.scale for free -- z_index=-1 keeps it drawn behind
+		# shape despite being its child.
+		if unit.get("isBoss"):
+			_boss_ring = Sprite2D.new()
+			_boss_ring.texture = _get_shape_texture(style["shape"], (style["tint"] as Color).darkened(0.55))
+			_boss_ring.scale = Vector2(1.22, 1.22)
+			_boss_ring.z_index = -1
+			shape.add_child(_boss_ring)
 
 	_hp_bg = ColorRect.new()
 	_hp_bg.size = Vector2(size, bar_h)
@@ -260,6 +343,31 @@ func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: 
 	elif event is InputEventScreenTouch and event.pressed:
 		tapped.emit()
 
+## The ONE entry point BattlePresenter needs for animation state -- named
+## per the 7-animation set (idle/hurt/dead/jump/run/attack/cast). A true
+## no-op for a unit still on the procedural fallback shape (no animations
+## exist at all), and also a no-op if THIS unit's own SpriteFrames simply
+## doesn't happen to define that particular name yet -- callers never need
+## to check first, "unit by unit" rollout means any given unit may only
+## have SOME of the 7 defined.
+func play_state(anim_name: String) -> void:
+	if shape is AnimatedSprite2D:
+		var asp: AnimatedSprite2D = shape
+		if asp.sprite_frames != null and asp.sprite_frames.has_animation(anim_name):
+			asp.play(anim_name)
+
+## Whether this unit's physical-attack approach/return should be a
+## straight-line RUN instead of the default sine-arc JUMP -- a per-unit
+## preference DERIVED from whether a real "run" animation exists, not a
+## separate flag to maintain. The procedural fallback shape has no
+## animations at all, so it always answers false (today's jump/hop,
+## unchanged).
+func prefers_run_approach() -> bool:
+	if not (shape is AnimatedSprite2D):
+		return false
+	var asp: AnimatedSprite2D = shape
+	return asp.sprite_frames != null and asp.sprite_frames.has_animation("run")
+
 ## Called by BattlePresenter.sync_mc_name right after a MC rename -- unlike
 ## hp/charge, the unit dict's own "name" field isn't re-read every frame,
 ## so the label needs an explicit push when it changes mid-fight.
@@ -273,15 +381,30 @@ func update_hp() -> void:
 	var bar_h: float = _hp_bg.size.y
 	_hp_fg.size = Vector2(size * frac, bar_h)
 	_hp_fg.color = Color(0.25, 0.85, 0.30) if frac > 0.3 else Color(0.90, 0.70, 0.15) if frac > 0.0 else Color(0.5, 0.1, 0.1)
-	# A dead enemy disappears outright (there's no reviving one mid-fight, so
-	# nothing is lost by removing it from view). A dead PARTY member stays
-	# visible, just dimmed -- a fallen ally isn't gone the way a kill is, and
-	# a vanishing party sprite would read as a bug, not a death.
-	if frac <= 0.0 and not unit["isParty"]:
-		visible = false
-	else:
+	if frac <= 0.0:
+		if not _played_dead_state:
+			_played_dead_state = true
+			play_state("dead")
+		# A dead enemy disappears outright (there's no reviving one mid-fight,
+		# so nothing is lost by removing it from view) -- an ANIMATED enemy
+		# gets a short hold first so its death animation actually has time to
+		# play; the procedural fallback (nothing to show) still disappears
+		# instantly, unchanged. A dead PARTY member always stays visible, just
+		# dimmed -- a fallen ally isn't gone the way a kill is, and a
+		# vanishing party sprite would read as a bug, not a death.
+		if not unit["isParty"]:
+			if shape is AnimatedSprite2D:
+				modulate.a = 1.0
+				get_tree().create_timer(DEAD_HOLD_TIME).timeout.connect(func(): visible = false)
+			else:
+				visible = false
+			return
 		visible = true
-		modulate.a = 1.0 if frac > 0.0 else 0.35
+		modulate.a = 0.35
+		return
+	_played_dead_state = false
+	visible = true
+	modulate.a = 1.0
 
 ## Re-reads unit["charge"] against its own chargeAction's costOfCharge --
 ## same "live dict, no separate sync" reasoning as update_hp(). A unit
@@ -343,12 +466,22 @@ func fade_in_chrome(duration: float = 0.5) -> void:
 		tw.tween_property(_charge_fg, "modulate:a", 1.0, duration)
 
 ## A quick decaying left-right shake -- played when this unit takes a
-## non-evaded hit. Shakes only `shape` (the colored square), not the whole
-## UnitView, so the name/HP/charge bars stay put instead of shaking along
-## with it. Safe to fire without awaiting: targets never move during the
-## ATTACKER's own hop/projectile animation, so this never fights another
-## tween over `shape.position`.
+## non-evaded hit. Shakes only `shape` (the colored square/sprite), not the
+## whole UnitView, so the name/HP/charge bars stay put instead of shaking
+## along with it. Safe to fire without awaiting: targets never move during
+## the ATTACKER's own hop/projectile animation, so this never fights
+## another tween over `shape.position`.
+##
+## Also plays/clears the "hurt" animation state, guarded against a killing
+## blow: update_hp() (called just before this, same hits loop) already sets
+## "dead" first when this hit was lethal, so a plain unconditional "hurt"
+## here would immediately stomp it, then stomp it AGAIN back to "idle" once
+## this tween finishes -- checked once, up front, against the unit's own
+## live (already-updated) hp.
 func shake() -> void:
+	var is_dead: bool = float(unit["hp"]) <= 0.0
+	if not is_dead:
+		play_state("hurt")
 	var base := shape.position
 	var amt: float = size * 0.14
 	var tw := create_tween()
@@ -356,3 +489,5 @@ func shake() -> void:
 	tw.tween_property(shape, "position", base + Vector2(-amt, 0), 0.06)
 	tw.tween_property(shape, "position", base + Vector2(amt * 0.4, 0), 0.06)
 	tw.tween_property(shape, "position", base, 0.05)
+	if not is_dead:
+		tw.finished.connect(func(): play_state("idle"))
