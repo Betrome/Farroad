@@ -58,7 +58,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.80)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -120,7 +120,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_card()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.11), Vector2i(_vp.x * 0.96, _vp.y * 0.80)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --

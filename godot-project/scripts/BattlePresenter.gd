@@ -106,6 +106,7 @@ func _ready() -> void:
 	_recompute_field_fractions()
 	_build_log_ui()
 	_build_status_ui()
+	_build_wave_progress_ui()
 	_build_enrage_ui()
 	_build_turn_order_ui()
 
@@ -113,32 +114,35 @@ func _ready() -> void:
 ## battle via FarroadProgression -- content is assumed already loaded and
 ## FarroadCore.set_wave() already called by build_enemies() itself, neither
 ## of which is this presenter's job anymore.
-func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false) -> void:
+func start_battle(new_battle: Dictionary, units: Array, animate_enemies_in: bool = false, cleared_waves: Dictionary = {}) -> void:
 	battle = new_battle
 	_layout_units(units)
 	if animate_enemies_in:
 		_animate_enemies_entering()
+	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
 	_run_battle_loop()
 
 const ENEMY_RUN_IN_TIME := 1.0
 
-## Ian: "after clearing a wave, have enemies run in from the left to
-## meet units for the next wave of combat. Preparation for assets and
-## animation." Same offscreen-then-tween idiom sync_live_party already
-## uses for a newly-joining ally -- _layout_units() just above already
-## placed every view (enemies included) at its real final rest position
-## SYNCHRONOUSLY, so snapping each enemy view's start position off-screen
-## here, before this function (and therefore this frame) finishes, is
-## invisible -- only the animated return trip actually shows. Party views
-## are left alone -- they're already in position; only enemies "rush in."
+## Ian: "after clearing a wave, have enemies run in ... to meet units
+## for the next wave of combat" -- originally from the left, corrected
+## per direct feedback ("I need them to come in from the right") to
+## match enemies' own established resting side. Same offscreen-then-tween
+## idiom sync_live_party already uses for a newly-joining ally --
+## _layout_units() just above already placed every view (enemies
+## included) at its real final rest position SYNCHRONOUSLY, so snapping
+## each enemy view's start position off-screen here, before this function
+## (and therefore this frame) finishes, is invisible -- only the animated
+## return trip actually shows. Party views are left alone -- they're
+## already in position; only enemies "rush in."
 func _animate_enemies_entering() -> void:
 	for view in unit_views_by_id.values():
 		if view.unit["isParty"]:
 			continue
 		var target: Vector2 = view.position
-		view.position = Vector2(-view.size * 2.0, target.y)
+		view.position = Vector2(_vp.x + view.size * 2.0, target.y)
 		var tw := create_tween()
 		tw.tween_property(view, "position", target, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
@@ -164,10 +168,16 @@ func reflow(new_vp: Vector2) -> void:
 	for card in turn_cards:
 		if card["panel"]: card["panel"].queue_free()
 	turn_cards.clear()
+	if wave_progress_label: wave_progress_label.queue_free()
+	for entry in wave_progress_circles:
+		if entry["panel"]: entry["panel"].queue_free()
+	wave_progress_circles.clear()
 
 	# Icons only, NOT _build_status_ui()/_build_log_ui() -- those also build
 	# status_popup/log_popup, which are built exactly once and must not be
 	# duplicated/orphaned by a reflow.
+	_build_wave_progress_ui()
+	_refresh_wave_progress(_cleared_waves_cache)   # a resize carries no fresh save data -- reapply the cached state
 	_build_enrage_ui()
 	_build_status_icon()
 	_build_log_icon()
@@ -920,6 +930,106 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 		box.add_child(_rich_line(note_bbcode))
 
 	return box
+
+## Ian: "just above the Enrage bar, have 20 small circles, one for each
+## wave and the boss at the end that is slightly bigger. Completing a
+## wave 'lights up' its related circle as the party runs to the next
+## encounter. Just above the line of circles have a small line of text
+## that shows the current wave." Scoped to the wave 1-20 tutorial
+## stretch specifically (WAVE_PROGRESS_COUNT=20, the 20th being the
+## first-boss wave) -- there's no equivalent fixed-length "20 waves"
+## structure past that point to represent this way. Rebuilt fresh every
+## wave (a new BattlePresenter per fight, same as everything else in this
+## chrome) with its LIT/unlit state driven by g["clearedWaves"] (passed
+## in via start_battle, GameController owns the real save state) rather
+## than anything tracked locally, so it always reflects genuine progress,
+## not just this session/this presenter's own memory.
+const WAVE_PROGRESS_COUNT := 20
+var wave_progress_label: Label
+var wave_progress_circles: Array = []   # [{"panel": Panel, "style": StyleBoxFlat, "wave": int}, ...]
+var _cleared_waves_cache: Dictionary = {}
+
+func _build_wave_progress_ui() -> void:
+	var status_pos: Vector2 = _status_log_row_pos(0)
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	var margin: float = _vp.x * 0.016
+	var end_gap: float = _vp.x * 0.03
+	var bar_h: float = _vp.y * 0.012
+	var enrage_y: float = status_pos.y + (icon_size - bar_h) / 2.0
+	var enrage_top: float = enrage_y - _vp.y * 0.026
+	var row_w: float = status_pos.x - end_gap - margin
+
+	var circle_d: float = minf(_vp.y * 0.016, row_w / float(WAVE_PROGRESS_COUNT) * 0.72)
+	var boss_d: float = circle_d * 1.35
+	var circle_gap: float = _vp.y * 0.008
+	var circle_row_y: float = enrage_top - circle_gap - boss_d
+
+	wave_progress_label = Label.new()
+	wave_progress_label.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
+	wave_progress_label.modulate = Color(0.65, 0.65, 0.65)
+	wave_progress_label.position = Vector2(margin, circle_row_y - _vp.y * 0.005 - _vp.y * 0.02)
+	add_child(wave_progress_label)
+
+	wave_progress_circles.clear()
+	var slot_w: float = row_w / float(WAVE_PROGRESS_COUNT)
+	for i in range(WAVE_PROGRESS_COUNT):
+		var w_num: int = i + 1
+		var is_boss: bool = w_num == WAVE_PROGRESS_COUNT
+		var d: float = boss_d if is_boss else circle_d
+		var cx: float = margin + slot_w * i + (slot_w - d) / 2.0
+		var cy: float = circle_row_y + (boss_d - d) / 2.0   # bottom-aligned against the taller boss slot
+		var panel := Panel.new()
+		panel.position = Vector2(cx, cy)
+		panel.custom_minimum_size = Vector2(d, d)
+		panel.size = Vector2(d, d)
+		var style := StyleBoxFlat.new()
+		style.set_corner_radius_all(int(d / 2.0))
+		style.bg_color = _wave_circle_color(false)
+		panel.add_theme_stylebox_override("panel", style)
+		add_child(panel)
+		wave_progress_circles.append({"panel": panel, "style": style, "wave": w_num})
+
+func _wave_circle_color(lit: bool) -> Color:
+	return Palette.GOLD_LIGHT if lit else Color(0.3, 0.3, 0.34, 0.9)
+
+## Sets the "Wave N" text and every circle's lit/unlit state from real
+## cleared-wave data (g["clearedWaves"], a uid-less {wave_num: 1, ...}
+## set) -- called once from start_battle (progress doesn't change
+## mid-fight, no per-beat refresh needed) and again by reflow() (using
+## the cached copy, since a resize doesn't carry fresh save data).
+func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
+	_cleared_waves_cache = cleared_waves
+	wave_progress_label.text = "Wave %d" % FarroadCore.current_wave
+	for entry in wave_progress_circles:
+		var lit: bool = cleared_waves.has(entry["wave"]) or cleared_waves.has(str(entry["wave"]))
+		(entry["style"] as StyleBoxFlat).bg_color = _wave_circle_color(lit)
+
+## Called by GameController for a side battle (quest/dungeon) specifically
+## -- overrides the "Wave N" text with the encounter's own name (e.g.
+## "Quest: Roadwolf, stage 2"). A side battle's own presenter is always a
+## fresh, short-lived instance (never reused across its own multi-wave
+## dungeon crawl without rebuilding fully, and never reused for the Road
+## afterward), so there's no separate "restore" path needed -- the Road's
+## OWN presenter/label were never touched and are simply shown again once
+## the side battle resolves.
+func set_status_override(text: String) -> void:
+	wave_progress_label.text = text
+
+## Called by GameController right as the post-wave-clear "run" transition
+## starts (on the OLD, about-to-be-freed presenter -- the NEW one for the
+## next wave is built fresh afterward already showing this wave as lit,
+## via _refresh_wave_progress's own cleared_waves argument). A short glow
+## tween rather than an instant snap, so it reads as part of the same
+## transition instead of a separate, disconnected event.
+func light_up_wave(w: int) -> void:
+	for entry in wave_progress_circles:
+		if entry["wave"] == w:
+			var style: StyleBoxFlat = entry["style"]
+			var from_color: Color = style.bg_color
+			var to_color: Color = _wave_circle_color(true)
+			var tw := create_tween()
+			tw.tween_method(func(c: Color): style.bg_color = c, from_color, to_color, 0.5)
+			return
 
 var enrage_bg: ColorRect
 var enrage_fg: ColorRect

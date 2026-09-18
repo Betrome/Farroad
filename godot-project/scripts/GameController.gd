@@ -73,13 +73,10 @@ var _self_hosted_overlays: Array = []
 ## JS's shared-tick-loop architecture).
 var side_presenter: Node = null
 
-var wave_label: Label
 var currency_row: HBoxContainer
 var aether_cell: Label
 var marks_cell: Label
 var idle_rate_label: Label
-var wave_popup: PanelContainer
-var wave_popup_label: Label
 var fade_overlay: ColorRect
 var background_layer: Node2D
 ## Captured by _try_resume_save() (empty {} when no save existed, or the
@@ -180,20 +177,19 @@ func _on_expedition_tick() -> void:
 ## oversight.
 func _on_viewport_resized() -> void:
 	_vp = get_viewport_rect().size
-	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
-	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
+	# Ian: "move the total Aether and mark text up to where the Wave x
+	# text was" -- currency_row now sits at the OLD wave_label position
+	# (0.015); idle_rate_label shifted up by the same 0.04 that freed.
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
+	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.043)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	fade_overlay.size = _vp
 	if background_layer != null:
 		background_layer.position.x = 0.0
 		_rebuild_background_marks()
-	# wave_popup itself needs no repositioning here -- _show_wave_popup()
-	# already computes its center fresh from _vp every time it's shown.
 	if current_presenter != null:
 		current_presenter.reflow(_vp)
 	gambits_panel.reflow(_vp)
@@ -294,20 +290,20 @@ func _rebuild_background_marks() -> void:
 		background_layer.add_child(mark)
 		x += gap
 
-## A minimal top strip (currency purse + wave number) above the existing
-## battle view -- not a full tab bar yet, since there's only one screen to
-## navigate to until Step 3c. Between waves, a centered "Wave N" popup
-## (see _show_wave_popup) is the only new control surface this step needs --
-## it announces the upcoming wave for a second, then the next fight starts
-## on its own, no button to press.
+## A minimal top strip (currency purse) above the existing battle view --
+## not a full tab bar yet, since there's only one screen to navigate to
+## until Step 3c. Between waves, the field itself now carries the wave
+## transition (party runs right, next wave's enemies run in -- see
+## _animate_wave_transition/BattlePresenter._animate_enemies_entering),
+## no popup needed.
+##
+## Ian: "remove the Wave x from the top... move the total Aether and mark
+## text up to where the Wave x text was." wave_label is gone entirely --
+## BattlePresenter's own wave-progress row (just above its enrage bar)
+## now carries the current-wave text instead. currency_row moved up to
+## the old wave_label position (0.015, was 0.055); idle_rate_label
+## shifted up by the same 0.04 that freed (0.083 -> 0.043).
 func _build_hud() -> void:
-	# Ian: "reduce size of ... total Aether, Marks, and Wave # by 30%."
-	# 0.035 -> 0.0245, 0.025 -> 0.0175 (both *0.7). Positions unchanged.
-	wave_label = Label.new()
-	wave_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
-	wave_label.add_theme_font_size_override("font_size", int(_vp.y * 0.0245))
-	add_child(wave_label)
-
 	# Ian: "I want to replace some of the text like Aether and Marks with
 	# icons -- what do we need to do now to prepare for that?" Split what
 	# used to be one combined "Aether N   Marks N" Label into two separate
@@ -318,7 +314,7 @@ func _build_hud() -> void:
 	# reward flyer can fly to the EXACT currency it's for (see
 	# _spawn_reward_drops) instead of a single shared combined-label spot.
 	currency_row = HBoxContainer.new()
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.055)
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
@@ -329,7 +325,7 @@ func _build_hud() -> void:
 	# (idle_per_sec already runs regardless of whether the player is
 	# actively fighting -- see simulate_offline_progress's own comment).
 	idle_rate_label = Label.new()
-	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.083)
+	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.043)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	idle_rate_label.modulate = Color(0.65, 0.65, 0.65)
 	add_child(idle_rate_label)
@@ -346,20 +342,6 @@ func _build_hud() -> void:
 	fade_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fade_overlay.hide()
 	add_child(fade_overlay)
-
-	wave_popup = PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.GOLD
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(_vp.y * 0.03))
-	wave_popup.add_theme_stylebox_override("panel", style)
-	wave_popup.hide()
-	add_child(wave_popup)
-
-	wave_popup_label = Label.new()
-	wave_popup_label.add_theme_font_size_override("font_size", int(_vp.y * 0.06))
-	wave_popup.add_child(wave_popup_label)
 
 	_build_road_button()
 
@@ -475,8 +457,7 @@ func _show_welcome_back_popup() -> void:
 	# Window-derived node (PopupPanel is one) hasn't finished its own
 	# internal _ready() setup yet within that same frame, so calling
 	# popup_centered() immediately after add_child() can silently fail to
-	# actually show it. One frame is enough (same fix shape _show_wave_popup
-	# already uses for its own post-add sizing).
+	# actually show it. One frame is enough for its own post-add sizing.
 	await get_tree().process_frame
 
 	var popup_w: float = _vp.x * 0.85
@@ -630,7 +611,6 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 	await _finish_detail_overlay(o)
 
 func _refresh_hud() -> void:
-	wave_label.text = "Wave %d" % g["wave"]
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
@@ -721,8 +701,8 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER) -> Dict
 	backdrop.size = host_size
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	host.add_child(backdrop)
-	# Same z-order trick wave_popup/fade_overlay already use -- draws on
-	# top of whatever content this window already had, since later-added
+	# Same z-order trick fade_overlay already uses -- draws on top of
+	# whatever content this window already had, since later-added
 	# siblings draw last. Also correctly layers a SECOND overlay (e.g. an
 	# enemy's own action info, opened from inside its own detail overlay)
 	# on top of the first, since both nest as siblings under the same host
@@ -1298,8 +1278,9 @@ func _sync_row_change(uid: String) -> void:
 	current_presenter.call("hop_to_new_row", uid)
 
 ## Guarded against a real race with side battles (Step 3i/3j fix): a Road
-## win/wipe can already be mid-await (_show_wave_popup/_fade_out, both a
-## full second or more) when the player attempts a quest/dungeon --
+## win/wipe can already be mid-await (_animate_wave_transition's own
+## WAVE_RUN_TIME wait/_fade_out, both a full second or more) when the
+## player attempts a quest/dungeon --
 ## start_side_battle() reassigns g["battle"] to the side fight's own
 ## battle out from under this function. Without the two checks below,
 ## the resumed _on_battle_finished call would build a SECOND, unpaused,
@@ -1319,17 +1300,18 @@ func _begin_next_fight(animate_enemies_in: bool = false) -> void:
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
 		return
-	presenter.start_battle(g["battle"], g["units"] + g["enemies"], animate_enemies_in)
+	presenter.start_battle(g["battle"], g["units"] + g["enemies"], animate_enemies_in, g.get("clearedWaves", {}))
 	current_presenter = presenter
 
 const WAVE_RUN_TIME := 1.0
 
 ## Ian: "after clearing a wave, have units run towards the right...
 ## maintain framing but have the background move behind them. Have it
-## last 1 second. Preparation for assets and animation." Fire-and-forget
-## (not awaited by the caller) -- runs for the same ~1s _show_wave_popup
-## already holds its "Wave N" announcement, so this fills that existing
-## pause with motion instead of adding a separate delay on top of it.
+## last 1 second." Fire-and-forget (not awaited by the caller) -- runs
+## for the same ~1s _on_battle_finished now waits out directly (the
+## wave-announcement popup this used to overlap with is gone -- see
+## "get rid of the wave pop-up" below), so the pacing is unchanged even
+## though there's no longer a separate popup driving the pause.
 ## Party units shift right by a modest amount ("framing maintained" --
 ## they stay within their own band, not actually leaving the field) while
 ## background_layer scrolls the opposite way underneath them, the classic
@@ -1353,6 +1335,10 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 ## needs a separate start_wave(wave+1) call here.
 func _on_battle_finished(outcome: String) -> void:
 	if outcome == "party":
+		# Captured BEFORE after_wave_cleared/start_wave advance g["wave"] --
+		# this is the wave that just got cleared, not the upcoming one, so
+		# light_up_wave below lights the correct circle.
+		var cleared_wave: int = g["wave"]
 		var aether_before: float = g.get("aether", 0.0)
 		var lore_before: float = FarroadProgression.total_lore(g)
 		var marks_before: float = g.get("marks", 0.0)
@@ -1361,11 +1347,18 @@ func _on_battle_finished(outcome: String) -> void:
 		_refresh_hud()
 		_save_game()
 		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
-		# The finished battlefield (units, HP bars, log/status buttons) stays
-		# on screen behind the popup -- only freed once the NEXT fight is
-		# actually being built, not the moment this one ends.
+		# Ian: "get rid of the wave pop-up." The finished battlefield (units,
+		# HP bars, log/status buttons) stays on screen through the run
+		# animation -- only freed once the NEXT fight is actually being
+		# built, not the moment this one ends. light_up_wave runs on this
+		# SAME (about-to-be-freed) presenter, so the circle glows during the
+		# run, matching "lights up... AS the party runs to the next
+		# encounter" -- the NEW presenter then opens already showing it lit,
+		# via the cleared_waves passed into its own start_battle call.
 		_animate_wave_transition(current_presenter)
-		await _show_wave_popup(g["wave"])
+		if current_presenter != null:
+			current_presenter.call("light_up_wave", cleared_wave)
+		await get_tree().create_timer(WAVE_RUN_TIME).timeout
 		if current_presenter != null:
 			current_presenter.queue_free()
 			current_presenter = null
@@ -1385,40 +1378,15 @@ func _on_battle_finished(outcome: String) -> void:
 		await _begin_next_fight()
 		await _fade_in()
 
-## Announces the upcoming wave for a second, then dismisses itself --
-## replaces the earlier "Next Wave" button with a fully automatic
-## transition, no click needed. Centered on the COMBAT field specifically
-## (the same 0.11-0.58 viewport-height band BattlePresenter's own
-## field_top/field_bottom lay units out in), not the full window -- that
-## keeps it clear of the currency/wave strip above and the log/status
-## buttons + turn-order strip below.
-func _show_wave_popup(w: int) -> void:
-	wave_popup_label.text = "Wave %d" % w
-	# wave_popup is a plain PanelContainer (a CanvasItem sibling of
-	# GameController's other children), not a real overlay window -- its
-	# draw order follows its position in the children list. Each new
-	# BattlePresenter (and its units) gets added AFTER wave_popup was first
-	# built in _build_hud(), so without this it silently ends up drawn on
-	# TOP of the popup from the second wave onward. Move it to the very end
-	# of the children list -- drawn last, i.e. on top -- every time it's
-	# about to show.
-	move_child(wave_popup, get_child_count() - 1)
-	wave_popup.show()
-	await get_tree().process_frame   # let the container size itself to the new text
-	var combat_center := Vector2(_vp.x / 2.0, _vp.y * (0.11 + 0.58) / 2.0)
-	wave_popup.position = combat_center - wave_popup.size / 2.0
-	await get_tree().create_timer(1.0).timeout
-	wave_popup.hide()
-
 const FADE_HALF_SEC := 0.5
 
 ## A ~1s fade to black and back, used on a wipe to hide the checkpoint jump
 ## (the actual battlefield swap happens while the screen is fully black,
 ## between _fade_out() finishing and _fade_in() starting).
 func _fade_out() -> void:
-	# Same z-order trick wave_popup uses -- new BattlePresenter children get
-	# added after fade_overlay was built in _build_hud(), so without this it
-	# would draw UNDER them instead of covering the whole screen.
+	# New BattlePresenter children get added after fade_overlay was built in
+	# _build_hud(), so without this it would draw UNDER them instead of
+	# covering the whole screen.
 	move_child(fade_overlay, get_child_count() - 1)
 	fade_overlay.show()
 	fade_overlay.color.a = 0.0
@@ -1561,11 +1529,12 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	side_presenter.start_battle(g["battle"], g["battle"]["units"])
-	wave_label.text = _side_battle_label_text(meta)
+	side_presenter.call("set_status_override", _side_battle_label_text(meta))
 
-## Replaces the top strip's "Wave N" text with the quest/dungeon's own
-## name while a side battle is active -- restored by the ordinary
-## _refresh_hud() call once the side battle fully resolves.
+## Replaces the side presenter's own "Wave N" text (BattlePresenter.
+## set_status_override) with the quest/dungeon's own name while a side
+## battle is active -- the Road's own presenter/label are never touched,
+## so nothing needs restoring once the side battle resolves.
 func _side_battle_label_text(meta: Dictionary) -> String:
 	if meta["kind"] == "quest":
 		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
@@ -1619,7 +1588,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		_raise_self_hosted_overlays()
 		await get_tree().process_frame
 		side_presenter.start_battle(g["battle"], g["battle"]["units"])
-		wave_label.text = _side_battle_label_text(g["sideBattle"]["meta"])
+		side_presenter.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
 		return
 	if side_presenter != null:
 		side_presenter.queue_free()
