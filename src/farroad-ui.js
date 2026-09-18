@@ -1896,11 +1896,57 @@ function renderUnits(){
    state had drifted to while it was invisible, visibly changing right as
    it became the active actor. Fixed: a lock now ONLY ever clears by
    actually being consumed in step(), or here if its unit has died (can
-   never act again) — never just for scrolling out of the visible rail. */
+   never act again) — never just for scrolling out of the visible rail.
+
+   STILL still-changing bug, found on a fresh re-investigation: locked[uid]
+   used to be a single action id, not one per UPCOMING TURN. A unit fast
+   enough to occupy 2+ of the visible rail slots at once only ever got ONE
+   lock value (taken from its nearest occurrence) — previewRespectingLocks
+   then painted that SAME value onto every occurrence of it, so the far
+   occurrence's card was never really locked to its own true future
+   action, just borrowing the near one's. The instant the near turn
+   actually fired, step() erased that single lock entirely — so on the
+   very next refresh, the unit's now-nearest (formerly 2nd) occurrence
+   looked "never locked" and got a FRESH, honestly-recomputed value, which
+   could legitimately differ — exactly "changes right before it fires."
+   Fixed: locked[uid] is now a QUEUE, one entry per upcoming turn, indexed
+   by OCCURRENCE order (1st occurrence of this unit anywhere in the rail
+   locks queue[0], 2nd occurrence locks queue[1], etc.) — each occurrence
+   gets its own real, independently-frozen value the first moment IT
+   specifically becomes visible, never borrowed from a sibling occurrence.
+   Computed via a direct chooseFrom() call (not preview()'s own per-slot
+   resolution, which deliberately does NOT project alternateFlag/charge
+   forward across a unit's own occurrences) so a round-robin ("all_none")
+   loadout's 2nd+ queued turn correctly shows (and later executes) the
+   NEXT slot in rotation, not a repeat of the first, and so a charge
+   action already queued once for this unit is correctly treated as spent
+   for any later queued occurrence too, matching preview()'s own
+   established "charge shown once" rule. */
 function lockUpcomingActors(pv){
  var locked=G.battle.lockedActors||(G.battle.lockedActors={});
+ var occSeen={};
  pv.forEach(function(p){
-  if(!locked[p.unitId])locked[p.unitId]=p.actionId;});
+  var uid=p.unitId;
+  var occ=occSeen[uid]||0;
+  occSeen[uid]=occ+1;
+  if(!locked[uid])locked[uid]=[];
+  var queue=locked[uid];
+  if(occ<queue.length)return;
+  var u=G.battle.units.find(function(x){return x.id===uid;});
+  if(!u)return;
+  var chargeSpent=false,startAlt=u.alternateFlag;
+  queue.forEach(function(entry){
+   var prevAct=C.ACTIONS[entry.actionId];
+   if(prevAct&&prevAct.isCharge)chargeSpent=true;
+   startAlt=entry.resultingAlternate;});
+  var st={charge:chargeSpent?0:u.charge,alternateFlag:startAlt};
+  /* Same det-flip preview() itself now uses -- this call also never
+     surfaces its resolved TARGET to anything, only the action id. */
+  var wasDet=G.battle.det;
+  G.battle.det=true;
+  var ch=C.chooseFrom(u,G.battle,st);
+  G.battle.det=wasDet;
+  queue.push({actionId:ch.actionId,resultingAlternate:st.alternateFlag});});
  Object.keys(locked).forEach(function(uid){
   var u=G.battle.units.find(function(x){return x.id===uid;});
   if(!u||u.hp<=0)delete locked[uid];});}
@@ -1914,17 +1960,25 @@ function lockUpcomingActors(pv){
    HP-based condition, etc.). Overrides the display for any ALREADY-
    locked unit's rail chip to show the locked action instead of
    preview()'s fresh (and possibly now different) recomputation, so the
-   rail and the eventual execution can never disagree. Mirrors the Godot
-   port's BattlePresenter._preview_respecting_locks exactly. */
+   rail and the eventual execution can never disagree. lockedActors[uid]
+   is now a QUEUE (see lockUpcomingActors' own comment) -- overlays each
+   OCCURRENCE of a unit with the correspondingly-indexed queue entry, not
+   just the first. Mirrors the Godot port's BattlePresenter.
+   _preview_respecting_locks exactly. */
 function previewRespectingLocks(){
  var out=C.preview(G.battle,6);
  var locked=G.battle.lockedActors||{};
  if(!Object.keys(locked).length)return out;
+ var occSeen={};
  out.forEach(function(p){
-  if(!locked[p.unitId])return;
-  var u=G.battle.units.find(function(x){return x.id===p.unitId;});
+  var uid=p.unitId;
+  var occ=occSeen[uid]||0;
+  occSeen[uid]=occ+1;
+  var queue=locked[uid]||[];
+  if(occ>=queue.length)return;
+  var u=G.battle.units.find(function(x){return x.id===uid;});
   if(!u)return;
-  var act=C.ACTIONS[locked[p.unitId]];
+  var act=C.ACTIONS[queue[occ].actionId];
   if(!act)return;
   p.actionName=act.name;p.actionId=act.id;p.isCharge=!!act.isCharge;p.cost=C.tcOf(u,act.rank);});
  return out;}

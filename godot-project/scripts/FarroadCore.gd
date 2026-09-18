@@ -1174,12 +1174,29 @@ static func step(b: Dictionary) -> Variant:
 	# consume is engine-layer so headless callers (expedition/dungeon/
 	# offline catch-up) that never set it are unaffected -- `locked`
 	# stays empty and this is a pure no-op there.
+	# lockedActors[uid] is a QUEUE (Array), one entry per upcoming turn of
+	# that unit currently locked -- a fast unit can have several of its
+	# own future turns visible/locked at once (see BattlePresenter.
+	# _lock_upcoming_actors' own comment for why a single value per uid
+	# was the actual bug this replaced). Consumed FIFO: the front entry is
+	# always this unit's OWN next real turn, since preview()/the lock
+	# queue both walk time in order. Each entry also carries the
+	# alternateFlag value that results from having resolved it (computed
+	# at lock time via the real choose_from, not re-derived here) -- since
+	# choose()'s own round-robin advance never runs on this path, applying
+	# that stored value is what keeps a round-robin loadout actually
+	# rotating through its slots instead of freezing on whichever slot it
+	# first locked to.
 	var locked: Dictionary = b.get("lockedActors", {})
 	var ch: Dictionary
-	if locked.has(u["id"]):
-		var locked_action_id: String = locked[u["id"]]
-		ch = {"actionId": locked_action_id, "target": null, "via": "locked -> %s" % locked_action_id}
-		locked.erase(u["id"])
+	if locked.has(u["id"]) and not (locked[u["id"]] as Array).is_empty():
+		var queue: Array = locked[u["id"]]
+		var entry: Dictionary = queue[0]
+		queue.remove_at(0)
+		u["alternateFlag"] = entry["resultingAlternate"]
+		if queue.is_empty():
+			locked.erase(u["id"])
+		ch = {"actionId": entry["actionId"], "target": null, "via": "locked -> %s" % entry["actionId"]}
 	else:
 		ch = choose(u, b)
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
@@ -1329,6 +1346,17 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 	# and again for that unit. Tracked per-unit, this preview() call only.
 	var charge_shown: Dictionary = {}
 	var out := []
+	# Post-report fix: choose_from can reach resolve_condition -> def_foe(),
+	# which rolls real RNG to pick a random foe (e.g. for "foe_any"-style
+	# conditions) whenever b["det"] is false. preview() never surfaces that
+	# picked target to anything -- only the resolved ACTION id is ever
+	# used -- so without this, every turn-order refresh (every beat, for
+	# every visible unit with such a condition) silently burned real draws
+	# from the shared battle RNG purely to compute a throwaway value,
+	# corrupting the SAME stream later crit/evade rolls depend on. Flipped
+	# to deterministic for the duration of this call only.
+	var was_det: bool = b["det"]
+	b["det"] = true
 	for n in range(count):
 		if sim.is_empty():
 			break
@@ -1360,4 +1388,5 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 			"actionName": act["name"], "actionId": act["id"], "rank": act["rank"],
 			"isCharge": bool(act.get("isCharge", false)), "cost": tc_of(best["u"], act["rank"])})
 		best["at"] += tc_of(best["u"], act["rank"])
+	b["det"] = was_det
 	return out

@@ -1188,19 +1188,29 @@ func _build_turn_order_ui() -> void:
 ## the first place (preview()'s own ordering compares nextActAt/isParty/
 ## spd/slotIndex only), so this only ever changes which ACTION text a
 ## card shows, never who's shown or in what order.
+## lockedActors[uid] is a QUEUE (Array of {actionId, resultingAlternate}
+## entries) -- see _lock_upcoming_actors' own comment for why a single
+## value per uid was the actual bug behind "turn order still changes
+## right as a unit enters the active box." Overlays each OCCURRENCE of a
+## unit in `out` with the correspondingly-indexed queue entry (1st
+## occurrence <-> queue[0], 2nd <-> queue[1], etc.), not just the first.
 func _preview_respecting_locks() -> Array:
 	var out: Array = FarroadCore.preview(battle, TURN_ORDER_COUNT)
 	var locked: Dictionary = battle.get("lockedActors", {})
 	if locked.is_empty():
 		return out
+	var occ_seen: Dictionary = {}
 	for p in out:
 		var uid: String = p["unitId"]
-		if not locked.has(uid):
+		var occ: int = occ_seen.get(uid, 0)
+		occ_seen[uid] = occ + 1
+		var queue: Array = locked.get(uid, [])
+		if occ >= queue.size():
 			continue
 		var view: UnitView = unit_views_by_id.get(uid)
 		if view == null:
 			continue
-		var act = FarroadCore.ACTIONS.get(locked[uid])
+		var act = FarroadCore.ACTIONS.get(queue[occ]["actionId"])
 		if act == null:
 			continue
 		p["actionName"] = act["name"]
@@ -1268,14 +1278,66 @@ func _refresh_turn_order() -> void:
 ## now ONLY ever clears by actually being consumed in step(), or here if
 ## its unit has died (can never act again) -- never just for scrolling
 ## out of the visible rail.
+##
+## STILL still-changing bug, found on a fresh re-investigation: locked[uid]
+## used to be a single action id, not one per UPCOMING TURN. A unit fast
+## enough to occupy 2+ of the visible rail slots at once only ever got
+## ONE lock value (taken from its nearest occurrence) -- _preview_
+## respecting_locks then painted that SAME value onto every occurrence of
+## it, so the far occurrence's card was never really locked to its own
+## true future action, just borrowing the near one's. The instant the
+## near turn actually fired, step() erased that single lock entirely --
+## so on the very next refresh, the unit's now-nearest (formerly 2nd)
+## occurrence looked "never locked" and got a FRESH, honestly-recomputed
+## value, which could legitimately differ (other units' actions, HP
+## changes, etc. had moved real state in the meantime) -- exactly
+## "changes right before it fires." Fixed: locked[uid] is now a QUEUE,
+## one entry per upcoming turn, indexed by OCCURRENCE order (1st
+## occurrence of this unit anywhere in the rail locks queue[0], 2nd
+## occurrence locks queue[1], etc.) -- each occurrence gets its own real,
+## independently-frozen value the first moment IT specifically becomes
+## visible, never borrowed from a sibling occurrence. Computed via a
+## direct choose_from() call (not preview()'s own per-slot resolution,
+## which deliberately does NOT project alternateFlag/charge forward
+## across a unit's own occurrences -- see preview()'s comment) so a
+## round-robin ("all_none") loadout's 2nd+ queued turn correctly shows
+## (and later executes) the NEXT slot in rotation, not a repeat of the
+## first, and so a charge action already queued once for this unit is
+## correctly treated as spent for any later queued occurrence too,
+## matching preview()'s own established "charge shown once" rule.
 func _lock_upcoming_actors(upcoming: Array) -> void:
 	if battle.get("lockedActors") == null:
 		battle["lockedActors"] = {}
 	var locked: Dictionary = battle["lockedActors"]
+	var occ_seen: Dictionary = {}
 	for p in upcoming:
 		var uid: String = p["unitId"]
+		var occ: int = occ_seen.get(uid, 0)
+		occ_seen[uid] = occ + 1
 		if not locked.has(uid):
-			locked[uid] = p["actionId"]
+			locked[uid] = []
+		var queue: Array = locked[uid]
+		if occ < queue.size():
+			continue   # this occurrence is already locked
+		var view: UnitView = unit_views_by_id.get(uid)
+		if view == null:
+			continue
+		var u: Dictionary = view.unit
+		var charge_spent := false
+		var start_alt: int = int(u["alternateFlag"])
+		for entry in queue:
+			var prev_act = FarroadCore.ACTIONS.get(entry["actionId"])
+			if prev_act != null and prev_act.get("isCharge", false):
+				charge_spent = true
+			start_alt = entry["resultingAlternate"]
+		var state := {"charge": (0.0 if charge_spent else u["charge"]), "alternateFlag": start_alt}
+		# Same det-flip preview() itself now uses -- this call also never
+		# surfaces its resolved TARGET to anything, only the action id.
+		var was_det: bool = battle["det"]
+		battle["det"] = true
+		var ch := FarroadCore.choose_from(u, battle, state)
+		battle["det"] = was_det
+		queue.append({"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"])})
 	for uid in locked.keys().duplicate():
 		var view: UnitView = unit_views_by_id.get(uid)
 		if view == null or view.unit["hp"] <= 0:

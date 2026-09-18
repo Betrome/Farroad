@@ -836,11 +836,26 @@ function step(b){
     fresh, definitely-still-valid target for this specific action at the
     ACTUAL moment it fires — never a stale reference to a unit that may
     have died in the meantime. */
+ /* lockedActors[uid] is a QUEUE (Array), one entry per upcoming turn of
+    that unit currently locked — a fast unit can have several of its own
+    future turns visible/locked at once (see BattlePresenter.
+    _lock_upcoming_actors's own comment, mirrored here, for why a single
+    value per uid was the actual bug this replaced). Consumed FIFO: the
+    front entry is always this unit's OWN next real turn, since preview()/
+    the lock queue both walk time in order. Each entry also carries the
+    alternateFlag value that results from having resolved it (computed at
+    lock time via the real chooseFrom, not re-derived here) — since
+    choose()'s own round-robin advance never runs on this path, applying
+    that stored value is what keeps a round-robin loadout actually
+    rotating through its slots instead of freezing on whichever slot it
+    first locked to. */
  var locked=b.lockedActors||{},ch;
- if(locked[u.id]){
-  var lockedActionId=locked[u.id];
-  ch={actionId:lockedActionId,target:null,via:'locked -> '+lockedActionId};
-  delete locked[u.id];
+ if(locked[u.id]&&locked[u.id].length){
+  var queue=locked[u.id];
+  var entry=queue.shift();
+  u.alternateFlag=entry.resultingAlternate;
+  if(!queue.length)delete locked[u.id];
+  ch={actionId:entry.actionId,target:null,via:'locked -> '+entry.actionId};
  }else{
   ch=choose(u,b);
  }
@@ -957,6 +972,17 @@ function preview(b,count){count=count||6;var sim=[];
  // unit. Tracked per-unit, this preview() call only.
  var chargeShown={};
  var out=[];
+ /* Post-report fix: chooseFrom can reach resolveCondition -> defFoe(),
+    which rolls real RNG to pick a random foe (e.g. for "foe_any"-style
+    conditions) whenever b.det is false. preview() never surfaces that
+    picked target to anything -- only the resolved ACTION id is ever
+    used -- so without this, every turn-order refresh (every beat, for
+    every visible unit with such a condition) silently burned real draws
+    from the shared battle RNG purely to compute a throwaway value,
+    corrupting the SAME stream later crit/evade rolls depend on. Flipped
+    to deterministic for the duration of this call only. */
+ var wasDet=b.det;
+ b.det=true;
  for(var n=0;n<count&&sim.length;n++){var best=sim[0];
   for(var j=0;j<sim.length;j++){var s=sim[j];if(s===best)continue;
    if(s.at<best.at){best=s;continue;}if(s.at>best.at)continue;
@@ -971,6 +997,7 @@ function preview(b,count){count=count||6;var sim=[];
   out.push({unitName:best.u.name,unitId:uid,isParty:best.u.isParty,at:best.at,actionName:act.name,
    actionId:act.id,rank:act.rank,isCharge:!!act.isCharge,cost:tcOf(best.u,act.rank)});
   best.at+=tcOf(best.u,act.rank);}
+ b.det=wasDet;
  return out;}
 /* v1.0 RETUNE: the 65% global multiplier was a debug crutch, and one that switched
    off at wave 20 would have doubled enemy strength exactly as the player gained
@@ -1042,6 +1069,11 @@ F.costOfCharge=costOfCharge;F.CHARGE_UP_COST=CHARGE_UP_COST;
 F.CHARGE_THRIFT=CHARGE_THRIFT;F.CHARGE_COST_MIN=CHARGE_COST_MIN;
 F.CONDITIONS=CONDITIONS;F.condById=condById;F.foes=foes;F.allies=allies;F.PREF_TEXT=PREF_TEXT;
 F.makeUnit=makeUnit;F.makeBattle=makeBattle;F.step=step;F.preview=preview;
+/* Exported so farroad-ui.js's own lockUpcomingActors can compute a
+   correctly-projected lock value for a unit's 2nd+ upcoming occurrence
+   directly (preview() itself deliberately does NOT project alternateFlag/
+   charge forward across a unit's own occurrences within one call). */
+F.chooseFrom=chooseFrom;
 F.ARCH=ARCH;F.ROT=ROT;F.dmgTakenMul=dmgTakenMul;F.ROSTER=ROSTER;
 F.ENRAGE_AFTER=ENRAGE_AFTER;F.ENRAGE_PCT=ENRAGE_PCT;
 /* WAVE_EXP was exported here until v2.1 replaced the exponent model with
