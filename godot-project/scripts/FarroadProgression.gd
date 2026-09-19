@@ -121,12 +121,6 @@ const TUTORIAL_ATK_MAG_MUL := 0.5
 # difficulty eases back in gradually across the wave 20-100 stretch
 # instead of snapping back all at once.
 const TUTORIAL_RAMP_END_WAVE := 100
-# See build_party_unit's own comment -- a free hpCarry top-up (same
-# capped-additive shape recovery_of/AETHER Recovery already uses) granted
-# automatically for every wave<=20 fight, so 4 straight unhealed tutorial
-# fights (a checkpoint-forced replay of 16->17->18->19 before reaching the
-# wave-20 boss again) don't compound into arriving nearly dead.
-const TUTORIAL_FREE_RECOVERY := 0.5
 
 static func tutorial_atk_mag_mul(w: int) -> float:
 	if w <= 20:
@@ -463,7 +457,17 @@ static func weighted_equipment_pick(rng: FarroadCore.RNG, ids: Array) -> String:
 const PARTY_CAP := 5
 const POOL_SIZE := 25
 const BOSS_UNIT_ORDER: Array[String] = ["ansa", "dorrek", "vey", "mirel"]
-const UNIT_WAVES: Array[int] = [20, 150, 500, 1500]
+## Ian: "add Ansa at wave 10, not 20" -- confirmed via direct simulation
+## (multiple builds that walled hard on the solo wave-20 boss all cleared
+## the whole tutorial with ZERO wipes once a 2nd body joins before it: a
+## real ally splits enemy turns/damage AND brings actual in-combat healing,
+## directly countering the "arrives at the boss nearly dead" attrition
+## problem). Was [20, ...] -- note this ALSO surfaces and fixes a real,
+## separate, previously-unnoticed bug: 150 was never actually a boss wave
+## under BOSS_EVERY=20's own math ((150-20)%20=10, not 0), so Dorrek could
+## never have been granted at all under the old is_boss_wave-gated code --
+## see after_wave_cleared's own comment on the fix.
+const UNIT_WAVES: Array[int] = [10, 150, 500, 1500]
 
 static func unit_due_at(w: int) -> Variant:
 	var i := UNIT_WAVES.find(w)
@@ -1190,20 +1194,13 @@ static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dic
 	apply_equipment_stats(g, uid, st)
 	var mh: float = st["hp"]
 	var carry = g["hpCarry"].get(uid)
+	# Ian: "the player currently heals between waves by default. Remove
+	# that. I want players to have to opt in." -- the earlier free
+	# tutorial-only top-up is gone; recovery_of(g, uid) (real AETHER
+	# Recovery investment, opt-in by spending) is the only thing that ever
+	# tops up hpCarry now, tutorial or not.
 	if carry != null:
-		# Ian: waves 1-20 still wiping way too often even with the tutorial's
-		# other easing already in place -- confirmed via direct simulation
-		# that the checkpoint boundary (every 5 waves) forces 4 straight
-		# unhealed fights (16->17->18->19->20) before reaching the boss, and
-		# a fresh tutorial character has zero AETHER Recovery investment to
-		# offset that, so hpCarry alone left them arriving at the boss with
-		# 0-15% HP nearly every single attempt -- not a boss-difficulty
-		# problem, an attrition problem. A free, tutorial-only top-up
-		# (same capped-add-to-carry shape recovery_of already uses for the
-		# real AETHER investment) directly targets that, without touching
-		# any single fight's own difficulty.
-		var tutorial_bonus: float = TUTORIAL_FREE_RECOVERY if g.get("wave", 1) <= 20 else 0.0
-		carry = minf(1.0, carry + recovery_of(g, uid) + tutorial_bonus)
+		carry = minf(1.0, carry + recovery_of(g, uid))
 	var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
 	# Charge persists between Road waves too, same shape as hpCarry above --
 	# carries forward as-is (no recovery-style decay/regen), 0 if this unit
@@ -1296,32 +1293,26 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	var boss: bool = is_boss_wave(w) or super_boss_key != ""
 	var variety: bool = (not boss) and w > VARIETY_FROM
 	var n: int = 1 if boss else (roll_count(g["rng"], w) if variety else enemy_count(w))
-	# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
-	# 2nd party member joins -- computed here (not per-j below) since it's
-	# needed for count_mul immediately below too, not just hp_base/dmg_mul
-	# further down.
+	# The very first boss (wave 20, BOSS_WAVES[0]) -- the tutorial's own
+	# climax fight, still worth its own dedicated softening (FIRST_BOSS_LEN/
+	# HARD_EXTRA/DMG_MUL below) regardless of party size, unlike count_mul's
+	# own solo-vs-party check just below this.
 	var is_first_boss: bool = boss and w == BOSS_WAVES[0]
 	# Ian: "make waves with fewer enemies stronger." count_strength(n) was
 	# already exactly this compensation curve (n=1 -> x1.85 per enemy down
-	# to n=10 -> x0.29), but only ever applied once enemy count starts
-	# being RANDOMLY rolled (w > VARIETY_FROM). Extended to every wave from
-	# UNIT_WAVES[0] (20) onward, where enemy_count(w) already varies
-	# smoothly with party size even before the roll kicks in -- so a
-	# 2-enemy wave 25 now compensates the same way a 2-enemy roll on wave
-	# 45 already did. Deliberately NOT extended back into waves 1-19 (the
-	# single-character tutorial stretch, always exactly 1 enemy) -- that
-	# range was already hand-tuned down (TUTORIAL_ATK_MAG_MUL, the wave
-	# 1-20 death-loop fix) specifically to be beatable solo, and blanket-
-	# applying count_strength(1)=1.85 there would undo that work overnight.
-	# A real bug found via direct simulation, not just an undertuned
-	# constant: this w>=UNIT_WAVES[0] gate turns on exactly AT wave 20 --
-	# the first boss's own wave, ALSO still fought solo (the 2nd party
-	# member only joins AFTER clearing it) -- so a boss that's always
-	# n=1 got count_strength(1)=1.85, a "fewer enemies than a full party"
-	# compensation the solo player has no party to be "fewer than" yet.
-	# Every boss AFTER this one (wave 40+, a real 1-vs-full-party fight)
-	# correctly keeps the compensation -- only the first boss is exempt.
-	var count_mul: float = count_strength(n) if (w >= UNIT_WAVES[0] and not is_first_boss) else 1.0
+	# to n=10 -> x0.29) -- the "fewer enemies than a full party" reasoning
+	# it exists for only makes sense once the player HAS a real party bigger
+	# than 1, so it's gated on actual live party size, not a wave-number
+	# proxy (a wave-number gate like the old "w>=UNIT_WAVES[0]" would need
+	# re-deriving by hand every time UNIT_WAVES[0] itself changes -- it
+	# already did once, see UNIT_WAVES' own comment). A genuinely solo
+	# player (party size 1, true through wave 9 and the wave-20 boss alike
+	# unless/until a real 2nd body has actually joined) never gets
+	# compensated against; the instant party size exceeds 1 -- whether
+	# that's the wave-20 boss (now a real 2-vs-1 fight since Ansa joins at
+	# wave 10) or any later wave -- it correctly does.
+	var is_solo: bool = g["party"].size() <= 1
+	var count_mul: float = count_strength(n) if not is_solo else 1.0
 	var v_mul: float = (count_mul * band_roll(g["rng"])) if variety else count_mul
 	FarroadCore.set_wave(w)
 	var s: float = FarroadCore.wave_scale(w)
@@ -1580,17 +1571,44 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 		var hoard := boss_aether(g["wave"]) * aether_mul
 		g["aether"] += hoard
 		events.append({"kind": "boss_hoard", "wave": g["wave"], "amount": hoard})
+		# Ian: a popup congratulating the player on finishing the tutorial,
+		# warning the road only gets harder, and explaining enrage -- shown
+		# exactly once, right as the mechanic itself first turns on (enrage
+		# is off for wave<=20, on again from wave 21 -- see start_wave).
+		# Scoped to the FIRST boss specifically (BOSS_WAVES[0], not every
+		# boss), same first_clear gate the other one-time boss events above
+		# already use.
+		if g["wave"] == BOSS_WAVES[0]:
+			events.append({"kind": "tutorial_complete", "wave": g["wave"]})
+		events.append({"kind": "checkpoint", "wave": g["bossesCleared"] * BOSS_EVERY})
+	# Ian: "add Ansa at wave 10, not 20" -- a companion join needs to fire on
+	# ANY wave clear matching UNIT_WAVES, not just boss clears. Genuinely
+	# fixes a real, separate, previously-unnoticed bug along the way: this
+	# used to live INSIDE the is_boss_wave branch above, but UNIT_WAVES[1]
+	# (150, dorrek) was never actually a boss wave under BOSS_EVERY=20's own
+	# math ((150-20)%20=10, not 0) -- Dorrek could never have been granted
+	# at all under the old code, boss wave or not. Kept event kind names
+	# ("boss_companion"/"boss_no_companion") as-is despite no longer being
+	# boss-exclusive, to avoid touching every consumer (GameController's
+	# reward-flyer target lookup, parity coverage) for a rename with no
+	# behavior change.
+	if first_clear:
 		var next = unit_due_at(g["wave"])
 		if next and g["party"].has(next):
 			next = null
-		if not next:
+		if next:
+			if g["party"].size() < PARTY_CAP:
+				join_companion(g, next)
+				events.append({"kind": "boss_companion", "wave": g["wave"], "id": next})
+		elif is_boss_wave(g["wave"]):
+			# The "have some Aether instead" consolation stays scoped to boss
+			# clears specifically (its original spot) -- a regular wave clear
+			# never had a companion due in the first place, so it shouldn't
+			# start granting a phantom consolation prize just because this
+			# check moved out of the old is_boss_wave gate.
 			var dup := dup_unit_aether(g["wave"])
 			g["aether"] += dup
 			events.append({"kind": "boss_no_companion", "wave": g["wave"], "amount": dup})
-		elif g["party"].size() < PARTY_CAP:
-			join_companion(g, next)
-			events.append({"kind": "boss_companion", "wave": g["wave"], "id": next})
-		events.append({"kind": "checkpoint", "wave": g["bossesCleared"] * BOSS_EVERY})
 	if is_boss_wave(g["wave"]) and g["rng"].next() < 0.10:
 		var boss_avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"]))
 		if not boss_avail.is_empty():

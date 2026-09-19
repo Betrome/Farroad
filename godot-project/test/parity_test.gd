@@ -272,6 +272,23 @@ func _true_damage_against(def: float):
 	var ev = FarroadCore.step(b)
 	return ev["hits"][0]["damage"]
 
+func _aoe_proof():
+	var src := FarroadCore.make_unit({"id": "s3", "name": "S3", "isParty": true, "level": 1, "slotIndex": 0,
+		"stats": {"atk": 8, "mag": 7, "def": 45, "res": 8, "spd": 20}, "chargeAction": "bastion_strike", "charge": 100.0,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var t1 := FarroadCore.make_unit({"id": "t3a", "name": "T3a", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 18}, "maxHp": 100000.0, "hp": 100000.0,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var t2 := FarroadCore.make_unit({"id": "t3b", "name": "T3b", "isParty": false, "level": 1, "slotIndex": 11,
+		"stats": {"atk": 10, "mag": 10, "def": 10, "res": 10, "spd": 18}, "maxHp": 100000.0, "hp": 100000.0,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var b := FarroadCore.make_battle([src, t1, t2], {"rng": FarroadCore.make_rng(7), "deterministic": true})
+	var ev = FarroadCore.step(b)
+	var damages := []
+	for h in ev["hits"]:
+		damages.append(h["damage"])
+	return {"hitCount": ev["hits"].size(), "damages": damages}
+
 func _dmg_against_high_res(pierced: bool):
 	FarroadCore.apply_bonuses({"ember": {"piercing": 2}} if pierced else {})
 	var src := FarroadCore.make_unit({"id": "s", "name": "Src", "isParty": true, "level": 1, "slotIndex": 0,
@@ -393,6 +410,12 @@ func _run_progression_suite() -> void:
 		var entry := {"wave": w, "outcome": g["battle"]["over"]}
 		if g["battle"]["over"] == "party":
 			entry["events"] = FarroadProgression.after_wave_cleared(g)
+			# tutorial_complete is a Godot-only UI trigger (a one-time popup,
+			# GameController.gd) with no real farroad-ui.js equivalent to
+			# mirror -- same "Godot-only, not parity-tracked" precedent
+			# seenArch already established. Filtered out here so this trace
+			# only ever diffs events that both engines genuinely produce.
+			entry["events"] = entry["events"].filter(func(e): return e.get("kind") != "tutorial_complete")
 			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["loreByAction"] = g["loreByAction"]
 			entry["party"] = g["party"].duplicate(); entry["actions"] = g["actions"].duplicate()
 			entry["conditions"] = g["conditions"].duplicate()
@@ -814,10 +837,21 @@ func _run_progression_suite() -> void:
 	# aegis_strike wouldn't exist there at all on the Godot side.
 	var bastion = FarroadCore.ACTIONS["bastion_strike"]
 	var aegis = FarroadCore.ACTIONS["aegis_strike"]
+	# Ian follow-up: removed the wave-ramped power entirely -- bastion_strike
+	# is now flat 1.0x DEF AoE (tk='allFoes'), aegis_strike flat 1.5x RES
+	# single-target (tk='foe' unchanged), neither has a powerFnId anymore.
 	out["tankCharges"] = {
-		"bastionStrike": {"defPierce": bastion["defPierce"], "scaleStat": bastion["scaleStat"], "isCharge": bastion["isCharge"]},
-		"aegisStrike": {"defPierce": aegis["defPierce"], "scaleStat": aegis["scaleStat"], "isCharge": aegis["isCharge"]},
+		"bastionStrike": {"defPierce": bastion["defPierce"], "scaleStat": bastion["scaleStat"],
+			"isCharge": bastion["isCharge"], "power": bastion["power"], "tk": bastion["tk"],
+			"hasPowerFn": bastion.get("powerFnId") != null},
+		"aegisStrike": {"defPierce": aegis["defPierce"], "scaleStat": aegis["scaleStat"],
+			"isCharge": aegis["isCharge"], "power": aegis["power"], "tk": aegis["tk"],
+			"hasPowerFn": aegis.get("powerFnId") != null},
 		"powerAtWave": {}}
+	# Confirms power genuinely stays flat across waves now (no ramp) --
+	# eval_power_fn falls through to the plain action["power"] field once no
+	# powerFnId is attached, so this is really testing that fallthrough
+	# stays constant, not any dynamic formula.
 	for w in [1, 20, 60, 100, 150]:
 		FarroadCore.set_wave(w)
 		out["tankCharges"]["powerAtWave"][str(w)] = {
@@ -831,6 +865,7 @@ func _run_progression_suite() -> void:
 		"exactlyAtCap": FarroadCore.bonus_applies({"power": 1.0, "camp": "atk", "tk": "foe", "defPierce": 0.85}, "piercing")}
 	out["tankCharges"]["trueDamageProof"] = {
 		"lowDef": _true_damage_against(5.0), "highDef": _true_damage_against(500.0)}
+	out["tankCharges"]["aoeProof"] = _aoe_proof()
 
 	# Ian: waves 1-20 wiping way too often -- 4 real, distinct bugs found via
 	# direct simulation and fixed together, mirrors parity-reference.js's own
@@ -859,16 +894,21 @@ func _run_progression_suite() -> void:
 		"firstBossHp": first_boss[0]["maxHp"], "firstBossAtk": first_boss[0]["base"]["atk"],
 		"laterBossHpPerScale": later_boss[0]["maxHp"] / FarroadCore.wave_scale(40)}
 
+	# Ian follow-up: "the player currently heals between waves by default.
+	# Remove that. I want players to have to opt in." -- the free
+	# tutorial-only hpCarry top-up is gone; regression check that a fresh
+	# character with hpCarry=0.10 and ZERO Recovery investment stays at
+	# exactly 0.10 whether the wave is inside or outside the tutorial
+	# stretch -- no automatic top-up either way anymore.
 	var g_rec1 := FarroadProgression.new_game(7, null)
 	g_rec1["hpCarry"]["kesh"] = 0.10
 	FarroadProgression.start_wave(g_rec1, 15, true)
 	var g_rec2 := FarroadProgression.new_game(7, null)
 	g_rec2["hpCarry"]["kesh"] = 0.10
 	FarroadProgression.start_wave(g_rec2, 21, true)
-	out["tutorialEasing"]["freeTutorialRecovery"] = {
+	out["tutorialEasing"]["noAutomaticRecovery"] = {
 		"hpFracAtWave15": float(g_rec1["units"][0]["hp"]) / float(g_rec1["units"][0]["maxHp"]),
-		"hpFracAtWave21": float(g_rec2["units"][0]["hp"]) / float(g_rec2["units"][0]["maxHp"]),
-		"constant": FarroadProgression.TUTORIAL_FREE_RECOVERY}
+		"hpFracAtWave21": float(g_rec2["units"][0]["hp"]) / float(g_rec2["units"][0]["maxHp"])}
 
 	print(JSON.stringify(out))
 

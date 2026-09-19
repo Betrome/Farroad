@@ -490,10 +490,7 @@ if (mode === 'progression') {
       applyEquipmentStats(g, uid, st);
       var mh = st.hp;
       var carry = g.hpCarry[uid];
-      if (carry != null) {
-        var tutorialBonus = (g.wave || 1) <= 20 ? P.TUTORIAL_FREE_RECOVERY : 0;
-        carry = Math.min(1, carry + recoveryOf(g, uid) + tutorialBonus);
-      }
+      if (carry != null) carry = Math.min(1, carry + recoveryOf(g, uid));
       var hp = (carry == null) ? mh : Math.max(1, Math.round(mh * carry));
       out.push(C.makeUnit({
         id: uid, name: def.name, isParty: true, level: 1, slotIndex: i, stats: st,
@@ -510,11 +507,14 @@ if (mode === 'progression') {
     var variety = (!boss && w > P.VARIETY_FROM);
     var n = boss ? 1 : (variety ? P.rollCount(g.rng, w) : P.enemyCount(w));
     var isFirstBoss = boss && w === P.BOSS_WAVES[0];
-    // real bug fix mirrored from farroad-ui.js's own buildEnemies: the first
-    // boss (still fought solo) must NOT get countStrength(1)'s "fewer
-    // enemies than a full party" compensation -- only later bosses (a real
-    // 1-vs-full-party fight) should.
-    var countMul = (w >= P.UNIT_WAVES[0] && !isFirstBoss) ? P.countStrength(n) : 1;
+    // real bug fix mirrored from farroad-ui.js's own buildEnemies: gated on
+    // actual live party size, not a wave-number proxy -- a genuinely solo
+    // player (party size 1) never gets countStrength(n)'s "fewer enemies
+    // than a full party" compensation, boss or not; the instant party size
+    // exceeds 1 (now possibly the wave-20 boss itself, since Ansa joins at
+    // wave 10) it correctly does.
+    var isSolo = g.party.length <= 1;
+    var countMul = isSolo ? 1 : P.countStrength(n);
     var vMul = variety ? (countMul * P.bandRoll(g.rng)) : countMul;
     C.setWave(w);
     var S = C.waveScale(w), out = [];
@@ -639,16 +639,26 @@ if (mode === 'progression') {
       var hoard = P.bossAether(g.wave) * aetherMul;
       g.aether += hoard;
       events.push({ kind: 'boss_hoard', wave: g.wave, amount: hoard });
+      events.push({ kind: 'checkpoint', wave: g.bossesCleared * P.BOSS_EVERY });
+    }
+    // real bug fix mirrored from FarroadProgression.gd's own after_wave_cleared:
+    // a companion join needs to fire on ANY wave clear matching UNIT_WAVES, not
+    // just boss clears -- UNIT_WAVES[1] (150, dorrek) was never actually a boss
+    // wave under BOSS_EVERY=20's own math, so it could never have fired at all
+    // under the old isBossWave-gated code. The "have some Aether instead"
+    // consolation stays scoped to boss clears specifically (its original spot).
+    if (firstClear) {
       var next = P.unitDueAt(g.wave);
       if (next && g.party.indexOf(next) >= 0) next = null;
-      if (!next) {
+      if (next) {
+        if (g.party.length < 5) {
+          joinCompanion(g, next);
+          events.push({ kind: 'boss_companion', wave: g.wave, id: next });
+        }
+      } else if (P.isBossWave(g.wave)) {
         var dup = P.dupUnitAether(g.wave); g.aether += dup;
         events.push({ kind: 'boss_no_companion', wave: g.wave, amount: dup });
-      } else if (g.party.length < 5) {
-        joinCompanion(g, next);
-        events.push({ kind: 'boss_companion', wave: g.wave, id: next });
       }
-      events.push({ kind: 'checkpoint', wave: g.bossesCleared * P.BOSS_EVERY });
     }
     if (P.isBossWave(g.wave) && g.rng.next() < 0.10) {
       var bossAvail = C.ROSTER.filter(function (r) { return !g.owned[r.id]; });
@@ -1833,14 +1843,25 @@ if (mode === 'progression') {
   // mode's own GDScript fixture (_register_test_actions) wholesale-replaces
   // FarroadCore.ACTIONS rather than merging into it, so bastion_strike/
   // aegis_strike wouldn't exist there at all on the Godot side.
+  // Ian follow-up: removed the wave-ramped power entirely -- bastion_strike
+  // is now flat 1.0x DEF AoE (tk='allFoes'), aegis_strike flat 1.5x RES
+  // single-target (tk='foe' unchanged), neither has a powerFn anymore.
   out.tankCharges = {
-    bastionStrike: { defPierce: C.ACTIONS.bastion_strike.defPierce, scaleStat: C.ACTIONS.bastion_strike.scaleStat, isCharge: C.ACTIONS.bastion_strike.isCharge },
-    aegisStrike: { defPierce: C.ACTIONS.aegis_strike.defPierce, scaleStat: C.ACTIONS.aegis_strike.scaleStat, isCharge: C.ACTIONS.aegis_strike.isCharge },
-    powerAtWave: {}
+    bastionStrike: { defPierce: C.ACTIONS.bastion_strike.defPierce, scaleStat: C.ACTIONS.bastion_strike.scaleStat,
+      isCharge: C.ACTIONS.bastion_strike.isCharge, power: C.ACTIONS.bastion_strike.power, tk: C.ACTIONS.bastion_strike.tk,
+      hasPowerFn: !!C.ACTIONS.bastion_strike.powerFn },
+    aegisStrike: { defPierce: C.ACTIONS.aegis_strike.defPierce, scaleStat: C.ACTIONS.aegis_strike.scaleStat,
+      isCharge: C.ACTIONS.aegis_strike.isCharge, power: C.ACTIONS.aegis_strike.power, tk: C.ACTIONS.aegis_strike.tk,
+      hasPowerFn: !!C.ACTIONS.aegis_strike.powerFn }
   };
+  // Confirms power genuinely stays flat across waves now (no ramp) --
+  // eval_power_fn/powerFn both fall through to the plain action.power field
+  // once no powerFnId/powerFn is attached, so this is really testing that
+  // fallthrough stays constant, not any dynamic formula.
+  out.tankCharges.powerAtWave = {};
   [1, 20, 60, 100, 150].forEach(w => {
     C.setWave(w);
-    out.tankCharges.powerAtWave[w] = { bastion: C.ACTIONS.bastion_strike.powerFn(), aegis: C.ACTIONS.aegis_strike.powerFn() };
+    out.tankCharges.powerAtWave[w] = { bastion: C.ACTIONS.bastion_strike.power, aegis: C.ACTIONS.aegis_strike.power };
   });
   C.setWave(1);
   out.tankCharges.piercingExcludedAtCap = {
@@ -1867,6 +1888,23 @@ if (mode === 'progression') {
       return ev.hits[0].damage;
     }
     out.tankCharges.trueDamageProof = { lowDef: trueDamageAgainst(5), highDef: trueDamageAgainst(500) };
+  })();
+  // AoE proof: bastion_strike (tk='allFoes' now) must hit EVERY living foe
+  // in one cast, not just one -- a real, distinct check from the true-
+  // damage proof above (which only ever used a single enemy).
+  (function () {
+    const src = C.makeUnit({ id: 's3', name: 'S3', isParty: true, level: 1, slotIndex: 0,
+      stats: { atk: 8, mag: 7, def: 45, res: 8, spd: 20 }, chargeAction: 'bastion_strike', charge: 100,
+      slots: [{ cond: 'none', action: 'strike' }] });
+    const t1 = C.makeUnit({ id: 't3a', name: 'T3a', isParty: false, level: 1, slotIndex: 10,
+      stats: { atk: 10, mag: 10, def: 10, res: 10, spd: 18 }, maxHp: 100000, hp: 100000,
+      slots: [{ cond: 'none', action: 'strike' }] });
+    const t2 = C.makeUnit({ id: 't3b', name: 'T3b', isParty: false, level: 1, slotIndex: 11,
+      stats: { atk: 10, mag: 10, def: 10, res: 10, spd: 18 }, maxHp: 100000, hp: 100000,
+      slots: [{ cond: 'none', action: 'strike' }] });
+    const b = C.makeBattle([src, t1, t2], { rng: C.makeRNG(7), deterministic: true });
+    const ev = C.step(b);
+    out.tankCharges.aoeProof = { hitCount: ev.hits.length, damages: ev.hits.map(h => h.damage) };
   })();
 
   // Ian: waves 1-20 wiping way too often (up to 358 times across several
@@ -1921,17 +1959,19 @@ if (mode === 'progression') {
       laterBossHpPerScale: laterBoss[0].maxHp / C.waveScale(40)
     };
 
-    // Fix 4: a free tutorial-only hpCarry top-up (TUTORIAL_FREE_RECOVERY)
-    // so 4 straight unhealed tutorial fights don't compound into arriving
-    // at the boss nearly dead -- present for w<=20, absent for w>20.
+    // Ian follow-up: "the player currently heals between waves by default.
+    // Remove that. I want players to have to opt in." -- the free
+    // tutorial-only hpCarry top-up (Fix 4 above) is gone; regression check
+    // that a fresh character with hpCarry=0.10 and ZERO Recovery investment
+    // stays at exactly 0.10 whether the wave is inside or outside the
+    // tutorial stretch -- no automatic top-up either way anymore.
     var gRec1 = newGame(7, null);
     gRec1.hpCarry.kesh = 0.10; startWave(gRec1, 15, true);
     var gRec2 = newGame(7, null);
     gRec2.hpCarry.kesh = 0.10; startWave(gRec2, 21, true);
-    out.tutorialEasing.freeTutorialRecovery = {
+    out.tutorialEasing.noAutomaticRecovery = {
       hpFracAtWave15: gRec1.units[0].hp / gRec1.units[0].maxHp,
-      hpFracAtWave21: gRec2.units[0].hp / gRec2.units[0].maxHp,
-      constant: P.TUTORIAL_FREE_RECOVERY
+      hpFracAtWave21: gRec2.units[0].hp / gRec2.units[0].maxHp
     };
   })();
 

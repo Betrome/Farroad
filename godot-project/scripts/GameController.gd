@@ -603,6 +603,126 @@ func _show_welcome_back_popup() -> void:
 
 	popup.popup_centered(Vector2(popup_w, _vp.y * 0.65))
 
+## Ian: a one-time popup shown exactly when enrage first turns on (clearing
+## the wave-20 boss -- see the "tutorial_complete" event, FarroadProgression.
+## after_wave_cleared) -- congratulates the player on finishing the
+## tutorial, warns the Road only gets harder from here, and explains the
+## enrage mechanic + points at its own bar/label so it isn't a total
+## surprise the first time it fires for real. Same raw-PopupPanel
+## construction as _show_welcome_back_popup (a big milestone announcement,
+## not a small in-flow result like _show_quest_result_popup below) --
+## AWAITABLE, unlike that one, since the caller (_on_battle_finished) needs
+## to hold the wave-transition animation until the player has actually read
+## and dismissed it.
+func _show_tutorial_complete_popup() -> void:
+	const POPUP_MARGIN := 16.0
+	var popup := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.GOLD_PRESSED
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(POPUP_MARGIN))
+	popup.add_theme_stylebox_override("panel", style)
+	add_child(popup)
+	await get_tree().process_frame
+
+	var popup_w: float = _vp.x * 0.85
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "Tutorial complete!"
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = "You've beaten the Roadwarden. From here, the Road only gets harder."
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body)
+
+	var enrage_body := Label.new()
+	enrage_body.text = "Enemies that fight for a long time will grow ENRAGED -- hitting harder and moving faster the longer a battle drags on. Keep your fights short."
+	enrage_body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	enrage_body.modulate = Palette.BAD_RED
+	enrage_body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	enrage_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(enrage_body)
+
+	var enrage_pointer := Label.new()
+	enrage_pointer.text = "Watch the red bar above the turn order -- once it fills, its label shows exactly how much stronger enemies have gotten."
+	enrage_pointer.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	enrage_pointer.modulate = Palette.TEXT_DIM
+	enrage_pointer.autowrap_mode = TextServer.AUTOWRAP_WORD
+	enrage_pointer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(enrage_pointer)
+
+	var got_it := Button.new()
+	got_it.text = "Got it"
+	vbox.add_child(got_it)
+
+	popup.popup_centered(Vector2(popup_w, _vp.y * 0.6))
+	await got_it.pressed
+	popup.hide()
+	popup.queue_free()
+
+## Ian: "add a pop-up when she joins... you save her from the enemies and
+## she chooses to join you" -- fires whenever a milestone companion
+## actually joins (the "boss_companion" event, see after_wave_cleared's own
+## comment -- despite the name, no longer boss-exclusive). Same raw-
+## PopupPanel/awaited-"Got it" shape as _show_tutorial_complete_popup
+## above; generic enough in its wording to read naturally for any of the
+## 4 roster companions this can fire for (ansa/dorrek/vey/mirel), not just
+## Ansa's own wave-10 case.
+func _show_companion_joined_popup(uid: String) -> void:
+	var def = FarroadCore.roster_by_id(uid)
+	var name: String = def["name"] if def != null else uid
+
+	const POPUP_MARGIN := 16.0
+	var popup := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.GOOD_GREEN
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(POPUP_MARGIN))
+	popup.add_theme_stylebox_override("panel", style)
+	add_child(popup)
+	await get_tree().process_frame
+
+	var popup_w: float = _vp.x * 0.85
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "%s joins you!" % name
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = "You cut down the last of the danger just in time -- %s was caught in the middle of it. Grateful, and impressed, they choose to join you on the Road." % name
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body)
+
+	var got_it2 := Button.new()
+	got_it2.text = "Got it"
+	vbox.add_child(got_it2)
+
+	popup.popup_centered(Vector2(popup_w, _vp.y * 0.45))
+	await got_it2.pressed
+	popup.hide()
+	popup.queue_free()
+
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
 ## similar to the welcome back pop-up" -- same PopupPanel/StyleBoxFlat
@@ -1491,6 +1611,25 @@ func _on_battle_finished(outcome: String) -> void:
 		_refresh_hud()
 		_save_game()
 		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
+		# Ian: a one-time popup congratulating the player on finishing the
+		# tutorial and explaining enrage, shown exactly when the mechanic
+		# itself first turns on. Awaited BEFORE the wave-transition animation
+		# below so the player actually reads it (the just-finished boss
+		# encounter stays on screen behind it, same as the welcome-back
+		# popup showing over the live game rather than a blank screen).
+		for e in events:
+			if e.get("kind") == "tutorial_complete":
+				await _show_tutorial_complete_popup()
+				break
+		# Ian: "add a pop-up when she joins... you save her from the enemies
+		# and she chooses to join you" -- the milestone-companion event
+		# (still named "boss_companion" even though it can now fire on a
+		# non-boss wave -- see after_wave_cleared's own comment) gets the
+		# same awaited-popup treatment as tutorial_complete above.
+		for e in events:
+			if e.get("kind") == "boss_companion":
+				await _show_companion_joined_popup(e["id"])
+				break
 		# Ian: "get rid of the wave pop-up." The finished battlefield (units,
 		# HP bars, log/status buttons) stays on screen through the run
 		# animation -- only freed once its own retreat finishes, not the

@@ -830,13 +830,6 @@ P.tutorialAtkMagMul=function(w){
  if(w>=P.TUTORIAL_RAMP_END_WAVE)return 1;
  var t=(w-20)/(P.TUTORIAL_RAMP_END_WAVE-20);
  return P.TUTORIAL_ATK_MAG_MUL+(1-P.TUTORIAL_ATK_MAG_MUL)*t;};
-/* See buildParty's own comment (farroad-ui.js) -- a free hpCarry top-up
-   (same capped-additive shape recoveryOf/AETHER Recovery already uses)
-   granted automatically for every wave<=20 fight, so 4 straight unhealed
-   tutorial fights (a checkpoint-forced replay of 16->17->18->19 before
-   reaching the wave-20 boss again) don't compound into arriving nearly
-   dead. */
-P.TUTORIAL_FREE_RECOVERY=0.5;
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));
@@ -861,8 +854,17 @@ P.BOSS_UNIT_ORDER=['ansa','dorrek','vey','mirel'];
  * that is absurd — 50+ bosses in the first thousand waves. Units now arrive at
  * MILESTONE waves only; every other boss pays Aether instead.
  * Spread across the shape of the run: unit 2 is the tutorial payoff, unit 5 lands
- * around day 2. Marks pulls can still beat these dates — this is the floor. */
-P.UNIT_WAVES=[20,150,500,1500];
+ * around day 2. Marks pulls can still beat these dates — this is the floor.
+ * Ian follow-up: "add Ansa at wave 10, not 20" -- confirmed via direct
+ * simulation (multiple builds that walled hard on the solo wave-20 boss all
+ * cleared the whole tutorial with ZERO wipes once a 2nd body joins before
+ * it: a real ally splits enemy turns/damage AND brings actual in-combat
+ * healing). Was [20,...] -- note this ALSO surfaces and fixes a real,
+ * separate, previously-unnoticed bug: 150 was never actually a boss wave
+ * under BOSS_EVERY=20's own math ((150-20)%20=10, not 0), so Dorrek could
+ * never have been granted at all under the old isBossWave-gated code --
+ * see afterWaveCleared's own comment on the fix (farroad-ui.js). */
+P.UNIT_WAVES=[10,150,500,1500];
 P.unitDueAt=function(w){var i=P.UNIT_WAVES.indexOf(w);return i>=0?P.BOSS_UNIT_ORDER[i]:null;};
 /* Duplicate units convert to AETHER, mirroring duplicate actions/gambits -> Lore.
    This is what makes 50+ boss rewards coherent once the roster caps at 5: past

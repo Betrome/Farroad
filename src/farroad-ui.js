@@ -374,20 +374,12 @@ function buildParty(){
   /* Between-wave rest. Does NOT fix the multi-enemy wall (25/50/100% measured
      identical there) but it stops waves 1-7 compounding before Mend arrives. */
   var carry=G.hpCarry[uid];
-  if(carry!=null){
-   /* Ian: waves 1-20 still wiping way too often even with the tutorial's
-      other easing already in place -- confirmed via direct simulation that
-      the checkpoint boundary (every 5 waves) forces 4 straight unhealed
-      fights (16->17->18->19->20) before reaching the boss, and a fresh
-      tutorial character has zero AETHER Recovery investment to offset
-      that, so hpCarry alone left them arriving at the boss with 0-15% HP
-      nearly every single attempt -- not a boss-difficulty problem, an
-      attrition problem. A free, tutorial-only top-up (same capped-add-to-
-      carry shape recoveryOf already uses for the real AETHER investment)
-      directly targets that, without touching any single fight's own
-      difficulty. */
-   var tutorialBonus=(G.wave||1)<=20?P.TUTORIAL_FREE_RECOVERY:0;
-   carry=Math.min(1,carry+recoveryOf(uid)+tutorialBonus);}
+  /* Ian: "the player currently heals between waves by default. Remove
+     that. I want players to have to opt in." -- the earlier free
+     tutorial-only top-up is gone; recoveryOf(uid) (real AETHER Recovery
+     investment, opt-in by spending) is the only thing that ever tops up
+     hpCarry now, tutorial or not. */
+  if(carry!=null)carry=Math.min(1,carry+recoveryOf(uid));
   var hp=(carry==null)?mh:Math.max(1,Math.round(mh*carry));
   /* Charge persists between Road waves too, same shape as hpCarry above --
      carries forward as-is (no recovery-style decay/regen), 0 if this unit
@@ -416,27 +408,24 @@ function buildEnemies(w,quiet,superBossKey){
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
  var n=boss?1:(variety?P.rollCount(G.rng,w):P.enemyCount(w));
- /* The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
-    2nd party member joins -- computed here (not further down) since it's
-    needed for countMul immediately below too, not just hpBase/dmgMul. */
+ /* The very first boss (wave 20, BOSS_WAVES[0]) -- the tutorial's own
+    climax fight, still worth its own dedicated softening (FIRST_BOSS_LEN/
+    HARD_EXTRA/DMG_MUL further down) regardless of party size, unlike
+    countMul's own solo-vs-party check just below this. */
  var isFirstBoss=boss&&w===P.BOSS_WAVES[0];
  /* Ian: "make waves with fewer enemies stronger." countStrength(n) was
-    already exactly this compensation curve, but only ever applied once
-    enemy count starts being RANDOMLY rolled (w>VARIETY_FROM). Extended to
-    every wave from UNIT_WAVES[0] (20) onward, where enemyCount(w) already
-    varies smoothly with party size even before the roll kicks in.
-    Deliberately NOT extended back into waves 1-19 (the single-character
-    tutorial stretch, always exactly 1 enemy) -- that range was already
-    hand-tuned down specifically to be beatable solo. A real bug found via
-    direct simulation, not just an undertuned constant: this w>=UNIT_WAVES[0]
-    gate turns on exactly AT wave 20 -- the first boss's own wave, ALSO
-    still fought solo (the 2nd party member only joins AFTER clearing it) --
-    so a boss that's always n=1 got countStrength(1)=1.85, a "fewer enemies
-    than a full party" compensation the solo player has no party to be
-    "fewer than" yet. Every boss AFTER this one (wave 40+, a real
-    1-vs-full-party fight) correctly keeps the compensation -- only the
-    first boss is exempt. */
- var countMul=(w>=P.UNIT_WAVES[0]&&!isFirstBoss)?P.countStrength(n):1;
+    already exactly this compensation curve -- the "fewer enemies than a
+    full party" reasoning it exists for only makes sense once the player
+    HAS a real party bigger than 1, so it's gated on actual live party
+    size, not a wave-number proxy (a wave-number gate needs re-deriving by
+    hand every time UNIT_WAVES[0] itself changes -- it already did once,
+    see UNIT_WAVES' own comment in farroad-progression.js). A genuinely
+    solo player (party size 1) never gets compensated against, boss or
+    not; the instant party size exceeds 1 -- whether that's the wave-20
+    boss (now a real 2-vs-1 fight since Ansa joins at wave 10) or any
+    later wave -- it correctly does. */
+ var isSolo=G.party.length<=1;
+ var countMul=isSolo?1:P.countStrength(n);
  var vMul=variety?(countMul*P.bandRoll(G.rng)):countMul;
  if(variety&&!quiet)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
   (n===1?' foe — <b style="color:var(--boss)">ELITE</b>':' foes')+
