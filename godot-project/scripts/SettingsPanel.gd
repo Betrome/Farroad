@@ -128,6 +128,10 @@ func _on_toggle_pressed() -> void:
 		_parent.call("_panel_opening", self)
 	popup.popup_centered(Vector2(_vp.x * 0.7, _vp.y * 0.3))
 	_notify_battle_paused(true)
+	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
+	# see GameController._maybe_show_tab_tutorial's own comment.
+	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
+		await _parent.call("_maybe_show_tab_tutorial", "settings")
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):

@@ -141,6 +141,14 @@ func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
 	_notify_battle_paused(true)
+	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
+	# shown over the tab's own already-visible content (matching every
+	# other popup's own "over the live game, not a blank screen"
+	# convention), only the very first time this tab is ever opened
+	# (GameController owns the seen-state + content, see its own
+	# _maybe_show_tab_tutorial comment).
+	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
+		await _parent.call("_maybe_show_tab_tutorial", "units")
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):

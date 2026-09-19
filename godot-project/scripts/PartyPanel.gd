@@ -119,6 +119,10 @@ func _on_toggle_pressed() -> void:
 	_refresh_roster()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
 	_notify_battle_paused(true)
+	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
+	# see GameController._maybe_show_tab_tutorial's own comment.
+	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
+		await _parent.call("_maybe_show_tab_tutorial", "party")
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
 ## same pattern as GambitsPanel/AetherPanel/LorePanel's own copy (see

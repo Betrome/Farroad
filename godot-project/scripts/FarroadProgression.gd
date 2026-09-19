@@ -1554,6 +1554,9 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 ## untouched, same discipline as every prior scoped balance change.
 const TUTORIAL_AETHER_WAVES := 20
 const TUTORIAL_AETHER_MUL := 2.0
+## Ian: "have a new unit be guaranteed acquired at wave 60 if you don't
+## have one by then" -- see after_wave_cleared's own comment.
+const GUARANTEED_THIRD_WAVE := 60
 
 static func after_wave_cleared(g: Dictionary) -> Array:
 	var events := []
@@ -1600,6 +1603,20 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 			if g["party"].size() < PARTY_CAP:
 				join_companion(g, next)
 				events.append({"kind": "boss_companion", "wave": g["wave"], "id": next})
+		elif g["wave"] == BOSS_WAVES[0]:
+			# Ian: "after wave 20, instead of a new unit, get a piece of
+			# equipment and show a pop-up about equipment." Wave 20 no
+			# longer has a companion due at all (Ansa moved to wave 10), so
+			# this replaces what would otherwise be the generic
+			# dup_unit_aether consolation -- specifically for the tutorial
+			# boss, not any later "no companion due" boss clear (those keep
+			# the plain Aether consolation, same as before). Same
+			# weighted-pick + equipInv grant shape do_pull's own 'equip'
+			# branch already uses.
+			var equip_ids := random_equipment_ids()
+			var eid: String = weighted_equipment_pick(g["rng"], equip_ids)
+			g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
+			events.append({"kind": "tutorial_equip", "wave": g["wave"], "id": eid})
 		elif is_boss_wave(g["wave"]):
 			# The "have some Aether instead" consolation stays scoped to boss
 			# clears specifically (its original spot) -- a regular wave clear
@@ -1615,6 +1632,19 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 			var pick: Dictionary = boss_avail[g["rng"].next_int(boss_avail.size())]
 			var fielded := join_companion(g, pick["id"])
 			events.append({"kind": "boss_companion_roll", "wave": g["wave"], "id": pick["id"], "fielded": fielded})
+	# Ian: "have a new unit be guaranteed acquired at wave 60 if you don't
+	# have one by then" -- a backstop on top of the 10% boss_companion_roll
+	# above (already possible at waves 20/40/60 by this point), for the
+	# unlucky case where none of those hit. Scoped to first_clear of wave
+	# 60 specifically, and only if the roster is still stuck at just
+	# kesh+Ansa (owned<3) -- if the roll (or an earlier lucky roll) already
+	# got a 3rd companion, this is a no-op.
+	if g["wave"] == GUARANTEED_THIRD_WAVE and first_clear and g["owned"].size() < 3:
+		var avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"]))
+		if not avail.is_empty():
+			var pick2: Dictionary = avail[g["rng"].next_int(avail.size())]
+			var fielded2 := join_companion(g, pick2["id"])
+			events.append({"kind": "boss_companion_roll", "wave": g["wave"], "id": pick2["id"], "fielded": fielded2})
 	return events
 
 static func on_wipe(g: Dictionary) -> Array:
@@ -1659,7 +1689,13 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
 		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {},
 		"directions": new_directions(),
-		"seenArch": {}}
+		"seenArch": {},
+		# Ian: "add tutorial pop-ups the first time each page/tab is opened."
+		# Godot-only, same as seenArch above (no real-JS equivalent -- these
+		# popups only exist in the Godot UI) -- tab id -> true once its
+		# first-open popup has been shown, checked by GameController's own
+		# _maybe_show_tab_tutorial.
+		"seenTabTutorial": {}}
 
 ## ===== EXPEDITIONS (Step 3h) =====
 ## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through

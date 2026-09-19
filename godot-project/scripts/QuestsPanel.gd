@@ -116,6 +116,10 @@ func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
 	_notify_battle_paused(true)
+	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
+	# see GameController._maybe_show_tab_tutorial's own comment.
+	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
+		await _parent.call("_maybe_show_tab_tutorial", "quests")
 
 ## Also called by GameController (dynamic has_method()+call()) after a
 ## background dungeon unlock (Step 3h's expedition tick, resolve_expedition

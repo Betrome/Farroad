@@ -47,6 +47,9 @@ static func serialize(g: Dictionary, now: int) -> Dictionary:
 	# Catalogue has no real-JS equivalent to mirror. Handled as its own
 	# top-level key instead, same pattern v/savedAt/seed/rngCalls already use.
 	snap["seenArch"] = _clone(g.get("seenArch"))
+	# Same Godot-only pattern as seenArch above -- see new_game()'s own
+	# comment on seenTabTutorial.
+	snap["seenTabTutorial"] = _clone(g.get("seenTabTutorial"))
 	return snap
 
 ## @param snap parsed snapshot Dictionary (caller does the JSON parse)
@@ -122,6 +125,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["idleAcc"] = g.get("idleAcc") if g.get("idleAcc") else 0
 	g["enrage"] = g.get("enrage") != false
 	g["seenArch"] = _clone(snap.get("seenArch")) if snap.get("seenArch") else {}
+	g["seenTabTutorial"] = _clone(snap.get("seenTabTutorial")) if snap.get("seenTabTutorial") else {}
 
 	# v2.9 MIGRATION: pre-multi-expedition saves aren't handled here (that
 	# legacy 'expedition'/'expeditionLog' shape predates this whole feature

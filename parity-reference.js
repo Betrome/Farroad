@@ -655,6 +655,15 @@ if (mode === 'progression') {
           joinCompanion(g, next);
           events.push({ kind: 'boss_companion', wave: g.wave, id: next });
         }
+      } else if (g.wave === P.BOSS_WAVES[0]) {
+        // real bug fix mirrored from FarroadProgression.gd: wave 20 no
+        // longer has a companion due at all (Ansa moved to wave 10), so
+        // this replaces the generic dupUnitAether consolation specifically
+        // for the tutorial boss with an equipment grant instead.
+        var equipIds2 = Object.keys(C.EQUIPMENT);
+        var eid2 = P.weightedEquipmentPick(g.rng, equipIds2);
+        g.equipInv[eid2] = (g.equipInv[eid2] || 0) + 1;
+        events.push({ kind: 'tutorial_equip', wave: g.wave, id: eid2 });
       } else if (P.isBossWave(g.wave)) {
         var dup = P.dupUnitAether(g.wave); g.aether += dup;
         events.push({ kind: 'boss_no_companion', wave: g.wave, amount: dup });
@@ -666,6 +675,16 @@ if (mode === 'progression') {
         var bossPick = bossAvail[g.rng.nextInt(bossAvail.length)];
         var bossFielded = joinCompanion(g, bossPick.id);
         events.push({ kind: 'boss_companion_roll', wave: g.wave, id: bossPick.id, fielded: bossFielded });
+      }
+    }
+    // real bug fix mirrored from FarroadProgression.gd: a guaranteed 3rd
+    // companion by wave 60 if the 10% roll above hasn't hit by then.
+    if (g.wave === P.GUARANTEED_THIRD_WAVE && firstClear && Object.keys(g.owned).length < 3) {
+      var avail2 = C.ROSTER.filter(function (r) { return !g.owned[r.id]; });
+      if (avail2.length) {
+        var pick2 = avail2[g.rng.nextInt(avail2.length)];
+        var fielded2 = joinCompanion(g, pick2.id);
+        events.push({ kind: 'boss_companion_roll', wave: g.wave, id: pick2.id, fielded: fielded2 });
       }
     }
     return events;

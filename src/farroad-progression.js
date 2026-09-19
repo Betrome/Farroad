@@ -325,6 +325,9 @@ P.checkpoint=function(bossesCleared,farthest){
    discipline every prior balance change in this stretch has used. */
 P.TUTORIAL_AETHER_WAVES=20;
 P.TUTORIAL_AETHER_MUL=2.0;
+/* Ian: "have a new unit be guaranteed acquired at wave 60 if you don't
+   have one by then" -- see afterWaveCleared's own comment (farroad-ui.js). */
+P.GUARANTEED_THIRD_WAVE=60;
 
 /* Idle rate keys off FARTHEST wave (a ratchet), never current wave - so a wipe
    costs progress but never income rate. */

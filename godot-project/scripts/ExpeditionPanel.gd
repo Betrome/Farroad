@@ -130,6 +130,10 @@ func _on_toggle_pressed() -> void:
 		_parent.call("_panel_opening", self)
 	_refresh()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
+	# see GameController._maybe_show_tab_tutorial's own comment.
+	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
+		await _parent.call("_maybe_show_tab_tutorial", "expedition")
 
 func _notify_currency_changed() -> void:
 	if _parent and _parent.has_method("_refresh_hud"):

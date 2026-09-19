@@ -723,6 +723,157 @@ func _show_companion_joined_popup(uid: String) -> void:
 	popup.hide()
 	popup.queue_free()
 
+## Ian: "after wave 20, instead of a new unit, get a piece of equipment
+## and show a pop-up about equipment and where it can be equipped" --
+## fires on the "tutorial_equip" event (after_wave_cleared, wave 20
+## specifically). A simple, standalone item description (name/rarity/
+## slot/flat stat bonuses) rather than EquipmentPanel's own
+## _describe_equipment -- that one needs a specific unit to compute
+## per-unit affinity deltas against, which this generic introductory
+## popup has no natural "selected unit" for.
+func _show_tutorial_equip_popup(item_id: String) -> void:
+	var item: Dictionary = FarroadCore.EQUIPMENT.get(item_id, {})
+	var item_name: String = item.get("name", item_id)
+	var rarity: String = item.get("rarity", "common")
+	var slot: String = String(item.get("slot", "")).capitalize()
+	var bits: Array = []
+	for k in ["atk", "mag", "def", "res", "spd"]:
+		if item.get(k):
+			bits.append("%s +%d" % [k.to_upper(), int(item[k])])
+	if item.get("evade"):
+		bits.append("Evade +%d%%" % roundi(float(item["evade"]) * 100.0))
+	var stat_line: String = " · ".join(bits) if not bits.is_empty() else "no flat stat bonus (affinity only)"
+
+	const POPUP_MARGIN := 16.0
+	var popup := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.GOLD_PRESSED
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(POPUP_MARGIN))
+	popup.add_theme_stylebox_override("panel", style)
+	add_child(popup)
+	await get_tree().process_frame
+
+	var popup_w: float = _vp.x * 0.85
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "New gear: %s!" % item_name
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(title)
+
+	# Duplicated small lookup, matching EquipmentPanel.gd's own RARITY_COLOR
+	# -- no class_name on that script to reference directly, same small-
+	# duplication convention this project already uses for shared-but-not-
+	# globally-registered constants.
+	var rarity_color: Dictionary = {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
+	var rarity_lbl := Label.new()
+	rarity_lbl.text = "%s %s -- %s" % [rarity.capitalize(), slot, stat_line]
+	rarity_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	rarity_lbl.modulate = rarity_color.get(rarity, Palette.TEXT_DIM)
+	rarity_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	rarity_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(rarity_lbl)
+
+	var body := Label.new()
+	body.text = "Equipment gives a unit permanent stat bonuses for as long as it's worn -- head, body, legs, and two hand slots, each unit gearing up independently. Open the Equipment tab to equip this on whoever needs it most."
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body)
+
+	var got_it3 := Button.new()
+	got_it3.text = "Got it"
+	vbox.add_child(got_it3)
+
+	popup.popup_centered(Vector2(popup_w, _vp.y * 0.55))
+	await got_it3.pressed
+	popup.hide()
+	popup.queue_free()
+
+## Ian: "add tutorial pop-ups the first time each page/tab is opened to
+## provide information and context for players." One shared, reusable
+## popup + a single content lookup table, rather than a bespoke builder
+## duplicated into all 7 panels -- each panel's own _on_toggle_pressed
+## just calls `await _parent.call("_maybe_show_tab_tutorial", "<id>")`
+## once it's actually open (same dynamic-dispatch convention this project
+## already uses for _panel_opening/_set_battle_paused), and this file
+## owns both the "have we shown this before" state (persisted via
+## g["seenTabTutorial"], Godot-only -- see new_game()'s own comment) and
+## the actual content. Scoped to the 7 icon-row tabs (Units/Party/Marks/
+## Expedition/Quests/Catalogue/Settings) -- Road isn't a content tab (it
+## just closes whatever's open), and the 4 panels folded under Units
+## (Gambits/Aether/Lore/Equipment) render their content INTO Units' own
+## popup via build_into() rather than owning a popup/toggle of their own,
+## so "the Units tab" is the natural single unit here; those 4 could get
+## their own first-open tutorials as a follow-up if wanted.
+const TAB_TUTORIALS: Dictionary = {
+	"units": {"title": "Units", "body": "Pick any owned unit here to manage them: set their Gambits (the AI rules deciding what they do in a fight), spend Aether to level them up, buy Lore upgrades for their actions, and equip gear -- all from one screen, one unit at a time."},
+	"party": {"title": "Party", "body": "Choose who's actually fighting. Field or bench units (up to 5 fielded at once), and set each unit's row -- front row deals and takes more physical damage, back row is safer but hits softer."},
+	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of equipment. A duplicate pull still pays off: units convert to Aether, actions and conditions convert to Lore, equipment just stacks. Pulls unlock once you're far enough down the Road."},
+	"expedition": {"title": "Expedition", "body": "Send benched units out on an expedition down one of 8 directions. They fight on their own and keep progressing even while you're away -- recall them anytime, or leave them to push further out for a bigger haul."},
+	"quests": {"title": "Quests", "body": "Two things live here: each companion's own 5-stage quest line, and direction dungeons that unlock as your expeditions explore further. Both are fought live, right on this screen, same as any Road battle."},
+	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, equipment, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
+	"settings": {"title": "Settings", "body": "Game-wide settings live here, including a full Reset Game option if you ever want to start completely fresh."}
+}
+
+func _maybe_show_tab_tutorial(tab_id: String) -> void:
+	if g["seenTabTutorial"].get(tab_id, false):
+		return
+	g["seenTabTutorial"][tab_id] = true
+	_save_game()
+	var info: Dictionary = TAB_TUTORIALS.get(tab_id, {})
+	if info.is_empty():
+		return
+	await _show_tab_tutorial_popup(info["title"], info["body"])
+
+func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
+	const POPUP_MARGIN := 16.0
+	var popup := PopupPanel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Palette.BG_PARCHMENT
+	style.border_color = Palette.PARTY_BLUE
+	style.set_border_width_all(3)
+	style.set_content_margin_all(int(POPUP_MARGIN))
+	popup.add_theme_stylebox_override("panel", style)
+	add_child(popup)
+	await get_tree().process_frame
+
+	var popup_w: float = _vp.x * 0.85
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	popup.add_child(vbox)
+
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(title)
+
+	var body := Label.new()
+	body.text = body_text
+	body.add_theme_font_size_override("font_size", int(_vp.y * 0.024))
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(body)
+
+	var got_it4 := Button.new()
+	got_it4.text = "Got it"
+	vbox.add_child(got_it4)
+
+	popup.popup_centered(Vector2(popup_w, _vp.y * 0.5))
+	await got_it4.pressed
+	popup.hide()
+	popup.queue_free()
+
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
 ## similar to the welcome back pop-up" -- same PopupPanel/StyleBoxFlat
@@ -1629,6 +1780,13 @@ func _on_battle_finished(outcome: String) -> void:
 		for e in events:
 			if e.get("kind") == "boss_companion":
 				await _show_companion_joined_popup(e["id"])
+				break
+		# Ian: "after wave 20, instead of a new unit, get a piece of
+		# equipment and show a pop-up about equipment and where it can be
+		# equipped" -- same awaited-popup shape as the two above.
+		for e in events:
+			if e.get("kind") == "tutorial_equip":
+				await _show_tutorial_equip_popup(e["id"])
 				break
 		# Ian: "get rid of the wave pop-up." The finished battlefield (units,
 		# HP bars, log/status buttons) stays on screen through the run
