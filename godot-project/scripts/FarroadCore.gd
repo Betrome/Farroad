@@ -147,14 +147,39 @@ static func merge_action_dynamic() -> void:
 	if ACTIONS.has("vengeance"): ACTIONS["vengeance"]["powerFnId"] = "vengeance"
 	if ACTIONS.has("onslaught"): ACTIONS["onslaught"]["powerFnId"] = "onslaught"
 	if ACTIONS.has("reckoning"): ACTIONS["reckoning"]["powerFnId"] = "reckoning"
+	if ACTIONS.has("bastion_strike"): ACTIONS["bastion_strike"]["powerFnId"] = "bastion_strike"
+	if ACTIONS.has("aegis_strike"): ACTIONS["aegis_strike"]["powerFnId"] = "aegis_strike"
 	if ACTIONS.has("ninefold"): ACTIONS["ninefold"]["randomPerHit"] = true
 
-## Mirrors ACTION_DYNAMIC.vengeance/onslaught/reckoning's powerFn closures.
+## Ian: full tank builds (near-zero ATK/MAG) couldn't clear the tutorial --
+## bastion_strike/aegis_strike give a DEF-/RES-scaled attack that hits TRUE
+## (defPierce=1.0 below, in the CSV row itself) so a tank's own investment
+## converts straight to damage. The extra bite is front-loaded: strong
+## through wave 20, ramping back down to a normal baseline by wave 100 --
+## same 2 breakpoints as tutorial_atk_mag_mul, just the mirror shape (a
+## bonus that decays, not a penalty that fades).
+const TUTORIAL_TANK_CHARGE_MUL := 2.0
+const TUTORIAL_TANK_RAMP_END_WAVE := 100
+const BASTION_STRIKE_BASE := 2.20
+const AEGIS_STRIKE_BASE := 2.00
+
+static func tutorial_tank_charge_mul(w: int) -> float:
+	if w <= 20:
+		return TUTORIAL_TANK_CHARGE_MUL
+	if w >= TUTORIAL_TANK_RAMP_END_WAVE:
+		return 1.0
+	var t: float = float(w - 20) / float(TUTORIAL_TANK_RAMP_END_WAVE - 20)
+	return TUTORIAL_TANK_CHARGE_MUL - (TUTORIAL_TANK_CHARGE_MUL - 1.0) * t
+
+## Mirrors ACTION_DYNAMIC.vengeance/onslaught/reckoning/bastion_strike/
+## aegis_strike's powerFn closures.
 static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
 	match action.get("powerFnId"):
 		"vengeance": return 0.55 + 1.55 * (1 - float(src["hp"]) / float(src["maxHp"]))
 		"onslaught": return 2.20 if src["turnsTaken"] == 0 else 0.65
 		"reckoning": return (3.1 + 6.975 * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else 3.1
+		"bastion_strike": return BASTION_STRIKE_BASE * tutorial_tank_charge_mul(current_wave)
+		"aegis_strike": return AEGIS_STRIKE_BASE * tutorial_tank_charge_mul(current_wave)
 	return action["power"]
 
 ## Mirrors ACTION_DYNAMIC.execute's critFn closure.
@@ -331,7 +356,10 @@ static func bonus_applies(a, bid: String) -> bool:
 		"lasting": return true if a.get("applies") else false
 		"deepening": return (true if a.get("applies") else false) and not is_buff_status(a.get("applies"))
 		"surge": return false if a.get("isCharge") else true
-		"piercing": return (true if a.get("power") else false) and not (true if a.get("heal") else false)
+		# excludes an action already at or past the bonus's own 0.85 cap
+		# (apply_bonuses below) -- otherwise "buying" Piercing on one would
+		# be either a no-op or, worse, a regression back down to 0.85.
+		"piercing": return (true if a.get("power") else false) and not (true if a.get("heal") else false) and a.get("defPierce", 0.0) < 0.85
 		"broad": return a.get("tk") == "foe" or a.get("tk") == "ally"
 		"cleansing": return true if a.get("heal") else false
 		"thrifty": return true if a.get("isCharge") else false

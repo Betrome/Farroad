@@ -1123,6 +1123,16 @@ func _build_enrage_ui() -> void:
 	add_child(enrage_fg)
 
 func _refresh_enrage() -> void:
+	# Ian: waves 1-20 wiping too often -- enrage is now off entirely for the
+	# Road's own solo tutorial stretch (see FarroadProgression.start_wave).
+	# Without this guard the bar/label would still count the beat clock up
+	# toward ENRAGE_AFTER and eventually claim "ENRAGED" with no stacks --
+	# genuinely misleading, since battle["enrageN"] stays 0 forever when
+	# battle["enrage"] is false (step() gates its own increment on it too).
+	if not battle.get("enrage", true):
+		enrage_fg.size = Vector2(0, enrage_bg.size.y)
+		enrage_label.text = "No enrage (tutorial)"
+		return
 	var beat: int = battle["beat"]
 	var gate: int = FarroadCore.ENRAGE_AFTER
 	var frac: float = clamp(float(beat) / float(gate), 0.0, 1.0)

@@ -591,6 +591,57 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   'low='+dmgLowDef+' high='+dmgHighDef);
 })();
 
+/* =================== 12b. TANK-BUILD FIX: bastion_strike/aegis_strike =====
+ * Ian: a full-tank MC (near-zero ATK/MAG) couldn't clear the tutorial, since
+ * every other charge action scales off the very stats a tank neglects.
+ * bastion_strike (DEF) / aegis_strike (RES) give a tank build a real damage
+ * source that scales off ITS OWN high stat, hits TRUE (defPierce=1.0, so
+ * mitigation never applies), and is extra strong through the tutorial
+ * (tutorialTankChargeMul: 2x through wave 20, ramping to 1x by wave 100) --
+ * both are MC_STARTER_CHARGES so a tank build has them from creation. */
+(function(){
+ var bs=C.ACTIONS.bastion_strike, ae=C.ACTIONS.aegis_strike;
+ ok('bastion_strike/aegis_strike exist, are isCharge, defPierce=1.0, and scale off DEF/RES respectively',
+  bs&&ae&&bs.isCharge&&ae.isCharge&&bs.defPierce===1&&ae.defPierce===1&&
+  bs.scaleStat==='def'&&ae.scaleStat==='res');
+ ok('bastion_strike and aegis_strike are both in P.MC_STARTER_CHARGES',
+  P.MC_STARTER_CHARGES.indexOf('bastion_strike')>=0 && P.MC_STARTER_CHARGES.indexOf('aegis_strike')>=0);
+
+ C.setWave(1);
+ var atW1=bs.powerFn();
+ C.setWave(20);
+ var atW20=bs.powerFn();
+ C.setWave(100);
+ var atW100=bs.powerFn();
+ C.setWave(150);
+ var atW150=bs.powerFn();
+ ok('bastion_strike power is exactly double its wave-100+ baseline through wave 20, and back to baseline by wave 100',
+  Math.abs(atW1/atW100-2)<1e-9 && Math.abs(atW20/atW100-2)<1e-9 && atW100===atW150,
+  'w1='+atW1+' w20='+atW20+' w100='+atW100+' w150='+atW150);
+ var mid=(function(){C.setWave(60);return bs.powerFn();})();
+ ok('bastion_strike power decays monotonically and smoothly across wave 20-100, no cliff',
+  mid<atW20 && mid>atW100);
+ C.setWave(1);
+
+ ok('an already-maxed-pierce action (bastion_strike) no longer offers Piercing as a Lore bonus (it would be a no-op or a regression)',
+  C.bonusApplies(bs,'piercing')===false && C.bonusApplies(ae,'piercing')===false);
+ ok('an action with real room to grow (defPierce well under the bonus\'s own 0.85 cap) still offers Piercing, unaffected by the fix',
+  C.bonusApplies({power:1,camp:'atk',tk:'foe',defPierce:0.25},'piercing')===true);
+
+ function trueDmg(def){
+  var src=C.makeUnit({id:'s3',name:'S3',isParty:true,level:1,slotIndex:0,
+   stats:{atk:8,mag:7,def:45,res:8,spd:20},chargeAction:'bastion_strike',charge:100,
+   slots:[{cond:'none',action:'strike'}]});
+  var tgt=C.makeUnit({id:'t3',name:'T3',isParty:false,level:1,slotIndex:10,
+   stats:{atk:10,mag:10,def:def,res:def,spd:18},maxHp:100000,hp:100000,
+   slots:[{cond:'none',action:'strike'}]});
+  var b=C.makeBattle([src,tgt],{rng:C.makeRNG(7),deterministic:true});
+  return C.step(b).hits[0].damage;}
+ var dmgLo=trueDmg(5), dmgHi=trueDmg(500);
+ ok('bastion_strike deals identical TRUE damage regardless of the target\'s DEF (5 vs 500) -- mitigation never applies',
+  dmgLo===dmgHi, 'lowDef='+dmgLo+' highDef='+dmgHi);
+})();
+
 /* =================== 13. NO DUPLICATE ACTION NAMES =========================
  * Caught live, not by code review: the new spd_flurry charge action was
  * originally also named "Flurry", colliding with the pre-existing basic

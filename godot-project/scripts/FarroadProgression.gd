@@ -121,6 +121,12 @@ const TUTORIAL_ATK_MAG_MUL := 0.5
 # difficulty eases back in gradually across the wave 20-100 stretch
 # instead of snapping back all at once.
 const TUTORIAL_RAMP_END_WAVE := 100
+# See build_party_unit's own comment -- a free hpCarry top-up (same
+# capped-additive shape recovery_of/AETHER Recovery already uses) granted
+# automatically for every wave<=20 fight, so 4 straight unhealed tutorial
+# fights (a checkpoint-forced replay of 16->17->18->19 before reaching the
+# wave-20 boss again) don't compound into arriving nearly dead.
+const TUTORIAL_FREE_RECOVERY := 0.5
 
 static func tutorial_atk_mag_mul(w: int) -> float:
 	if w <= 20:
@@ -1185,7 +1191,19 @@ static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dic
 	var mh: float = st["hp"]
 	var carry = g["hpCarry"].get(uid)
 	if carry != null:
-		carry = minf(1.0, carry + recovery_of(g, uid))
+		# Ian: waves 1-20 still wiping way too often even with the tutorial's
+		# other easing already in place -- confirmed via direct simulation
+		# that the checkpoint boundary (every 5 waves) forces 4 straight
+		# unhealed fights (16->17->18->19->20) before reaching the boss, and
+		# a fresh tutorial character has zero AETHER Recovery investment to
+		# offset that, so hpCarry alone left them arriving at the boss with
+		# 0-15% HP nearly every single attempt -- not a boss-difficulty
+		# problem, an attrition problem. A free, tutorial-only top-up
+		# (same capped-add-to-carry shape recovery_of already uses for the
+		# real AETHER investment) directly targets that, without touching
+		# any single fight's own difficulty.
+		var tutorial_bonus: float = TUTORIAL_FREE_RECOVERY if g.get("wave", 1) <= 20 else 0.0
+		carry = minf(1.0, carry + recovery_of(g, uid) + tutorial_bonus)
 	var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
 	# Charge persists between Road waves too, same shape as hpCarry above --
 	# carries forward as-is (no recovery-style decay/regen), 0 if this unit
@@ -1278,6 +1296,11 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	var boss: bool = is_boss_wave(w) or super_boss_key != ""
 	var variety: bool = (not boss) and w > VARIETY_FROM
 	var n: int = 1 if boss else (roll_count(g["rng"], w) if variety else enemy_count(w))
+	# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
+	# 2nd party member joins -- computed here (not per-j below) since it's
+	# needed for count_mul immediately below too, not just hp_base/dmg_mul
+	# further down.
+	var is_first_boss: bool = boss and w == BOSS_WAVES[0]
 	# Ian: "make waves with fewer enemies stronger." count_strength(n) was
 	# already exactly this compensation curve (n=1 -> x1.85 per enemy down
 	# to n=10 -> x0.29), but only ever applied once enemy count starts
@@ -1290,7 +1313,15 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	# range was already hand-tuned down (TUTORIAL_ATK_MAG_MUL, the wave
 	# 1-20 death-loop fix) specifically to be beatable solo, and blanket-
 	# applying count_strength(1)=1.85 there would undo that work overnight.
-	var count_mul: float = count_strength(n) if w >= UNIT_WAVES[0] else 1.0
+	# A real bug found via direct simulation, not just an undertuned
+	# constant: this w>=UNIT_WAVES[0] gate turns on exactly AT wave 20 --
+	# the first boss's own wave, ALSO still fought solo (the 2nd party
+	# member only joins AFTER clearing it) -- so a boss that's always
+	# n=1 got count_strength(1)=1.85, a "fewer enemies than a full party"
+	# compensation the solo player has no party to be "fewer than" yet.
+	# Every boss AFTER this one (wave 40+, a real 1-vs-full-party fight)
+	# correctly keeps the compensation -- only the first boss is exempt.
+	var count_mul: float = count_strength(n) if (w >= UNIT_WAVES[0] and not is_first_boss) else 1.0
 	var v_mul: float = (count_mul * band_roll(g["rng"])) if variety else count_mul
 	FarroadCore.set_wave(w)
 	var s: float = FarroadCore.wave_scale(w)
@@ -1324,11 +1355,9 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		# deliberately NOT mirrored to src/farroad-save.js/parity-reference.js.
 		if g.has("seenArch"):
 			g["seenArch"][key] = true
-		# The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before
-		# the 2nd party member joins -- it alone uses the eased
-		# FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA; every later boss keeps the
-		# full BOSS_LEN/BOSS_HARD_EXTRA unchanged.
-		var is_first_boss: bool = boss and w == BOSS_WAVES[0]
+		# is_first_boss computed above (before count_mul) -- it alone uses the
+		# eased FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL below;
+		# every later boss keeps the full BOSS_LEN/BOSS_HARD_EXTRA unchanged.
 		var hp_base: float
 		if boss:
 			var ref: Dictionary = FarroadCore.ARCH["wolf"]
@@ -1337,7 +1366,19 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 				maxf(1, enemy_count(w)) * len_mul
 		else:
 			hp_base = 200.0 * a["hpMul"] * FarroadCore.dmg_taken_mul(a) * s
-		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w))
+		# Ian: waves 1-20 still wiping way too often even after the earlier
+		# tutorial ATK/MAG halving -- tutorial_atk_mag_mul(w) was ALREADY the
+		# right shape (flat 0.5x through wave 20, ramping back to 1.0x by
+		# wave 100), it just never touched HP, only atk/mag below. A
+		# high-hpMul archetype (Stone Ox, wave 14-16, hpMul 1.60 -- the
+		# tutorial's biggest single spike, confirmed via direct simulation:
+		# every build tested wiped 200+ times specifically at this wave)
+		# dragged fights on long enough to trigger runaway enrage on top of
+		# its own inflated HP. Reused here (same function, same ramp) for
+		# every tutorial enemy uniformly -- boss and non-boss alike, matching
+		# how dmg_mul below already applies to atk/mag on both regardless of
+		# boss status, not a new one-off HP-only constant.
+		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w)) * tutorial_atk_mag_mul(w)
 		var hard_atk_mul: float = hard_mul(w) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
 		var atk_mul: float = (1.10 if boss else 1.0) * DIFFICULTY * v_mul * hard_atk_mul
 		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * tutorial_atk_mag_mul(w)
@@ -1496,7 +1537,20 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 	var enemies := build_enemies(g, w)
 	g["units"] = party
 	g["enemies"] = enemies
-	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+	# Ian: waves 1-20 wiping too often -- enrage (ENRAGE_AFTER=20 beats, now
+	# compounding EVERY beat, not just an enemy's own turn, since the earlier
+	# "enrage every turn" change) was found to be a major hidden driver: a
+	# solo tutorial character's fights are inherently slower than a full
+	# party's (no one to split turns/damage with), so a merely-average-length
+	# solo fight routinely runs past 20 beats and starts stacking -- directly
+	# confirmed via simulation (Stone Ox's own attack nearly doubled, 21->42,
+	# over one fight). Enrage exists to punish deliberate late-game
+	# stalling, not to punish a tutorial character for being early-game
+	# weak, so it's off entirely for the Road's own solo tutorial stretch --
+	# same w<=20 boundary every other tutorial exception in this project
+	# already uses (tutorial_atk_mag_mul, TUTORIAL_CHECKPOINT_EVERY).
+	var enrage_on: bool = g.get("enrage", true) and w > 20
+	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": enrage_on})
 	g["over"] = null
 	return events
 
@@ -2339,8 +2393,10 @@ const MC_POINTS_TOTAL := 45
 ## creation; the 18-entry MC_CHARGE_DROP_POOL above is deliberately
 ## withheld (a rare post-wave-20 drop instead). 20-item batch, Group D:
 ## added wearingdown (debuff) and ironresolve (buff), both scaling off
-## avgAtkMag -- a 5-entry pool now, was 3.
-const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal", "wearingdown", "ironresolve"]
+## avgAtkMag. Tank-build fix: added bastion_strike (DEF) and aegis_strike
+## (RES), both true-damage and tutorial-front-loaded (FarroadCore.gd's
+## tutorial_tank_charge_mul) -- a 7-entry pool now, was 5.
+const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal", "wearingdown", "ironresolve", "bastion_strike", "aegis_strike"]
 
 ## Mirrors P.mcLerp (farroad-progression.js:981-983).
 static func mc_lerp(range: Array, point: float) -> float:

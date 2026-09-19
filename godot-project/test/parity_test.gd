@@ -261,6 +261,17 @@ func _run_bonuses_suite() -> void:
 
 	print(JSON.stringify(out))
 
+func _true_damage_against(def: float):
+	var src := FarroadCore.make_unit({"id": "s2", "name": "S2", "isParty": true, "level": 1, "slotIndex": 0,
+		"stats": {"atk": 8, "mag": 7, "def": 45, "res": 8, "spd": 20}, "chargeAction": "bastion_strike", "charge": 100.0,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var tgt := FarroadCore.make_unit({"id": "t2", "name": "T2", "isParty": false, "level": 1, "slotIndex": 10,
+		"stats": {"atk": 10, "mag": 10, "def": def, "res": def, "spd": 18}, "maxHp": 100000.0, "hp": 100000.0,
+		"slots": [{"cond": "none", "action": "strike"}]})
+	var b := FarroadCore.make_battle([src, tgt], {"rng": FarroadCore.make_rng(7), "deterministic": true})
+	var ev = FarroadCore.step(b)
+	return ev["hits"][0]["damage"]
+
 func _dmg_against_high_res(pierced: bool):
 	FarroadCore.apply_bonuses({"ember": {"piercing": 2}} if pierced else {})
 	var src := FarroadCore.make_unit({"id": "s", "name": "Src", "isParty": true, "level": 1, "slotIndex": 0,
@@ -794,6 +805,70 @@ func _run_progression_suite() -> void:
 	mc_out["buildStatsMax"] = FarroadProgression.mc_build_stats(all_max)
 	mc_out["buildStatsMixed"] = FarroadProgression.mc_build_stats(mixed)
 	out["mc"] = mc_out
+
+	# Tank-build fix: bastion_strike/aegis_strike, mirrors parity-reference.js's
+	# own 'tankCharges' check exactly. Lives here (not 'bonuses') because this
+	# suite reliably loads the real CSV content on both sides -- 'bonuses'
+	# mode's own fixture (_register_test_actions) wholesale-replaces
+	# FarroadCore.ACTIONS rather than merging into it, so bastion_strike/
+	# aegis_strike wouldn't exist there at all on the Godot side.
+	var bastion = FarroadCore.ACTIONS["bastion_strike"]
+	var aegis = FarroadCore.ACTIONS["aegis_strike"]
+	out["tankCharges"] = {
+		"bastionStrike": {"defPierce": bastion["defPierce"], "scaleStat": bastion["scaleStat"], "isCharge": bastion["isCharge"]},
+		"aegisStrike": {"defPierce": aegis["defPierce"], "scaleStat": aegis["scaleStat"], "isCharge": aegis["isCharge"]},
+		"powerAtWave": {}}
+	for w in [1, 20, 60, 100, 150]:
+		FarroadCore.set_wave(w)
+		out["tankCharges"]["powerAtWave"][str(w)] = {
+			"bastion": FarroadCore.eval_power_fn(bastion, {}, null),
+			"aegis": FarroadCore.eval_power_fn(aegis, {}, null)}
+	FarroadCore.set_wave(1)
+	out["tankCharges"]["piercingExcludedAtCap"] = {
+		"bastionStrike": FarroadCore.bonus_applies(bastion, "piercing"),
+		"aegisStrike": FarroadCore.bonus_applies(aegis, "piercing"),
+		"roomToGrow": FarroadCore.bonus_applies({"power": 1.0, "camp": "atk", "tk": "foe", "defPierce": 0.25}, "piercing"),
+		"exactlyAtCap": FarroadCore.bonus_applies({"power": 1.0, "camp": "atk", "tk": "foe", "defPierce": 0.85}, "piercing")}
+	out["tankCharges"]["trueDamageProof"] = {
+		"lowDef": _true_damage_against(5.0), "highDef": _true_damage_against(500.0)}
+
+	# Ian: waves 1-20 wiping way too often -- 4 real, distinct bugs found via
+	# direct simulation and fixed together, mirrors parity-reference.js's own
+	# 'tutorialEasing' check exactly.
+	out["tutorialEasing"] = {}
+	var g_en1 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g_en1, 15)
+	var g_en2 := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g_en2, 21)
+	out["tutorialEasing"]["enrageOffInTutorial"] = {"atWave15": g_en1["battle"]["enrage"], "atWave21": g_en2["battle"]["enrage"]}
+
+	var g_hp1 := FarroadProgression.new_game(7, null)
+	var e14 = FarroadProgression.build_enemies(g_hp1, 14)
+	var g_hp2 := FarroadProgression.new_game(7, null)
+	var e101 = FarroadProgression.build_enemies(g_hp2, 101)
+	out["tutorialEasing"]["hpTutorialScaling"] = {
+		"wave14HpPerScale": e14[0]["maxHp"] / FarroadCore.wave_scale(14),
+		"wave101HpPerScale": e101[0]["maxHp"] / FarroadCore.wave_scale(101),
+		"wave14Arch": e14[0]["arch"], "wave101Arch": e101[0]["arch"]}
+
+	var g_b1 := FarroadProgression.new_game(7, null)
+	var first_boss = FarroadProgression.build_enemies(g_b1, 20)
+	var g_b2 := FarroadProgression.new_game(7, null)
+	var later_boss = FarroadProgression.build_enemies(g_b2, 40)
+	out["tutorialEasing"]["firstBossNoCountCompensation"] = {
+		"firstBossHp": first_boss[0]["maxHp"], "firstBossAtk": first_boss[0]["base"]["atk"],
+		"laterBossHpPerScale": later_boss[0]["maxHp"] / FarroadCore.wave_scale(40)}
+
+	var g_rec1 := FarroadProgression.new_game(7, null)
+	g_rec1["hpCarry"]["kesh"] = 0.10
+	FarroadProgression.start_wave(g_rec1, 15, true)
+	var g_rec2 := FarroadProgression.new_game(7, null)
+	g_rec2["hpCarry"]["kesh"] = 0.10
+	FarroadProgression.start_wave(g_rec2, 21, true)
+	out["tutorialEasing"]["freeTutorialRecovery"] = {
+		"hpFracAtWave15": float(g_rec1["units"][0]["hp"]) / float(g_rec1["units"][0]["maxHp"]),
+		"hpFracAtWave21": float(g_rec2["units"][0]["hp"]) / float(g_rec2["units"][0]["maxHp"]),
+		"constant": FarroadProgression.TUTORIAL_FREE_RECOVERY}
 
 	print(JSON.stringify(out))
 

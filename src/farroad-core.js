@@ -304,6 +304,20 @@ function costOfCharge(a){return (a&&a.chargeCost)||CHARGE_FULL;}
 var ACTIONS={};
 Object.keys(window.FarroadContent.ACTIONS).forEach(function(id){
  ACTIONS[id]=A(window.FarroadContent.ACTIONS[id]);});
+/* Ian: full tank builds (near-zero ATK/MAG) couldn't clear the tutorial --
+   bastionStrike/aegisStrike give a DEF-/RES-scaled attack that hits TRUE
+   (defPierce=1.0, set on the CSV row itself) so a tank's own investment
+   converts straight to damage. The extra bite is front-loaded: strong
+   through wave 20, ramping back down to a normal baseline by wave 100 --
+   same 2 breakpoints as tutorialAtkMagMul, just the mirror shape (a bonus
+   that decays, not a penalty that fades). */
+var TUTORIAL_TANK_CHARGE_MUL=2.0, TUTORIAL_TANK_RAMP_END_WAVE=100;
+var BASTION_STRIKE_BASE=2.20, AEGIS_STRIKE_BASE=2.00;
+function tutorialTankChargeMul(w){
+ if(w<=20)return TUTORIAL_TANK_CHARGE_MUL;
+ if(w>=TUTORIAL_TANK_RAMP_END_WAVE)return 1.0;
+ var t=(w-20)/(TUTORIAL_TANK_RAMP_END_WAVE-20);
+ return TUTORIAL_TANK_CHARGE_MUL-(TUTORIAL_TANK_CHARGE_MUL-1.0)*t;}
 var ACTION_DYNAMIC={
  execute:{critFn:function(s,t){return (t&&t.hp/t.maxHp<=.30)?0.65:-1;}},
  vengeance:{powerFn:function(s){return 0.55+1.55*(1-s.hp/s.maxHp);}},
@@ -312,6 +326,8 @@ var ACTION_DYNAMIC={
     RARITY_POWER_MUL.legendary, same as the CSV power field on this row
     (which this powerFn overrides for actual damage — see the note there). */
  reckoning:{powerFn:function(s,t){return t?(3.1+6.975*(1-t.hp/t.maxHp)):3.1;}},
+ bastion_strike:{powerFn:function(){return BASTION_STRIKE_BASE*tutorialTankChargeMul(CURRENT_WAVE);}},
+ aegis_strike:{powerFn:function(){return AEGIS_STRIKE_BASE*tutorialTankChargeMul(CURRENT_WAVE);}},
  ninefold:{randomPerHit:true}};
 Object.keys(ACTION_DYNAMIC).forEach(function(id){
  if(ACTIONS[id])for(var k in ACTION_DYNAMIC[id])ACTIONS[id][k]=ACTION_DYNAMIC[id][k];});
@@ -466,7 +482,10 @@ function bonusApplies(a,bid){
      actually restricting Piercing to physical actions was this one
      check, not the underlying mechanic; a magic action buying Piercing
      genuinely pierces RES, not a no-op. */
-  case 'piercing':  return !!(a.power&&!a.heal);
+  /* excludes an action already at or past the bonus's own 0.85 cap
+     (applyBonuses below) -- otherwise "buying" Piercing on one would be
+     either a no-op or, worse, a regression back down to 0.85. */
+  case 'piercing':  return !!(a.power&&!a.heal)&&(a.defPierce||0)<0.85;
   case 'broad':     return a.tk==='foe'||a.tk==='ally';
   case 'cleansing': return !!a.heal;
   case 'thrifty':   return !!a.isCharge;

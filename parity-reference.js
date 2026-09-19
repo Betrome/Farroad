@@ -490,7 +490,10 @@ if (mode === 'progression') {
       applyEquipmentStats(g, uid, st);
       var mh = st.hp;
       var carry = g.hpCarry[uid];
-      if (carry != null) carry = Math.min(1, carry + recoveryOf(g, uid));
+      if (carry != null) {
+        var tutorialBonus = (g.wave || 1) <= 20 ? P.TUTORIAL_FREE_RECOVERY : 0;
+        carry = Math.min(1, carry + recoveryOf(g, uid) + tutorialBonus);
+      }
       var hp = (carry == null) ? mh : Math.max(1, Math.round(mh * carry));
       out.push(C.makeUnit({
         id: uid, name: def.name, isParty: true, level: 1, slotIndex: i, stats: st,
@@ -506,11 +509,15 @@ if (mode === 'progression') {
     var boss = P.isBossWave(w) || !!superBossKey;
     var variety = (!boss && w > P.VARIETY_FROM);
     var n = boss ? 1 : (variety ? P.rollCount(g.rng, w) : P.enemyCount(w));
-    var countMul = w >= P.UNIT_WAVES[0] ? P.countStrength(n) : 1;
+    var isFirstBoss = boss && w === P.BOSS_WAVES[0];
+    // real bug fix mirrored from farroad-ui.js's own buildEnemies: the first
+    // boss (still fought solo) must NOT get countStrength(1)'s "fewer
+    // enemies than a full party" compensation -- only later bosses (a real
+    // 1-vs-full-party fight) should.
+    var countMul = (w >= P.UNIT_WAVES[0] && !isFirstBoss) ? P.countStrength(n) : 1;
     var vMul = variety ? (countMul * P.bandRoll(g.rng)) : countMul;
     C.setWave(w);
     var S = C.waveScale(w), out = [];
-    var isFirstBoss = boss && w === P.BOSS_WAVES[0];
     var priestUsed = false;   // 1 healer max per wave -- mirrors buildEnemies (farroad-ui.js)
     for (var j = 0; j < n; j++) {
       var key = boss ? 'ox' : P.archetypeFor(w, j);
@@ -525,7 +532,7 @@ if (mode === 'progression') {
         var lenMul = superBossKey ? P.SUPERBOSS_LEN : (isFirstBoss ? P.FIRST_BOSS_LEN : P.BOSS_LEN);
         hpBase = 200 * ref.hpMul * C.dmgTakenMul(ref) * S * Math.max(1, P.enemyCount(w)) * lenMul;
       } else hpBase = 200 * a.hpMul * C.dmgTakenMul(a) * S;
-      hpBase *= P.DIFFICULTY * vMul * Math.sqrt(P.hardMul(w));
+      hpBase *= P.DIFFICULTY * vMul * Math.sqrt(P.hardMul(w)) * P.tutorialAtkMagMul(w);
       var hardAtkMul = P.hardMul(w) * (boss ? (isFirstBoss ? P.FIRST_BOSS_HARD_EXTRA : P.BOSS_HARD_EXTRA) : 1);
       var atkMul = (boss ? 1.10 : 1) * P.DIFFICULTY * vMul * hardAtkMul;
       var dmgMul = (isFirstBoss ? P.FIRST_BOSS_DMG_MUL : 1) * P.tutorialAtkMagMul(w);
@@ -615,7 +622,7 @@ if (mode === 'progression') {
     C.applyBonuses(g.bonuses);
     var party = buildParty(g), enemies = buildEnemies(g, w);
     g.units = party; g.enemies = enemies;
-    g.battle = C.makeBattle(party.concat(enemies), { rng: g.rng, enrage: g.enrage });
+    g.battle = C.makeBattle(party.concat(enemies), { rng: g.rng, enrage: g.enrage && w > 20 });
     g.over = null;
     return events;
   }
@@ -1815,6 +1822,118 @@ if (mode === 'progression') {
   exped7.offlineIdlePendingAfterCollect = { aether: g9.pendingIdleAether || 0, marks: g9.pendingIdleMarks || 0 };
 
   out.expedition = exped7;
+
+  // Tank-build fix: bastion_strike (DEF-scaled) / aegis_strike (RES-scaled),
+  // both true-damage (defPierce=1.0) with a tutorial-front-loaded power
+  // (tutorialTankChargeMul) -- direct ACTIONS-field/powerFn checks across a
+  // few waves, plus the piercing-bonus-exclusion fix that makes an
+  // already-at-cap action correctly stop offering Piercing as a purchase.
+  // Lives in 'progression' (not 'bonuses') because this mode is the one
+  // that reliably loads the real CSV content on BOTH sides -- 'bonuses'
+  // mode's own GDScript fixture (_register_test_actions) wholesale-replaces
+  // FarroadCore.ACTIONS rather than merging into it, so bastion_strike/
+  // aegis_strike wouldn't exist there at all on the Godot side.
+  out.tankCharges = {
+    bastionStrike: { defPierce: C.ACTIONS.bastion_strike.defPierce, scaleStat: C.ACTIONS.bastion_strike.scaleStat, isCharge: C.ACTIONS.bastion_strike.isCharge },
+    aegisStrike: { defPierce: C.ACTIONS.aegis_strike.defPierce, scaleStat: C.ACTIONS.aegis_strike.scaleStat, isCharge: C.ACTIONS.aegis_strike.isCharge },
+    powerAtWave: {}
+  };
+  [1, 20, 60, 100, 150].forEach(w => {
+    C.setWave(w);
+    out.tankCharges.powerAtWave[w] = { bastion: C.ACTIONS.bastion_strike.powerFn(), aegis: C.ACTIONS.aegis_strike.powerFn() };
+  });
+  C.setWave(1);
+  out.tankCharges.piercingExcludedAtCap = {
+    bastionStrike: C.bonusApplies(C.ACTIONS.bastion_strike, 'piercing'),
+    aegisStrike: C.bonusApplies(C.ACTIONS.aegis_strike, 'piercing'),
+    // regression check: an action with room to grow (defPierce well under
+    // the bonus's own 0.85 cap) must still offer Piercing as before.
+    roomToGrow: C.bonusApplies({ power: 1.0, camp: 'atk', tk: 'foe', defPierce: 0.25 }, 'piercing'),
+    exactlyAtCap: C.bonusApplies({ power: 1.0, camp: 'atk', tk: 'foe', defPierce: 0.85 }, 'piercing')
+  };
+  // True-damage proof: identical raw damage against a low-DEF and a
+  // very-high-DEF target -- proves defPierce=1.0 genuinely bypasses
+  // mitigation rather than just being a large-but-still-mitigated number.
+  (function () {
+    function trueDamageAgainst(def) {
+      const src = C.makeUnit({ id: 's2', name: 'S2', isParty: true, level: 1, slotIndex: 0,
+        stats: { atk: 8, mag: 7, def: 45, res: 8, spd: 20 }, chargeAction: 'bastion_strike', charge: 100,
+        slots: [{ cond: 'none', action: 'strike' }] });
+      const tgt = C.makeUnit({ id: 't2', name: 'T2', isParty: false, level: 1, slotIndex: 10,
+        stats: { atk: 10, mag: 10, def: def, res: def, spd: 18 }, maxHp: 100000, hp: 100000,
+        slots: [{ cond: 'none', action: 'strike' }] });
+      const b = C.makeBattle([src, tgt], { rng: C.makeRNG(7), deterministic: true });
+      const ev = C.step(b);
+      return ev.hits[0].damage;
+    }
+    out.tankCharges.trueDamageProof = { lowDef: trueDamageAgainst(5), highDef: trueDamageAgainst(500) };
+  })();
+
+  // Ian: waves 1-20 wiping way too often (up to 358 times across several
+  // tested builds) -- 4 real, distinct bugs found via direct simulation and
+  // fixed together. Each gets its own direct check here, not just relying
+  // on the 60-wave playthrough trace staying bit-exact above (which proves
+  // parity, not that the FIX itself does what it's supposed to).
+  out.tutorialEasing = {};
+  (function () {
+    // Fix 1: enrage is off for the Road's own solo tutorial stretch
+    // (w<=20), on again from w=21 -- a solo fight running long naturally
+    // crosses ENRAGE_AFTER(20 beats) and the compounding "every beat, not
+    // just an enemy's own turn" stack was found to nearly double an
+    // enemy's own damage over one fight.
+    var gEn1 = newGame(7, null); startWave(gEn1, 15);
+    var gEn2 = newGame(7, null); startWave(gEn2, 21);
+    out.tutorialEasing.enrageOffInTutorial = { atWave15: gEn1.battle.enrage, atWave21: gEn2.battle.enrage };
+
+    // Fix 2: tutorialAtkMagMul(w) now also scales enemy HP, not just
+    // atk/mag -- compare the SAME archetype (ox, wave 14 vs its own
+    // un-ramped wave-101 self) after backing out waveScale's own growth
+    // between those two waves (S(w) differs, so raw HP numbers aren't
+    // directly comparable -- divide out P.waveScale to isolate the tutorial
+    // multiplier's own effect).
+    var gHp1 = newGame(7, null);
+    var e14 = buildEnemies(gHp1, 14);
+    var gHp2 = newGame(7, null);
+    var e101 = buildEnemies(gHp2, 101);
+    var hpPerScale14 = e14[0].maxHp / C.waveScale(14);
+    var hpPerScale101 = e101[0].maxHp / C.waveScale(101);
+    out.tutorialEasing.hpTutorialScaling = {
+      wave14HpPerScale: hpPerScale14, wave101HpPerScale: hpPerScale101,
+      // both are 'ox' (wave 14's own WAVE_ARCH slot; wave 101 is past the
+      // ROT rotation so this needs the actual archetype key, checked below
+      // rather than assumed) -- the ratio should land close to
+      // TUTORIAL_ATK_MAG_MUL (0.5) if HP is genuinely getting the same cut
+      // atk/mag already did, not exactly 0.5 since dmgTakenMul/hpMul differ
+      // per archetype.
+      wave14Arch: e14[0].arch, wave101Arch: e101[0].arch
+    };
+
+    // Fix 3: the first boss (wave 20, BOSS_WAVES[0], still fought solo)
+    // must NOT get countStrength(1)'s "fewer enemies than a full party"
+    // compensation (1.85x) -- a later boss (wave 40, a real
+    // 1-vs-full-party fight) correctly still does.
+    var gB1 = newGame(7, null);
+    var firstBoss = buildEnemies(gB1, 20);
+    var gB2 = newGame(7, null);
+    var laterBoss = buildEnemies(gB2, 40);
+    out.tutorialEasing.firstBossNoCountCompensation = {
+      firstBossHp: firstBoss[0].maxHp, firstBossAtk: firstBoss[0].base.atk,
+      laterBossHpPerScale: laterBoss[0].maxHp / C.waveScale(40)
+    };
+
+    // Fix 4: a free tutorial-only hpCarry top-up (TUTORIAL_FREE_RECOVERY)
+    // so 4 straight unhealed tutorial fights don't compound into arriving
+    // at the boss nearly dead -- present for w<=20, absent for w>20.
+    var gRec1 = newGame(7, null);
+    gRec1.hpCarry.kesh = 0.10; startWave(gRec1, 15, true);
+    var gRec2 = newGame(7, null);
+    gRec2.hpCarry.kesh = 0.10; startWave(gRec2, 21, true);
+    out.tutorialEasing.freeTutorialRecovery = {
+      hpFracAtWave15: gRec1.units[0].hp / gRec1.units[0].maxHp,
+      hpFracAtWave21: gRec2.units[0].hp / gRec2.units[0].maxHp,
+      constant: P.TUTORIAL_FREE_RECOVERY
+    };
+  })();
 
   console.log(JSON.stringify(out));
 }

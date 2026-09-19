@@ -830,6 +830,13 @@ P.tutorialAtkMagMul=function(w){
  if(w>=P.TUTORIAL_RAMP_END_WAVE)return 1;
  var t=(w-20)/(P.TUTORIAL_RAMP_END_WAVE-20);
  return P.TUTORIAL_ATK_MAG_MUL+(1-P.TUTORIAL_ATK_MAG_MUL)*t;};
+/* See buildParty's own comment (farroad-ui.js) -- a free hpCarry top-up
+   (same capped-additive shape recoveryOf/AETHER Recovery already uses)
+   granted automatically for every wave<=20 fight, so 4 straight unhealed
+   tutorial fights (a checkpoint-forced replay of 16->17->18->19 before
+   reaching the wave-20 boss again) don't compound into arriving nearly
+   dead. */
+P.TUTORIAL_FREE_RECOVERY=0.5;
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));
@@ -993,8 +1000,11 @@ P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2;
  * MC_CHARGE_DROP_CHANCE) and gated to the random-drop phase only (post
  * wave-20) so the curated tutorial sequence is never disturbed by one. */
 /* 20-item batch, Group D: added wearingdown (debuff) and ironresolve
-   (buff), both scaling off avgAtkMag -- a 5-entry pool now, was 3. */
-P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal','wearingdown','ironresolve'];
+   (buff), both scaling off avgAtkMag. Tank-build fix: added
+   bastion_strike (DEF) and aegis_strike (RES), both true-damage and
+   tutorial-front-loaded (tutorialTankChargeMul in farroad-core.js) --
+   a 7-entry pool now, was 5. */
+P.MC_STARTER_CHARGES=['heavystrike','wildfire','greatheal','wearingdown','ironresolve','bastion_strike','aegis_strike'];
 /* v2.9: +10 stat-scaling charge actions (one damage + one support per core
    stat — see the CHARGE_ACTIONS comment in core.js), same rare-drop pool as
    the original 8 corner charges, not the 3 generic starters. */

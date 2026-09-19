@@ -374,7 +374,20 @@ function buildParty(){
   /* Between-wave rest. Does NOT fix the multi-enemy wall (25/50/100% measured
      identical there) but it stops waves 1-7 compounding before Mend arrives. */
   var carry=G.hpCarry[uid];
-  if(carry!=null)carry=Math.min(1,carry+recoveryOf(uid));
+  if(carry!=null){
+   /* Ian: waves 1-20 still wiping way too often even with the tutorial's
+      other easing already in place -- confirmed via direct simulation that
+      the checkpoint boundary (every 5 waves) forces 4 straight unhealed
+      fights (16->17->18->19->20) before reaching the boss, and a fresh
+      tutorial character has zero AETHER Recovery investment to offset
+      that, so hpCarry alone left them arriving at the boss with 0-15% HP
+      nearly every single attempt -- not a boss-difficulty problem, an
+      attrition problem. A free, tutorial-only top-up (same capped-add-to-
+      carry shape recoveryOf already uses for the real AETHER investment)
+      directly targets that, without touching any single fight's own
+      difficulty. */
+   var tutorialBonus=(G.wave||1)<=20?P.TUTORIAL_FREE_RECOVERY:0;
+   carry=Math.min(1,carry+recoveryOf(uid)+tutorialBonus);}
   var hp=(carry==null)?mh:Math.max(1,Math.round(mh*carry));
   /* Charge persists between Road waves too, same shape as hpCarry above --
      carries forward as-is (no recovery-style decay/regen), 0 if this unit
@@ -403,6 +416,10 @@ function buildEnemies(w,quiet,superBossKey){
  /* post-wave-40: roll the count, then scale each body inversely to it */
  var variety=(!boss&&w>P.VARIETY_FROM);
  var n=boss?1:(variety?P.rollCount(G.rng,w):P.enemyCount(w));
+ /* The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
+    2nd party member joins -- computed here (not further down) since it's
+    needed for countMul immediately below too, not just hpBase/dmgMul. */
+ var isFirstBoss=boss&&w===P.BOSS_WAVES[0];
  /* Ian: "make waves with fewer enemies stronger." countStrength(n) was
     already exactly this compensation curve, but only ever applied once
     enemy count starts being RANDOMLY rolled (w>VARIETY_FROM). Extended to
@@ -410,8 +427,16 @@ function buildEnemies(w,quiet,superBossKey){
     varies smoothly with party size even before the roll kicks in.
     Deliberately NOT extended back into waves 1-19 (the single-character
     tutorial stretch, always exactly 1 enemy) -- that range was already
-    hand-tuned down specifically to be beatable solo. */
- var countMul=w>=P.UNIT_WAVES[0]?P.countStrength(n):1;
+    hand-tuned down specifically to be beatable solo. A real bug found via
+    direct simulation, not just an undertuned constant: this w>=UNIT_WAVES[0]
+    gate turns on exactly AT wave 20 -- the first boss's own wave, ALSO
+    still fought solo (the 2nd party member only joins AFTER clearing it) --
+    so a boss that's always n=1 got countStrength(1)=1.85, a "fewer enemies
+    than a full party" compensation the solo player has no party to be
+    "fewer than" yet. Every boss AFTER this one (wave 40+, a real
+    1-vs-full-party fight) correctly keeps the compensation -- only the
+    first boss is exempt. */
+ var countMul=(w>=P.UNIT_WAVES[0]&&!isFirstBoss)?P.countStrength(n):1;
  var vMul=variety?(countMul*P.bandRoll(G.rng)):countMul;
  if(variety&&!quiet)sysLog('<span class="dw">WAVE '+w+'</span> '+n+
   (n===1?' foe — <b style="color:var(--boss)">ELITE</b>':' foes')+
@@ -436,11 +461,10 @@ function buildEnemies(w,quiet,superBossKey){
    else priestUsed=true;}
   var a=C.ARCH[key];
   var hpBase;
-  /* The very first boss (wave 20, BOSS_WAVES[0]) is fought solo, before the
-     2nd party member joins -- it alone uses the eased FIRST_BOSS_LEN/
-     FIRST_BOSS_HARD_EXTRA (see their own comments in progression.js);
-     every later boss keeps the full BOSS_LEN/BOSS_HARD_EXTRA unchanged. */
-  var isFirstBoss=boss&&w===P.BOSS_WAVES[0];
+  /* isFirstBoss computed above (before countMul) -- it alone uses the eased
+     FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL (see their own
+     comments in progression.js); every later boss keeps the full
+     BOSS_LEN/BOSS_HARD_EXTRA unchanged. */
   if(boss){
    /* Size the boss against a NORMAL WAVE at this depth, not against one body.
       The first attempt multiplied the Stone Ox's own 1.60 hpMul by 2.66 and
@@ -459,7 +483,18 @@ function buildEnemies(w,quiet,superBossKey){
      bigger damage number, not a bigger sponge. Bosses get an additional flat
      multiplier on ATK/MAG (BOSS_HARD_EXTRA) so they scale past regular
      enemies, not just alongside them — see P.hardMul/P.BOSS_HARD_EXTRA. */
-  hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w));
+  /* Ian: waves 1-20 still wiping way too often even after the earlier
+     tutorial ATK/MAG halving -- tutorialAtkMagMul(w) was ALREADY the right
+     shape (flat 0.5x through wave 20, ramping back to 1.0x by wave 100), it
+     just never touched HP, only atk/mag below. A high-hpMul archetype
+     (Stone Ox, wave 14-16, hpMul 1.60 -- the tutorial's biggest single
+     spike, confirmed via direct simulation: every build tested wiped 200+
+     times specifically at this wave) dragged fights on long enough to
+     trigger runaway enrage on top of its own inflated HP. Reused here (same
+     function, same ramp) for every tutorial enemy uniformly -- boss and
+     non-boss alike, matching how dmgMul below already applies to atk/mag on
+     both regardless of boss status, not a new one-off HP-only constant. */
+  hpBase*=P.DIFFICULTY*vMul*Math.sqrt(P.hardMul(w))*P.tutorialAtkMagMul(w);
   var hardAtkMul=P.hardMul(w)*(boss?(isFirstBoss?P.FIRST_BOSS_HARD_EXTRA:P.BOSS_HARD_EXTRA):1);
   var atkMul=(boss?1.10:1)*P.DIFFICULTY*vMul*hardAtkMul;
   var dmgMul=(isFirstBoss?P.FIRST_BOSS_DMG_MUL:1)*P.tutorialAtkMagMul(w);
@@ -865,7 +900,19 @@ function startWave(w,skipDrops){
  C.applyBonuses(G.bonuses);
  var party=buildParty(), enemies=buildEnemies(w);
  G.units=party; G.enemies=enemies;
- G.battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+ /* Ian: waves 1-20 wiping too often -- enrage (ENRAGE_AFTER=20 beats, now
+    compounding EVERY beat, not just an enemy's own turn, since the earlier
+    "enrage every turn" change) was found to be a major hidden driver: a
+    solo tutorial character's fights are inherently slower than a full
+    party's (no one to split turns/damage with), so a merely-average-length
+    solo fight routinely runs past 20 beats and starts stacking -- directly
+    confirmed via simulation (Stone Ox's own attack nearly doubled, 21->42,
+    over one fight). Enrage exists to punish deliberate late-game stalling,
+    not to punish a tutorial character for being early-game weak, so it's
+    off entirely for the Road's own solo tutorial stretch -- same w<=20
+    boundary every other tutorial exception in this project already uses
+    (tutorialAtkMagMul, TUTORIAL_CHECKPOINT_EVERY). */
+ G.battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage&&w>20});
  G.over=null;
  if(P.isBossWave(w))sysLog('<span class="bosstag">BOSS</span> <b>Wave '+w+' — the Roadwarden.</b>'+
   '<div class="tiny">Clearing it banks a checkpoint and hands you a new character.</div>');}
@@ -1858,7 +1905,13 @@ function renderUnits(){
    (u.isParty?'<div class="tiny mono" style="color:var(--hp)">RECOVERY '+
      Math.round(recoveryOf(u.id)*100)+'%<span style="color:var(--dimmer)"> — HP regained between waves'+
      (recoveryMaxed(u.id)?' · at cap':'')+'</span></div>':'')+
-   ((!u.isParty&&G.enrage)?(function(){
+   /* Reads G.battle.enrage (the resolved per-fight flag, off for the Road's
+      solo tutorial stretch -- see startWave), not G.enrage (the game-level
+      setting, always true) -- otherwise this line would claim an enrage
+      countdown is running during a tutorial fight where it genuinely isn't
+      (G.battle.enrageN stays 0 forever there, step() gates its own
+      increment on the same per-fight flag). */
+   ((!u.isParty&&G.battle&&G.battle.enrage)?(function(){
      /* Stacks are now battle-wide (G.battle.enrageN, rising once per turn
         regardless of who acts — see the ENRAGE comment in core.js's step()),
         not this unit's own turn count, so every enemy shows the SAME stack
