@@ -618,12 +618,21 @@ P.QUEST_LINES=window.FarroadContent.QUEST_LINES;
  * resolves the slot question by itself: a solo player pours everything into one
  * unit and reaches the slot-3 level early, precisely because they cannot delegate.
  */
+/* Ian: "universally reduce HP growths by 30% and speed growths by 50% to
+   make fights faster and bring speed more in line with other stats."
+   Follow-up: "rather than have a multiplier, let's reduce the growths
+   directly. I don't want to make the math more complicated than needed."
+   Every hp/spd value below is the original design value x0.7 (hp) or
+   x0.5 (spd), computed once and written in directly -- no runtime
+   multiplier. MC_GROWTH_RANGE's own hp/spd bounds below got the same
+   reduction, computed the same way (that range was originally calibrated
+   to match this table's own min/max spread). */
 P.GROWTH={
- kesh  :{hp:34,atk:2.1,mag:1.0,def:1.4,res:1.0,spd:2.2},  /* balanced attacker  */
- ansa  :{hp:22,atk:0.8,mag:2.3,def:0.9,res:1.7,spd:2.0},  /* caster / support   */
- dorrek:{hp:48,atk:1.6,mag:0.5,def:2.4,res:1.4,spd:1.4},  /* wall               */
- vey   :{hp:21,atk:2.0,mag:0.7,def:0.9,res:0.8,spd:3.2},  /* fast, fragile      */
- mirel :{hp:18,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:1.9},  /* glass caster       */
+ kesh  :{hp:23.8,atk:2.1,mag:1.0,def:1.4,res:1.0,spd:1.1},    /* balanced attacker  */
+ ansa  :{hp:15.4,atk:0.8,mag:2.3,def:0.9,res:1.7,spd:1.0},    /* caster / support   */
+ dorrek:{hp:33.6,atk:1.6,mag:0.5,def:2.4,res:1.4,spd:0.7},    /* wall               */
+ vey   :{hp:14.7,atk:2.0,mag:0.7,def:0.9,res:0.8,spd:1.6},    /* fast, fragile      */
+ mirel :{hp:12.6,atk:0.6,mag:2.7,def:0.8,res:1.5,spd:0.95},   /* glass caster       */
  /* Roster expansion 5->10 (prereq for roadmap item 4 — see the ROSTER
     EXPANSION comment in core.js). Originally: every unit's atk+mag+def+
     res+spd growth summed to 7.5, matching the original five's 7.3-7.7
@@ -632,12 +641,14 @@ P.GROWTH={
     the original x RARITY_POWER_MUL.rare (1.25, farroad-core.js),
     rounded — 9.4ish combined instead of 7.5, on purpose. See the
     RARITY comment there for why this is a real departure from the old
-    balance rule, not an oversight. */
- skarn :{hp:24,atk:2.1,mag:0.9,def:1.6,res:1.5,spd:3.3},  /* berserker (Rare)         */
- sorin :{hp:38,atk:2.0,mag:2.0,def:1.6,res:1.5,spd:2.3},  /* battle-mage (Rare)       */
- nyra  :{hp:25,atk:1.1,mag:2.1,def:2.0,res:2.0,spd:2.1},  /* warden / debuffer (Rare) */
- brenn :{hp:48,atk:1.4,mag:1.3,def:1.9,res:1.9,spd:3.0},  /* evasion tank (Rare)      */
- sael  :{hp:24,atk:0.8,mag:2.5,def:1.1,res:1.6,spd:3.4}}; /* swift support (Rare)     */
+    balance rule, not an oversight. (hp/spd numbers here are also already
+    run through the x0.7/x0.5 reduction above, on top of the rarity
+    multiplier.) */
+ skarn :{hp:16.8,atk:2.1,mag:0.9,def:1.6,res:1.5,spd:1.65},   /* berserker (Rare)         */
+ sorin :{hp:26.6,atk:2.0,mag:2.0,def:1.6,res:1.5,spd:1.15},   /* battle-mage (Rare)       */
+ nyra  :{hp:17.5,atk:1.1,mag:2.1,def:2.0,res:2.0,spd:1.05},   /* warden / debuffer (Rare) */
+ brenn :{hp:33.6,atk:1.4,mag:1.3,def:1.9,res:1.9,spd:1.5},    /* evasion tank (Rare)      */
+ sael  :{hp:16.8,atk:0.8,mag:2.5,def:1.1,res:1.6,spd:1.7}};   /* swift support (Rare)     */
 /* Verified distinct rather than noise: at L20, spd:def runs 1.46 (Dorrek) to 5.94
    (Vey), and atk:mag runs 0.29 (Mirel) to 2.69 (Dorrek). */
 /* v2.1: cost exponent 2.8, coefficient 0.4 — solved as a fixed point against the
@@ -942,8 +953,13 @@ P.dupUnitAether=function(w){
  * not re-fit ones. */
 P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
  hp:[180,840]};
-P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[1.4,3.2],
- hp:[18,48]};
+/* hp/spd bounds carry the same reduction the roster's own GROWTH table
+   gets above (x0.7 hp, x0.5 spd, written in directly -- see its own
+   comment) -- this range was originally calibrated to match that table's
+   exact min/max spread, so a custom MC's own point-bought growth stays
+   consistent with the rest of the roster. */
+P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[0.7,1.6],
+ hp:[12.6,33.6]};
 /* v2.10: atkCrit/magCrit/block/evade REMOVED from creation entirely — they
    now level like affinities, bought up over time from Aether in the AETHER
    tab (see P.PCT_STAT below) rather than fixed forever at a creation-time

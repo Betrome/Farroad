@@ -482,17 +482,26 @@ const EQUIP_DROP_CHANCE := 0.10
 ## literals are frozen (mutating one is a compile error, caught directly
 ## by trying it), unlike a plain JS object literal -- static var is the
 ## same mutable-content idiom FarroadCore.ROSTER/ARCH/etc. already use.
+## Ian: "universally reduce HP growths by 30% and speed growths by 50% to
+## make fights faster and bring speed more in line with other stats."
+## Follow-up: "rather than have a multiplier, let's reduce the growths
+## directly. I don't want to make the math more complicated than needed."
+## Every hp/spd value below is the original design value x 0.7 (hp) or
+## x0.5 (spd), computed once and written in directly -- no runtime
+## multiplier. MC_GROWTH_RANGE's own hp/spd bounds below got the same
+## reduction, computed the same way (that range was originally calibrated
+## to match this table's own min/max spread).
 static var GROWTH := {
-	"kesh": {"hp": 34, "atk": 2.1, "mag": 1.0, "def": 1.4, "res": 1.0, "spd": 2.2},
-	"ansa": {"hp": 22, "atk": 0.8, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 2.0},
-	"dorrek": {"hp": 48, "atk": 1.6, "mag": 0.5, "def": 2.4, "res": 1.4, "spd": 1.4},
-	"vey": {"hp": 21, "atk": 2.0, "mag": 0.7, "def": 0.9, "res": 0.8, "spd": 3.2},
-	"mirel": {"hp": 18, "atk": 0.6, "mag": 2.7, "def": 0.8, "res": 1.5, "spd": 1.9},
-	"skarn": {"hp": 24, "atk": 2.1, "mag": 0.9, "def": 1.6, "res": 1.5, "spd": 3.3},
-	"sorin": {"hp": 38, "atk": 2.0, "mag": 2.0, "def": 1.6, "res": 1.5, "spd": 2.3},
-	"nyra": {"hp": 25, "atk": 1.1, "mag": 2.1, "def": 2.0, "res": 2.0, "spd": 2.1},
-	"brenn": {"hp": 48, "atk": 1.4, "mag": 1.3, "def": 1.9, "res": 1.9, "spd": 3.0},
-	"sael": {"hp": 24, "atk": 0.8, "mag": 2.5, "def": 1.1, "res": 1.6, "spd": 3.4}}
+	"kesh": {"hp": 23.8, "atk": 2.1, "mag": 1.0, "def": 1.4, "res": 1.0, "spd": 1.1},
+	"ansa": {"hp": 15.4, "atk": 0.8, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 1.0},
+	"dorrek": {"hp": 33.6, "atk": 1.6, "mag": 0.5, "def": 2.4, "res": 1.4, "spd": 0.7},
+	"vey": {"hp": 14.7, "atk": 2.0, "mag": 0.7, "def": 0.9, "res": 0.8, "spd": 1.6},
+	"mirel": {"hp": 12.6, "atk": 0.6, "mag": 2.7, "def": 0.8, "res": 1.5, "spd": 0.95},
+	"skarn": {"hp": 16.8, "atk": 2.1, "mag": 0.9, "def": 1.6, "res": 1.5, "spd": 1.65},
+	"sorin": {"hp": 26.6, "atk": 2.0, "mag": 2.0, "def": 1.6, "res": 1.5, "spd": 1.15},
+	"nyra": {"hp": 17.5, "atk": 1.1, "mag": 2.1, "def": 2.0, "res": 2.0, "spd": 1.05},
+	"brenn": {"hp": 33.6, "atk": 1.4, "mag": 1.3, "def": 1.9, "res": 1.9, "spd": 1.5},
+	"sael": {"hp": 16.8, "atk": 0.8, "mag": 2.5, "def": 1.1, "res": 1.6, "spd": 1.7}}
 
 static func exp_for(l: int) -> int:
 	return int(round(0.8 * pow(l, 2.8)))
@@ -2309,9 +2318,14 @@ static func collect_dungeon_reward(g: Dictionary, dungeon_id: String) -> Diction
 const MC_STAT_RANGE := {
 	"atk": [8.0, 28.0], "mag": [7.0, 30.0], "def": [8.0, 45.0],
 	"res": [8.0, 40.0], "spd": [56.0, 131.0], "hp": [180.0, 840.0]}
+## hp/spd bounds carry the same reduction the roster's own GROWTH table
+## gets above (x0.7 hp, x0.5 spd, written in directly -- see its own
+## comment) -- this range was originally calibrated to match that table's
+## exact min/max spread, so a custom MC's own point-bought growth stays
+## consistent with the rest of the roster.
 const MC_GROWTH_RANGE := {
 	"atk": [0.6, 2.1], "mag": [0.5, 2.7], "def": [0.8, 2.4],
-	"res": [0.8, 1.7], "spd": [1.4, 3.2], "hp": [18.0, 48.0]}
+	"res": [0.8, 1.7], "spd": [0.7, 1.6], "hp": [12.6, 33.6]}
 const MC_STAT_KEYS: Array[String] = ["atk", "mag", "def", "res", "spd", "hp"]
 const MC_POINT_MIN := 0
 const MC_POINT_MAX := 15

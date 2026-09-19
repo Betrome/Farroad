@@ -78,6 +78,8 @@ var aether_cell: Label
 var marks_cell: Label
 var power_level_cell: Label
 var idle_rate_label: Label
+var speed_toggle_btn: Button
+var _speed_2x: bool = false
 var fade_overlay: ColorRect
 var background_layer: Node2D
 ## Captured by _try_resume_save() (empty {} when no save existed, or the
@@ -86,6 +88,13 @@ var background_layer: Node2D
 var _offline_summary: Dictionary = {}
 
 func _ready() -> void:
+	# Ian: "can we add a 2x speed button?" Engine.time_scale is a global
+	# engine property, NOT reset by a scene reload alone (e.g. Settings'
+	# own "Reset Game" button) -- defensively reset here so every fresh
+	# boot of this scene always starts at normal speed regardless of
+	# whatever a previous session left it at.
+	Engine.time_scale = 1.0
+	_speed_2x = false
 	_vp = get_viewport_rect().size
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
@@ -187,6 +196,8 @@ func _on_viewport_resized() -> void:
 	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.043)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
+	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
 	fade_overlay.size = _vp
 	if background_layer != null:
 		background_layer.position.x = 0.0
@@ -379,6 +390,19 @@ func _build_hud() -> void:
 	idle_rate_label.modulate = Color(0.65, 0.65, 0.65)
 	add_child(idle_rate_label)
 
+	# Ian: "can we add a 2x speed button?" Top-right corner, mirroring
+	# currency_row's own top-left placement. Toggles Engine.time_scale
+	# globally -- the simplest way to uniformly speed up every tween/timer
+	# already scattered across this codebase (hops, projectiles, beat
+	# pauses, wave-transition waits, UI fades) without touching any of
+	# their individual duration constants.
+	speed_toggle_btn = Button.new()
+	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
+	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
+	speed_toggle_btn.pressed.connect(_on_speed_toggle_pressed)
+	add_child(speed_toggle_btn)
+	_refresh_speed_toggle()
+
 	# A full-screen overlay for the wipe-transition fade (see
 	# _fade_out()/_fade_in()) -- starts fully transparent and hidden;
 	# mouse_filter=IGNORE so it never blocks input while invisible (during
@@ -393,6 +417,15 @@ func _build_hud() -> void:
 	add_child(fade_overlay)
 
 	_build_road_button()
+
+func _on_speed_toggle_pressed() -> void:
+	_speed_2x = not _speed_2x
+	Engine.time_scale = 2.0 if _speed_2x else 1.0
+	_refresh_speed_toggle()
+
+func _refresh_speed_toggle() -> void:
+	speed_toggle_btn.text = "2x ⏩" if _speed_2x else "1x ⏩"
+	speed_toggle_btn.modulate = Palette.GOLD_LIGHT if _speed_2x else Color(1, 1, 1)
 
 func _build_currency_label(parent: Container) -> Label:
 	var lbl := Label.new()

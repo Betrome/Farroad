@@ -417,11 +417,22 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    var lo=range[0]*mul,hi=range[1]*mul;
    if(g[k]<lo||g[k]>hi)growthOut.push(r.id+'.'+k+'='+g[k]+' (range '+lo+'-'+hi+')');});});
  ok('every ROSTER unit has a P.GROWTH entry within its rarity-scaled P.MC_GROWTH_RANGE', growthOut.length===0, growthOut.join('; '));
+ /* Ian's universal hp/speed growth reduction (x0.7 hp, x0.5 spd, baked
+    directly into P.GROWTH's own numbers -- no runtime multiplier per his
+    own follow-up ask) is a later, separate balance pass over the WHOLE
+    roster, unrelated to this roster-authoring-time "5 new companions cost
+    the same combined budget as the original 5" invariant. Named locally
+    here (not read off P, which no longer carries them) purely to un-reduce
+    spd back to its original pre-reduction design value before checking,
+    so this still verifies the invariant it was actually written to catch. */
+ var HP_REDUCTION=0.7, SPD_REDUCTION=0.5;
  var newFive=['skarn','sorin','nyra','brenn','sael'];
  var budgetOff=newFive.filter(function(id){
   var r=R.filter(function(x){return x.id===id;})[0];
   var mul=C.RARITY_POWER_MUL[r.rarity||'common']||1;
-  var g=P.GROWTH[id];var sum=g.atk+g.mag+g.def+g.res+g.spd;
+  var g=P.GROWTH[id];
+  var originalSpd=g.spd/SPD_REDUCTION;
+  var sum=g.atk+g.mag+g.def+g.res+originalSpd;
   /* individually hand-rounded to 1 decimal, so allow slack for rounding
      error across 5 stats rather than requiring exact equality */
   return Math.abs(sum-7.5*mul)>0.3;});
@@ -435,6 +446,18 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  var badCharge=chargeIds.filter(function(id){var a=C.ACTIONS[id];return !a||!a.isCharge;});
  ok('every ROSTER chargeAction id resolves to a real charge action in C.ACTIONS',
   badCharge.length===0, badCharge.join(','));
+ /* --- Ian: "universally reduce HP growths by 30% and speed growths by
+    50%", baked directly into the numbers -- confirms the reduction
+    actually landed on every roster unit, not just spot-checked ones. --- */
+ var knownOriginal={kesh:{hp:34,spd:2.2},dorrek:{hp:48,spd:1.4},sael:{hp:24,spd:3.4}};
+ var growthBad=Object.keys(knownOriginal).filter(function(id){
+  var g=P.GROWTH[id],orig=knownOriginal[id];
+  return Math.abs(g.hp-orig.hp*HP_REDUCTION)>1e-9 || Math.abs(g.spd-orig.spd*SPD_REDUCTION)>1e-9;});
+ ok('spot-checked roster units\' hp/spd growth are exactly their original value x0.7/x0.5',
+  growthBad.length===0, growthBad.join(','));
+ ok('MC_GROWTH_RANGE\'s hp/spd bounds carry the same reduction (18-48 -> 12.6-33.6, 1.4-3.2 -> 0.7-1.6)',
+  Math.abs(P.MC_GROWTH_RANGE.hp[0]-12.6)<1e-9 && Math.abs(P.MC_GROWTH_RANGE.hp[1]-33.6)<1e-9 &&
+  Math.abs(P.MC_GROWTH_RANGE.spd[0]-0.7)<1e-9 && Math.abs(P.MC_GROWTH_RANGE.spd[1]-1.6)<1e-9);
  var reserved=P.MC_STARTER_CHARGES.concat(P.MC_CHARGE_DROP_POOL);
  var collision=chargeIds.filter(function(id){return reserved.indexOf(id)>=0;});
  ok('no ROSTER chargeAction collides with the MC\'s reserved starter/drop-pool charges',
