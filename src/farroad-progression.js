@@ -951,12 +951,15 @@ P.dupUnitAether=function(w){
  * traded for a little headroom on res/block/evade, not re-verified against
  * the joint "spread" methodology above since these were requested values,
  * not re-fit ones. */
-P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[56,131],
+P.MC_STAT_RANGE={atk:[8,28],mag:[7,30],def:[8,45],res:[8,40],spd:[11,26],
  hp:[180,840]};
 /* hp/spd bounds carry the same reduction the roster's own GROWTH table
-   gets above (x0.7 hp, x0.5 spd, written in directly -- see its own
-   comment) -- this range was originally calibrated to match that table's
-   exact min/max spread, so a custom MC's own point-bought growth stays
+   gets above (x0.7 hp, x0.5 spd growth, written in directly -- see its
+   own comment); spd's STARTING range separately carries the x0.2
+   starting-SPD cut applied across the whole roster/enemy/equipment
+   tables (was [56,131], now that x0.2) -- this range was originally
+   calibrated to match GROWTH's own min/max spread, so a custom MC's
+   own point-bought growth stays
    consistent with the rest of the roster. */
 P.MC_GROWTH_RANGE={atk:[0.6,2.1],mag:[0.5,2.7],def:[0.8,2.4],res:[0.8,1.7],spd:[0.7,1.6],
  hp:[12.6,33.6]};

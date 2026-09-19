@@ -702,7 +702,7 @@ function resolveTarget(act,ct,u,b){var k=act.tk;
  if(k==='deadAlly'){if(ct&&ct.isParty===u.isParty&&ct.hp<=0)return ct;return deadAllies(b,u)[0]||null;}
  return null;}
 function defaultAffinity(){return {fire:0,water:0,earth:0,air:0,light:0,dark:0,body:0,spirit:0};}
-function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:100,atkCrit:.05,magCrit:.05,chargeRate:1,evade:.03};
+function makeUnit(cfg){var d={hp:100,atk:10,mag:10,def:10,res:10,spd:20,atkCrit:.05,magCrit:.05,chargeRate:1,evade:.03};
  for(var k in (cfg.stats||{}))if(Object.prototype.hasOwnProperty.call(cfg.stats,k))d[k]=cfg.stats[k];
  var aff=defaultAffinity();
  for(var ak in (cfg.affinity||{}))if(Object.prototype.hasOwnProperty.call(cfg.affinity,ak))aff[ak]=cfg.affinity[ak];

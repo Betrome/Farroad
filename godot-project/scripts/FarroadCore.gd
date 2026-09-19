@@ -549,7 +549,7 @@ static func default_affinity() -> Dictionary:
 
 static func make_unit(cfg: Dictionary) -> Dictionary:
 	var d := {"hp": 100.0, "atk": 10.0, "mag": 10.0, "def": 10.0, "res": 10.0,
-		"spd": 100.0, "atkCrit": 0.05, "magCrit": 0.05, "chargeRate": 1.0, "evade": 0.03}
+		"spd": 20.0, "atkCrit": 0.05, "magCrit": 0.05, "chargeRate": 1.0, "evade": 0.03}
 	for k in cfg.get("stats", {}).keys():
 		d[k] = cfg["stats"][k]
 	var aff := default_affinity()
