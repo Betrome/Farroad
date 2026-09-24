@@ -69,6 +69,40 @@ def workflow(prompt, negative, seed, width, height, steps, cfg, count, lora_stre
     return wf
 
 
+def upload(path, name):
+    """Upload a local PNG into ComfyUI's input folder; returns its name there."""
+    import uuid
+    b = "----farroad" + uuid.uuid4().hex
+    with open(path, "rb") as fh:
+        data = fh.read()
+    crlf = "\r\n"
+    head = ("--" + b + crlf + 'Content-Disposition: form-data; name="image"; filename="' + name + '"' + crlf
+            + "Content-Type: image/png" + crlf + crlf)
+    tail = (crlf + "--" + b + crlf + 'Content-Disposition: form-data; name="overwrite"' + crlf + crlf
+            + "true" + crlf + "--" + b + "--" + crlf)
+    body = head.encode() + data + tail.encode()
+    req = urllib.request.Request(SERVER + "/upload/image", data=body,
+                                 headers={"Content-Type": "multipart/form-data; boundary=" + b})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read())["name"]
+
+
+def add_pose_control(wf, pose_image_name, strength=1.0,
+                     controlnet="control_v11p_sd15_openpose_fp16.safetensors"):
+    """Guide every sampler in `wf` with an OpenPose skeleton image that is
+    already in ComfyUI's input folder (see upload())."""
+    wf["20"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": controlnet}}
+    wf["21"] = {"class_type": "LoadImage", "inputs": {"image": pose_image_name}}
+    wf["22"] = {"class_type": "ControlNetApplyAdvanced", "inputs": {
+        "positive": ["4", 0], "negative": ["5", 0], "control_net": ["20", 0], "image": ["21", 0],
+        "strength": strength, "start_percent": 0.0, "end_percent": 1.0}}
+    for sampler in ("7", "11"):
+        if sampler in wf:
+            wf[sampler]["inputs"]["positive"] = ["22", 0]
+            wf[sampler]["inputs"]["negative"] = ["22", 1]
+    return wf
+
+
 def post(path, body):
     req = urllib.request.Request(SERVER + path, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -123,9 +157,13 @@ def main():
     ap.add_argument("--prefix", default="farroad")
     ap.add_argument("--hires", type=float, default=1.0, help="2.0 = second pass at twice the size")
     ap.add_argument("--hires-denoise", type=float, default=0.5)
+    ap.add_argument("--pose", help="OpenPose skeleton PNG (same aspect as the image) to guide the pose")
+    ap.add_argument("--pose-strength", type=float, default=1.0)
     a = ap.parse_args()
     wf = workflow(a.prompt, a.negative, a.seed, a.width, a.height, a.steps, a.cfg, a.count, a.lora, a.prefix,
                   a.hires, a.hires_denoise)
+    if a.pose:
+        add_pose_control(wf, upload(a.pose, os.path.basename(a.pose)), a.pose_strength)
     saved, secs = run(wf, a.out)
     print("%d image(s) in %.1fs" % (len(saved), secs))
     for p in saved:
