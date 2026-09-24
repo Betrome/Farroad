@@ -1,0 +1,52 @@
+{
+ "canvas": [
+  204,
+  204
+ ],
+ "frames": 3,
+ "fps": 8,
+ "head_origin": [
+  82,
+  32
+ ],
+ "head_size": [
+  42,
+  44
+ ],
+ "offsets": [
+  [
+   0,
+   0
+  ],
+  [
+   1,
+   1
+  ],
+  [
+   1,
+   1
+  ]
+ ],
+ "layers": [
+  "face",
+  "eyes",
+  "hair"
+ ],
+ "stats": {
+  "match_score": [
+   0.0,
+   45.7,
+   46.6
+  ],
+  "recombine_diff_pct": [
+   0.0,
+   5.9,
+   4.2
+  ],
+  "head_pixels": {
+   "face": 459,
+   "eyes": 55,
+   "hair": 885
+  }
+ }
+}
