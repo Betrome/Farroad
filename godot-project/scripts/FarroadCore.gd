@@ -146,7 +146,8 @@ const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowof
 	"tideturn", "lastlight", "sunder", "gravewind", "reckoning", "bulwarkoath", "emberglut", "hollowtoll",
 	"atk_reckless", "mag_lance", "def_slam", "res_strike", "spd_flurry",
 	"atk_cry", "mag_font", "def_bulwark", "res_ward", "spd_fleet",
-	"colossusslam", "reapersharvest"]
+	"colossusslam", "reapersharvest",
+	"pyreblade", "tidebloom", "landslide", "skyfall", "dawnbreak", "nightfall"]
 
 static func equippable() -> Array:
 	return ATK_CAMP + MAG_CAMP
@@ -235,8 +236,12 @@ static func roster_by_id(id: String) -> Variant:
 ## FarroadProgression.gd's build_enemies/build_party (mirroring buildEnemies/
 ## buildParty, farroad-ui.js) do. =====
 
-## Post-wave-19 enemy archetype rotation (farroad-core.js:878, `var ROT=...`).
-const ROT: Array[String] = ["wolf", "knight", "hound", "ox", "priest", "shrike"]
+## Post-wave-19 enemy archetype rotation. Elemental batch: the six
+## elemental archetypes (strong in one element, weak to its opposite)
+## are interleaved with the original six, so every post-tutorial wave
+## mixes plain and elemental enemies.
+const ROT: Array[String] = ["wolf", "cinderimp", "knight", "tidewraith", "hound", "cragback",
+	"ox", "galeharpy", "priest", "dawnacolyte", "shrike", "umbralstalker"]
 
 ## Mirrors dmgTakenMul (farroad-core.js:887-888) -- the DEF/evade-vs-reference
 ## multiplier buildEnemies sizes a body's HP pool against.

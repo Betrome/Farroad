@@ -92,6 +92,19 @@ const _ENEMY_ARCH_STYLE := {
 	"ox": {"shape": ShapeKind.HEX, "tint": Color(0.45, 0.10, 0.10)},
 	"priest": {"shape": ShapeKind.DIAMOND, "tint": Color(0.65, 0.15, 0.35)},
 	"shrike": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.80, 0.20, 0.35)},
+	# Elemental batch -- tinted by element so weaknesses read at a glance.
+	"cinderimp": {"shape": ShapeKind.TRIANGLE_UP, "tint": Color(0.95, 0.40, 0.10)},
+	"tidewraith": {"shape": ShapeKind.DIAMOND, "tint": Color(0.15, 0.45, 0.90)},
+	"cragback": {"shape": ShapeKind.HEX, "tint": Color(0.55, 0.40, 0.20)},
+	"galeharpy": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.45, 0.85, 0.70)},
+	"dawnacolyte": {"shape": ShapeKind.DIAMOND, "tint": Color(0.95, 0.85, 0.35)},
+	"umbralstalker": {"shape": ShapeKind.CIRCLE, "tint": Color(0.40, 0.18, 0.55)},
+	"pyretyrant": {"shape": ShapeKind.HEX, "tint": Color(0.90, 0.30, 0.05)},
+	"drownedmatriarch": {"shape": ShapeKind.HEX, "tint": Color(0.10, 0.35, 0.80)},
+	"mountaincolossus": {"shape": ShapeKind.HEX, "tint": Color(0.50, 0.35, 0.18)},
+	"stormroc": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.80, 0.65)},
+	"dawnseraph": {"shape": ShapeKind.HEX, "tint": Color(0.95, 0.80, 0.30)},
+	"hollowking": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.12, 0.50)},
 }
 const _ENEMY_DEFAULT_STYLE := {"shape": ShapeKind.SQUARE, "tint": Color(0.85, 0.30, 0.28)}   # unrecognized/absent arch -- the old flat enemy-red
 

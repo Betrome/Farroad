@@ -36,6 +36,20 @@ const BOSS_LEN := 1.40   # 1.3-1.5x a normal fight
 # equivalents * 0.92), not ~2.3x.
 const FIRST_BOSS_LEN := 0.92
 
+## Elemental batch: the wave-20 tutorial boss stays the Roadwarden (Stone
+## Ox body, Warden's Maul). Every later boss wave cycles through six named
+## elemental bosses, one per element -- 40 Pyre Tyrant, 60 Drowned
+## Matriarch, ... 140 Hollow King, 160 Pyre Tyrant again.
+const TUTORIAL_BOSS_ARCH := "ox"
+const BOSS_ROTATION: Array[String] = ["pyretyrant", "drownedmatriarch", "mountaincolossus",
+	"stormroc", "dawnseraph", "hollowking"]
+
+static func boss_arch_for(w: int) -> String:
+	if w <= BOSS_WAVES[0]:
+		return TUTORIAL_BOSS_ARCH
+	var idx: int = maxi(0, int((w - BOSS_WAVES[0] - 1) / float(BOSS_EVERY)))
+	return BOSS_ROTATION[idx % BOSS_ROTATION.size()]
+
 static func boss_wave_at(i: int) -> int:
 	if i < BOSS_WAVES.size():
 		return BOSS_WAVES[i]
@@ -383,6 +397,10 @@ static func do_pull(g: Dictionary) -> Dictionary:
 ## this file already uses (spend_affinity/spend_feed/etc.) -- no
 ## re-validation beyond what's shown, gating is structural (a Shop row
 ## only exists for an actually-purchasable entry).
+## Crystal sources -- dungeons and companion quest stages pay ONLY Crystal
+## (no Aether/Marks), per Ian's follow-up to the Crystal/Shop batch.
+const DUNGEON_CRYSTAL := 10
+const QUEST_STAGE_CRYSTAL := 1
 const SHOP_GAMBIT_PRICE := 10
 const SHOP_ACTION_PRICE := {"common": 20, "rare": 50, "legendary": 100}
 const SHOP_UNIT_PRICE := {"common": 100, "rare": 200, "legendary": 500}
@@ -619,7 +637,14 @@ static var GROWTH := {
 	"sorin": {"hp": 26.6, "atk": 2.0, "mag": 2.0, "def": 1.6, "res": 1.5, "spd": 1.15},
 	"nyra": {"hp": 17.5, "atk": 1.1, "mag": 2.1, "def": 2.0, "res": 2.0, "spd": 1.05},
 	"brenn": {"hp": 33.6, "atk": 1.4, "mag": 1.3, "def": 1.9, "res": 1.9, "spd": 1.5},
-	"sael": {"hp": 16.8, "atk": 0.8, "mag": 2.5, "def": 1.1, "res": 1.6, "spd": 1.7}}
+	"sael": {"hp": 16.8, "atk": 0.8, "mag": 2.5, "def": 1.1, "res": 1.6, "spd": 1.7},
+	# Elemental batch allies.
+	"tovan": {"hp": 22.0, "atk": 2.1, "mag": 0.8, "def": 1.4, "res": 1.0, "spd": 1.0},
+	"ilse": {"hp": 15.4, "atk": 0.7, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 1.0},
+	"garrow": {"hp": 35.0, "atk": 1.6, "mag": 0.6, "def": 2.5, "res": 1.8, "spd": 0.9},
+	"wren": {"hp": 14.7, "atk": 2.0, "mag": 0.7, "def": 0.9, "res": 0.9, "spd": 1.6},
+	"lumen": {"hp": 17.5, "atk": 0.8, "mag": 2.5, "def": 1.2, "res": 2.0, "spd": 1.2},
+	"vesh": {"hp": 16.8, "atk": 2.3, "mag": 1.0, "def": 1.2, "res": 1.2, "spd": 1.7}}
 
 static func exp_for(l: int) -> int:
 	return int(round(0.8 * pow(l, 2.8)))
@@ -1486,13 +1511,12 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	var out := []
 	var priest_used := false   # 1 healer max per wave -- see below
 	for j in range(n):
-		var key: String = "ox" if boss else archetype_for(w, j)
+		var key: String = (TUTORIAL_BOSS_ARCH if super_boss_key != "" else boss_arch_for(w)) if boss else archetype_for(w, j)
 		# archetype_for can hand back "priest" more than once in the same
 		# wave -- every WAVE_ARCH wave 1-19 uses ONE archetype for every
 		# slot (so a multi-enemy wave 5-7 was previously all-healer), and
-		# post-19 ROT (length 6) repeats once a wave rolls more than 6
-		# enemies (possible post-wave-100 via COUNT_WEIGHTS_HARD, up to
-		# 10). A wave full of simultaneous healers can stall the fight
+		# post-19 ROT repeats once a wave rolls more enemies than ROT has
+		# entries (unlikely since the elemental batch grew it to 12). A wave full of simultaneous healers can stall the fight
 		# indefinitely (the CSV's own design note: "Only enemy that
 		# heals... Kill first or the fight stalls") -- cap it at 1,
 		# deterministically, no extra RNG draw: the first priest slot
@@ -1542,7 +1566,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * tutorial_atk_mag_mul(w)
 		out.append(FarroadCore.make_unit({
 			"id": "e%d" % j,
-			"name": ("ROADWARDEN" if boss else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
+			"name": ("ROADWARDEN" if boss and key == TUTORIAL_BOSS_ARCH else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
 			"isParty": false, "level": 1, "slotIndex": 10 + j, "arch": key,
 			"thorns": a.get("thorns", 0), "isBoss": boss, "row": "front" if j < 5 else "back",
 			"stats": {
@@ -1554,7 +1578,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 				"atkCrit": minf(FarroadCore.CAP_CRIT, a["atkCrit"] * sqrt(s)),
 				"magCrit": minf(FarroadCore.CAP_CRIT, a.get("magCrit", 0.04) * sqrt(s)),
 				"chargeRate": 1.15 if boss else 1.0, "evade": a["evade"]},
-			"chargeAction": "wardensmaul" if boss else a.get("chargeAction"),
+			"chargeAction": "wardensmaul" if boss and key == TUTORIAL_BOSS_ARCH else a.get("chargeAction"),
 			"affinity": a["affinity"],
 			"slots": a["slots"].map(func(sl): return {"cond": sl["cond"], "action": sl["action"]})}))
 		# 20-item batch, Group F: bosses get a flat Spirit bonus (own,
@@ -2646,18 +2670,12 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 		var q: Dictionary = g["quests"][meta["uid"]]
 		if result == "party":
 			q["stage"] = int(q["stage"]) + 1
-			var reward: int = quest_stage_aether(meta["stage"])
-			# Ian (24-item batch, Group A/C5): "have quest rewards be
-			# automatically attributed" -- reverses the earlier pending/
-			# Collect-button pattern (banked on q["pendingAether"]) back to
-			# an immediate credit, same shape after_wave_cleared's own
-			# Road-wave rewards already use. Group C3: "unit quests reward 1
-			# Crystal per stage cleared" -- a flat grant alongside Aether,
-			# also immediate.
-			g["aether"] = float(g["aether"]) + float(reward)
-			g["crystal"] = int(g.get("crystal", 0)) + 1
+			# Ian: "the dungeons and new unit quests should no longer give
+			# aether or marks, just crystals." Auto-credited on clear (no
+			# Collect step), QUEST_STAGE_CRYSTAL per stage.
+			g["crystal"] = int(g.get("crystal", 0)) + QUEST_STAGE_CRYSTAL
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
-				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "aether": reward, "crystal": 1}
+				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "crystal": QUEST_STAGE_CRYSTAL}
 		elif gave_up:
 			return {"kind": "quest_abandoned", "name": meta["name"], "stageNum": int(meta["stage"]) + 1}
 		else:
@@ -2674,17 +2692,9 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			# below is the actual gate (checked by QuestsPanel before
 			# offering Enter).
 			dungeon["lastClearedAt"] = now
-			var reward_wave: float = float(meta["tier"]) * float(FarroadCore.DIRECTION_CONFIG[meta["direction"]]["unlockEvery"])
-			var mul: float = direction_mul(meta["direction"])
-			var r := kill_reward(reward_wave, meta["totalWaves"])
-			var d_aether: float = r["aether"] * mul
-			var d_marks: float = r["marks"] * marks_mul(g) * mul
-			# Ian (Group A/C5): auto-credit, same reversal as the quest
-			# branch above. Group C2: "dungeons drop 10 Crystal."
-			g["aether"] = float(g["aether"]) + d_aether
-			g["marks"] = float(g["marks"]) + d_marks
-			g["crystal"] = int(g.get("crystal", 0)) + 10
-			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks, "crystal": 10}
+			# Ian: dungeons give Crystal only now -- no Aether/Marks.
+			g["crystal"] = int(g.get("crystal", 0)) + DUNGEON_CRYSTAL
+			return {"kind": "dungeon_cleared", "name": dungeon["name"], "crystal": DUNGEON_CRYSTAL}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
 

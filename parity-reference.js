@@ -1732,12 +1732,9 @@ if (mode === 'progression') {
       var q = gg.quests[meta.uid];
       if (result === 'party') {
         q.stage++;
-        var reward = questStageAetherG(meta.stage);
-        // 24-item batch (Group A/C5): auto-credit, reverting the earlier
-        // pending/Collect pattern. Group C3: +1 Crystal per stage cleared.
-        gg.aether += reward;
-        gg.crystal = (gg.crystal || 0) + 1;
-        return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, aether: reward, crystal: 1 };
+        // Crystal only, auto-credited -- mirrors finish_side_battle.
+        gg.crystal = (gg.crystal || 0) + P.QUEST_STAGE_CRYSTAL;
+        return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, crystal: P.QUEST_STAGE_CRYSTAL };
       } else if (gaveUp) {
         return { kind: 'quest_abandoned', name: meta.name, stageNum: meta.stage + 1 };
       } else {
@@ -1748,13 +1745,8 @@ if (mode === 'progression') {
       if (result === 'party' && dungeon) {
         dungeon.clears++;
         dungeon.lastClearedAt = now;
-        var rewardWave = meta.tier * P.DIRECTION_CONFIG[meta.direction].unlockEvery;
-        var mul = directionMul(meta.direction);
-        var r = P.killReward(rewardWave, meta.totalWaves);
-        var dAether = r.aether * mul, dMarks = r.marks * P.marksMul(gg) * mul;
-        // 24-item batch (Group A/C5): auto-credit. Group C2: +10 Crystal.
-        gg.aether += dAether; gg.marks += dMarks; gg.crystal = (gg.crystal || 0) + 10;
-        return { kind: 'dungeon_cleared', name: dungeon.name, aether: dAether, marks: dMarks, crystal: 10 };
+        gg.crystal = (gg.crystal || 0) + P.DUNGEON_CRYSTAL;
+        return { kind: 'dungeon_cleared', name: dungeon.name, crystal: P.DUNGEON_CRYSTAL };
       } else {
         return { kind: 'dungeon_failed', name: dungeon ? dungeon.name : 'Dungeon' };
       }

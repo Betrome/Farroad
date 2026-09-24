@@ -930,12 +930,11 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
-	var aether_gained: float = float(event.get("aether", 0.0))
-	var marks_gained: float = float(event.get("marks", 0.0))
-	if aether_gained > 0.0 or marks_gained > 0.0:
+	# Quests and dungeons pay Crystal only now (no Aether/Marks).
+	var crystal_gained: int = int(event.get("crystal", 0))
+	if crystal_gained > 0:
 		var gained := Label.new()
-		gained.text = ("+%d Aether, +%d Marks" % [roundi(aether_gained), roundi(marks_gained)]) if marks_gained > 0.0 \
-			else "+%d Aether" % roundi(aether_gained)
+		gained.text = "+%d Crystal" % crystal_gained
 		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 		gained.modulate = Palette.GOLD_PRESSED
 		vbox.add_child(gained)

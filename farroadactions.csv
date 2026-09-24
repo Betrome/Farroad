@@ -81,3 +81,21 @@ knitbone,Knit Bone,enemy_basic,mag,,,0.575,,1.20,0.833,ally,1,,,0,0,,TRUE,,,,,21
 wait,Wait,inert,atk,,,0,,1.00,1.000,self,1,,,0,0,,,,,,,0,,,,Inert fallback. Does nothing.
 colossusslam,Colossus Slam,charge,atk,earth,,8.1,,1.9,0.526,foe,1,,,0.4,,,,,,,,,100,legendary,"swift,potent,piercing,keen,broad,thrifty","Super Boss reward (v2.20) - The Stoneheart Colossus, wave 750 tier. Unique: in CHARGE_ACTIONS (farroad-core.js) for pristine-snapshot/Lore-total support, but never in P.MC_CHARGE_DROP_POOL or any other random pool - only obtainable as this bosses first-clear reward. MC-only usable (charge actions have nowhere else to go for a companion) - granted into G.mc.acquiredCharges on first clear."
 reapersharvest,Reaper's Harvest,charge,mag,dark,,2.6,,2.1,0.476,allFoes,,,,,,,,0.6,,,,,100,legendary,"swift,potent,keen,thrifty","Super Boss reward. The Void Reaper, wave 1250 tier. Same uniqueness/MC-only rules as Colossus Slam. AoE dark damage with heavy self-sustain, echoing Hollow Tolls shape at a step above its own Legendary power."
+scorch,Scorch,enemy_basic,mag,fire,,1.00,,1.00,1.000,foe,1,,,0,0,,,,,,,19,,,,Enemy basic - Fire bolt.
+drench,Drench,enemy_basic,mag,water,,0.90,,1.00,1.000,foe,1,slowed,2,0,0,,,,,,,19,,,,Enemy basic - Water; briefly Slows.
+rockfall,Rockfall,enemy_basic,atk,earth,,1.35,,1.40,0.714,foe,1,,,0,0,,,,,,,25,,,,Enemy basic - heavy slow Earth blow.
+talon,Talon Gust,enemy_basic,atk,air,,0.80,,0.80,1.250,foe,1,,,0,0,,,,,,,15,,,,Enemy basic - quick light Air strike.
+glare,Glare,enemy_basic,mag,light,,0.95,,1.00,1.000,foe,1,blinded,2,0,0,,,,,,,19,,,,Enemy basic - Light; briefly Blinds.
+shadowbite,Shadowbite,enemy_basic,atk,dark,,1.05,,1.00,1.000,foe,1,,,0,0,,,,,,,19,,,,Enemy basic - Dark melee.
+inferno,Inferno,enemy_charge,mag,fire,,1.40,,1.75,0.571,allFoes,1,burning,3,0,0,,,,,,,,100,,,CHARGE - Pyre Tyrant. AoE Fire + Burning.
+undertow,Undertow,enemy_charge,mag,water,,1.20,,1.60,0.625,allFoes,1,slowed,3,0,0,,,,,,,,100,,,CHARGE - Drowned Matriarch. AoE Water + Slowed.
+earthshatter,Earthshatter,enemy_charge,atk,earth,,3.20,,1.80,0.556,foe,1,,,0.25,0,,,,,,,,100,,,CHARGE - Mountain Colossus. Heavy single-target Earth.
+cyclone,Cyclone,enemy_charge,atk,air,,1.10,,1.50,0.667,allFoes,1,,,0,0,,,,,,,,100,,,CHARGE - Storm Roc. AoE Air.
+judgment,Judgment,enemy_charge,mag,light,,3.00,,1.75,0.571,foe,1,blinded,3,0,0,,,,,,,,100,,,CHARGE - Dawn Seraph. Heavy single-target Light + Blinded.
+eclipse,Eclipse,enemy_charge,mag,dark,,1.20,,1.70,0.588,allFoes,1,frail,3,0,0,,,,,,,,100,,,CHARGE - Hollow King. AoE Dark + Frail.
+pyreblade,Pyreblade,charge,atk,fire,,3.80,,1.75,0.571,foe,1,burning,3,0,0.10,,,,,,,,100,common,"swift,potent,lasting,deepening,piercing,keen,broad,thrifty",CHARGE - Tovan. Heavy Fire strike that sets the target Burning.
+tidebloom,Tidebloom,charge,mag,,,2.40,,1.65,0.606,allAllies,1,regen,3,0,0,,TRUE,,,1,,,100,common,"swift,potent,lasting,keen,cleansing,thrifty",CHARGE - Ilse. Party heal + cleanse + Regen.
+landslide,Landslide,charge,atk,earth,,1.50,,1.70,0.588,allFoes,1,slowed,3,0,0,,,,,,2,,100,rare,"swift,potent,lasting,deepening,piercing,keen,thrifty",CHARGE - Garrow. AoE Earth that Slows every foe and taunts for 2.
+skyfall,Skyfall Volley,charge,atk,air,,0.85,,1.80,0.556,foe,5,,,0,0.10,,,,,,,,100,common,"swift,potent,piercing,keen,thrifty",CHARGE - Wren. Five quick Air hits on one foe.
+dawnbreak,Dawnbreak,charge,mag,light,,2.10,,1.75,0.571,allFoes,1,blinded,3,0,0,,,,,,,,100,rare,"swift,potent,lasting,deepening,keen,thrifty",CHARGE - Lumen. AoE Light that Blinds every foe.
+nightfall,Nightfall,charge,atk,dark,,4.60,,1.70,0.588,foe,1,,,0,0.30,,,0.20,,,,,100,rare,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Vesh. Huge Dark strike with a big crit bonus and partial lifesteal.

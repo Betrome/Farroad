@@ -1716,20 +1716,14 @@ function finishSideBattle(result,gaveUp){
    q.stage++;
    /* v2.10: Aether reward, scaling 100 (stage 1) -> 500 (stage 5) — see
       P.questStageAether. meta.stage is the 0-based stage JUST cleared. */
-   var reward=P.questStageAether(meta.stage);
-   /* Ian (24-item batch, Group A/C5): "have quest rewards be
-      automatically attributed" — reverses the earlier pending/Collect
-      pattern (q.pendingAether) back to an immediate credit, same shape
-      afterWaveCleared's own Road-wave rewards already use. Group C3:
-      "unit quests reward 1 Crystal per stage cleared" — a flat grant
-      alongside Aether, also immediate. */
-   G.aether+=reward;
-   G.crystal=(G.crystal||0)+1;
+   /* Ian: dungeons and companion quests pay ONLY Crystal now (no Aether
+      or Marks), auto-credited on clear. */
+   G.crystal=(G.crystal||0)+P.QUEST_STAGE_CRYSTAL;
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
-    why:(q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.')+
-     ' +'+reward+' Aether, +1 Crystal.'});
+    why:(q.stage>=5?meta.name+"'s quest line is complete.":'Stage '+(q.stage+1)+' is now available.')+
+     ' +'+P.QUEST_STAGE_CRYSTAL+' Crystal.'});
    sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5. '+
-    '<b style="color:var(--aether)">+'+reward+' Aether, +1 Crystal</b>.</span>');
+    '<b>+'+P.QUEST_STAGE_CRYSTAL+' Crystal</b>.</span>');
   }else if(gaveUp){
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST ABANDONED',
     body:'The attempt was called off.',why:'No penalty — try again any time.'});
@@ -1810,19 +1804,12 @@ function finishSideBattle(result,gaveUp){
       NOT any single internal wave's own numbers, since regular waves are
       all frozen at the same depth and the boss wave alone would
       undersell a full clear. */
-   var rewardWave=meta.tier*P.DIRECTION_CONFIG[meta.direction].unlockEvery;
-   var mul=P.directionMul(meta.direction);
-   var r=P.killReward(rewardWave,meta.totalWaves);
-   var dAether=r.aether*mul,dMarks=r.marks*P.marksMul(G)*mul;
-   /* Ian (Group A/C5): auto-credit, same reversal as the quest branch
-      above. Group C2: "dungeons drop 10 Crystal." */
-   G.aether+=dAether;G.marks+=dMarks;G.crystal=(G.crystal||0)+10;
+   /* Ian: Crystal only -- no Aether/Marks. */
+   G.crystal=(G.crystal||0)+P.DUNGEON_CRYSTAL;
    pushDrop({name:dungeon.name,kind:'DUNGEON CLEARED',
-    body:'Earned +'+Math.round(dAether)+' Aether, +'+Math.floor(dMarks)+' Marks and +10 Crystal.',
+    body:'Earned +'+P.DUNGEON_CRYSTAL+' Crystal.',
     why:'Cleared all '+meta.totalWaves+' waves, including the boss.'});
-   sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned '+
-    '<b style="color:var(--aether)">+'+Math.round(dAether)+' Aether</b>, '+
-    '<b style="color:var(--marks)">+'+Math.floor(dMarks)+' Marks</b> and +10 Crystal.</span>');
+   sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned +'+P.DUNGEON_CRYSTAL+' Crystal.</span>');
   }else{
    pushDrop({name:dungeon?dungeon.name:'Dungeon',kind:'DUNGEON FAILED',
     body:'The party was defeated'+(meta.waveIndex>0?' on wave '+(meta.waveIndex+1)+

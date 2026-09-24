@@ -201,16 +201,23 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	var box := VBoxContainer.new()
 	card.add_child(box)
 
+	# Ian: "I'm seeing horizontal scrolling on the quests, specifically the
+	# dungeons" -- the info line used to carry "cleared N times" and "on
+	# clear" and ran wider than the popup. Trimmed, and both labels wrap
+	# now so a long dungeon name can't push the card wide either.
 	var name_lbl := Label.new()
 	name_lbl.text = d["name"]
 	name_lbl.add_theme_font_size_override("font_size", 15)
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(name_lbl)
 
 	var info_lbl := Label.new()
 	var total_waves: int = (d["waves"] as Array).size()
-	info_lbl.text = "%d waves (ends in a boss) · cleared %d time%s · +10 Crystal on clear" % [
-		total_waves, int(d["clears"]), "" if int(d["clears"]) == 1 else "s"]
+	info_lbl.text = "%d waves (ends in a boss) · +%d Crystal" % [total_waves, FarroadProgression.DUNGEON_CRYSTAL]
 	info_lbl.modulate = Palette.TEXT_DIM
+	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(info_lbl)
 
 	# Ian: "Dungeons: can only be completed once per day." Real UTC-
@@ -241,13 +248,17 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 	var name_lbl := Label.new()
 	name_lbl.text = def["name"] if def else uid
 	name_lbl.add_theme_font_size_override("font_size", 15)
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(name_lbl)
 
 	var completed: bool = stage >= 5
 	var info_lbl := Label.new()
 	info_lbl.text = "Quest line complete" if completed else \
-		"Stage %d of 5 · +%d Aether, +1 Crystal on clear" % [stage + 1, FarroadProgression.quest_stage_aether(stage)]
+		"Stage %d of 5 · +%d Crystal" % [stage + 1, FarroadProgression.QUEST_STAGE_CRYSTAL]
 	info_lbl.modulate = Palette.TEXT_DIM
+	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(info_lbl)
 
 	var side_battle: Dictionary = g.get("sideBattle") if g.get("sideBattle") != null else {}
@@ -305,13 +316,13 @@ func _describe_result(r: Dictionary) -> String:
 	match r["kind"]:
 		"quest_cleared":
 			var complete_txt := " Quest complete!" if r.get("questComplete") else ""
-			return "Quest stage cleared — %s, stage %d of 5. +%d Aether.%s" % [r["name"], r["stageNum"], int(r["aether"]), complete_txt]
+			return "Quest stage cleared — %s, stage %d of 5. +%d Crystal.%s" % [r["name"], r["stageNum"], int(r.get("crystal", 0)), complete_txt]
 		"quest_failed":
 			return "Quest attempt failed — %s, stage %d of 5. No penalty, try again anytime." % [r["name"], r["stageNum"]]
 		"quest_abandoned":
 			return "Quest abandoned — %s, stage %d of 5." % [r["name"], r["stageNum"]]
 		"dungeon_cleared":
-			return "Dungeon cleared — %s. +%d Aether, +%d Marks." % [r["name"], roundi(r["aether"]), roundi(r["marks"])]
+			return "Dungeon cleared — %s. +%d Crystal." % [r["name"], int(r.get("crystal", 0))]
 		"dungeon_failed":
 			return "Dungeon attempt failed — %s. No penalty, try again anytime." % r["name"]
 		_:

@@ -543,6 +543,10 @@ P.SUPERBOSS_EVERY=250;
  * dungeon) — clearly short of the boss's 1.3-1.5x band, i.e. confirmed
  * "slightly harder", not a second boss. */
 P.EXPED_DISCOVERY_CHANCE=0.08;
+/* Crystal sources -- dungeons and companion quest stages pay ONLY Crystal
+   (no Aether/Marks). Mirrors FarroadProgression.gd. */
+P.DUNGEON_CRYSTAL=10;
+P.QUEST_STAGE_CRYSTAL=1;
 /* 24-item batch, Group E4: non-combat road events ("visiting towns,
    selling goods, rescuing other travelers"). Per-node chance a stretch of
    road is one of these instead of a fight; each entry's aether/marks is a
