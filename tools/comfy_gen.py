@@ -37,8 +37,9 @@ DEFAULT_NEGATIVE = ("blurry, lowres, jpeg artifacts, text, watermark, signature,
                     "gradient background, shadow on ground")
 
 
-def workflow(prompt, negative, seed, width, height, steps, cfg, count, lora_strength, prefix):
-    return {
+def workflow(prompt, negative, seed, width, height, steps, cfg, count, lora_strength, prefix,
+             hires=1.0, hires_denoise=0.5):
+    wf = {
         "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": CHECKPOINT}},
         "2": {"class_type": "LoraLoader", "inputs": {
             "model": ["1", 0], "clip": ["1", 1], "lora_name": LORA,
@@ -54,6 +55,18 @@ def workflow(prompt, negative, seed, width, height, steps, cfg, count, lora_stre
         "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["1", 2]}},
         "9": {"class_type": "SaveImage", "inputs": {"images": ["8", 0], "filename_prefix": prefix}},
     }
+    if hires > 1.0:
+        # "Hires fix": upscale the latent and re-sample it at partial denoise,
+        # so SD 1.5 draws at 2x without duplicating the subject. The pixel
+        # LoRA keeps its ~8px blocks, so the sprite gets 2x the real pixels.
+        wf["10"] = {"class_type": "LatentUpscaleBy", "inputs": {
+            "samples": ["7", 0], "upscale_method": "nearest-exact", "scale_by": hires}}
+        wf["11"] = {"class_type": "KSampler", "inputs": {
+            "model": ["2", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["10", 0],
+            "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "euler_ancestral",
+            "scheduler": "normal", "denoise": hires_denoise}}
+        wf["8"]["inputs"]["samples"] = ["11", 0]
+    return wf
 
 
 def post(path, body):
@@ -108,8 +121,11 @@ def main():
     ap.add_argument("--count", type=int, default=1)
     ap.add_argument("--lora", type=float, default=1.0)
     ap.add_argument("--prefix", default="farroad")
+    ap.add_argument("--hires", type=float, default=1.0, help="2.0 = second pass at twice the size")
+    ap.add_argument("--hires-denoise", type=float, default=0.5)
     a = ap.parse_args()
-    wf = workflow(a.prompt, a.negative, a.seed, a.width, a.height, a.steps, a.cfg, a.count, a.lora, a.prefix)
+    wf = workflow(a.prompt, a.negative, a.seed, a.width, a.height, a.steps, a.cfg, a.count, a.lora, a.prefix,
+                  a.hires, a.hires_denoise)
     saved, secs = run(wf, a.out)
     print("%d image(s) in %.1fs" % (len(saved), secs))
     for p in saved:
