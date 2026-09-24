@@ -418,7 +418,7 @@ func _run_progression_suite() -> void:
 			# mirror -- same "Godot-only, not parity-tracked" precedent
 			# seenArch already established. Filtered out here so this trace
 			# only ever diffs events that both engines genuinely produce.
-			entry["events"] = entry["events"].filter(func(e): return e.get("kind") != "tutorial_complete")
+			entry["events"] = entry["events"].filter(func(e): return e.get("kind") != "tutorial_complete" and e.get("kind") != "enrage_intro")
 			entry["aether"] = g["aether"]; entry["marks"] = g["marks"]; entry["loreByAction"] = g["loreByAction"]
 			entry["party"] = g["party"].duplicate(); entry["actions"] = g["actions"].duplicate()
 			entry["conditions"] = g["conditions"].duplicate()

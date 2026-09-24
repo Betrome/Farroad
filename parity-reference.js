@@ -638,7 +638,7 @@ if (mode === 'progression') {
     C.applyBonuses(g.bonuses);
     var party = buildParty(g), enemies = buildEnemies(g, w);
     g.units = party; g.enemies = enemies;
-    g.battle = C.makeBattle(party.concat(enemies), { rng: g.rng, enrage: g.enrage && w > 20 });
+    g.battle = C.makeBattle(party.concat(enemies), { rng: g.rng, enrage: g.enrage && w >= P.ENRAGE_FROM_WAVE });
     g.over = null;
     return events;
   }

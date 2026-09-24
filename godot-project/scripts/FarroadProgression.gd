@@ -123,7 +123,19 @@ const TUTORIAL_ATK_MAG_MUL := 0.5
 # smooth linear ramp from 0.5x (w<=20) back up to 1.0x (w>=100), so
 # difficulty eases back in gradually across the wave 20-100 stretch
 # instead of snapping back all at once.
-const TUTORIAL_RAMP_END_WAVE := 100
+## Ian (post-24-item-batch balance pass): "soften the damage cut but keep
+## Enrage." Simulated across 8 MC builds: the wall at wave 21 was never the
+## cut ending (it was already ~50% there) -- it was enrage switching on,
+## which slow/low-damage builds (tank, support) can't outrun with fights
+## of 120+ beats. So the cut now DIPS right after the tutorial to
+## TUTORIAL_POST_DIP (enemies weaker than in waves 1-20, easing players
+## into enrage) and fades back up to full strength by wave 120 instead of
+## 100. Tested: tank/hybrid builds that used to hard-stall at wave 21 now
+## clear 21-30 with a handful of wipes; fast builds see almost none.
+const TUTORIAL_POST_DIP := 0.30
+## First Road wave whose fights can enrage (see start_wave).
+const ENRAGE_FROM_WAVE := 31
+const TUTORIAL_RAMP_END_WAVE := 120
 
 static func tutorial_atk_mag_mul(w: int) -> float:
 	if w <= 20:
@@ -131,7 +143,7 @@ static func tutorial_atk_mag_mul(w: int) -> float:
 	if w >= TUTORIAL_RAMP_END_WAVE:
 		return 1.0
 	var t: float = float(w - 20) / float(TUTORIAL_RAMP_END_WAVE - 20)
-	return lerpf(TUTORIAL_ATK_MAG_MUL, 1.0, t)
+	return lerpf(TUTORIAL_POST_DIP, 1.0, t)
 
 const BOSS_SPD_FROM := 20.0
 const BOSS_SPD_REF := 800.0
@@ -1714,7 +1726,12 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 	# weak, so it's off entirely for the Road's own solo tutorial stretch --
 	# same w<=20 boundary every other tutorial exception in this project
 	# already uses (tutorial_atk_mag_mul, TUTORIAL_CHECKPOINT_EVERY).
-	var enrage_on: bool = g.get("enrage", true) and w > 20
+	# Post-24-item-batch balance pass: pushed back from wave 21 to wave 31
+	# (ENRAGE_FROM_WAVE) -- simulated across 8 MC builds, enrage at 21 was
+	# the actual wall slow/support builds hit right after the tutorial;
+	# with this plus tutorial_atk_mag_mul's post-tutorial dip, no tested
+	# build stalls anywhere in waves 21-40.
+	var enrage_on: bool = g.get("enrage", true) and w >= ENRAGE_FROM_WAVE
 	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": enrage_on})
 	g["over"] = null
 	return events
@@ -1760,16 +1777,19 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 		var hoard := boss_aether(g["wave"]) * aether_mul
 		g["aether"] += hoard
 		events.append({"kind": "boss_hoard", "wave": g["wave"], "amount": hoard})
-		# Ian: a popup congratulating the player on finishing the tutorial,
-		# warning the road only gets harder, and explaining enrage -- shown
-		# exactly once, right as the mechanic itself first turns on (enrage
-		# is off for wave<=20, on again from wave 21 -- see start_wave).
-		# Scoped to the FIRST boss specifically (BOSS_WAVES[0], not every
-		# boss), same first_clear gate the other one-time boss events above
-		# already use.
+		# Ian: a popup congratulating the player on finishing the tutorial
+		# and warning the road only gets harder -- shown exactly once, on the
+		# FIRST boss's first clear. Its enrage explanation moved to its own
+		# "enrage_intro" event below, now that enrage starts at wave 31.
 		if g["wave"] == BOSS_WAVES[0]:
 			events.append({"kind": "tutorial_complete", "wave": g["wave"]})
 		events.append({"kind": "checkpoint", "wave": g["bossesCleared"] * BOSS_EVERY})
+	# Ian: the enrage explanation shows "on the wave that enrage begins as
+	# a mechanic" -- first clear of the wave right before ENRAGE_FROM_WAVE,
+	# so it lands just before the first fight that can actually enrage.
+	# Godot-only UI trigger (same as tutorial_complete).
+	if first_clear and g["wave"] == ENRAGE_FROM_WAVE - 1:
+		events.append({"kind": "enrage_intro", "wave": g["wave"]})
 	# Ian: "add Ansa at wave 10, not 20" -- a companion join needs to fire on
 	# ANY wave clear matching UNIT_WAVES, not just boss clears. Genuinely
 	# fixes a real, separate, previously-unnoticed bug along the way: this

@@ -1832,12 +1832,17 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   P.tutorialAtkMagMul(20)===0.5);
  ok('tutorialAtkMagMul stays halved for every wave 1-20, not just the boss',
   P.tutorialAtkMagMul(1)===0.5 && P.tutorialAtkMagMul(10)===0.5);
- ok('tutorialAtkMagMul is back to exactly 1.0 at wave 100 and beyond',
-  P.tutorialAtkMagMul(100)===1 && P.tutorialAtkMagMul(150)===1);
- ok('tutorialAtkMagMul rises monotonically and smoothly across 20-100, no cliff',
+ /* Post-24-item-batch balance pass: right after the tutorial the cut DIPS
+    to TUTORIAL_POST_DIP (easing players into enrage, which switches on at
+    wave 21) and fades back to full strength by wave 120. */
+ ok('tutorialAtkMagMul dips below the tutorial cut right after wave 20',
+  P.tutorialAtkMagMul(21)<P.tutorialAtkMagMul(20) && P.tutorialAtkMagMul(21)>=P.TUTORIAL_POST_DIP);
+ ok('tutorialAtkMagMul is back to exactly 1.0 at the ramp end and beyond',
+  P.tutorialAtkMagMul(P.TUTORIAL_RAMP_END_WAVE)===1 && P.tutorialAtkMagMul(200)===1);
+ ok('tutorialAtkMagMul rises monotonically and smoothly after the dip, no cliff',
   (function(){
-   var prev=P.tutorialAtkMagMul(20);
-   for(var w=21;w<=100;w++){
+   var prev=P.tutorialAtkMagMul(21);
+   for(var w=22;w<=P.TUTORIAL_RAMP_END_WAVE;w++){
     var cur=P.tutorialAtkMagMul(w);
     if(cur<prev-1e-9)return false;          // must never decrease
     if(cur-prev>0.02)return false;           // no single-wave jump bigger than 2%
@@ -1845,8 +1850,8 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
    }
    return true;
   })());
- ok('tutorialAtkMagMul at the wave-60 midpoint sits at exactly the halfway point (0.75)',
-  Math.abs(P.tutorialAtkMagMul(60)-0.75)<1e-9);
+ ok('tutorialAtkMagMul at the ramp midpoint (wave 70) sits exactly halfway from the dip to 1.0',
+  Math.abs(P.tutorialAtkMagMul(70)-(P.TUTORIAL_POST_DIP+1)/2)<1e-9);
 })();
 
 /* --- questStageWave: halved per Ian's "reduce new unit quests difficulty

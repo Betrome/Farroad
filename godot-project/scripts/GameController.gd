@@ -661,6 +661,34 @@ func _show_tutorial_complete_popup() -> void:
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
+	# Post-24-item-batch balance pass: enrage now starts at wave 31, so this
+	# popup only foreshadows it -- the full explanation is its own popup
+	# (_show_enrage_intro_popup) right before the first fight it applies to.
+	var heads_up := Label.new()
+	heads_up.text = "Use the next stretch of the Road to level up and build your party -- something more dangerous is waiting past wave 30."
+	heads_up.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	heads_up.modulate = Palette.TEXT_DIM
+	heads_up.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(heads_up)
+
+	await _finish_detail_overlay(o)
+	await o["backdrop"].tree_exiting
+
+## Post-24-item-batch balance pass: the enrage explanation that used to be
+## part of the tutorial-complete popup, now shown on its own on the first
+## clear of wave ENRAGE_FROM_WAVE-1 -- right before the first fight that can
+## actually enrage (the "enrage_intro" event, FarroadProgression.
+## after_wave_cleared). Same awaited overlay shape as the popup above.
+func _show_enrage_intro_popup() -> void:
+	var o := _build_detail_overlay(Palette.BAD_RED)
+	var vbox: VBoxContainer = o["vbox"]
+
+	var title := Label.new()
+	title.text = "Enemies can now become ENRAGED"
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(title)
+
 	var enrage_body := Label.new()
 	enrage_body.text = "Enemies that fight for a long time will grow ENRAGED -- hitting harder and moving faster the longer a battle drags on. Keep your fights short."
 	enrage_body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
@@ -1811,6 +1839,10 @@ func _on_battle_finished(outcome: String) -> void:
 		for e in events:
 			if e.get("kind") == "tutorial_complete":
 				await _show_tutorial_complete_popup()
+				break
+		for e in events:
+			if e.get("kind") == "enrage_intro":
+				await _show_enrage_intro_popup()
 				break
 		# Ian: "add a pop-up when she joins... you save her from the enemies
 		# and she chooses to join you" -- the milestone-companion event

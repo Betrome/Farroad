@@ -1155,7 +1155,8 @@ func _refresh_enrage() -> void:
 	# battle["enrage"] is false (step() gates its own increment on it too).
 	if not battle.get("enrage", true):
 		enrage_fg.size = Vector2(0, enrage_bg.size.y)
-		enrage_label.text = "No enrage (tutorial)"
+		enrage_label.text = ("No enrage until wave %d" % FarroadProgression.ENRAGE_FROM_WAVE) \
+			if FarroadCore.current_wave < FarroadProgression.ENRAGE_FROM_WAVE else "Enrage off"
 		return
 	var beat: int = battle["beat"]
 	var gate: int = FarroadCore.ENRAGE_AFTER

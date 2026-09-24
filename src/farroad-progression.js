@@ -859,12 +859,21 @@ P.TUTORIAL_ATK_MAG_MUL=0.5;
    smooth linear ramp from 0.5x (w<=20) back up to 1.0x (w>=100), so
    difficulty eases back in gradually across the wave 20-100 stretch
    instead of snapping back all at once. */
-P.TUTORIAL_RAMP_END_WAVE=100;
+/* Post-24-item-batch balance pass ("soften the damage cut but keep
+   Enrage"): the wall at wave 21 was enrage switching on, not the cut
+   ending -- so the cut now DIPS to TUTORIAL_POST_DIP right after the
+   tutorial and fades back to full strength by wave 120. Mirrors
+   FarroadProgression.gd's tutorial_atk_mag_mul exactly. */
+P.TUTORIAL_POST_DIP=0.30;
+/* First Road wave whose fights can enrage -- was 21, pushed to 31 by the same
+   balance pass (see FarroadProgression.gd's ENRAGE_FROM_WAVE). */
+P.ENRAGE_FROM_WAVE=31;
+P.TUTORIAL_RAMP_END_WAVE=120;
 P.tutorialAtkMagMul=function(w){
  if(w<=20)return P.TUTORIAL_ATK_MAG_MUL;
  if(w>=P.TUTORIAL_RAMP_END_WAVE)return 1;
  var t=(w-20)/(P.TUTORIAL_RAMP_END_WAVE-20);
- return P.TUTORIAL_ATK_MAG_MUL+(1-P.TUTORIAL_ATK_MAG_MUL)*t;};
+ return P.TUTORIAL_POST_DIP+(1-P.TUTORIAL_POST_DIP)*t;};
 P.BOSS_SPD_FROM=20; P.BOSS_SPD_REF=800; P.BOSS_SPD_MAX_MUL=2.2;
 P.bossSpdMul=function(w){
  var t=Math.min(1,Math.sqrt(Math.max(0,w-P.BOSS_SPD_FROM)/(P.BOSS_SPD_REF-P.BOSS_SPD_FROM)));

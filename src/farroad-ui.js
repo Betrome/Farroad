@@ -905,7 +905,7 @@ function startWave(w,skipDrops){
     off entirely for the Road's own solo tutorial stretch -- same w<=20
     boundary every other tutorial exception in this project already uses
     (tutorialAtkMagMul, TUTORIAL_CHECKPOINT_EVERY). */
- G.battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage&&w>20});
+ G.battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage&&w>=P.ENRAGE_FROM_WAVE});
  G.over=null;
  if(P.isBossWave(w))sysLog('<span class="bosstag">BOSS</span> <b>Wave '+w+' — the Roadwarden.</b>'+
   '<div class="tiny">Clearing it banks a checkpoint and hands you a new character.</div>');}
