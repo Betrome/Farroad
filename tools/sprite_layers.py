@@ -106,7 +106,7 @@ def is_skin(c):
 def is_eye_color(c):
     """Iris (blue/green/violet hues) or eye white."""
     h, s, l = hsl(c)
-    return (l >= 0.82) or (70 <= h <= 290 and s >= 0.15 and l >= 0.2)
+    return (l >= 0.70 and not is_skin(c)) or (70 <= h <= 290 and s >= 0.15 and l >= 0.2)
 
 
 def is_dark(c):
