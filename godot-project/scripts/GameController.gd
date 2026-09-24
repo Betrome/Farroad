@@ -49,6 +49,7 @@ var marks_panel: Node
 var expedition_panel: Node
 var expedition_timer: Timer
 var quests_panel: Node
+var shop_panel: Node
 var mc_panel: Node
 var road_button: Button
 ## Tracks whichever panel's own popup is currently open -- see
@@ -76,6 +77,8 @@ var side_presenter: Node = null
 var currency_row: HBoxContainer
 var aether_cell: Label
 var marks_cell: Label
+var crystal_cell: Label
+var idle_row: HBoxContainer
 var power_level_cell: Label
 var idle_rate_label: Label
 var speed_toggle_btn: Button
@@ -95,6 +98,14 @@ func _ready() -> void:
 	# whatever a previous session left it at.
 	Engine.time_scale = 1.0
 	_speed_2x = false
+	# 24-item batch, Group F: touch-drag scrolling that works no matter what
+	# the first touch lands on -- see TouchScroll.gd's own header comment.
+	# Hooked on node_added (every ScrollContainer/OptionButton anywhere in
+	# the game, including ones built later inside popups/overlays), plus one
+	# pass over whatever already exists.
+	get_tree().node_added.connect(_on_node_added)
+	for n in get_tree().root.find_children("*", "", true, false):
+		_on_node_added(n)
 	_vp = get_viewport_rect().size
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
@@ -105,6 +116,28 @@ func _ready() -> void:
 		mc_panel = load("res://scripts/McCreatePanel.gd").new()
 		add_child(mc_panel)
 		mc_panel.setup(_vp, self, _on_mc_confirmed)
+
+## Group F: a ScrollContainer gets a TouchScroll helper child (drag scrolls
+## even when the press started on a button/card/text), and a dropdown opens
+## on RELEASE instead of on press -- OptionButton defaults to press, which
+## would open it the instant a scroll gesture's first touch landed on it.
+func _on_node_added(n: Node) -> void:
+	if n is ScrollContainer:
+		# Deferred: node_added fires mid-add_child, when the container can
+		# still refuse a child of its own.
+		_attach_touch_scroll.call_deferred(n)
+	elif n is OptionButton:
+		(n as OptionButton).action_mode = BaseButton.ACTION_MODE_BUTTON_RELEASE
+
+## INTERNAL_MODE_BACK keeps the helper out of get_children(), so nothing
+## that walks a container's own children ever sees it.
+func _attach_touch_scroll(sc: ScrollContainer) -> void:
+	if not is_instance_valid(sc) or not sc.is_inside_tree():
+		return
+	for c in sc.get_children(true):
+		if c is TouchScroll:
+			return
+	sc.add_child(TouchScroll.new(), false, Node.INTERNAL_MODE_BACK)
 
 ## Everything that used to run unconditionally right after
 ## _load_or_new_game() -- now shared by both boot paths (a resumed save,
@@ -149,6 +182,9 @@ func _start_game() -> void:
 	quests_panel = load("res://scripts/QuestsPanel.gd").new()
 	add_child(quests_panel)
 	quests_panel.setup(g, _vp, self)
+	shop_panel = load("res://scripts/ShopPanel.gd").new()
+	add_child(shop_panel)
+	shop_panel.setup(g, _vp, self)
 	expedition_timer = Timer.new()
 	expedition_timer.wait_time = EXPEDITION_POLL_SEC
 	expedition_timer.autostart = true
@@ -187,15 +223,17 @@ func _on_expedition_tick() -> void:
 ## oversight.
 func _on_viewport_resized() -> void:
 	_vp = get_viewport_rect().size
-	# Ian: "move the total Aether and mark text up to where the Wave x
-	# text was" -- currency_row now sits at the OLD wave_label position
-	# (0.015); idle_rate_label shifted up by the same 0.04 that freed.
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
+	# 24-item batch, Group D3: shifted down 5% from the old 0.015/0.043 --
+	# see _build_hud's own comment for the full history.
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.043)
+	crystal_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
+	idle_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.093)
+	idle_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
 	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
 	fade_overlay.size = _vp
@@ -215,6 +253,7 @@ func _on_viewport_resized() -> void:
 	marks_panel.reflow(_vp)
 	expedition_panel.reflow(_vp)
 	quests_panel.reflow(_vp)
+	shop_panel.reflow(_vp)
 	_reflow_road_button()
 
 ## Resumes user://save.json if one exists and parses cleanly. Mirrors
@@ -355,8 +394,10 @@ func _rebuild_background_marks() -> void:
 ## text up to where the Wave x text was." wave_label is gone entirely --
 ## BattlePresenter's own wave-progress row (just above its enrage bar)
 ## now carries the current-wave text instead. currency_row moved up to
-## the old wave_label position (0.015, was 0.055); idle_rate_label
-## shifted up by the same 0.04 that freed (0.083 -> 0.043).
+## the old wave_label position (0.015, was 0.055); idle_row shifted up by
+## the same 0.04 that freed (0.083 -> 0.043) -- both then shifted back
+## DOWN by 0.05 per the 24-item batch's Group D3 ("move top aether and
+## marks down 5% to avoid running into the camera"), landing at 0.065/0.093.
 func _build_hud() -> void:
 	# Ian: "I want to replace some of the text like Aether and Marks with
 	# icons -- what do we need to do now to prepare for that?" Split what
@@ -368,27 +409,35 @@ func _build_hud() -> void:
 	# reward flyer can fly to the EXACT currency it's for (see
 	# _spawn_reward_drops) instead of a single shared combined-label spot.
 	currency_row = HBoxContainer.new()
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.015)
+	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
 	marks_cell = _build_currency_label(currency_row)
-	# Ian: "re-establish power level that is displayed at the top next to
-	# aether and marks" -- the real JS reference already shows this in its
-	# own always-visible header (farroad-ui.js's renderPowerLevel), right
-	# next to the currency purse; the Godot port never built the UI for it.
-	# Same row, third cell.
-	power_level_cell = _build_currency_label(currency_row)
+	# 24-item batch, Group C4: "Crystal needs listed at the top" -- third
+	# cell in the same row as Aether/Marks.
+	crystal_cell = _build_currency_label(currency_row)
 
-	# Idle reward rate (Group I, post-Milestone-3 batch) -- a small line
-	# under the currency purse showing the ambient trickle rate feeding it
-	# (idle_per_sec already runs regardless of whether the player is
-	# actively fighting -- see simulate_offline_progress's own comment).
+	# 24-item batch, Group C4: "move total power down a row, next to idle
+	# income" -- Power moves OUT of currency_row (where it used to sit as
+	# a third cell alongside Aether/Marks, before Crystal took that slot)
+	# into its own row alongside the idle-rate line below.
+	idle_row = HBoxContainer.new()
+	idle_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.093)
+	idle_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
+	add_child(idle_row)
+	# Idle reward rate (Group I, post-Milestone-3 batch) -- shows the
+	# ambient trickle rate feeding Aether/Marks (idle_per_sec already runs
+	# regardless of whether the player is actively fighting -- see
+	# simulate_offline_progress's own comment).
 	idle_rate_label = Label.new()
-	idle_rate_label.position = Vector2(_vp.x * 0.02, _vp.y * 0.043)
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
 	idle_rate_label.modulate = Color(0.65, 0.65, 0.65)
-	add_child(idle_rate_label)
+	idle_row.add_child(idle_rate_label)
+	power_level_cell = Label.new()
+	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	power_level_cell.modulate = Color(0.65, 0.65, 0.65)
+	idle_row.add_child(power_level_cell)
 
 	# Ian: "can we add a 2x speed button?" Top-right corner, mirroring
 	# currency_row's own top-left placement. Toggles Engine.time_scale
@@ -448,14 +497,15 @@ func _reset_game() -> void:
 ## row (same 0.11*vp.x icon size/0.93*vp.y row every tab panel's own icon
 ## uses), styled distinctly (a gold fill, not the flat grey every tab icon
 ## uses) so it reads as a different KIND of control, not just another tab.
-## Recomputed to the TRUE center of the now-7-icon row by the 20-item
-## batch's own Group H (Catalogue folded into Settings) -- see
-## MarksPanel.gd's own comment for the full 7-slot layout.
+## Recomputed by the 24-item batch's own Group C6 (Shop added, now an
+## 8-icon row) -- moved next to Expedition to stay close to true center
+## (0.5067 vs the ideal 0.5) -- see MarksPanel.gd's own comment for the
+## full 8-slot layout.
 func _build_road_button() -> void:
 	var icon_size: float = _vp.x * 0.11
 	road_button = Button.new()
 	road_button.text = "Road"
-	road_button.position = Vector2(_vp.x * 0.4450, _vp.y * 0.93)
+	road_button.position = Vector2(_vp.x * 0.5067, _vp.y * 0.93)
 	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
 	road_button.clip_text = true
 	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
@@ -473,7 +523,7 @@ func _build_road_button() -> void:
 
 func _reflow_road_button() -> void:
 	var icon_size: float = _vp.x * 0.11
-	road_button.position = Vector2(_vp.x * 0.4450, _vp.y * 0.93)
+	road_button.position = Vector2(_vp.x * 0.5067, _vp.y * 0.93)
 	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
 
 ## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
@@ -511,55 +561,32 @@ func _show_welcome_back_popup() -> void:
 	if wipes_gained > 0:
 		wipe_txt = "\nWiped %d time%s — back to checkpoint." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
 
-	# A real, reported bug: this popup used to size its own content margin
-	# as a fraction of _vp.y (int(_vp.y*0.03)) while its width budget was a
-	# fraction of _vp.x (popup 0.85*vp.x, vbox 0.78*vp.x, a mere 0.07*vp.x
-	# of slack) -- at this project's own portrait aspect ratio (vp.y/vp.x
-	# ~2.2), that margin alone (2*0.03*vp.y) already exceeds the entire
-	# width slack, so vbox's declared minimum width was GUARANTEED wider
-	# than the popup's real interior, and text/buttons visibly spilled
-	# past the popup's own right edge. Fixed with a small FIXED-pixel
-	# margin instead (matching every sibling popup's own fixed-pixel
-	# content margin -- _style_popup's 10px, _build_ui's 40px content-
-	# width subtraction -- none of which scale with screen height), and
-	# every Label below now gets the SAME autowrap+expand-fill treatment
-	# `body` alone used to have, so none of them can silently overflow
-	# instead of wrapping.
-	const POPUP_MARGIN := 16.0
-	var popup := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.PARTY_BLUE
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(POPUP_MARGIN))
-	popup.add_theme_stylebox_override("panel", style)
-	add_child(popup)
-	# _show_welcome_back_popup() is called synchronously from _start_game(),
-	# itself called synchronously from _ready() -- a freshly add_child()ed
-	# Window-derived node (PopupPanel is one) hasn't finished its own
-	# internal _ready() setup yet within that same frame, so calling
-	# popup_centered() immediately after add_child() can silently fail to
-	# actually show it. One frame is enough for its own post-add sizing.
-	await get_tree().process_frame
-
-	var popup_w: float = _vp.x * 0.85
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	popup.add_child(vbox)
+	# Post-24-item-batch (Group A2): migrated off a raw PopupPanel onto
+	# _build_detail_overlay -- fixes the same width-overflow class of bug
+	# this popup used to have its own bespoke fix for (that fix is now
+	# subsumed: _build_detail_overlay's scroll container has an explicit,
+	# content-independent minimum size, so nothing here needs its own
+	# margin arithmetic anymore) and, per Ian's own "reduce the height of
+	# informational pop-ups by 50% and center them" ask, replaces the old
+	# fixed _vp.y*0.65 height with content-driven sizing (capped at
+	# _vp.y*0.6, usually far less) -- already correctly centered by
+	# _finish_detail_overlay. This popup isn't triggered from inside an
+	# already-open tab popup (fires once at boot/resume), so it never had
+	# Group A1's sibling-Window bug, but gets the same overlay treatment
+	# for consistency and the height/centering win.
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = "Welcome back!"
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "Away %s.\n%s%s" % [away_txt, progress_txt, wipe_txt]
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
 	var gained := Label.new()
@@ -567,7 +594,6 @@ func _show_welcome_back_popup() -> void:
 	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	gained.modulate = Palette.GOLD_PRESSED
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
-	gained.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(gained)
 
 	# Ian: "don't add rewards from... idle until collected. Add a collect
@@ -582,7 +608,6 @@ func _show_welcome_back_popup() -> void:
 		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 		idle_lbl.modulate = Palette.PARTY_BLUE
 		idle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-		idle_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(idle_lbl)
 
 		var collect_btn := Button.new()
@@ -594,14 +619,7 @@ func _show_welcome_back_popup() -> void:
 			collect_btn.disabled = true)
 		vbox.add_child(collect_btn)
 
-	var got_it := Button.new()
-	got_it.text = "Got it"
-	got_it.pressed.connect(func():
-		popup.hide()
-		popup.queue_free())
-	vbox.add_child(got_it)
-
-	popup.popup_centered(Vector2(popup_w, _vp.y * 0.65))
+	await _finish_detail_overlay(o)
 
 ## Ian: a one-time popup shown exactly when enrage first turns on (clearing
 ## the wave-20 boss -- see the "tutorial_complete" event, FarroadProgression.
@@ -615,35 +633,32 @@ func _show_welcome_back_popup() -> void:
 ## to hold the wave-transition animation until the player has actually read
 ## and dismissed it.
 func _show_tutorial_complete_popup() -> void:
-	const POPUP_MARGIN := 16.0
-	var popup := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.GOLD_PRESSED
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(POPUP_MARGIN))
-	popup.add_theme_stylebox_override("panel", style)
-	add_child(popup)
-	await get_tree().process_frame
-
-	var popup_w: float = _vp.x * 0.85
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	popup.add_child(vbox)
+	# Post-24-item-batch (Group A1/A2): migrated off a raw PopupPanel onto
+	# _build_detail_overlay/_finish_detail_overlay -- this used to
+	# add_child() a SECOND top-level Window while a tab popup could
+	# already be open (see the big comment on _build_detail_overlay's own
+	# declaration for the full root-cause writeup), silently closing it
+	# the instant this popup appeared. Nesting inside whichever popup is
+	# already open (or GameController itself when none is) fixes that,
+	# and its content-driven sizing also satisfies "reduce the height of
+	# informational pop-ups by 50% and center them" for free. Still
+	# genuinely blocks the caller until dismissed (backdrop.tree_exiting
+	# fires from either the Close button or a backdrop tap) -- the win
+	# branch that calls this needs to hold the wave-transition animation
+	# until the player has actually read and dismissed it.
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = "Tutorial complete!"
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "You've beaten the Roadwarden. From here, the Road only gets harder."
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
 	var enrage_body := Label.new()
@@ -651,7 +666,6 @@ func _show_tutorial_complete_popup() -> void:
 	enrage_body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	enrage_body.modulate = Palette.BAD_RED
 	enrage_body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	enrage_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(enrage_body)
 
 	var enrage_pointer := Label.new()
@@ -659,17 +673,10 @@ func _show_tutorial_complete_popup() -> void:
 	enrage_pointer.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
 	enrage_pointer.modulate = Palette.TEXT_DIM
 	enrage_pointer.autowrap_mode = TextServer.AUTOWRAP_WORD
-	enrage_pointer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(enrage_pointer)
 
-	var got_it := Button.new()
-	got_it.text = "Got it"
-	vbox.add_child(got_it)
-
-	popup.popup_centered(Vector2(popup_w, _vp.y * 0.6))
-	await got_it.pressed
-	popup.hide()
-	popup.queue_free()
+	await _finish_detail_overlay(o)
+	await o["backdrop"].tree_exiting
 
 ## Ian: "add a pop-up when she joins... you save her from the enemies and
 ## she chooses to join you" -- fires whenever a milestone companion
@@ -683,45 +690,25 @@ func _show_companion_joined_popup(uid: String) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	var name: String = def["name"] if def != null else uid
 
-	const POPUP_MARGIN := 16.0
-	var popup := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.GOOD_GREEN
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(POPUP_MARGIN))
-	popup.add_theme_stylebox_override("panel", style)
-	add_child(popup)
-	await get_tree().process_frame
-
-	var popup_w: float = _vp.x * 0.85
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	popup.add_child(vbox)
+	# Post-24-item-batch (Group A1/A2): same overlay migration as
+	# _show_tutorial_complete_popup above -- see its comment.
+	var o := _build_detail_overlay(Palette.GOOD_GREEN)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = "%s joins you!" % name
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "You cut down the last of the danger just in time -- %s was caught in the middle of it. Grateful, and impressed, they choose to join you on the Road." % name
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
-	var got_it2 := Button.new()
-	got_it2.text = "Got it"
-	vbox.add_child(got_it2)
-
-	popup.popup_centered(Vector2(popup_w, _vp.y * 0.45))
-	await got_it2.pressed
-	popup.hide()
-	popup.queue_free()
+	await _finish_detail_overlay(o)
+	await o["backdrop"].tree_exiting
 
 ## Ian: "after wave 20, instead of a new unit, get a piece of equipment
 ## and show a pop-up about equipment and where it can be equipped" --
@@ -744,28 +731,15 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 		bits.append("Evade +%d%%" % roundi(float(item["evade"]) * 100.0))
 	var stat_line: String = " · ".join(bits) if not bits.is_empty() else "no flat stat bonus (affinity only)"
 
-	const POPUP_MARGIN := 16.0
-	var popup := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.GOLD_PRESSED
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(POPUP_MARGIN))
-	popup.add_theme_stylebox_override("panel", style)
-	add_child(popup)
-	await get_tree().process_frame
-
-	var popup_w: float = _vp.x * 0.85
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	popup.add_child(vbox)
+	# Post-24-item-batch (Group A1/A2): same overlay migration as
+	# _show_tutorial_complete_popup above -- see its comment.
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = "New gear: %s!" % item_name
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	# Duplicated small lookup, matching EquipmentPanel.gd's own RARITY_COLOR
@@ -778,24 +752,16 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	rarity_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
 	rarity_lbl.modulate = rarity_color.get(rarity, Palette.TEXT_DIM)
 	rarity_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	rarity_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(rarity_lbl)
 
 	var body := Label.new()
 	body.text = "Equipment gives a unit permanent stat bonuses for as long as it's worn -- head, body, legs, and two hand slots, each unit gearing up independently. Open the Equipment tab to equip this on whoever needs it most."
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
-	var got_it3 := Button.new()
-	got_it3.text = "Got it"
-	vbox.add_child(got_it3)
-
-	popup.popup_centered(Vector2(popup_w, _vp.y * 0.55))
-	await got_it3.pressed
-	popup.hide()
-	popup.queue_free()
+	await _finish_detail_overlay(o)
+	await o["backdrop"].tree_exiting
 
 ## Ian: "add tutorial pop-ups the first time each page/tab is opened to
 ## provide information and context for players." One shared, reusable
@@ -820,7 +786,8 @@ const TAB_TUTORIALS: Dictionary = {
 	"expedition": {"title": "Expedition", "body": "Send benched units out on an expedition down one of 8 directions. They fight on their own and keep progressing even while you're away -- recall them anytime, or leave them to push further out for a bigger haul."},
 	"quests": {"title": "Quests", "body": "Two things live here: each companion's own 5-stage quest line, and direction dungeons that unlock as your expeditions explore further. Both are fought live, right on this screen, same as any Road battle."},
 	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, equipment, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
-	"settings": {"title": "Settings", "body": "Game-wide settings live here, including a full Reset Game option if you ever want to start completely fresh."}
+	"settings": {"title": "Settings", "body": "Game-wide settings live here, including a full Reset Game option if you ever want to start completely fresh."},
+	"shop": {"title": "Shop", "body": "Spend Crystal (earned from dungeons and companion quests) on a specific gambit condition, action, unit, or piece of equipment of your choosing -- a guaranteed pick, priced by rarity, instead of Marks' random pulls."}
 }
 
 func _maybe_show_tab_tutorial(tab_id: String) -> void:
@@ -834,45 +801,29 @@ func _maybe_show_tab_tutorial(tab_id: String) -> void:
 	await _show_tab_tutorial_popup(info["title"], info["body"])
 
 func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
-	const POPUP_MARGIN := 16.0
-	var popup := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.PARTY_BLUE
-	style.set_border_width_all(3)
-	style.set_content_margin_all(int(POPUP_MARGIN))
-	popup.add_theme_stylebox_override("panel", style)
-	add_child(popup)
-	await get_tree().process_frame
-
-	var popup_w: float = _vp.x * 0.85
-	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_w - POPUP_MARGIN * 2.0, 0)
-	vbox.add_theme_constant_override("separation", 10)
-	popup.add_child(vbox)
+	# Post-24-item-batch (Group A1/A2): same overlay migration as
+	# _show_tutorial_complete_popup above -- this one's the exact bug Ian
+	# actually reported ("clicking 'Got it' on the tutorial pop-ups closes
+	# the menu behind it"), since this is the one that fires WHILE a tab
+	# popup (e.g. Settings') is already open -- see _build_detail_overlay's
+	# own comment for the full root-cause writeup.
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
 	title.text = title_text
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = body_text
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.024))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(body)
 
-	var got_it4 := Button.new()
-	got_it4.text = "Got it"
-	vbox.add_child(got_it4)
-
-	popup.popup_centered(Vector2(popup_w, _vp.y * 0.5))
-	await got_it4.pressed
-	popup.hide()
-	popup.queue_free()
+	await _finish_detail_overlay(o)
+	await o["backdrop"].tree_exiting
 
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
@@ -966,6 +917,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 func _refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
+	crystal_cell.text = "Crystal %d" % int(g.get("crystal", 0))
 	power_level_cell.text = "Power %d" % FarroadProgression.power_level(g)
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
@@ -1297,6 +1249,94 @@ func _show_action_detail_popup(action_id: String) -> void:
 		note_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(note_lbl)
 
+	# 24-item batch, Group D1: "move the (Used by x) text on actions into
+	# the detailed inspection of them... keep them unselectable." A plain
+	# Label (never selectable) listing every owned unit holding it, fielded
+	# or benched -- starter actions (strike/ember) are freely shareable, so
+	# they're labelled as such rather than listing everyone.
+	var used_lbl := Label.new()
+	if FarroadProgression.STARTER_ACTIONS.has(action_id):
+		used_lbl.text = "Starter action -- any number of units can use it at once."
+	else:
+		var holders: Array = FarroadProgression.action_holders(g, action_id)["active"]
+		used_lbl.text = ("Used by %s" % ", ".join(holders)) if not holders.is_empty() else "Not currently used by anyone."
+	used_lbl.modulate = Palette.TEXT_DIM
+	used_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	used_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(used_lbl)
+
+	await _finish_detail_overlay(o)
+
+## 24-item batch: "add a Stats button in the menu that shows furthest
+## wave, number of wipes, enemies defeated, bosses defeated, dungeons
+## found, quests completed (%), and Power Level, among any other stats you
+## think worth tracking." Everything is derived live from existing save
+## state except enemies defeated (g["enemiesDefeated"], a real counter
+## bumped by every win path -- Road, quests, dungeons, expeditions).
+func _show_stats_popup() -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Stats"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+
+	var quest_total := 0
+	var quest_done := 0
+	var lines_total := 0
+	var lines_done := 0
+	for uid in FarroadCore.QUEST_LINES.keys():
+		var stages: int = (FarroadCore.QUEST_LINES[uid] as Array).size()
+		quest_total += stages
+		lines_total += 1
+		var st: int = mini(stages, int(g.get("quests", {}).get(uid, {}).get("stage", 0)))
+		quest_done += st
+		if st >= stages:
+			lines_done += 1
+	var quest_pct: float = 100.0 * float(quest_done) / float(maxi(quest_total, 1))
+
+	var dungeon_clears := 0
+	for d in g.get("dungeons", []):
+		dungeon_clears += int(d.get("clears", 0))
+	var top_level := 1
+	for uid in g.get("owned", {}).keys():
+		top_level = maxi(top_level, int(g["lvl"].get(uid, 1)))
+	var equip_pieces := 0
+	for iid in g.get("equipInv", {}).keys():
+		equip_pieces += int(g["equipInv"][iid])
+	var mc_charges: int = (g["mc"].get("acquiredCharges", []) as Array).size() if g.get("mc") != null else 0
+
+	var rows: Array = [
+		["Power level", str(FarroadProgression.power_level(g))],
+		["Furthest wave", str(int(g.get("farthest", 1)))],
+		["Current wave", str(int(g.get("wave", 1)))],
+		["Bosses defeated", str(int(g.get("bossesCleared", 0)))],
+		["Enemies defeated", str(int(g.get("enemiesDefeated", 0)))],
+		["Wipes", str(int(g.get("wipes", 0)))],
+		["Dungeons found", str((g.get("dungeons", []) as Array).size())],
+		["Dungeon clears", str(dungeon_clears)],
+		["Quests completed", "%d%% (%d/%d stages, %d/%d lines)" % [roundi(quest_pct), quest_done, quest_total, lines_done, lines_total]],
+		["Units owned", "%d / %d" % [(g.get("owned", {}) as Dictionary).size(), FarroadCore.ROSTER.size()]],
+		["Highest unit level", str(top_level)],
+		["Actions unlocked", "%d (+%d charge)" % [(g.get("actions", []) as Array).size(), mc_charges]],
+		["Gambits unlocked", "%d / %d" % [maxi(0, (g.get("conditions", []) as Array).size() - 1), FarroadCore.ALL_CONDITION_IDS.size() - 1]],
+		["Equipment pieces", str(equip_pieces)],
+	]
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 4)
+	for r in rows:
+		var k := Label.new()
+		k.text = r[0]
+		k.modulate = Palette.TEXT_DIM
+		grid.add_child(k)
+		var v := Label.new()
+		v.text = r[1]
+		v.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(v)
+	vbox.add_child(grid)
 	await _finish_detail_overlay(o)
 
 ## Ian: "change the inventory section in the settings to be a button."
@@ -1871,15 +1911,14 @@ func _fade_in() -> void:
 ## Icon x-fractions duplicated from the target panels' own _build_icon_tab
 ## calls, all at icon_size=0.11*vp.x, y=0.93*vp.y -- same per-file
 ## duplication convention this project already uses everywhere else, not
-## a new pattern. Renamed + recomputed for the 7-icon row (20-item batch's
-## own Group H: Road centered, Catalogue folded into Settings) -- UnitsPanel
-## 0.0288, PartyPanel 0.1675, ExpeditionPanel 0.5838, confirmed by reading
-## each panel's own current _build_ui.
+## a new pattern. Recomputed for the 8-icon row (24-item batch's own Group
+## C6: Shop added) -- UnitsPanel 0.0133, PartyPanel 0.1367, ExpeditionPanel
+## 0.3833, confirmed by reading each panel's own current _build_ui.
 const ICON_SIZE_FRAC := 0.11
 const ICON_Y_FRAC := 0.93
-const UNITS_ICON_X_FRAC := 0.0288
-const PARTY_ICON_X_FRAC := 0.1675
-const EXPEDITION_ICON_X_FRAC := 0.5838
+const UNITS_ICON_X_FRAC := 0.0133
+const PARTY_ICON_X_FRAC := 0.1367
+const EXPEDITION_ICON_X_FRAC := 0.3833
 
 const REWARD_FLYER_TIME := 0.7
 const REWARD_FLYER_STAGGER := 0.12

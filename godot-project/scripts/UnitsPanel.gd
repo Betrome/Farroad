@@ -52,11 +52,11 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

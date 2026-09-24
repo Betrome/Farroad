@@ -27,8 +27,8 @@ S.VERSION=1;
    deliberately NOT migrated into any action's new pool (this project is
    still dev/test-only, a "Reset Game" button already exists) -- every
    action just starts fresh at 0. */
-var FIELDS=['wave','farthest','bossesCleared','aether','loreByAction','marks','wipes',
- 'party','actions','conditions','actionCounts','condCounts','bonuses','recovery',
+var FIELDS=['wave','farthest','bossesCleared','aether','loreByAction','marks','crystal','wipes','enemiesDefeated',
+ 'party','partyPresets','actions','conditions','actionCounts','condCounts','bonuses','recovery',
  'loadout','hpCarry','chargeCarry','touched','clearedWaves','dropsGranted','lvl','bank','maxLevelEver','owned',
  'enrage','idleAcc','dropQueue','dropHistory','pullsSinceUnit',
  /* v2.11: {lore,aether} running total for the condensed duplicate-drop
@@ -175,7 +175,8 @@ S.deserialize=function(snap,C){
  if(!G.owned.kesh)G.owned.kesh=1;
  G.maxLevelEver=G.maxLevelEver||1;
  G.wave=G.wave||0;G.farthest=G.farthest||1;G.bossesCleared=G.bossesCleared||0;
- G.aether=G.aether||0;G.loreByAction=G.loreByAction||{};G.marks=G.marks||0;G.wipes=G.wipes||0;
+ G.aether=G.aether||0;G.loreByAction=G.loreByAction||{};G.marks=G.marks||0;G.crystal=G.crystal||0;G.wipes=G.wipes||0;G.enemiesDefeated=G.enemiesDefeated||0;
+ G.partyPresets=G.partyPresets||[];
  G.pendingIdleAether=G.pendingIdleAether||0;G.pendingIdleMarks=G.pendingIdleMarks||0;
  G.idleAcc=G.idleAcc||0;G.enrage=(G.enrage!==false);
  /* v2.9 MIGRATION: a save written before multi-expedition support has a

@@ -44,8 +44,8 @@ var G;   /* game state */
    creation (see applyCustomMC below) — null keeps the hardcoded Kesh. */
 function newGame(seed,mc){
  return {seed:seed||7, rng:C.makeRNG(seed||7), wave:0, farthest:1, bossesCleared:0,
-  aether:0, loreByAction:{}, marks:0, wipes:0, pendingIdleAether:0, pendingIdleMarks:0,
-  party:['kesh'], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
+  aether:0, loreByAction:{}, marks:0, crystal:0, wipes:0, enemiesDefeated:0, pendingIdleAether:0, pendingIdleMarks:0,
+  party:['kesh'], partyPresets:[], actions:P.STARTER_ACTIONS.slice(), conditions:['none'],
   actionCounts:{}, condCounts:{}, bonuses:{}, recovery:{}, loadout:{}, hpCarry:{}, chargeCarry:{}, touched:{},
   /* v2.4: every reward keyed to a WAVE NUMBER rather than to progress is farmable
      by dying and replaying. This records which waves have ever been cleared. */
@@ -259,10 +259,11 @@ function effectiveAffinity(uid){
  AFFINITY_AXES.forEach(function(ax){out[ax]=(base[ax]||0)+(purchased[ax]||0)+equip[ax];});
  return out;}
 function affinityRaw(uid,axis){return (affinityBaseline(uid)[axis]||0)+(affinityPurchased(uid)[axis]||0);}
-/* Stops offering a purchase once the EFFECTIVE raw hits the cap exactly —
-   C.affinityMul plateaus there by construction (Math.min clamps the input),
-   so a further point could not move the number even if bought. */
-function affinityMaxed(uid,axis){return affinityRaw(uid,axis)>=C.AFFINITY_CAP;}
+/* Ian (24-item batch, Group B6): "no max on affinities." Always false now
+   -- affinityRaw is genuinely uncapped, so there's no threshold left to
+   gate a purchase on. Both call sites (the affbuy click handler, the
+   AETHER tab's own "MAXED" display) now just always see "never maxed". */
+function affinityMaxed(uid,axis){return false;}
 function affinityNextCost(uid,axis){return P.affinityCostToNext(affinityPurchased(uid)[axis]||0);}
 
 /* ===== EVADE/CRIT INVESTMENT (v2.10) ===== see farroad-progression.js
@@ -732,10 +733,13 @@ function creditLore(aid){G.loreByAction[aid]=(G.loreByAction[aid]||0)+1;}
    no action of its own to credit). A no-op if the player somehow owns zero
    lore-eligible actions (shouldn't happen in practice -- starter actions
    always exist by the time drops/pulls are reachable). */
+/* Returns the credited action id ('' on the no-op path) -- 24-item batch,
+   Group D6, so a duplicate-gambit pull can name where its Lore went. */
 function creditRandomLore(){
  var ids=loreActionIds();
- if(!ids.length)return;
- creditLore(ids[G.rng.nextInt(ids.length)]);}
+ if(!ids.length)return '';
+ var aid=ids[G.rng.nextInt(ids.length)];
+ creditLore(aid);return aid;}
 /* Sum of every action's own Lore pool -- the simple aggregate the top purse
    bar shows, distinct from any one action's own detail-view pool
    (freeLoreFor below). */
@@ -920,20 +924,35 @@ function joinCompanion(uid){
  G.affinities=G.affinities||{};if(!G.affinities[uid])G.affinities[uid]={};
  G.statInvest=G.statInvest||{};if(!G.statInvest[uid])G.statInvest[uid]={};
  G.equipped=G.equipped||{};if(!G.equipped[uid])G.equipped[uid]={};
+ /* Ian: "when units join, only give them strike and ember as their
+    actions" -- without this, a joining unit's loadout was populated
+    lazily (either the strike+strike default below, or autoEquip
+    silently upgrading slot 0 to any already-unlocked account action the
+    next time a drop happened to fire while fielded). Seeding it
+    explicitly AND marking the unit touched short-circuits autoEquip's
+    own per-unit gate from ever revisiting this unit. */
+ if(!G.loadout[uid])G.loadout[uid]=[{cond:'none',action:'strike'},{cond:'none',action:'ember'}];
+ G.touched=G.touched||{};G.touched[uid]=true;
  var fielded=G.party.length<P.PARTY_CAP;
  if(fielded)G.party.push(uid);
  return fielded;}
 function afterWaveCleared(){
  /* class fix: FIRST-CLEAR gates every wave-number-keyed reward, not just drops.
-    Kill and idle income stay repeatable — they are per-fight, not per-wave-number,
-    so grinding a wave for Aether still works and is meant to. What can no longer
-    be farmed: curated drops, random drops, boss hoards and milestone companions. */
+    What can never be farmed at all: curated drops, random drops, boss hoards
+    and milestone companions. Kill/idle income stay repeatable (grinding a
+    wave for Aether still works) but, per Ian's 24-item-batch Group B5 ask
+    ("half rewards for clearing waves you've already cleared"), a RE-clear
+    now pays only half -- reversing this comment's own earlier "stays
+    repeatable [at full value]" note. Live-play forward progress
+    (firstClear===true, the overwhelmingly common case) is unaffected. */
  var firstClear=!G.clearedWaves[G.wave];
  G.clearedWaves[G.wave]=1;
  G.units.forEach(function(u){G.hpCarry[u.id]=u.hp/u.maxHp;G.chargeCarry[u.id]=u.charge;});
+ G.enemiesDefeated=(G.enemiesDefeated||0)+G.enemies.length;   /* Stats page: every enemy in a won wave went down */
  var r=P.killReward(G.wave,G.enemies.length);
  var aetherMul=(G.wave<=P.TUTORIAL_AETHER_WAVES)?P.TUTORIAL_AETHER_MUL:1;
- G.aether+=r.aether*aetherMul;G.marks+=r.marks*P.marksMul(G);
+ var reclearMul=firstClear?1:0.5;
+ G.aether+=r.aether*aetherMul*reclearMul;G.marks+=r.marks*P.marksMul(G)*reclearMul;
  if(P.isBossWave(G.wave)&&firstClear){
   G.bossesCleared++;
   /* BOSS HOARD. Sized against the measured cliff, not picked round: without it,
@@ -994,7 +1013,7 @@ function afterWaveCleared(){
     long stretches with zero chance at a new companion — Ian reported
     reaching wave 400+ without a 3rd unit. Independent roll from the
     milestone join above, so a milestone boss can grant both. */
- if(P.isBossWave(G.wave)&&G.rng.next()<0.10){
+ if(P.isBossWave(G.wave)&&G.wave!==P.BOSS_WAVES[0]&&G.rng.next()<0.10){
   var bossAvail=C.ROSTER.filter(function(r){return !G.owned[r.id];});
   if(bossAvail.length){
    var bossPick=bossAvail[G.rng.nextInt(bossAvail.length)];
@@ -1150,9 +1169,15 @@ function benchedUnits(){
  return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!isOnExpedition(uid);});}
 function isOnExpedition(uid){
  return G.expeditions.some(function(e){return e.partyIds.indexOf(uid)>=0;});}
-function pushExpeditionLog(exp,text){
+/* `at` (ms, Date.now() convention) is optional -- omitted for every
+   real-time, single-event call site (send/arrive/turn-back), explicitly
+   passed as a SIMULATED per-node timestamp by resolveExpedition's own
+   catch-up loop below, so a multi-node catch-up pass spreads its log
+   entries across the party's simulated away-time instead of clustering
+   every entry at the one real moment the whole pass happened to run. */
+function pushExpeditionLog(exp,text,at){
  exp.log=exp.log||[];
- exp.log.unshift({at:Date.now(),text:text});
+ exp.log.unshift({at:(at!=null?at:Date.now()),text:text});
  while(exp.log.length>40)exp.log.pop();}
 function buildExpeditionParty(partyIds,hpFrac){
  var out=[];
@@ -1325,36 +1350,35 @@ function resolveExpedition(exp){
  while(remaining>0&&guard++<200000){
   var cost=20+P.travelSec(exp.ew);
   if(cost>remaining)break;
-  var party=buildExpeditionParty(exp.partyIds,exp.hpFrac);
-  var enemies=applyDirectionAffinity(applyStatMul(buildEnemies(exp.ew,true),mul),exp.direction);
-  var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
-  var beatGuard=0;
-  while(!battle.over&&beatGuard++<4000)C.step(battle);
-  if(battle.over==='party'){
-   var r=P.killReward(exp.ew,enemies.length);
-   exp.bank.aether+=r.aether*mul;exp.bank.marks+=r.marks*P.marksMul(G)*mul;
-   if(P.isBossWave(exp.ew))exp.bank.aether+=P.bossAether(exp.ew)*mul;
-   var alive=party.filter(function(u){return u.hp>0;});
-   exp.hpFrac=alive.length?
-    alive.reduce(function(s,u){return s+u.hp/u.maxHp;},0)/alive.length:0;
+  var simNow=resolveStartedAt+(capped-remaining+cost)*1000;
+  /* 24-item batch, Group E4: a per-node chance this stretch of road is a
+     non-combat event instead of a fight — the party still advances a node.
+     The roll is drawn every node, event or not, so RNG stays in lockstep
+     with FarroadProgression.gd's own resolve_expedition. */
+  if(G.rng.next()<P.EXPED_EVENT_CHANCE){
+   rollExpeditionEvent(exp,mul,simNow);
    exp.ew++;
-   rollExpeditionDiscovery(exp,mul);   /* bonus fight only now — see below */
-   /* Deterministic per-direction dungeon schedule — replaces the old
-      random dungeon-discovery roll. maxDepth is cumulative across every
-      expedition ever sent this direction, never reset per trip, so a
-      short-lived trip still contributes real, permanent progress toward
-      the next unlock. The while (not if) loop matters for a big catch-up
-      pass that crosses more than one 100-multiple in one go — none
-      skipped. */
-   var dp=G.directions[exp.direction];
-   dp.maxDepth=Math.max(dp.maxDepth,exp.ew);
-   var targetTier=Math.floor(dp.maxDepth/P.DIRECTION_CONFIG[exp.direction].unlockEvery);
-   while(targetTier>dp.dungeonsUnlocked){
-    dp.dungeonsUnlocked++;
-    var newDungeon=unlockDirectionDungeon(exp.direction,dp.dungeonsUnlocked);
-    pushExpeditionLog(exp,'Found the way into '+newDungeon.name+' — enter it from the QUESTS tab.');}
+   advanceDirectionDepth(exp,simNow);
   }else{
-   exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
+   var party=buildExpeditionParty(exp.partyIds,exp.hpFrac);
+   var enemies=applyDirectionAffinity(applyStatMul(buildEnemies(exp.ew,true),mul),exp.direction);
+   var battle=C.makeBattle(party.concat(enemies),{rng:G.rng,enrage:G.enrage});
+   var beatGuard=0;
+   while(!battle.over&&beatGuard++<4000)C.step(battle);
+   if(battle.over==='party'){
+    G.enemiesDefeated=(G.enemiesDefeated||0)+enemies.length;
+    var r=P.killReward(exp.ew,enemies.length);
+    exp.bank.aether+=r.aether*mul;exp.bank.marks+=r.marks*P.marksMul(G)*mul;
+    if(P.isBossWave(exp.ew))exp.bank.aether+=P.bossAether(exp.ew)*mul;
+    var alive=party.filter(function(u){return u.hp>0;});
+    exp.hpFrac=alive.length?
+     alive.reduce(function(s,u){return s+u.hp/u.maxHp;},0)/alive.length:0;
+    exp.ew++;
+    rollExpeditionDiscovery(exp,mul,simNow);   /* bonus fight only now — see below */
+    advanceDirectionDepth(exp,simNow);
+   }else{
+    exp.hpFrac=0;                  /* wiped outright — same as hitting the floor below */
+   }
   }
   remaining-=cost;
   if(exp.hpFrac<P.EXPED_RETURN_HP_FRAC){turnedBack=true;break;}}
@@ -1362,6 +1386,35 @@ function resolveExpedition(exp){
  exp.lastResolvedAt=Date.now();
  if(turnedBack)beginReturnTrip(exp,resolveStartedAt+(capped-remaining)*1000,
   'injuries mounted and the party turned back.');}
+/* Deterministic per-direction dungeon schedule — replaces the old random
+   dungeon-discovery roll. maxDepth is cumulative across every expedition
+   ever sent this direction, never reset per trip, so a short-lived trip
+   still contributes real, permanent progress toward the next unlock. The
+   while (not if) loop matters for a big catch-up pass that crosses more
+   than one 100-multiple in one go — none skipped. Shared by both node
+   kinds (fight won / road event) since Group E4. */
+function advanceDirectionDepth(exp,simNow){
+ var dp=G.directions[exp.direction];
+ dp.maxDepth=Math.max(dp.maxDepth,exp.ew);
+ var targetTier=Math.floor(dp.maxDepth/P.DIRECTION_CONFIG[exp.direction].unlockEvery);
+ while(targetTier>dp.dungeonsUnlocked){
+  dp.dungeonsUnlocked++;
+  var newDungeon=unlockDirectionDungeon(exp.direction,dp.dungeonsUnlocked);
+  pushExpeditionLog(exp,'Found the way into '+newDungeon.name+' — enter it from the QUESTS tab.',simNow);}}
+/* 24-item batch, Group E4 — one non-combat road event (P.EXPED_EVENTS). */
+function rollExpeditionEvent(exp,mul,simNow){
+ var ev=P.EXPED_EVENTS[G.rng.nextInt(P.EXPED_EVENTS.length)];
+ var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
+  return d?d.name:uid;}).join(', ');
+ var r=P.killReward(exp.ew,P.enemyCount(exp.ew));
+ var aGain=r.aether*mul*ev.aether,mGain=r.marks*P.marksMul(G)*mul*ev.marks;
+ exp.bank.aether+=aGain;exp.bank.marks+=mGain;
+ if(ev.heal>0)exp.hpFrac=Math.min(1,exp.hpFrac+ev.heal);
+ var bits=[];
+ if(Math.round(aGain)>=1)bits.push('+'+Math.round(aGain)+' Aether');
+ if(Math.floor(mGain)>=1)bits.push('+'+Math.floor(mGain)+' Marks');
+ if(ev.heal>0)bits.push('recovered some HP');
+ pushExpeditionLog(exp,ev.text.replace('{names}',names)+(bits.length?' ('+bits.join(', ')+')':''),simNow);}
 /* Serializes a live enemy unit (from buildEnemies) into a plain, JSON-safe
    cfg-shaped snapshot — the exact fields C.makeUnit needs to reconstruct
    an equivalent FRESH unit later, none of the per-battle-instance runtime
@@ -1405,7 +1458,7 @@ function unitsFromSnapshots(snapshots){
    this is bonus-fight-only. `mul` is the calling expedition's own
    direction multiplier, passed through rather than recomputed so this
    and resolveExpedition never disagree on it. */
-function rollExpeditionDiscovery(exp,mul){
+function rollExpeditionDiscovery(exp,mul,simNow){
  if(G.rng.next()>=P.EXPED_DISCOVERY_CHANCE)return;
  var names=exp.partyIds.map(function(uid){var d=null;C.ROSTER.forEach(function(r){if(r.id===uid)d=r;});
   return d?d.name:uid;}).join(', ');
@@ -1414,14 +1467,14 @@ function rollExpeditionDiscovery(exp,mul){
  var bBattle=C.makeBattle(bParty.concat(bEnemies),{rng:G.rng,enrage:G.enrage});
  var bGuard=0;
  while(!bBattle.over&&bGuard++<4000)C.step(bBattle);
- if(bBattle.over==='party'){
+ if(bBattle.over==='party'){G.enemiesDefeated=(G.enemiesDefeated||0)+bEnemies.length;
   var br=P.killReward(exp.ew,bEnemies.length);
   var bAether=br.aether*mul,bMarks=br.marks*P.marksMul(G)*mul;
   exp.bank.aether+=bAether;exp.bank.marks+=bMarks;
   pushExpeditionLog(exp,names+' won a bonus fight along the way — +'+
-   Math.round(bAether)+' Aether, +'+Math.floor(bMarks)+' Marks.');
+   Math.round(bAether)+' Aether, +'+Math.floor(bMarks)+' Marks.',simNow);
  }else{
-  pushExpeditionLog(exp,names+' were ambushed in a bonus fight and had to disengage — no reward.');}}
+  pushExpeditionLog(exp,names+' were ambushed in a bonus fight and had to disengage — no reward.',simNow);}}
 /* Builds one new multi-wave dungeon for `dir` at unlock number `tier`
    (1st, 2nd, ... dungeon this direction has produced) — cfg.waveCount-1
    regular waves, all at the SAME frozen depth (tier*cfg.unlockEvery,
@@ -1633,6 +1686,9 @@ function startSideBattle(enemies,wave,meta){
    should say the player called it off, not that the party was beaten. */
 function finishSideBattle(result,gaveUp){
  var sb=G.sideBattle,meta=sb.meta;
+ /* Stats page: "enemies defeated" -- counted before G.battle is swapped back
+    to the Road; covers every dungeon wave and a quest stage alike. */
+ if(result==='party'&&!gaveUp)G.enemiesDefeated=(G.enemiesDefeated||0)+G.battle.units.filter(function(u){return !u.isParty;}).length;
  /* Multi-wave dungeon, won this wave, more waves left — advance IN PLACE
     rather than fully resolving. Deliberately does NOT touch G.roadBattle/
     G.sideBattle/playing (only G.battle + CURRENT_WAVE change) — mirrors
@@ -1661,15 +1717,19 @@ function finishSideBattle(result,gaveUp){
    /* v2.10: Aether reward, scaling 100 (stage 1) -> 500 (stage 5) — see
       P.questStageAether. meta.stage is the 0-based stage JUST cleared. */
    var reward=P.questStageAether(meta.stage);
-   /* Banked, not credited — mirrors the expedition bank/collect pattern
-      (exp.bank) already established. Accumulates across multiple
-      uncollected clears rather than overwriting. */
-   q.pendingAether=(q.pendingAether||0)+reward;
+   /* Ian (24-item batch, Group A/C5): "have quest rewards be
+      automatically attributed" — reverses the earlier pending/Collect
+      pattern (q.pendingAether) back to an immediate credit, same shape
+      afterWaveCleared's own Road-wave rewards already use. Group C3:
+      "unit quests reward 1 Crystal per stage cleared" — a flat grant
+      alongside Aether, also immediate. */
+   G.aether+=reward;
+   G.crystal=(G.crystal||0)+1;
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST',body:meta.story,
     why:(q.stage>=5?meta.name+'\'s quest line is complete.':'Stage '+(q.stage+1)+' is now available.')+
-     ' +'+reward+' Aether.'});
+     ' +'+reward+' Aether, +1 Crystal.'});
    sysLog('<b>Quest stage cleared.</b> <span class="tiny">'+meta.name+' — stage '+(meta.stage+1)+' of 5. '+
-    '<b style="color:var(--aether)">+'+reward+' Aether</b>.</span>');
+    '<b style="color:var(--aether)">+'+reward+' Aether, +1 Crystal</b>.</span>');
   }else if(gaveUp){
    pushDrop({name:meta.name+' — stage '+(meta.stage+1)+' of 5',kind:'QUEST ABANDONED',
     body:'The attempt was called off.',why:'No penalty — try again any time.'});
@@ -1754,16 +1814,15 @@ function finishSideBattle(result,gaveUp){
    var mul=P.directionMul(meta.direction);
    var r=P.killReward(rewardWave,meta.totalWaves);
    var dAether=r.aether*mul,dMarks=r.marks*P.marksMul(G)*mul;
-   /* Banked, not credited — same reasoning/pattern as the quest branch
-      above. */
-   dungeon.pendingAether=(dungeon.pendingAether||0)+dAether;
-   dungeon.pendingMarks=(dungeon.pendingMarks||0)+dMarks;
+   /* Ian (Group A/C5): auto-credit, same reversal as the quest branch
+      above. Group C2: "dungeons drop 10 Crystal." */
+   G.aether+=dAether;G.marks+=dMarks;G.crystal=(G.crystal||0)+10;
    pushDrop({name:dungeon.name,kind:'DUNGEON CLEARED',
-    body:'Earned +'+Math.round(dAether)+' Aether and +'+Math.floor(dMarks)+' Marks.',
+    body:'Earned +'+Math.round(dAether)+' Aether, +'+Math.floor(dMarks)+' Marks and +10 Crystal.',
     why:'Cleared all '+meta.totalWaves+' waves, including the boss.'});
    sysLog('<b>Dungeon cleared.</b> <span class="tiny">'+dungeon.name+' — earned '+
-    '<b style="color:var(--aether)">+'+Math.round(dAether)+' Aether</b> and '+
-    '<b style="color:var(--marks)">+'+Math.floor(dMarks)+' Marks</b>.</span>');
+    '<b style="color:var(--aether)">+'+Math.round(dAether)+' Aether</b>, '+
+    '<b style="color:var(--marks)">+'+Math.floor(dMarks)+' Marks</b> and +10 Crystal.</span>');
   }else{
    pushDrop({name:dungeon?dungeon.name:'Dungeon',kind:'DUNGEON FAILED',
     body:'The party was defeated'+(meta.waveIndex>0?' on wave '+(meta.waveIndex+1)+
@@ -2659,10 +2718,60 @@ function doPull(){
       c.group==='Ally'?'reads your own side':c.group==='Self'?'reads the acting unit':'always true')+
      '. Slot it in the GAMBITS tab to gate an action on it.',
     note:'A condition is only worth a slot if the action it gates is WORSE without it.'});}
-  else{creditRandomLore();
+  else{var loreAid=creditRandomLore();
    pushDrop({name:'+1 Lore',kind:'PULL · duplicate gambit',wave:G.wave,
-    body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>.'});}}
+    body:'Already held, so it converted to <b style="color:var(--lore)">+1 Lore</b>'+
+     (loreAid&&C.ACTIONS[loreAid]?' on '+C.ACTIONS[loreAid].name:'')+'.'});}}
  buildGambits();renderAll();}
+/* ===== SHOP tab: fixed-price purchases with Crystal (24-item batch,
+   Group C6) — a new Godot-only-originating feature, mirrored here for
+   parity even though there's no real SHOP UI in this web build. Same
+   "afford check -> deduct -> mutate -> return bool" shape every sibling
+   spend-/buy-style function above already uses (spendFeed/spendAffinity/
+   doPull), reading/writing G directly rather than taking an explicit
+   g parameter — matches this file's own established convention for
+   every currency-spending action, not farroad-progression.js's (which
+   only ever holds pure cost/reward MATH, never an actual mutating
+   purchase). Ian's own fixed prices, verbatim. */
+var SHOP_GAMBIT_PRICE=10;
+var SHOP_ACTION_PRICE={common:20,rare:50,legendary:100};
+var SHOP_UNIT_PRICE={common:100,rare:200,legendary:500};
+var SHOP_EQUIPMENT_PRICE={common:10,rare:30,legendary:90};
+function buyShopGambit(condId){
+ if(condId==='none'||G.conditions.indexOf(condId)>=0)return false;
+ if((G.crystal||0)<SHOP_GAMBIT_PRICE)return false;
+ G.crystal-=SHOP_GAMBIT_PRICE;G.conditions.push(condId);return true;}
+function buyShopAction(actionId){
+ var act=C.ACTIONS[actionId];if(!act)return false;
+ var isCharge=!!act.isCharge;
+ if(isCharge){
+  if(!G.mc)return false;
+  G.mc.acquiredCharges=G.mc.acquiredCharges||[];
+  if(G.mc.acquiredCharges.indexOf(actionId)>=0)return false;
+ }else if(G.actions.indexOf(actionId)>=0)return false;
+ var price=SHOP_ACTION_PRICE[act.rarity]||20;
+ if((G.crystal||0)<price)return false;
+ G.crystal-=price;
+ if(isCharge)G.mc.acquiredCharges.push(actionId);else G.actions.push(actionId);
+ return true;}
+function buyShopUnit(uid){
+ if(G.owned[uid])return false;
+ var def=null;C.ROSTER.forEach(function(r){if(r.id===uid)def=r;});
+ if(!def)return false;
+ var price=SHOP_UNIT_PRICE[def.rarity]||100;
+ if((G.crystal||0)<price)return false;
+ G.crystal-=price;joinCompanion(uid);return true;}
+/* Equipment is always purchasable, even if already owned -- extra copies
+   stack (same "dupes are genuinely useful" rule doPull's own equip
+   branch already establishes), so there's no ownership gate here at
+   all, only affordability. */
+function buyShopEquipment(itemId){
+ var item=C.EQUIPMENT[itemId];if(!item)return false;
+ var price=SHOP_EQUIPMENT_PRICE[item.rarity]||10;
+ if((G.crystal||0)<price)return false;
+ G.crystal-=price;
+ G.equipInv=G.equipInv||{};G.equipInv[itemId]=(G.equipInv[itemId]||0)+1;
+ return true;}
 /* Absolute clock time for a log entry timestamp — "let's list timestamps
    on messages". Deliberately hour:minute only (no seconds, no date) —
    this is a same-session log, not a long-term history. */
@@ -2962,6 +3071,33 @@ function renderTick(){renderHead();renderPowerLevel();renderUnits();renderRail()
  * units are exactly the pool an expedition draws from. */
 function availableForParty(){
  return Object.keys(G.owned).filter(function(uid){return G.party.indexOf(uid)<0&&!isOnExpedition(uid);});}
+/* ===== party presets (24-item batch, Group E1) — Godot-originating
+   ("save current party as a default party you name, up to 10"), mirrored
+   here for parity the same way the Shop was. See FarroadProgression.gd's
+   own save_party_preset/load_party_preset for the full reasoning. */
+var PARTY_PRESET_CAP=10;
+function savePartyPreset(name){
+ var trimmed=String(name||'').trim();
+ if(!trimmed||!G.party.length)return false;
+ G.partyPresets=G.partyPresets||[];
+ if(G.partyPresets.length>=PARTY_PRESET_CAP)return false;
+ G.partyPresets.push({name:trimmed.substr(0,24),party:G.party.slice()});return true;}
+function presetMembersAvailable(index){
+ var presets=G.partyPresets||[];
+ if(index<0||index>=presets.length)return [];
+ var out=[];
+ presets[index].party.forEach(function(uid){
+  if(out.length>=P.PARTY_CAP)return;
+  if(G.owned[uid]&&!isOnExpedition(uid)&&out.indexOf(uid)<0)out.push(uid);});
+ return out;}
+function loadPartyPreset(index){
+ var members=presetMembersAvailable(index);
+ if(!members.length)return false;
+ G.party=members;autoEquip();return true;}
+function deletePartyPreset(index){
+ var presets=G.partyPresets||[];
+ if(index<0||index>=presets.length)return false;
+ presets.splice(index,1);return true;}
 function benchUnit(uid){
  if(G.party.length<=1)return false;             /* never allow an empty party */
  var i=G.party.indexOf(uid);if(i<0)return false;

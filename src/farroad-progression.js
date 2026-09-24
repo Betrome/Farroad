@@ -355,14 +355,26 @@ P.GUARANTEED_THIRD_WAVE=60;
    per-kill reward — including expeditions' own — boss hoards, and the
    duplicate-unit conversion, all either use these directly or derive from
    idlePerSec/killReward), so one cut here reaches everything uniformly. */
-P.MARKS_RATE=0.13;
+/* Ian (24-item batch, Group B5): "triple idle income rates, halve wave
+   reward scaling. I'm getting too strong too quickly." Root cause of a
+   separately reported "~40k Aether for a few hours away, no waves
+   cleared" investigated directly, NOT a bug in these rates -- idlePerSec
+   is architecturally incapable of anywhere near that even at an extreme
+   wave; the real source is simulateOfflineProgress's own combat-replay
+   loop, which silently auto-clears real waves during a long absence and
+   pays each one full killReward, same as live play (a deliberate, existing
+   "full fidelity over offline-never-wipes" choice, untouched here).
+   AETHER_RATE/MARKS_RATE halved shrinks every wave-clear payout, live or
+   replayed alike; the IDLE_* trio below tripled shifts more of the
+   economy toward the (now much smaller, still fully capped) trickle. */
+P.MARKS_RATE=0.065;
 /* Applied to the two SOURCES (idle + kills); the boss hoard and the
    duplicate-unit grant are both expressed in waves-of-current-income, so they
    inherit the cut automatically instead of needing their own factor.
    Math.round removed from the kill reward: at 0.9x it was rounding a fractional
    result to an integer BEFORE multiplying by enemy count, which quantised the
    cut away at low waves (14*1.0*0.9 = 12.6 -> 13, only a 7% cut not 10%). */
-P.AETHER_RATE=0.18;
+P.AETHER_RATE=0.09;
 /* Base coefficients cut twice: 0.7->0.1->0.01 (aether), 0.35->0.05->0.005
    (marks). The first cut (to 0.1/0.05) still left wave-1 idle income at ~7.8k
    Aether / ~1.3k Marks per 24h, judged still too fast — and waves run into the
@@ -396,9 +408,9 @@ P.killReward=function(w,n){var S=C.waveScale(w);return {
  * applied to the GROWTH TERM only (g-1), not the floor itself, so wave 1
  * stays exactly 1/5min for both no matter how asymmetric the growth is —
  * the floor is a hard guarantee, not a side effect of the rate math. */
-P.IDLE_FLOOR_PER_5MIN=1;
-P.IDLE_AETHER_GROWTH_MUL=0.5;
-P.IDLE_MARKS_GROWTH_MUL=2.0;
+P.IDLE_FLOOR_PER_5MIN=3;
+P.IDLE_AETHER_GROWTH_MUL=1.5;
+P.IDLE_MARKS_GROWTH_MUL=6.0;
 P.idleGrowth=function(w){return Math.sqrt(C.waveScale(w));};
 P.idlePerSec=function(farthest){
  var g=P.idleGrowth(farthest);
@@ -531,6 +543,26 @@ P.SUPERBOSS_EVERY=250;
  * dungeon) — clearly short of the boss's 1.3-1.5x band, i.e. confirmed
  * "slightly harder", not a second boss. */
 P.EXPED_DISCOVERY_CHANCE=0.08;
+/* 24-item batch, Group E4: non-combat road events ("visiting towns,
+   selling goods, rescuing other travelers"). Per-node chance a stretch of
+   road is one of these instead of a fight; each entry's aether/marks is a
+   multiple of that node's own normal killReward, heal restores a fraction
+   of the party's shared hpFrac. Mirrors FarroadProgression.gd's own
+   EXPED_EVENTS verbatim. */
+P.EXPED_EVENT_CHANCE=0.10;
+P.EXPED_EVENTS=[
+ {text:'{names} passed through a roadside town and traded stories for supplies.',aether:0.5,marks:0,heal:0},
+ {text:'{names} sold salvaged gear at a market stall.',aether:0,marks:1.0,heal:0},
+ {text:'{names} rescued a stranded traveler, who pressed a pouch of coin into their hands.',aether:1.0,marks:0,heal:0},
+ {text:'{names} escorted a merchant caravan past a bad stretch of road.',aether:0.75,marks:0.5,heal:0},
+ {text:'{names} rested at a quiet inn and patched up their wounds.',aether:0,marks:0,heal:0.2},
+ {text:'{names} found an abandoned camp with a few useful scraps.',aether:0,marks:0.5,heal:0},
+ {text:'{names} helped a farmer haul a cart out of a ditch and got a hot meal for it.',aether:0,marks:0,heal:0.1},
+ {text:'{names} traded tales with a wandering bard -- no coin, but good company.',aether:0,marks:0,heal:0},
+ {text:'{names} guided a band of lost pilgrims back to the road.',aether:0.5,marks:0.5,heal:0},
+ {text:'{names} left an offering at a wayside shrine and felt lighter for it.',aether:0,marks:0,heal:0.15},
+ {text:'{names} bartered spare rations at a crossroads trading post.',aether:0,marks:0.75,heal:0},
+ {text:'{names} cut a traveler loose from a bandit camp -- the bandits had already fled.',aether:1.25,marks:0,heal:0}];
 P.DUNGEON_LEN=1.15;
 /* A multi-wave dungeon's own shape (waveCount-1 regular waves then a
    forced boss wave — a real "crawl" without becoming a slog at this
@@ -1136,9 +1168,17 @@ P.powerLevel=function(g){
    number, so affinityCostToNext rounds its output (matching every other
    per-step cost function in this file) rather than showing fractional
    Aether. */
+/* Ian (24-item batch, Group B6): "increased cost scaling" to balance the
+   newly-uncapped affinity (see farroad-core.js's own affinityMul/
+   AFFINITY_FLAT_RATE comment). Was linear (N*AFFINITY_COST_BASE), now
+   quadratic ((N+1)^2*AFFINITY_COST_BASE) so pushing deep into one axis
+   gets meaningfully steeper rather than a flat per-point rate forever.
+   First point still costs the same (round(4.0976*1)=4) as before; the
+   10th point was 41, is now round(4.0976*100)=410. */
 P.AFFINITY_COST_BASE=4.0976;
 P.affinityCostToNext=function(investedPoints){
- return Math.round(P.AFFINITY_COST_BASE*(investedPoints+1));};
+ var n=investedPoints+1;
+ return Math.round(P.AFFINITY_COST_BASE*n*n);};
 
 /* ===== EVADE/CRIT INVESTMENT (v2.10) =====
  * "Level like affinities" — but NOT affinities' logarithmic ±80% shape.

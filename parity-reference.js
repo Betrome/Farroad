@@ -261,18 +261,30 @@ if (mode === 'bonuses') {
     heavystrike: { surge: 1, thrifty: 1 }
   });
   out.afterApply = {
+    // strike has swift(2)+piercing(3) -- exercises the mixed
+    // non-swift-slowdown-then-swift-correction path (Group B2).
     strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce,
-    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse,
-    heavystrikeChargeCost: C.ACTIONS.heavystrike.chargeCost
+    // mend has potent(1)+cleansing(2), NO swift at all -- exercises the
+    // slowdown-only path (Group B2).
+    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse, mendRank: C.ACTIONS.mend.rank,
+    heavystrikeChargeCost: C.ACTIONS.heavystrike.chargeCost,
+    // heavystrike is a charge action -- Group B2's slowdown must NOT
+    // touch its rank (it has its own separate chargeCost-scaling
+    // mechanic instead).
+    heavystrikeRank: C.ACTIONS.heavystrike.rank
   };
   C.applyBonuses({});
   out.afterReset = {
     strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce,
-    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse,
+    mendPower: C.ACTIONS.mend.power, mendCleanse: C.ACTIONS.mend.cleanse, mendRank: C.ACTIONS.mend.rank,
     heavystrikeChargeCost: C.ACTIONS.heavystrike.chargeCost
   };
   C.applyBonuses({ strike: { swift: 5 } });
   out.afterReapply = { strikeRank: C.ACTIONS.strike.rank, strikeDefPierce: C.ACTIONS.strike.defPierce };
+  C.applyBonuses({ ember: { potent: 4 } });
+  // ember with ONLY potent(4), no swift -- a second, cleaner slowdown-only
+  // spot check isolated from strike's own mixed case above.
+  out.slowdownOnly = { emberRank: C.ACTIONS.ember.rank, emberPower: C.ACTIONS.ember.power };
   C.applyBonuses({});
 
   // Real battle proof (mirrors the existing farroadsmoke.js Piercing test):
@@ -612,6 +624,10 @@ if (mode === 'progression') {
     g.affinities = g.affinities || {}; if (!g.affinities[uid]) g.affinities[uid] = {};
     g.statInvest = g.statInvest || {}; if (!g.statInvest[uid]) g.statInvest[uid] = {};
     g.equipped = g.equipped || {}; if (!g.equipped[uid]) g.equipped[uid] = {};
+    // 24-item batch (Group B1): mirrors join_companion's new strike+ember
+    // seed + touched flag exactly.
+    if (!g.loadout[uid]) g.loadout[uid] = [{ cond: 'none', action: 'strike' }, { cond: 'none', action: 'ember' }];
+    g.touched = g.touched || {}; g.touched[uid] = true;
     var fielded = g.party.length < P.PARTY_CAP;
     if (fielded) g.party.push(uid);
     return fielded;
@@ -631,9 +647,12 @@ if (mode === 'progression') {
     var firstClear = !g.clearedWaves[g.wave];
     g.clearedWaves[g.wave] = 1;
     g.units.forEach(function (u) { g.hpCarry[u.id] = u.hp / u.maxHp; g.chargeCarry[u.id] = u.charge; });
+    g.enemiesDefeated = (g.enemiesDefeated || 0) + g.enemies.length;
     var r = P.killReward(g.wave, g.enemies.length);
     var aetherMul = (g.wave <= P.TUTORIAL_AETHER_WAVES) ? P.TUTORIAL_AETHER_MUL : 1;
-    g.aether += r.aether * aetherMul; g.marks += r.marks * P.marksMul(g);
+    // 24-item batch (Group B5): mirrors afterWaveCleared's new reclearMul.
+    var reclearMul = firstClear ? 1 : 0.5;
+    g.aether += r.aether * aetherMul * reclearMul; g.marks += r.marks * P.marksMul(g) * reclearMul;
     if (P.isBossWave(g.wave) && firstClear) {
       g.bossesCleared++;
       var hoard = P.bossAether(g.wave) * aetherMul;
@@ -669,7 +688,7 @@ if (mode === 'progression') {
         events.push({ kind: 'boss_no_companion', wave: g.wave, amount: dup });
       }
     }
-    if (P.isBossWave(g.wave) && g.rng.next() < 0.10) {
+    if (P.isBossWave(g.wave) && g.wave !== P.BOSS_WAVES[0] && g.rng.next() < 0.10) {
       var bossAvail = C.ROSTER.filter(function (r) { return !g.owned[r.id]; });
       if (bossAvail.length) {
         var bossPick = bossAvail[g.rng.nextInt(bossAvail.length)];
@@ -706,8 +725,8 @@ if (mode === 'progression') {
   function newGame(seed, mc) {
     return {
       seed: seed || 7, rng: C.makeRNG(seed || 7), wave: 0, farthest: 1, bossesCleared: 0,
-      aether: 0, loreByAction: {}, marks: 0, wipes: 0,
-      party: ['kesh'], actions: P.STARTER_ACTIONS.slice(), conditions: ['none'],
+      aether: 0, loreByAction: {}, marks: 0, crystal: 0, wipes: 0, enemiesDefeated: 0,
+      party: ['kesh'], partyPresets: [], actions: P.STARTER_ACTIONS.slice(), conditions: ['none'],
       actionCounts: {}, condCounts: {}, bonuses: {}, recovery: {}, loadout: {}, hpCarry: {}, chargeCarry: {}, touched: {},
       clearedWaves: {}, dropsGranted: {},
       lvl: { kesh: 1 }, bank: { kesh: 0 }, maxLevelEver: 1, owned: { kesh: 1 },
@@ -870,7 +889,9 @@ if (mode === 'progression') {
   }
   function affinityPurchasedG(gg, uid) { return (gg.affinities && gg.affinities[uid]) || {}; }
   function affinityRawG(gg, uid, axis) { return (affinityBaselineG(uid)[axis] || 0) + (affinityPurchasedG(gg, uid)[axis] || 0); }
-  function affinityMaxedG(gg, uid, axis) { return affinityRawG(gg, uid, axis) >= C.AFFINITY_CAP; }
+  // 24-item batch (Group B6): mirrors affinity_maxed's new "always false,
+  // no max on affinities" behavior exactly.
+  function affinityMaxedG(gg, uid, axis) { return false; }
   function pctStatBaselineG(uid, stat) {
     var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
     return (def && def.stats && def.stats[stat]) || 0;
@@ -914,6 +935,22 @@ if (mode === 'progression') {
   aether3.fireBefore = affinityRawG(g3, 'kesh', 'fire');
   spendAffinity(g3, 'kesh', 'fire');
   aether3.fireAfter = affinityRawG(g3, 'kesh', 'fire');
+  // 24-item batch (Group B6): "no max on affinities" -- push a SECOND
+  // axis 45 purchases deep (well past the old 40-raw AFFINITY_CAP) to
+  // prove affinity_maxed never refuses, affinity_mul stays uncapped past
+  // the old plateau, and the new quadratic cost curve matches bit-exact.
+  var waterSpent = 0;
+  for (var wi = 0; wi < 45; wi++) {
+    var wCost = P.affinityCostToNext(affinityPurchasedG(g3, 'kesh').water || 0);
+    waterSpent += wCost;
+    spendAffinity(g3, 'kesh', 'water');
+  }
+  aether3.waterRawAfter45 = affinityRawG(g3, 'kesh', 'water');
+  aether3.waterMulAfter45 = C.affinityMul(affinityRawG(g3, 'kesh', 'water'));
+  aether3.waterMaxedAt45 = affinityMaxedG(g3, 'kesh', 'water');
+  aether3.waterTotalSpent = waterSpent;
+  aether3.waterCostAt10th = P.affinityCostToNext(9);
+  aether3.waterCostAt1st = P.affinityCostToNext(0);
   aether3.evadeBefore = P.pctStatValue(pctStatBaselineG('kesh', 'evade'), 'evade', pctStatPurchasedG(g3, 'kesh', 'evade'));
   spendPctStat(g3, 'kesh', 'evade');
   aether3.evadeAfter = P.pctStatValue(pctStatBaselineG('kesh', 'evade'), 'evade', pctStatPurchasedG(g3, 'kesh', 'evade'));
@@ -973,8 +1010,10 @@ if (mode === 'progression') {
   function loreActionIdsGForCredit(gg) { return loreActionIdsG(gg); }
   function creditRandomLoreG(gg) {
     var ids = loreActionIdsGForCredit(gg);
-    if (!ids.length) return;
-    creditLoreG(gg, ids[gg.rng.nextInt(ids.length)]);
+    if (!ids.length) return '';
+    var aid = ids[gg.rng.nextInt(ids.length)];
+    creditLoreG(gg, aid);
+    return aid;
   }
   function unusedLoreRefundG(gg) {
     var used = usedActionsG(gg);
@@ -1185,8 +1224,9 @@ if (mode === 'progression') {
       var cid = cp[g.rng.nextInt(cp.length)].id;
       g.condCounts[cid] = (g.condCounts[cid] || 0) + 1;
       var dupC = g.conditions.indexOf(cid) >= 0;
-      if (!dupC) g.conditions.push(cid); else creditRandomLoreG(g);
-      return { kind: 'cond', id: cid, duplicate: dupC };
+      var loreAid = '';
+      if (!dupC) g.conditions.push(cid); else loreAid = creditRandomLoreG(g);
+      return { kind: 'cond', id: cid, duplicate: dupC, loreActionId: loreAid };
     }
   }
 
@@ -1219,6 +1259,89 @@ if (mode === 'progression') {
   // theoretical, exercise of the B4 pool expansion.
   marks6.anyChargePullSeen = pullResults.some(function (r) { return r && r.isCharge; });
   out.marks = marks6;
+
+  // 24-item batch, Group C6: SHOP -- fixed-price Crystal purchases,
+  // hand-transcribed from the real farroad-ui.js's own buyShopGambit/
+  // buyShopAction/buyShopUnit/buyShopEquipment (UI-closure-private, same
+  // situation doPull/equipItem were in above).
+  var SHOP_GAMBIT_PRICE = 10;
+  var SHOP_ACTION_PRICE = { common: 20, rare: 50, legendary: 100 };
+  var SHOP_UNIT_PRICE = { common: 100, rare: 200, legendary: 500 };
+  var SHOP_EQUIPMENT_PRICE = { common: 10, rare: 30, legendary: 90 };
+  function buyShopGambitG(g, condId) {
+    if (condId === 'none' || g.conditions.indexOf(condId) >= 0) return false;
+    if ((g.crystal || 0) < SHOP_GAMBIT_PRICE) return false;
+    g.crystal -= SHOP_GAMBIT_PRICE; g.conditions.push(condId); return true;
+  }
+  function buyShopActionG(g, actionId) {
+    var act = C.ACTIONS[actionId]; if (!act) return false;
+    var isCharge = !!act.isCharge;
+    if (isCharge) {
+      if (!g.mc) return false;
+      g.mc.acquiredCharges = g.mc.acquiredCharges || [];
+      if (g.mc.acquiredCharges.indexOf(actionId) >= 0) return false;
+    } else if (g.actions.indexOf(actionId) >= 0) return false;
+    var price = SHOP_ACTION_PRICE[act.rarity] || 20;
+    if ((g.crystal || 0) < price) return false;
+    g.crystal -= price;
+    if (isCharge) g.mc.acquiredCharges.push(actionId); else g.actions.push(actionId);
+    return true;
+  }
+  function buyShopUnitG(g, uid) {
+    if (g.owned[uid]) return false;
+    var def = null; C.ROSTER.forEach(function (r) { if (r.id === uid) def = r; });
+    if (!def) return false;
+    var price = SHOP_UNIT_PRICE[def.rarity] || 100;
+    if ((g.crystal || 0) < price) return false;
+    g.crystal -= price; joinCompanion(g, uid); return true;
+  }
+  function buyShopEquipmentG(g, itemId) {
+    var item = C.EQUIPMENT[itemId]; if (!item) return false;
+    var price = SHOP_EQUIPMENT_PRICE[item.rarity] || 10;
+    if ((g.crystal || 0) < price) return false;
+    g.crystal -= price;
+    g.equipInv = g.equipInv || {}; g.equipInv[itemId] = (g.equipInv[itemId] || 0) + 1;
+    return true;
+  }
+
+  var g7 = newGame(7, null);
+  startWave(g7, 1);
+  g7.mc = { name: 'MC', chargeAction: 'heavystrike', acquiredCharges: ['heavystrike'] };
+  var shop7 = {};
+  // Gambit: a real condition id, not owned yet.
+  var someCond = C.CONDITIONS.filter(function (c) { return c.id !== 'none'; })[0].id;
+  shop7.gambitRefusedNoCrystal = buyShopGambitG(g7, someCond);
+  g7.crystal = 1000;
+  shop7.gambitBought = buyShopGambitG(g7, someCond);
+  shop7.gambitDupeRefused = buyShopGambitG(g7, someCond);
+  shop7.crystalAfterGambit = g7.crystal;
+  // Action: a real non-charge action not yet owned, and a real charge
+  // action not yet acquired.
+  var someAction = C.EQUIPPABLE.filter(function (id) { return g7.actions.indexOf(id) < 0; })[0];
+  shop7.actionBought = buyShopActionG(g7, someAction);
+  shop7.actionDupeRefused = buyShopActionG(g7, someAction);
+  var someCharge = C.CHARGE_ACTIONS.filter(function (id) { return g7.mc.acquiredCharges.indexOf(id) < 0; })[0];
+  shop7.chargeBought = buyShopActionG(g7, someCharge);
+  shop7.chargeDupeRefused = buyShopActionG(g7, someCharge);
+  shop7.crystalAfterActions = g7.crystal;
+  // Unit: a real not-owned roster unit.
+  var someUnit = C.ROSTER.filter(function (r) { return !g7.owned[r.id]; })[0].id;
+  shop7.unitBought = buyShopUnitG(g7, someUnit);
+  shop7.unitDupeRefused = buyShopUnitG(g7, someUnit);
+  shop7.crystalAfterUnit = g7.crystal;
+  shop7.unitOwnedAfter = !!g7.owned[someUnit];
+  // Equipment: always purchasable, stacks on a second buy.
+  var someItem = Object.keys(C.EQUIPMENT)[0];
+  shop7.equip1 = buyShopEquipmentG(g7, someItem);
+  shop7.equip2 = buyShopEquipmentG(g7, someItem);
+  shop7.equipOwnedCount = g7.equipInv[someItem];
+  shop7.crystalAfterEquip = g7.crystal;
+  // Unaffordable refusal, state genuinely untouched.
+  g7.crystal = 0;
+  var crystalBeforeRefuse = g7.crystal;
+  shop7.equipRefusedNoCrystal = buyShopEquipmentG(g7, someItem);
+  shop7.crystalUnchangedAfterRefusal = g7.crystal === crystalBeforeRefuse;
+  out.shop = shop7;
 
   // Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
   // hand-transcribed from the real farroad-ui.js the same way every
@@ -1323,31 +1446,35 @@ if (mode === 'progression') {
     while (remaining > 0 && guard++ < 200000) {
       var cost = 20 + P.travelSec(exp.ew);
       if (cost > remaining) break;
-      var party = buildExpeditionParty(gg, exp.partyIds, exp.hpFrac);
-      var enemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, exp.ew), mul), exp.direction);
-      var battle = C.makeBattle(party.concat(enemies), { rng: gg.rng, enrage: gg.enrage });
-      var beatGuard = 0;
-      while (!battle.over && beatGuard++ < 4000) C.step(battle);
-      if (battle.over === 'party') {
-        var r = P.killReward(exp.ew, enemies.length);
-        exp.bank.aether += r.aether * mul; exp.bank.marks += r.marks * P.marksMul(gg) * mul;
-        if (P.isBossWave(exp.ew)) exp.bank.aether += P.bossAether(exp.ew) * mul;
-        var alive = party.filter(function (u) { return u.hp > 0; });
-        exp.hpFrac = alive.length ? alive.reduce(function (s, u) { return s + u.hp / u.maxHp; }, 0) / alive.length : 0;
+      // 24-item batch (Group A4): sim_now is this node's own simulated
+      // elapsed-away offset, not the outer real `now` -- mirrors
+      // FarroadProgression.gd's resolve_expedition fix exactly.
+      var simNow = resolveStartedAt + (capped - remaining) + cost;
+      // 24-item batch (Group E4): mirrors resolve_expedition's road-event
+      // branch exactly, same RNG draw order.
+      if (gg.rng.next() < P.EXPED_EVENT_CHANCE) {
+        rollExpeditionEventG(gg, exp, mul, simNow);
         exp.ew++;
-        rollExpeditionDiscoveryG(gg, exp, mul, now);
-        var dp = gg.directions[exp.direction];
-        dp.maxDepth = Math.max(dp.maxDepth, exp.ew);
-        // Step 3i: a while, not if -- a big catch-up pass crossing more
-        // than one unlockEvery multiple in one go must unlock every
-        // intervening dungeon, not just one.
-        var targetTier = Math.floor(dp.maxDepth / P.DIRECTION_CONFIG[exp.direction].unlockEvery);
-        while (targetTier > dp.dungeonsUnlocked) {
-          dp.dungeonsUnlocked++;
-          unlockDirectionDungeonG(gg, exp.direction, dp.dungeonsUnlocked, now);
-        }
+        advanceDirectionDepthG(gg, exp, now, simNow);
       } else {
-        exp.hpFrac = 0;
+        var party = buildExpeditionParty(gg, exp.partyIds, exp.hpFrac);
+        var enemies = applyDirectionAffinityG(applyStatMulG(buildEnemies(gg, exp.ew), mul), exp.direction);
+        var battle = C.makeBattle(party.concat(enemies), { rng: gg.rng, enrage: gg.enrage });
+        var beatGuard = 0;
+        while (!battle.over && beatGuard++ < 4000) C.step(battle);
+        if (battle.over === 'party') {
+          gg.enemiesDefeated = (gg.enemiesDefeated || 0) + enemies.length;
+          var r = P.killReward(exp.ew, enemies.length);
+          exp.bank.aether += r.aether * mul; exp.bank.marks += r.marks * P.marksMul(gg) * mul;
+          if (P.isBossWave(exp.ew)) exp.bank.aether += P.bossAether(exp.ew) * mul;
+          var alive = party.filter(function (u) { return u.hp > 0; });
+          exp.hpFrac = alive.length ? alive.reduce(function (s, u) { return s + u.hp / u.maxHp; }, 0) / alive.length : 0;
+          exp.ew++;
+          rollExpeditionDiscoveryG(gg, exp, mul, simNow);
+          advanceDirectionDepthG(gg, exp, now, simNow);
+        } else {
+          exp.hpFrac = 0;
+        }
       }
       remaining -= cost;
       if (exp.hpFrac < EXPED_RETURN_HP_FRAC) { turnedBack = true; break; }
@@ -1355,6 +1482,30 @@ if (mode === 'progression') {
     C.setWave(savedWave);
     exp.lastResolvedAt = now;
     if (turnedBack) beginReturnTripG(exp, resolveStartedAt + (capped - remaining), 'injuries mounted and the party turned back.', now);
+  }
+  // Step 3i: a while, not if -- a big catch-up pass crossing more than one
+  // unlockEvery multiple in one go must unlock every intervening dungeon.
+  function advanceDirectionDepthG(gg, exp, now, simNow) {
+    var dp = gg.directions[exp.direction];
+    dp.maxDepth = Math.max(dp.maxDepth, exp.ew);
+    var targetTier = Math.floor(dp.maxDepth / P.DIRECTION_CONFIG[exp.direction].unlockEvery);
+    while (targetTier > dp.dungeonsUnlocked) {
+      dp.dungeonsUnlocked++;
+      var newDungeon = unlockDirectionDungeonG(gg, exp.direction, dp.dungeonsUnlocked, now);
+      pushExpLog(exp, 'Found the way into ' + newDungeon.name + ' — enter it from the QUESTS tab.', simNow);
+    }
+  }
+  function rollExpeditionEventG(gg, exp, mul, simNow) {
+    var ev = P.EXPED_EVENTS[gg.rng.nextInt(P.EXPED_EVENTS.length)];
+    var r = P.killReward(exp.ew, P.enemyCount(exp.ew));
+    var aGain = r.aether * mul * ev.aether, mGain = r.marks * P.marksMul(gg) * mul * ev.marks;
+    exp.bank.aether += aGain; exp.bank.marks += mGain;
+    if (ev.heal > 0) exp.hpFrac = Math.min(1, exp.hpFrac + ev.heal);
+    var bits = [];
+    if (Math.round(aGain) >= 1) bits.push('+' + Math.round(aGain) + ' Aether');
+    if (Math.floor(mGain) >= 1) bits.push('+' + Math.floor(mGain) + ' Marks');
+    if (ev.heal > 0) bits.push('recovered some HP');
+    pushExpLog(exp, ev.text.replace('{names}', expNames(exp.partyIds)) + (bits.length ? ' (' + bits.join(', ') + ')' : ''), simNow);
   }
   function rollExpeditionDiscoveryG(gg, exp, mul, now) {
     if (gg.rng.next() >= EXPED_DISCOVERY_CHANCE) return;
@@ -1364,6 +1515,7 @@ if (mode === 'progression') {
     var bGuard = 0;
     while (!bBattle.over && bGuard++ < 4000) C.step(bBattle);
     if (bBattle.over === 'party') {
+      gg.enemiesDefeated = (gg.enemiesDefeated || 0) + bEnemies.length;
       var br = P.killReward(exp.ew, bEnemies.length);
       var bAether = br.aether * mul, bMarks = br.marks * P.marksMul(gg) * mul;
       exp.bank.aether += bAether; exp.bank.marks += bMarks;
@@ -1563,6 +1715,7 @@ if (mode === 'progression') {
   }
   function finishSideBattleG(gg, result, gaveUp, now) {
     var sb = gg.sideBattle, meta = sb.meta;
+    if (result === 'party' && !gaveUp) gg.enemiesDefeated = (gg.enemiesDefeated || 0) + gg.battle.units.filter(function (u) { return !u.isParty; }).length;
     if (meta.kind === 'dungeon' && result === 'party' && meta.waveIndex < meta.totalWaves - 1) {
       var curDungeon = null; gg.dungeons.forEach(function (d) { if (d.id === meta.dungeonId) curDungeon = d; });
       var survivors = gg.battle.units.filter(function (u) { return u.isParty; });
@@ -1580,10 +1733,11 @@ if (mode === 'progression') {
       if (result === 'party') {
         q.stage++;
         var reward = questStageAetherG(meta.stage);
-        // Banked, not credited (v2.14) -- mirrors collectExpedition's own
-        // bank/collect pattern; accumulates across uncollected clears.
-        q.pendingAether = (q.pendingAether || 0) + reward;
-        return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, aether: reward };
+        // 24-item batch (Group A/C5): auto-credit, reverting the earlier
+        // pending/Collect pattern. Group C3: +1 Crystal per stage cleared.
+        gg.aether += reward;
+        gg.crystal = (gg.crystal || 0) + 1;
+        return { kind: 'quest_cleared', name: meta.name, story: meta.story, stageNum: meta.stage + 1, questComplete: q.stage >= 5, aether: reward, crystal: 1 };
       } else if (gaveUp) {
         return { kind: 'quest_abandoned', name: meta.name, stageNum: meta.stage + 1 };
       } else {
@@ -1598,30 +1752,13 @@ if (mode === 'progression') {
         var mul = directionMul(meta.direction);
         var r = P.killReward(rewardWave, meta.totalWaves);
         var dAether = r.aether * mul, dMarks = r.marks * P.marksMul(gg) * mul;
-        // Banked, not credited (v2.14) -- same reasoning as the quest
-        // branch above.
-        dungeon.pendingAether = (dungeon.pendingAether || 0) + dAether;
-        dungeon.pendingMarks = (dungeon.pendingMarks || 0) + dMarks;
-        return { kind: 'dungeon_cleared', name: dungeon.name, aether: dAether, marks: dMarks };
+        // 24-item batch (Group A/C5): auto-credit. Group C2: +10 Crystal.
+        gg.aether += dAether; gg.marks += dMarks; gg.crystal = (gg.crystal || 0) + 10;
+        return { kind: 'dungeon_cleared', name: dungeon.name, aether: dAether, marks: dMarks, crystal: 10 };
       } else {
         return { kind: 'dungeon_failed', name: dungeon ? dungeon.name : 'Dungeon' };
       }
     }
-  }
-  // Mirrors collectQuestReward/collectDungeonReward exactly.
-  function collectQuestRewardG(gg, uid) {
-    var q = gg.quests[uid]; if (!q) return 0;
-    var amount = q.pendingAether || 0; if (amount <= 0) return 0;
-    gg.aether += amount; q.pendingAether = 0; return amount;
-  }
-  function collectDungeonRewardG(gg, dungeonId) {
-    var dungeon = null; gg.dungeons.forEach(function (d) { if (d.id === dungeonId) dungeon = d; });
-    if (!dungeon) return { aether: 0, marks: 0 };
-    var aether = dungeon.pendingAether || 0, marks = dungeon.pendingMarks || 0;
-    if (aether <= 0 && marks <= 0) return { aether: 0, marks: 0 };
-    gg.aether += aether; gg.marks += marks;
-    dungeon.pendingAether = 0; dungeon.pendingMarks = 0;
-    return { aether: aether, marks: marks };
   }
 
   var qd = {};
@@ -1676,24 +1813,20 @@ if (mode === 'progression') {
   // finish_side_battle's reward math -- quest branch (full cycle, real
   // combat play-out, deterministic via the shared seeded RNG).
   var gq = newGame(7, null); startWave(gq, 1);
-  var aetherBeforeQ = gq.aether;
+  var aetherBeforeQ = gq.aether, crystalBeforeQ = gq.crystal || 0;
   var prepQ = prepQuestAttemptG(gq, 'kesh');
   startSideBattleG(gq, prepQ.enemies, prepQ.wave, prepQ.meta);
   var bg1 = 0; while (!gq.battle.over && bg1++ < 4000) C.step(gq.battle);
   var eventQ = finishSideBattleG(gq, gq.battle.over, false, 1700000000);
   qd.questCycleEvent = eventQ;
-  // v2.14: a quest reward is now banked (pendingAether), not credited --
-  // gg.aether stays untouched by the clear itself; the pending pool holds
-  // it until collectQuestRewardG. Confirms the pending amount matches the
-  // event's own reported reward, and that a real collect() round-trip
-  // credits gg.aether by exactly that amount, zeroing the pool after.
+  // 24-item batch (Group A/C5): reward is now auto-credited on clear, not
+  // banked -- confirms gg.aether/gg.crystal already moved by exactly the
+  // event's own reported amounts, immediately, with no separate collect
+  // step at all.
   qd.questCycleAetherGain = gq.aether - aetherBeforeQ;
-  qd.questCyclePendingAfterClear = gq.quests.kesh.pendingAether;
-  var collectedQ = collectQuestRewardG(gq, 'kesh');
-  qd.questCycleCollectedAmount = collectedQ;
-  qd.questCycleAetherAfterCollect = gq.aether - aetherBeforeQ;
-  qd.questCyclePendingAfterCollect = gq.quests.kesh.pendingAether;
+  qd.questCycleCrystalGain = (gq.crystal || 0) - crystalBeforeQ;
   qd.questCycleStageAfter = gq.quests.kesh.stage;
+  qd.questCycleEnemiesDefeated = gq.enemiesDefeated;
   qd.questCycleSideBattleCleared = gq.sideBattle === null && gq.roadBattle === null;
 
   // give-up (quest only), instant, no beats stepped.
@@ -1713,6 +1846,7 @@ if (mode === 'progression') {
   var dungeonD = unlockDirectionDungeonG(gd, 'west', 1, 1700000000);
   var prepD = prepDungeonAttemptG(gd, dungeonD.id, 1700000000);
   startSideBattleG(gd, prepD.enemies, prepD.wave, prepD.meta);
+  var aetherBeforeDCollectBaseline = gd.aether, marksBeforeDCollectBaseline = gd.marks, crystalBeforeDCollectBaseline = gd.crystal || 0;
   var waveAdvances = 0, finalEventD = null, guardD = 0;
   while (guardD++ < 20) {
     var bg2 = 0; while (!gd.battle.over && bg2++ < 4000) C.step(gd.battle);
@@ -1724,14 +1858,13 @@ if (mode === 'progression') {
   qd.dungeonCycleFinalEvent = finalEventD;
   qd.dungeonCycleClears = dungeonD.clears;
   qd.dungeonCycleSideBattleCleared = gd.sideBattle === null;
-  // v2.14: same banked-then-collect check as the quest cycle above.
-  qd.dungeonCyclePendingAfterClear = { aether: dungeonD.pendingAether || 0, marks: dungeonD.pendingMarks || 0 };
-  var aetherBeforeDCollect = gd.aether, marksBeforeDCollect = gd.marks;
-  var collectedD = collectDungeonRewardG(gd, dungeonD.id);
-  qd.dungeonCycleCollectedAmount = collectedD;
-  qd.dungeonCycleAetherAfterCollect = gd.aether - aetherBeforeDCollect;
-  qd.dungeonCycleMarksAfterCollect = gd.marks - marksBeforeDCollect;
-  qd.dungeonCyclePendingAfterCollect = { aether: dungeonD.pendingAether || 0, marks: dungeonD.pendingMarks || 0 };
+  // 24-item batch (Group A/C5): auto-credited on clear now, not banked --
+  // confirms the FINAL event's own reported aether/marks/crystal exactly
+  // matches gg's own before/after deltas across the whole multi-wave run.
+  qd.dungeonCycleAetherGain = gd.aether - aetherBeforeDCollectBaseline;
+  qd.dungeonCycleMarksGain = gd.marks - marksBeforeDCollectBaseline;
+  qd.dungeonCycleCrystalGain = (gd.crystal || 0) - crystalBeforeDCollectBaseline;
+  qd.dungeonCycleEnemiesDefeated = gd.enemiesDefeated;
 
   // dungeon_available's calendar-day cooldown: flips false immediately
   // after a clear, stays false later the SAME UTC day, and flips back
@@ -1850,7 +1983,65 @@ if (mode === 'progression') {
   exped7.offlineMarksAfterIdleCollect = g9.marks - marksBefore9Collect;
   exped7.offlineIdlePendingAfterCollect = { aether: g9.pendingIdleAether || 0, marks: g9.pendingIdleMarks || 0 };
 
+  // 24-item batch, Group E4: direct coverage of the road-event roll (the
+  // scenario above never happens to land on one) -- 40 events off a fixed
+  // seed, recording every banked total, hpFrac, and log line.
+  var gev = newGame(11, null); startWave(gev, 1);
+  var evExp = { partyIds: ['kesh'], direction: 'west', ew: 37, hpFrac: 0.3, bank: { aether: 0, marks: 0 }, log: [] };
+  for (var ei = 0; ei < 40; ei++) rollExpeditionEventG(gev, evExp, directionMul('west'), 1000 + ei);
+  exped7.roadEvents = { bank: evExp.bank, hpFrac: evExp.hpFrac, log: evExp.log, rngCalls: gev.rng.calls };
+
   out.expedition = exped7;
+
+  // 24-item batch, Group E1: party presets, hand-transcribed from
+  // farroad-ui.js's own savePartyPreset/loadPartyPreset/deletePartyPreset
+  // (UI-closure-private, same situation as the Shop functions above).
+  function savePartyPresetG(gg, name) {
+    var trimmed = String(name || '').trim();
+    if (!trimmed || !gg.party.length) return false;
+    if (gg.partyPresets.length >= 10) return false;
+    gg.partyPresets.push({ name: trimmed.substr(0, 24), party: gg.party.slice() });
+    return true;
+  }
+  function presetMembersAvailableG(gg, index) {
+    if (index < 0 || index >= gg.partyPresets.length) return [];
+    var outM = [];
+    gg.partyPresets[index].party.forEach(function (uid) {
+      if (outM.length >= P.PARTY_CAP) return;
+      if (gg.owned[uid] && !isOnExpeditionG(gg, uid) && outM.indexOf(uid) < 0) outM.push(uid);
+    });
+    return outM;
+  }
+  function loadPartyPresetG(gg, index) {
+    var members = presetMembersAvailableG(gg, index);
+    if (!members.length) return false;
+    gg.party = members; autoEquip(gg); return true;
+  }
+  function deletePartyPresetG(gg, index) {
+    if (index < 0 || index >= gg.partyPresets.length) return false;
+    gg.partyPresets.splice(index, 1); return true;
+  }
+  var gp = newGame(7, null); startWave(gp, 1);
+  joinCompanion(gp, 'ansa'); joinCompanion(gp, 'vey');
+  var presets = {};
+  presets.emptyNameRefused = savePartyPresetG(gp, '   ');
+  presets.savedA = savePartyPresetG(gp, '  Main team  ');
+  gp.party = ['kesh'];
+  presets.savedB = savePartyPresetG(gp, 'Solo');
+  for (var pi = 0; pi < 8; pi++) savePartyPresetG(gp, 'Filler ' + pi);
+  presets.countAtCap = gp.partyPresets.length;
+  presets.overCapRefused = savePartyPresetG(gp, 'One too many');
+  presets.loadA = loadPartyPresetG(gp, 0);
+  presets.partyAfterLoadA = gp.party.slice();
+  // Send ansa on an expedition, then reload preset A -- ansa should be
+  // silently skipped rather than failing the whole load.
+  gp.expeditions.push({ partyIds: ['ansa'] });
+  presets.loadAWithAnsaAway = loadPartyPresetG(gp, 0);
+  presets.partyAfterAwayLoad = gp.party.slice();
+  presets.badIndexRefused = loadPartyPresetG(gp, 99);
+  presets.deleteSolo = deletePartyPresetG(gp, 1);
+  presets.namesAfterDelete = gp.partyPresets.map(function (p) { return p.name; });
+  out.partyPresets = presets;
 
   // Tank-build fix: bastion_strike (DEF-scaled) / aegis_strike (RES-scaled),
   // both true-damage (defPierce=1.0) with a tutorial-front-loaded power
@@ -2009,8 +2200,8 @@ if (mode === 'progression') {
 if (mode === 'save') {
   var g = {
     seed: 999, rng: C.makeRNG(999), wave: 5, farthest: 5, bossesCleared: 0,
-    aether: 42.5, loreByAction: { strike: 3 }, marks: 7.25, wipes: 1,
-    party: ['kesh', 'ansa'], actions: ['strike', 'ember', 'sear'], conditions: ['none', 'foe_lowest_hp'],
+    aether: 42.5, loreByAction: { strike: 3 }, marks: 7.25, crystal: 13, wipes: 1, enemiesDefeated: 57,
+    party: ['kesh', 'ansa'], partyPresets: [{ name: 'Main', party: ['kesh', 'ansa'] }], actions: ['strike', 'ember', 'sear'], conditions: ['none', 'foe_lowest_hp'],
     actionCounts: { sear: 1 }, condCounts: { foe_lowest_hp: 1 }, bonuses: { strike: { potent: 2 } },
     recovery: { kesh: 3 }, loadout: { kesh: [{ cond: 'none', action: 'strike' }] },
     hpCarry: { kesh: 0.8 }, chargeCarry: { kesh: 12.5 }, touched: { kesh: true }, clearedWaves: { 1: 1, 2: 1, 3: 1, 4: 1 },

@@ -280,7 +280,9 @@ func _refresh_slots() -> void:
 			for idx in range(acquired.size()):
 				var aid: String = acquired[idx]
 				var a = FarroadCore.ACTIONS.get(aid)
-				opt.add_item(a["name"] if a else aid, idx)
+				# 24-item batch, Group D5: same " LvN" tag the normal-action
+				# picker already shows.
+				opt.add_item((a["name"] if a else aid) + " Lv%d" % FarroadProgression.action_level(g, aid), idx)
 				if aid == uid_def["chargeAction"]:
 					opt.select(idx)
 			opt.item_selected.connect(func(idx2): _on_charge_action_changed(acquired[idx2]))
@@ -304,7 +306,8 @@ func _refresh_slots() -> void:
 			var act = FarroadCore.ACTIONS.get(uid_def["chargeAction"])
 			var charge_row := HBoxContainer.new()
 			var charge_lbl := Label.new()
-			charge_lbl.text = "⚡ Charge action: %s" % (act["name"] if act else uid_def["chargeAction"])
+			charge_lbl.text = "⚡ Charge action: %s Lv%d" % [(act["name"] if act else uid_def["chargeAction"]),
+				FarroadProgression.action_level(g, uid_def["chargeAction"])]
 			charge_lbl.modulate = Palette.TEXT_DIM
 			charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 			charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -418,7 +421,10 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		var row := HBoxContainer.new()
 		var row_btn := Button.new()
 		var level_tag: String = " Lv%d" % FarroadProgression.action_level(g, aid) if act != null else ""
-		row_btn.text = (act["name"] if act else aid) + level_tag + (" (used by %s)" % holder if blocked else "")
+		# 24-item batch, Group D1: "(used by X)" moved out of this row's own
+		# label and into the ⓘ detail popup (_show_action_detail_popup) --
+		# the row still reads as disabled, and its tooltip still says why.
+		row_btn.text = (act["name"] if act else aid) + level_tag
 		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
 		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row_btn.disabled = blocked or aid == current_action

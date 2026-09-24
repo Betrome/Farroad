@@ -1001,13 +1001,16 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
   !!oldRestored2&&oldRestored2.expeditions[0].direction==='west');
 })();
 
-/* =================== 17. ELEMENTAL AFFINITIES (v2.10) ======================
+/* =================== 17. ELEMENTAL AFFINITIES (v2.10, uncapped v2.24 —
+   24-item batch Group B6) ======================
  * C.affinityMul (combat formula, lives in core.js — see the layering
  * comment there for why it's not in progression) must be well-behaved at
  * the extremes: monotonic, odd-symmetric, exactly 0 at raw 0, exactly
- * +-0.80 at +-AFFINITY_CAP (not merely close — Math.min clamps the input,
- * so this is a real plateau). P.affinityCostToNext must escalate and stay
- * positive. Every magic DAMAGE action in the compiled content must carry
+ * +-0.80 at +-AFFINITY_CAP (AFFINITY_CAP is now just AFFINITY_FLAT_RATE's
+ * own calibration point, not an actual ceiling — Ian's "no max on
+ * affinities" ask means the curve keeps climbing well past it, checked
+ * below). P.affinityCostToNext must escalate and stay positive. Every
+ * magic DAMAGE action in the compiled content must carry
  * an element (content-pipeline.js's own build-time validation already
  * enforces this — buildContent() would have failed loudly above if it
  * didn't — this re-checks the SAME property against the live ACTIONS table
@@ -1019,8 +1022,14 @@ ok('200 headless fights complete', batch === 200, batch + '/200');
  ok('C.affinityMul(0) is exactly 0', C.affinityMul(0)===0);
  ok('C.affinityMul is exactly +0.80 at +AFFINITY_CAP', Math.abs(C.affinityMul(C.AFFINITY_CAP)-0.80)<1e-9);
  ok('C.affinityMul is exactly -0.80 at -AFFINITY_CAP', Math.abs(C.affinityMul(-C.AFFINITY_CAP)-(-0.80))<1e-9);
- ok('C.affinityMul plateaus past the cap (no further movement beyond AFFINITY_CAP)',
-  C.affinityMul(C.AFFINITY_CAP*5)===C.affinityMul(C.AFFINITY_CAP));
+ /* 24-item batch (Group B6): "no max on affinities" flipped this on
+    purpose -- affinityMul is now a flat, genuinely uncapped rate
+    (AFFINITY_FLAT_RATE per raw point), so it keeps climbing past
+    AFFINITY_CAP instead of plateauing there. AFFINITY_CAP itself is kept
+    only as the flat rate's own calibration point (still exactly ±0.80
+    there, per the assertions above), not as an actual ceiling anymore. */
+ ok('C.affinityMul keeps climbing past the old cap (uncapped, Group B6)',
+  C.affinityMul(C.AFFINITY_CAP*5)>C.affinityMul(C.AFFINITY_CAP)+1e-9);
  ok('C.affinityMul is odd-symmetric', (function(){
   for(var r=-30;r<=30;r+=1.7) if(Math.abs(C.affinityMul(r)+C.affinityMul(-r))>1e-9) return false;
   return true;

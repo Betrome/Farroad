@@ -33,11 +33,11 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -64,6 +64,16 @@ func _build_ui(parent: Node) -> void:
 	inventory_btn.text = "Inventory"
 	inventory_btn.pressed.connect(_on_inventory_pressed)
 	vbox.add_child(inventory_btn)
+
+	# 24-item batch: "add a Stats button in the menu" -- opens
+	# GameController._show_stats_popup, same shared detail-overlay shape
+	# Inventory already uses.
+	var stats_btn := Button.new()
+	stats_btn.text = "Stats"
+	stats_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_stats_popup"):
+			_parent.call("_show_stats_popup"))
+	vbox.add_child(stats_btn)
 
 	# Ian: "add a button to change our main character's name."
 	var change_name_btn := Button.new()

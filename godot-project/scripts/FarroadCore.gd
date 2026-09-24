@@ -58,7 +58,22 @@ const CAP_CRIT := 1.00
 const CHARGE_FULL := 100
 const BURN_PCT := 0.05
 const REGEN_PCT := 0.06
+# Ian (24-item batch, Group B6): "no max on affinities. Change to flat
+# scaling values but increased cost scaling." AFFINITY_CAP kept ONLY as a
+# reference point for AFFINITY_FLAT_RATE's own calibration (40*0.02=0.80,
+# matching the OLD log curve's own saturation ceiling at that same raw
+# value) -- it no longer clamps anything; affinity_mul below is genuinely
+# uncapped now (60 raw = 1.20, unlike before). affinity_maxed's own hard
+# buy-gate at this value is removed too (FarroadProgression.gd). Flagged,
+# not silently patched: aff_term/aff_boost_resist below assume
+# affinity_mul stays under 1.0 for their own (1-x) terms to stay
+# non-negative -- untouched per the approved plan's own scope, so an
+# extremely deep single-axis investment (raw > 50) could in principle
+# push one of those terms negative. Not expected at realistic Aether
+# costs given AFFINITY_COST_BASE's new steeper curve below, but worth
+# knowing if reported.
 const AFFINITY_CAP := 40.0
+const AFFINITY_FLAT_RATE := 0.02
 const AFFINITY_BOOST_CAP := 2.0
 const ROW_PHYS := 0.70
 const ROW_SPD := 0.10
@@ -267,6 +282,13 @@ const RARITY_POWER_MUL := {"common": 1.00, "rare": 1.25, "legendary": 1.55}
 const RARITY_COST_MUL := {"common": 1.00, "rare": 1.60, "legendary": 2.40}
 const SWIFT_CEIL := 3.0
 const SWIFT_DECAY := 0.88
+## Ian: "each lore level should increase cost (decreasing speed) by 5 for
+## normal actions... requiring investment into swift to keep their speed
+## up" -- 24-item batch, Group B2. Every non-swift bonus stack purchased
+## on a regular (non-charge) action now slows its own initiative down;
+## stacking `swift` on the SAME action still corrects it back up toward
+## SWIFT_CEIL exactly as before. First-pass rate, easily retuned.
+const LORE_SLOWDOWN_PER_LEVEL := 0.06
 const BONUS_COST_BROAD := 10
 const CHARGE_UP_COST := 12
 const CHARGE_THRIFT := 15
@@ -387,9 +409,18 @@ static func apply_bonuses(map: Dictionary) -> void:
 		var a = ACTIONS.get(aid)
 		if a == null or b == null:
 			continue
-		if b.get("swift"):
+		# Ian (24-item batch, Group B2): non-swift Lore investment slows a
+		# regular action down; swift is the only bonus that counters it.
+		# Runs unconditionally (not gated on b.get("swift")) so an action
+		# with e.g. only `potent` stacked still gets slower even with no
+		# swift investment at all.
+		if not a.get("isCharge"):
+			var non_swift: int = action_bonus_total(b) - int(b.get("swift", 0))
 			var ini: float = 1.0 / a["rank"]
-			ini = SWIFT_CEIL - (SWIFT_CEIL - ini) * pow(SWIFT_DECAY, b["swift"])
+			if non_swift > 0:
+				ini = ini / (1.0 + LORE_SLOWDOWN_PER_LEVEL * non_swift)
+			if b.get("swift"):
+				ini = SWIFT_CEIL - (SWIFT_CEIL - ini) * pow(SWIFT_DECAY, b["swift"])
 			a["rank"] = 1.0 / ini
 		if b.get("weighty"):
 			a["power"] = a["power"] * (1 + 0.12 * b["weighty"])
@@ -432,8 +463,7 @@ static func bonus_spend(map: Dictionary) -> int:
 ## ===== affinity system (mirrors farroad-core.js:88-139) =====
 static func affinity_mul(raw: float) -> float:
 	var s: float = -1.0 if raw < 0 else 1.0
-	var a: float = min(abs(raw), AFFINITY_CAP)
-	return s * 0.80 * log(1 + a) / log(1 + AFFINITY_CAP)
+	return s * AFFINITY_FLAT_RATE * abs(raw)
 
 static func aff_term(atk_raw: float, def_raw: float) -> float:
 	return (1 + affinity_mul(atk_raw)) * (1 - affinity_mul(def_raw))

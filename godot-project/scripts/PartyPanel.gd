@@ -38,17 +38,18 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# 20-item batch's own Group H recomputed this to a 7-icon row (Catalogue
-	# folded into Settings, Road recentered): Units 0.0288, this one 0.1675,
-	# Marks 0.3063, Road (GameController's own button, true center) 0.4450,
-	# Expedition 0.5838, Quests 0.7225, Settings 0.8613 -- same 0.11*vp.x
-	# icon size/0.93*vp.y row as before, just recomputed for 7 slots
-	# instead of 8 (duplicated per-file, no shared base).
+	# 24-item batch's own Group C6 recomputed this to an 8-icon row (Shop
+	# added): Units 0.0133, this one 0.1367, Marks 0.2600, Expedition
+	# 0.3833, Road (GameController's own button, moved next to Expedition
+	# to stay near true center) 0.5067, Quests 0.6300, Settings 0.7533,
+	# Shop 0.8767 -- same 0.11*vp.x icon size/0.93*vp.y row as before, just
+	# recomputed for 8 slots instead of 7 (duplicated per-file, no shared
+	# base).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -154,6 +155,8 @@ func _refresh_roster() -> void:
 	for c in roster_container.get_children():
 		c.queue_free()
 
+	_build_presets_section()
+
 	var party_header := Label.new()
 	party_header.text = "PARTY"
 	party_header.modulate = Palette.PARTY_BLUE
@@ -219,6 +222,76 @@ func _on_row_toggle_pressed(uid: String) -> void:
 			u["row"] = new_row
 	_notify_row_changed(uid)
 	_refresh_roster()
+
+## 24-item batch, Group E1: "save current party as a default party you
+## name. Have up to 10." A name field + Save button, then one row per
+## saved preset (name, its members, Load/Delete). Loading goes through the
+## same _notify_party_changed live-sync a single bench/field edit already
+## uses, so a mid-fight load updates the field immediately too.
+var preset_name_edit: LineEdit
+
+func _build_presets_section() -> void:
+	var header := Label.new()
+	header.text = "PRESETS (%d/%d)" % [(g["partyPresets"] as Array).size(), FarroadProgression.PARTY_PRESET_CAP]
+	header.modulate = Palette.PARTY_BLUE
+	roster_container.add_child(header)
+
+	var save_row := HBoxContainer.new()
+	preset_name_edit = LineEdit.new()
+	preset_name_edit.placeholder_text = "Preset name"
+	preset_name_edit.max_length = 24
+	preset_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_row.add_child(preset_name_edit)
+	var save_btn := Button.new()
+	save_btn.text = "Save current party"
+	save_btn.disabled = (g["partyPresets"] as Array).size() >= FarroadProgression.PARTY_PRESET_CAP
+	if save_btn.disabled:
+		save_btn.tooltip_text = "Up to %d presets -- delete one to save another." % FarroadProgression.PARTY_PRESET_CAP
+	save_btn.pressed.connect(_on_save_preset_pressed)
+	save_row.add_child(save_btn)
+	roster_container.add_child(save_row)
+
+	var presets: Array = g["partyPresets"]
+	for i in range(presets.size()):
+		var p: Dictionary = presets[i]
+		var row := HBoxContainer.new()
+		var lbl := Label.new()
+		var names: Array = []
+		for uid in p["party"]:
+			var def = FarroadCore.roster_by_id(uid)
+			names.append(def["name"] if def else uid)
+		lbl.text = "%s -- %s" % [p["name"], ", ".join(names)]
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(lbl)
+		var load_btn := Button.new()
+		load_btn.text = "Load"
+		if FarroadProgression.preset_members_available(g, i).is_empty():
+			load_btn.disabled = true
+			load_btn.tooltip_text = "Every member of this preset is away on an expedition."
+		load_btn.pressed.connect(_on_load_preset_pressed.bind(i))
+		row.add_child(load_btn)
+		var del_btn := Button.new()
+		del_btn.text = "Delete"
+		del_btn.pressed.connect(_on_delete_preset_pressed.bind(i))
+		row.add_child(del_btn)
+		roster_container.add_child(row)
+
+func _on_save_preset_pressed() -> void:
+	var preset_name: String = preset_name_edit.text.strip_edges()
+	if preset_name == "":
+		preset_name = "Party %d" % ((g["partyPresets"] as Array).size() + 1)
+	if FarroadProgression.save_party_preset(g, preset_name):
+		_refresh_roster()
+
+func _on_load_preset_pressed(index: int) -> void:
+	if FarroadProgression.load_party_preset(g, index):
+		_notify_party_changed()
+	_refresh_roster()
+
+func _on_delete_preset_pressed(index: int) -> void:
+	if FarroadProgression.delete_party_preset(g, index):
+		_refresh_roster()
 
 func _on_bench_pressed(uid: String) -> void:
 	if FarroadProgression.bench_unit(g, uid):

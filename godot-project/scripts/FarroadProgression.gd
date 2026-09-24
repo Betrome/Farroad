@@ -85,10 +85,13 @@ const BOSS_HARD_EXTRA := 1.20   # additional boss-only ATK/MAG multiplier
 ## (base archetypes all sit at spirit=0 today) -- makes a boss concretely
 ## resist incoming debuffs harder AND land its own debuffs harder, per the
 ## new caster-boost/target-resist debuff formula. +18 puts affinity_mul(18)
-## at roughly +0.63, so (1-0.63)=~0.37x a debuff's usual magnitude when
-## landed on a boss by a spirit-neutral caster -- noticeably softened, not
-## fully negated (AFFINITY_CAP=40 is the max either side of the formula
-## can reach, so a high-Spirit party caster can still claw some of it back).
+## at 0.36 (24-item-batch Group B6's flat AFFINITY_FLAT_RATE=0.02 formula,
+## post-dating this constant's own original log-curve-based math), so
+## (1-0.36)=0.64x a debuff's usual magnitude when landed on a boss by a
+## spirit-neutral caster -- softened, not negated (a high-Spirit party
+## caster can still claw some of it back, and affinity is uncapped on
+## both sides now, so there's no fixed ceiling either party caster or
+## boss can "max out" at).
 const BOSS_SPIRIT_BONUS := 18.0
 # Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
 # the flat 1.10 boss ATK bonus in build_enemies, the wave-20 boss's damage
@@ -186,8 +189,21 @@ static func archetype_for(w: int, i: int) -> String:
 
 ## ===== economy =====
 
-const AETHER_RATE := 0.18
-const MARKS_RATE := 0.13
+# Ian (24-item batch, Group B5): "triple idle income rates, halve wave
+# reward scaling. I'm getting too strong too quickly." Root cause of the
+# ~40k-Aether-for-a-few-hours report investigated directly, NOT a bug in
+# these rates: idle's own flat trickle is architecturally incapable of
+# anywhere near that (even at an extreme wave, under ~400 Aether across
+# the full 12h cap) -- the real source is simulate_offline_progress's own
+# combat-replay loop, which silently auto-clears many real waves during a
+# long absence and pays each one full kill_reward, same as live play.
+# That replay is a deliberate, existing design choice ("full fidelity
+# over offline-never-wipes"), not touched here. AETHER_RATE/MARKS_RATE
+# halved (below) shrinks every wave-clear payout, live or replayed alike;
+# the IDLE_* trio tripled shifts more of the economy toward the (now much
+# smaller, still fully capped) background trickle instead.
+const AETHER_RATE := 0.09
+const MARKS_RATE := 0.065
 const PRE_UNLOCK_MARKS_MUL := 0.45
 const MARKS_UNLOCK_WAVE := 40
 ## Display-only ("X pulls waiting" on the locked screen); pull_cost's own
@@ -196,9 +212,9 @@ const MARKS_PER_PULL := 100
 const BOSS_AETHER_WAVES := 12.5
 const DUP_UNIT_WAVES := 3
 const NOMINAL_WAVE_SEC := 40.0
-const IDLE_FLOOR_PER_5MIN := 1.0
-const IDLE_AETHER_GROWTH_MUL := 0.5
-const IDLE_MARKS_GROWTH_MUL := 2.0
+const IDLE_FLOOR_PER_5MIN := 3.0
+const IDLE_AETHER_GROWTH_MUL := 1.5
+const IDLE_MARKS_GROWTH_MUL := 6.0
 
 static func pulls_unlocked(g: Dictionary) -> bool:
 	return g.get("farthest", 1) >= MARKS_UNLOCK_WAVE
@@ -340,11 +356,91 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		var cid: String = cp[g["rng"].next_int(cp.size())]
 		g["condCounts"][cid] = int(g["condCounts"].get(cid, 0)) + 1
 		var dup_c: bool = g["conditions"].has(cid)
+		var lore_aid: String = ""
 		if not dup_c:
 			g["conditions"].append(cid)
 		else:
-			_credit_random_lore(g)
-		return {"kind": "cond", "id": cid, "duplicate": dup_c}
+			lore_aid = _credit_random_lore(g)
+		return {"kind": "cond", "id": cid, "duplicate": dup_c, "loreActionId": lore_aid}
+
+## ===== SHOP tab: fixed-price purchases with Crystal (24-item batch,
+## Group C6) =====
+## Ian's own fixed prices, verbatim: gambits 10 flat; actions 20/50/100 by
+## rarity; units 100/200/500; equipment 10/30/90. Same "afford check ->
+## deduct -> mutate -> return bool" shape every other purchase function in
+## this file already uses (spend_affinity/spend_feed/etc.) -- no
+## re-validation beyond what's shown, gating is structural (a Shop row
+## only exists for an actually-purchasable entry).
+const SHOP_GAMBIT_PRICE := 10
+const SHOP_ACTION_PRICE := {"common": 20, "rare": 50, "legendary": 100}
+const SHOP_UNIT_PRICE := {"common": 100, "rare": 200, "legendary": 500}
+const SHOP_EQUIPMENT_PRICE := {"common": 10, "rare": 30, "legendary": 90}
+
+static func buy_shop_gambit(g: Dictionary, cond_id: String) -> bool:
+	if cond_id == "none" or g["conditions"].has(cond_id):
+		return false
+	if int(g.get("crystal", 0)) < SHOP_GAMBIT_PRICE:
+		return false
+	g["crystal"] = int(g["crystal"]) - SHOP_GAMBIT_PRICE
+	g["conditions"].append(cond_id)
+	return true
+
+## A charge action buys into g["mc"]["acquiredCharges"] (mirrors do_pull's
+## own action branch); a regular action buys into g["actions"]. Refuses if
+## already owned in the relevant pool, unaffordable, or (charge case) no
+## MC exists yet -- pulls/Shop both only unlock well past mandatory
+## character creation in practice, but this stays a real, not just
+## theoretical, guard.
+static func buy_shop_action(g: Dictionary, action_id: String) -> bool:
+	var act = FarroadCore.ACTIONS.get(action_id)
+	if act == null:
+		return false
+	var is_charge: bool = bool(act.get("isCharge", false))
+	if is_charge:
+		if g["mc"] == null:
+			return false
+		if (g["mc"].get("acquiredCharges", []) as Array).has(action_id):
+			return false
+	elif g["actions"].has(action_id):
+		return false
+	var price: int = int(SHOP_ACTION_PRICE.get(act.get("rarity", "common"), 20))
+	if int(g.get("crystal", 0)) < price:
+		return false
+	g["crystal"] = int(g["crystal"]) - price
+	if is_charge:
+		g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
+		g["mc"]["acquiredCharges"].append(action_id)
+	else:
+		g["actions"].append(action_id)
+	return true
+
+static func buy_shop_unit(g: Dictionary, uid: String) -> bool:
+	if g["owned"].get(uid, false):
+		return false
+	var def = FarroadCore.roster_by_id(uid)
+	if def == null:
+		return false
+	var price: int = int(SHOP_UNIT_PRICE.get(def.get("rarity", "common"), 100))
+	if int(g.get("crystal", 0)) < price:
+		return false
+	g["crystal"] = int(g["crystal"]) - price
+	join_companion(g, uid)
+	return true
+
+## Equipment is always purchasable, even if already owned -- extra copies
+## stack (same "dupes are genuinely useful" rule do_pull's own equip
+## branch and random_drop already establish), so there's no ownership
+## gate here at all, only affordability.
+static func buy_shop_equipment(g: Dictionary, item_id: String) -> bool:
+	var item = FarroadCore.EQUIPMENT.get(item_id)
+	if item == null:
+		return false
+	var price: int = int(SHOP_EQUIPMENT_PRICE.get(item.get("rarity", "common"), 10))
+	if int(g.get("crystal", 0)) < price:
+		return false
+	g["crystal"] = int(g["crystal"]) - price
+	g["equipInv"][item_id] = int(g["equipInv"].get(item_id, 0)) + 1
+	return true
 
 static func travel_sec(w: float) -> float:
 	return 8.0 + 0.08 * w
@@ -680,16 +776,27 @@ static func effective_affinity(g: Dictionary, uid: String) -> Dictionary:
 static func affinity_raw(g: Dictionary, uid: String, axis: String) -> float:
 	return affinity_baseline(uid).get(axis, 0.0) + affinity_purchased(g, uid).get(axis, 0.0)
 
+## Ian (24-item batch, Group B6): "no max on affinities." Always false now
+## -- affinity_raw is genuinely uncapped, so there's no threshold left to
+## gate a purchase on. Kept as a function (not deleted) since both call
+## sites (spend_affinity's own refusal gate, AetherPanel's "MAXED" display)
+## still read it; they now just always see "never maxed," which is
+## exactly the desired behavior with zero changes needed at either site.
 static func affinity_maxed(g: Dictionary, uid: String, axis: String) -> bool:
-	return affinity_raw(g, uid, axis) >= FarroadCore.AFFINITY_CAP
+	return false
 
-## Mirrors P.AFFINITY_COST_BASE/affinityCostToNext (farroad-progression.js) --
-## linear escalation, the Nth point bought on one axis on one unit costs
-## N*AFFINITY_COST_BASE.
+## Mirrors P.AFFINITY_COST_BASE/affinityCostToNext (farroad-progression.js).
+## Ian (Group B6): "increased cost scaling" to balance the newly-uncapped
+## affinity above -- was linear (N*AFFINITY_COST_BASE), now quadratic
+## ((N+1)^2*AFFINITY_COST_BASE) so pushing deep into one axis gets
+## meaningfully steeper rather than a flat per-point rate forever. First
+## point still costs the same (round(4.0976*1)=4) as before; the 10th
+## point was 41, is now round(4.0976*100)=410.
 const AFFINITY_COST_BASE := 4.0976
 
 static func affinity_cost_to_next(invested_points: int) -> int:
-	return int(round(AFFINITY_COST_BASE * (invested_points + 1)))
+	var n: int = invested_points + 1
+	return int(round(AFFINITY_COST_BASE * float(n * n)))
 
 ## ===== evade/crit investment (Aether-purchased steps on top of baseline) =====
 
@@ -978,6 +1085,54 @@ static func available_for_party(g: Dictionary) -> Array:
 		if not g["party"].has(uid) and not is_on_expedition(g, uid):
 			out.append(uid)
 	return out
+
+## ===== party presets (24-item batch, Group E1) =====
+## Ian: "save current party as a default party you name. Have up to 10."
+## g["partyPresets"] is an Array of {"name": String, "party": Array[uid]}.
+## Godot-originating (no real-JS precedent), mirrored to farroad-ui.js for
+## parity the same way the Shop was.
+const PARTY_PRESET_CAP := 10
+
+static func save_party_preset(g: Dictionary, preset_name: String) -> bool:
+	var trimmed: String = preset_name.strip_edges()
+	if trimmed == "" or (g["party"] as Array).is_empty():
+		return false
+	if (g["partyPresets"] as Array).size() >= PARTY_PRESET_CAP:
+		return false
+	g["partyPresets"].append({"name": trimmed.substr(0, 24), "party": (g["party"] as Array).duplicate()})
+	return true
+
+## Fields exactly the preset's members that are still valid right now --
+## owned, and not away on an expedition -- capped at PARTY_CAP, in the
+## preset's own order. A member that's since been sent out is silently
+## skipped rather than failing the whole load. Refuses (leaving the
+## current party untouched) if that would leave nobody fielded.
+static func preset_members_available(g: Dictionary, index: int) -> Array:
+	var presets: Array = g["partyPresets"]
+	if index < 0 or index >= presets.size():
+		return []
+	var out := []
+	for uid in presets[index]["party"]:
+		if out.size() >= PARTY_CAP:
+			break
+		if g["owned"].get(uid) and not is_on_expedition(g, uid) and not out.has(uid):
+			out.append(uid)
+	return out
+
+static func load_party_preset(g: Dictionary, index: int) -> bool:
+	var members := preset_members_available(g, index)
+	if members.is_empty():
+		return false
+	g["party"] = members
+	auto_equip(g)
+	return true
+
+static func delete_party_preset(g: Dictionary, index: int) -> bool:
+	var presets: Array = g["partyPresets"]
+	if index < 0 or index >= presets.size():
+		return false
+	presets.remove_at(index)
+	return true
 
 ## Mirrors actionHolderInParty (farroad-ui.js:2903-2911) -- who (if anyone)
 ## already holds a non-starter action elsewhere in the FIELDED party, for
@@ -1443,11 +1598,16 @@ static func _credit_lore(g: Dictionary, action_id: String) -> void:
 ## CONDITION has no action of its own to credit). A no-op if the player
 ## somehow owns zero lore-eligible actions (shouldn't happen in practice --
 ## starter actions always exist by the time drops/pulls are reachable).
-static func _credit_random_lore(g: Dictionary) -> void:
+## Returns the credited action id ("" on the no-op path) -- 24-item batch,
+## Group D6: MarksPanel names which action a duplicate gambit's Lore went
+## to, which it couldn't before since this used to return nothing.
+static func _credit_random_lore(g: Dictionary) -> String:
 	var ids: Array = lore_action_ids(g)
 	if ids.is_empty():
-		return
-	_credit_lore(g, ids[g["rng"].next_int(ids.size())])
+		return ""
+	var aid: String = ids[g["rng"].next_int(ids.size())]
+	_credit_lore(g, aid)
+	return aid
 
 ## ===== drop granting (mirrors grantDrops, farroad-ui.js:639) =====
 ## Mutates g in place (actions/conditions/loreByAction/equipInv unlocked or
@@ -1511,6 +1671,20 @@ static func join_companion(g: Dictionary, uid: String) -> bool:
 		g["statInvest"][uid] = {}
 	if not g["equipped"].has(uid):
 		g["equipped"][uid] = {}
+	# Ian: "when units join, only give them strike and ember as their
+	# actions so they don't start with actions others have." Without this,
+	# a joining unit's loadout was populated lazily -- either
+	# ensure_loadout's own strike+strike default, or (if fielded when the
+	# NEXT drop happened to grant) auto_equip silently upgrading slot 0 to
+	# whatever action the account had already unlocked, which could be
+	# anything, not necessarily Ember. Seeding the loadout explicitly here
+	# AND marking the unit as already-touched short-circuits auto_equip's
+	# own per-unit gate (already keyed off g["touched"]) from ever
+	# revisiting this unit -- strike+ember, permanently, until the player
+	# edits it via GAMBITS themselves.
+	if not g["loadout"].has(uid):
+		g["loadout"][uid] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "ember"}]
+	g["touched"][uid] = true
 	var fielded: bool = g["party"].size() < PARTY_CAP
 	if fielded:
 		g["party"].append(uid)
@@ -1565,10 +1739,22 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	for u in g["units"]:
 		g["hpCarry"][u["id"]] = u["hp"] / u["maxHp"]
 		g["chargeCarry"][u["id"]] = u["charge"]
+	# 24-item batch, Stats page: "enemies defeated" -- a win means every
+	# enemy in the wave went down. Same counter is bumped by every other
+	# win path (side battles, expedition fights, bonus fights).
+	g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + g["enemies"].size()
 	var r := kill_reward(g["wave"], g["enemies"].size())
 	var aether_mul: float = TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0
-	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul
-	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g)
+	# Ian (24-item batch, Group B5): "perhaps we need to have half rewards
+	# for clearing waves you've already cleared." first_clear was already
+	# computed above (line 1590) for the one-time boss events below, but
+	# never applied to the base reward itself until now -- a checkpoint
+	# replay (or a deliberate low-wave farm) now pays half. Live-play
+	# forward progress (first_clear==true, the overwhelmingly common case)
+	# is completely unaffected.
+	var reclear_mul: float = 1.0 if first_clear else 0.5
+	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul * reclear_mul
+	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g) * reclear_mul
 	if is_boss_wave(g["wave"]) and first_clear:
 		g["bossesCleared"] = g.get("bossesCleared", 0) + 1
 		var hoard := boss_aether(g["wave"]) * aether_mul
@@ -1626,7 +1812,13 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 			var dup := dup_unit_aether(g["wave"])
 			g["aether"] += dup
 			events.append({"kind": "boss_no_companion", "wave": g["wave"], "amount": dup})
-	if is_boss_wave(g["wave"]) and g["rng"].next() < 0.10:
+	# Ian: "wave 20: getting equipment and a unit, should just be
+	# equipment." Root cause: this 10% roll used to fire on EVERY boss
+	# wave clear independently of the tutorial-equip branch above, so
+	# 10% of the time wave 20 handed out the guaranteed equipment AND a
+	# bonus companion on top. Excluded BOSS_WAVES[0] specifically -- every
+	# later boss keeps the roll untouched.
+	if is_boss_wave(g["wave"]) and g["wave"] != BOSS_WAVES[0] and g["rng"].next() < 0.10:
 		var boss_avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"]))
 		if not boss_avail.is_empty():
 			var pick: Dictionary = boss_avail[g["rng"].next_int(boss_avail.size())]
@@ -1675,9 +1867,9 @@ static func new_game(seed: int, mc) -> Dictionary:
 	return {
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
-		"aether": 0, "loreByAction": {}, "marks": 0, "wipes": 0,
+		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0,
 		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0,
-		"party": ["kesh"], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
+		"party": ["kesh"], "partyPresets": [], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
 		"lvl": {"kesh": 1}, "bank": {"kesh": 0}, "maxLevelEver": 1, "owned": {"kesh": 1},
@@ -1721,6 +1913,28 @@ static func new_game(seed: int, mc) -> Dictionary:
 const EXPED_RETURN_HP_FRAC := 0.25
 const EXPED_CAP_SEC := OFFLINE_CAP_SEC
 const EXPED_DISCOVERY_CHANCE := 0.08
+## 24-item batch, Group E4: non-combat road events. EXPED_EVENT_CHANCE is
+## the per-node chance a stretch of road is one of these instead of a
+## fight (first-pass value, easily retuned). Each entry's aether/marks is a
+## multiple of that node's own normal kill_reward (so the payout scales
+## with depth exactly the way fights do); heal restores a fraction of the
+## party's shared HP pool. {names} is filled with the party's names.
+## Mirrored verbatim in farroad-ui.js (EXPED_EVENTS) and parity-reference.js.
+const EXPED_EVENT_CHANCE := 0.10
+const EXPED_EVENTS: Array = [
+	{"text": "{names} passed through a roadside town and traded stories for supplies.", "aether": 0.5, "marks": 0.0, "heal": 0.0},
+	{"text": "{names} sold salvaged gear at a market stall.", "aether": 0.0, "marks": 1.0, "heal": 0.0},
+	{"text": "{names} rescued a stranded traveler, who pressed a pouch of coin into their hands.", "aether": 1.0, "marks": 0.0, "heal": 0.0},
+	{"text": "{names} escorted a merchant caravan past a bad stretch of road.", "aether": 0.75, "marks": 0.5, "heal": 0.0},
+	{"text": "{names} rested at a quiet inn and patched up their wounds.", "aether": 0.0, "marks": 0.0, "heal": 0.2},
+	{"text": "{names} found an abandoned camp with a few useful scraps.", "aether": 0.0, "marks": 0.5, "heal": 0.0},
+	{"text": "{names} helped a farmer haul a cart out of a ditch and got a hot meal for it.", "aether": 0.0, "marks": 0.0, "heal": 0.1},
+	{"text": "{names} traded tales with a wandering bard -- no coin, but good company.", "aether": 0.0, "marks": 0.0, "heal": 0.0},
+	{"text": "{names} guided a band of lost pilgrims back to the road.", "aether": 0.5, "marks": 0.5, "heal": 0.0},
+	{"text": "{names} left an offering at a wayside shrine and felt lighter for it.", "aether": 0.0, "marks": 0.0, "heal": 0.15},
+	{"text": "{names} bartered spare rations at a crossroads trading post.", "aether": 0.0, "marks": 0.75, "heal": 0.0},
+	{"text": "{names} cut a traveler loose from a bandit camp -- the bandits had already fled.", "aether": 1.25, "marks": 0.0, "heal": 0.0},
+]
 const DIRECTION_AFFINITY_BONUS := 6.0
 
 static func direction_label(dir: String) -> String:
@@ -1882,43 +2096,58 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 		var cost: float = 20.0 + travel_sec(exp["ew"])
 		if cost > remaining:
 			break
-		var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
-		var enemies: Array = apply_direction_affinity(
-			apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
-		var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
-		var beat_guard := 0
-		while battle["over"] == null and beat_guard < 4000:
-			beat_guard += 1
-			if FarroadCore.step(battle) == null:
-				break
-		if battle["over"] == "party":
-			var r := kill_reward(exp["ew"], enemies.size())
-			exp["bank"]["aether"] = float(exp["bank"]["aether"]) + r["aether"] * mul
-			exp["bank"]["marks"] = float(exp["bank"]["marks"]) + r["marks"] * marks_mul(g) * mul
-			if is_boss_wave(exp["ew"]):
-				exp["bank"]["aether"] = float(exp["bank"]["aether"]) + boss_aether(exp["ew"]) * mul
-			var alive: Array = party.filter(func(u): return u["hp"] > 0)
-			if alive.is_empty():
-				exp["hpFrac"] = 0.0
-			else:
-				var sum_frac := 0.0
-				for u in alive:
-					sum_frac += float(u["hp"]) / float(u["maxHp"])
-				exp["hpFrac"] = sum_frac / alive.size()
+		# Ian: expedition log entries "tend to be grouped together... should
+		# be based on how long the party has been out, not the time of
+		# day." Root cause: every push_expedition_log call inside this loop
+		# used to pass the outer, real-wall-clock `now` -- so a catch-up
+		# pass resolving 1 node or 50 nodes stamped every entry with the
+		# EXACT same real moment. sim_now is this node's own simulated
+		# elapsed-away offset instead (mirrors how begin_return_trip's own
+		# decision_moment is already computed below), spreading entries
+		# across the party's simulated time away rather than clustering at
+		# real time.
+		var sim_now: float = resolve_started_at + (capped - remaining) + cost
+		# Ian (24-item batch, Group E4): "more variety in expedition events:
+		# visiting towns, selling goods, rescuing other travelers." A flat
+		# per-node chance that this stretch of road is a non-combat event
+		# instead of a fight -- the party still advances a node (ew+1,
+		# maxDepth/dungeon schedule as normal), just without a battle. The
+		# roll is drawn every node, event or not, so both engines consume
+		# RNG identically.
+		if g["rng"].next() < EXPED_EVENT_CHANCE:
+			roll_expedition_event(g, exp, mul, sim_now)
 			exp["ew"] += 1
-			roll_expedition_discovery(g, exp, mul, now)
-			var dp: Dictionary = g["directions"][exp["direction"]]
-			dp["maxDepth"] = maxi(dp["maxDepth"], exp["ew"])
-			# A while, not if -- a big catch-up pass crossing more than one
-			# unlockEvery multiple in one go must unlock every intervening
-			# dungeon, not just one.
-			var target_tier: int = int(floor(float(dp["maxDepth"]) / float(FarroadCore.DIRECTION_CONFIG[exp["direction"]]["unlockEvery"])))
-			while target_tier > dp["dungeonsUnlocked"]:
-				dp["dungeonsUnlocked"] += 1
-				var new_dungeon: Dictionary = unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
-				push_expedition_log(exp, "Found the way into %s — enter it from the QUESTS tab." % new_dungeon["name"], now)
+			_advance_direction_depth(g, exp, now, sim_now)
 		else:
-			exp["hpFrac"] = 0.0
+			var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
+			var enemies: Array = apply_direction_affinity(
+				apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
+			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+			var beat_guard := 0
+			while battle["over"] == null and beat_guard < 4000:
+				beat_guard += 1
+				if FarroadCore.step(battle) == null:
+					break
+			if battle["over"] == "party":
+				g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + enemies.size()
+				var r := kill_reward(exp["ew"], enemies.size())
+				exp["bank"]["aether"] = float(exp["bank"]["aether"]) + r["aether"] * mul
+				exp["bank"]["marks"] = float(exp["bank"]["marks"]) + r["marks"] * marks_mul(g) * mul
+				if is_boss_wave(exp["ew"]):
+					exp["bank"]["aether"] = float(exp["bank"]["aether"]) + boss_aether(exp["ew"]) * mul
+				var alive: Array = party.filter(func(u): return u["hp"] > 0)
+				if alive.is_empty():
+					exp["hpFrac"] = 0.0
+				else:
+					var sum_frac := 0.0
+					for u in alive:
+						sum_frac += float(u["hp"]) / float(u["maxHp"])
+					exp["hpFrac"] = sum_frac / alive.size()
+				exp["ew"] += 1
+				roll_expedition_discovery(g, exp, mul, sim_now)
+				_advance_direction_depth(g, exp, now, sim_now)
+			else:
+				exp["hpFrac"] = 0.0
 		remaining -= cost
 		if exp["hpFrac"] < EXPED_RETURN_HP_FRAC:
 			turned_back = true
@@ -1927,6 +2156,45 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	exp["lastResolvedAt"] = now
 	if turned_back:
 		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
+
+## Shared by both node kinds (fight won / road event) -- extracted from
+## resolve_expedition's own win branch unchanged. A while, not if -- a big
+## catch-up pass crossing more than one unlockEvery multiple in one go must
+## unlock every intervening dungeon, not just one.
+static func _advance_direction_depth(g: Dictionary, exp: Dictionary, now, sim_now: float) -> void:
+	var dp: Dictionary = g["directions"][exp["direction"]]
+	dp["maxDepth"] = maxi(dp["maxDepth"], exp["ew"])
+	var target_tier: int = int(floor(float(dp["maxDepth"]) / float(FarroadCore.DIRECTION_CONFIG[exp["direction"]]["unlockEvery"])))
+	while target_tier > dp["dungeonsUnlocked"]:
+		dp["dungeonsUnlocked"] += 1
+		var new_dungeon: Dictionary = unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
+		push_expedition_log(exp, "Found the way into %s — enter it from the QUESTS tab." % new_dungeon["name"], sim_now)
+
+## 24-item batch, Group E4 -- one non-combat road event (see EXPED_EVENTS).
+## Picks via g["rng"], banks any reward into exp["bank"] like a won fight
+## would, restores any heal onto the party's shared hpFrac, and logs it at
+## the node's own simulated timestamp.
+static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, sim_now: float) -> void:
+	var ev: Dictionary = EXPED_EVENTS[g["rng"].next_int(EXPED_EVENTS.size())]
+	var names := _expedition_names(exp["partyIds"])
+	var r := kill_reward(exp["ew"], enemy_count(int(exp["ew"])))
+	var a_gain: float = r["aether"] * mul * float(ev["aether"])
+	var m_gain: float = r["marks"] * marks_mul(g) * mul * float(ev["marks"])
+	exp["bank"]["aether"] = float(exp["bank"]["aether"]) + a_gain
+	exp["bank"]["marks"] = float(exp["bank"]["marks"]) + m_gain
+	if float(ev["heal"]) > 0.0:
+		exp["hpFrac"] = minf(1.0, float(exp["hpFrac"]) + float(ev["heal"]))
+	var bits: Array = []
+	if roundi(a_gain) >= 1:
+		bits.append("+%d Aether" % roundi(a_gain))
+	if floori(m_gain) >= 1:
+		bits.append("+%d Marks" % floori(m_gain))
+	if float(ev["heal"]) > 0.0:
+		bits.append("recovered some HP")
+	var text: String = String(ev["text"]).replace("{names}", names)
+	if not bits.is_empty():
+		text += " (%s)" % ", ".join(bits)
+	push_expedition_log(exp, text, sim_now)
 
 ## Mirrors rollExpeditionDiscovery (farroad-ui.js:1250-1266) -- a flat 8%
 ## chance per won node, a full one-off bonus fight against the SAME
@@ -1947,6 +2215,7 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 		if FarroadCore.step(b_battle) == null:
 			break
 	if b_battle["over"] == "party":
+		g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + b_enemies.size()
 		var br := kill_reward(exp["ew"], b_enemies.size())
 		var b_aether: float = br["aether"] * mul
 		var b_marks: float = br["marks"] * marks_mul(g) * mul
@@ -2076,8 +2345,12 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 
 ## Credits the accumulated-but-uncollected idle trickle to
 ## g["aether"]/g["marks"], zeroing both pending pools -- same bank-then-
-## collect shape as collect_expedition/collect_quest_reward/
-## collect_dungeon_reward.
+## collect shape as collect_expedition. Quest/dungeon rewards used to
+## follow this same pattern too (collect_quest_reward/
+## collect_dungeon_reward) but were reverted to auto-credit per the
+## 24-item batch's Group A/C5 ("have quest rewards be automatically
+## attributed") -- idle income's own Collect button is unaffected, that
+## question was never asked about idle.
 static func collect_idle_reward(g: Dictionary) -> Dictionary:
 	var aether: float = float(g.get("pendingIdleAether", 0.0))
 	var marks: float = float(g.get("pendingIdleMarks", 0.0))
@@ -2321,6 +2594,15 @@ static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Di
 static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now) -> Dictionary:
 	var sb: Dictionary = g["sideBattle"]
 	var meta: Dictionary = sb["meta"]
+	# Stats page: counted here, before g["battle"] is swapped back to the
+	# Road -- covers every dungeon wave (each one resolves through this
+	# function) and a quest stage's single fight alike.
+	if result == "party" and not gave_up:
+		var foes: int = 0
+		for u in g["battle"]["units"]:
+			if not u["isParty"]:
+				foes += 1
+		g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + foes
 	if meta["kind"] == "dungeon" and result == "party" and int(meta["waveIndex"]) < int(meta["totalWaves"]) - 1:
 		var cur_dungeon = null
 		for d in g["dungeons"]:
@@ -2345,14 +2627,17 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 		if result == "party":
 			q["stage"] = int(q["stage"]) + 1
 			var reward: int = quest_stage_aether(meta["stage"])
-			# Banked, not credited -- Ian: "don't add rewards from quests...
-			# until collected." Mirrors the expedition bank/collect pattern
-			# (exp["bank"]) already established. Accumulates across multiple
-			# uncollected clears rather than overwriting, since a unit can
-			# clear its next stage before the last one's reward is collected.
-			q["pendingAether"] = float(q.get("pendingAether", 0.0)) + float(reward)
+			# Ian (24-item batch, Group A/C5): "have quest rewards be
+			# automatically attributed" -- reverses the earlier pending/
+			# Collect-button pattern (banked on q["pendingAether"]) back to
+			# an immediate credit, same shape after_wave_cleared's own
+			# Road-wave rewards already use. Group C3: "unit quests reward 1
+			# Crystal per stage cleared" -- a flat grant alongside Aether,
+			# also immediate.
+			g["aether"] = float(g["aether"]) + float(reward)
+			g["crystal"] = int(g.get("crystal", 0)) + 1
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
-				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "aether": reward}
+				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "aether": reward, "crystal": 1}
 		elif gave_up:
 			return {"kind": "quest_abandoned", "name": meta["name"], "stageNum": int(meta["stage"]) + 1}
 		else:
@@ -2374,45 +2659,14 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			var r := kill_reward(reward_wave, meta["totalWaves"])
 			var d_aether: float = r["aether"] * mul
 			var d_marks: float = r["marks"] * marks_mul(g) * mul
-			# Banked, not credited -- same reasoning/pattern as the quest
-			# branch above.
-			dungeon["pendingAether"] = float(dungeon.get("pendingAether", 0.0)) + d_aether
-			dungeon["pendingMarks"] = float(dungeon.get("pendingMarks", 0.0)) + d_marks
-			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks}
+			# Ian (Group A/C5): auto-credit, same reversal as the quest
+			# branch above. Group C2: "dungeons drop 10 Crystal."
+			g["aether"] = float(g["aether"]) + d_aether
+			g["marks"] = float(g["marks"]) + d_marks
+			g["crystal"] = int(g.get("crystal", 0)) + 10
+			return {"kind": "dungeon_cleared", "name": dungeon["name"], "aether": d_aether, "marks": d_marks, "crystal": 10}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
-
-## Credits a quest's own accumulated-but-uncollected Aether reward to
-## g["aether"], zeroing the pending pool -- mirrors collect_expedition's
-## own bank->collect shape exactly.
-static func collect_quest_reward(g: Dictionary, uid: String) -> float:
-	var q: Dictionary = g["quests"].get(uid, {})
-	var amount: float = float(q.get("pendingAether", 0.0))
-	if amount <= 0.0:
-		return 0.0
-	g["aether"] = float(g["aether"]) + amount
-	q["pendingAether"] = 0.0
-	return amount
-
-## Credits a dungeon's own accumulated-but-uncollected Aether/Marks reward,
-## zeroing both pending pools -- mirrors collect_expedition's own
-## bank->collect shape exactly.
-static func collect_dungeon_reward(g: Dictionary, dungeon_id: String) -> Dictionary:
-	var dungeon = null
-	for d in g["dungeons"]:
-		if d["id"] == dungeon_id:
-			dungeon = d
-	if dungeon == null:
-		return {"aether": 0.0, "marks": 0.0}
-	var aether: float = float(dungeon.get("pendingAether", 0.0))
-	var marks: float = float(dungeon.get("pendingMarks", 0.0))
-	if aether <= 0.0 and marks <= 0.0:
-		return {"aether": 0.0, "marks": 0.0}
-	g["aether"] = float(g["aether"]) + aether
-	g["marks"] = float(g["marks"]) + marks
-	dungeon["pendingAether"] = 0.0
-	dungeon["pendingMarks"] = 0.0
-	return {"aether": aether, "marks": marks}
 
 ## ===== Step 3j: character creation (MC point-buy + charge picker) =====
 ## Mirrors P.MC_STAT_RANGE/MC_GROWTH_RANGE/MC_STAT_KEYS/MC_POINT_MIN/MAX/

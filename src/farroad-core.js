@@ -84,10 +84,25 @@ var EQUIPMENT=window.FarroadContent.EQUIPMENT;   /* no per-id defaulting needed,
    doubles too, 1,680 -> 3,360 — see the comment there for the exact
    solve). The ±80% ceiling itself is untouched, only how far the raw
    value has to climb to reach it. */
+/* Ian (24-item batch, Group B6): "no max on affinities. Change to flat
+   scaling values but increased cost scaling." AFFINITY_CAP kept ONLY as
+   a reference point for AFFINITY_FLAT_RATE's own calibration
+   (40*0.02=0.80, matching the OLD log curve's own saturation ceiling at
+   that same raw value) -- it no longer clamps anything; affinityMul
+   below is genuinely uncapped now (60 raw = 1.20, unlike before).
+   affinityMaxed's own hard buy-gate at this value is removed too
+   (farroad-progression.js). Flagged, not silently patched: affTerm/
+   affBoostResist below assume affinityMul stays under 1.0 for their own
+   (1-x) terms to stay non-negative -- untouched per the approved scope,
+   so an extremely deep single-axis investment (raw > 50) could in
+   principle push one of those terms negative. Not expected at realistic
+   Aether costs given AFFINITY_COST_BASE's new steeper curve, but worth
+   knowing if reported. */
 var AFFINITY_CAP=40;
+var AFFINITY_FLAT_RATE=0.02;
 function affinityMul(raw){
- var s=raw<0?-1:1, a=Math.min(Math.abs(raw),AFFINITY_CAP);
- return s*0.80*Math.log(1+a)/Math.log(1+AFFINITY_CAP);}
+ var s=raw<0?-1:1;
+ return s*AFFINITY_FLAT_RATE*Math.abs(raw);}
 /* Used by the 6 damage elements + Body (resolveHit, via affinityFactor
  * below): the actor's own raw value boosts their output, the OTHER side's
  * own raw value on the SAME axis MITIGATES what they take — a positive
@@ -347,6 +362,13 @@ var CHARGE_ACTIONS=['oath','ninefold','hearthlight','vowofstone','ashfall',
    rare-drop content, not tied to the original 25-unit-roster target above. */
 /* ---- Lore bonuses (v0.8) ---- */
 var SWIFT_CEIL=3.0, SWIFT_DECAY=0.88;
+/* Ian: "each lore level should increase cost (decreasing speed) by 5 for
+   normal actions... requiring investment into swift to keep their speed
+   up" -- 24-item batch, Group B2. Every non-swift bonus stack purchased
+   on a regular (non-charge) action now slows its own initiative down;
+   stacking swift on the SAME action still corrects it back up toward
+   SWIFT_CEIL exactly as before. First-pass rate, easily retuned. */
+var LORE_SLOWDOWN_PER_LEVEL=0.06;
 /* ===== PER-ACTION LINEAR STACK COST (v2.9) =====
  * Was a per-BONUS geometric curve: BONUS_GROWTH (1.15) compounded the price
  * of EACH bonus type's OWN stacks, and swift additionally had a speed-tiered
@@ -503,8 +525,16 @@ function applyBonuses(map){snapshot();
    * action's base. Because the ceiling is shared, a slow action has more headroom
    * than a fast one, so early stacks are worth more on slow actions with no
    * special case: first stack is +42% on Pierce, +24% on Strike, +11% on Brace. */
-  if(b.swift){var ini=1/a.rank;
-   ini=SWIFT_CEIL-(SWIFT_CEIL-ini)*Math.pow(SWIFT_DECAY,b.swift);
+  /* Ian (24-item batch, Group B2): non-swift Lore investment slows a
+     regular action down; swift is the only bonus that counters it. Runs
+     unconditionally (not gated on b.swift) so an action with e.g. only
+     `potent` stacked still gets slower even with no swift investment at
+     all. */
+  if(!a.isCharge){
+   var nonSwift=actionBonusTotal(b)-(b.swift||0);
+   var ini=1/a.rank;
+   if(nonSwift>0)ini=ini/(1+LORE_SLOWDOWN_PER_LEVEL*nonSwift);
+   if(b.swift)ini=SWIFT_CEIL-(SWIFT_CEIL-ini)*Math.pow(SWIFT_DECAY,b.swift);
    a.rank=1/ini;}
   if(b.weighty)a.power=a.power*(1+0.12*b.weighty);
   if(b.piercing)a.defPierce=Math.min(0.85,(a.defPierce||0)+0.15*b.piercing);
@@ -1065,7 +1095,7 @@ F.effAtk=effAtk;F.effMag=effMag;F.effDef=effDef;F.effRes=effRes;F.statByKey=stat
    tab, which both need the exact same curve the combat formula itself uses
    (see the AFFINITY_CAP/affinityMul comment above for why this lives here
    rather than in progression.js). */
-F.affinityMul=affinityMul;F.AFFINITY_CAP=AFFINITY_CAP;F.defaultAffinity=defaultAffinity;
+F.affinityMul=affinityMul;F.AFFINITY_CAP=AFFINITY_CAP;F.AFFINITY_FLAT_RATE=AFFINITY_FLAT_RATE;F.defaultAffinity=defaultAffinity;
 F.affBoost=affBoost;F.affBoostResist=affBoostResist;F.isBuffStatus=isBuffStatus;F.apply=apply;F.magOf=magOf;
 F.AFFINITY_BOOST_CAP=AFFINITY_BOOST_CAP;
 F.ACTIONS=ACTIONS;F.ATK_CAMP=ATK_CAMP;F.MAG_CAMP=MAG_CAMP;F.EQUIPPABLE=EQUIPPABLE;F.CHARGE_ACTIONS=CHARGE_ACTIONS;

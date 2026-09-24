@@ -17,8 +17,8 @@ const VERSION := 1
 ## an old save's legacy global total is deliberately NOT migrated into any
 ## action's new pool (this project is still dev/test-only, a "Reset Game"
 ## button already exists) -- every action just starts fresh at 0.
-const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "wipes",
-	"party", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
+const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "crystal", "wipes", "enemiesDefeated",
+	"party", "partyPresets", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
 	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
 	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
@@ -119,7 +119,9 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["aether"] = g.get("aether") if g.get("aether") else 0
 	g["loreByAction"] = g.get("loreByAction") if g.get("loreByAction") else {}
 	g["marks"] = g.get("marks") if g.get("marks") else 0
+	g["crystal"] = g.get("crystal") if g.get("crystal") else 0
 	g["wipes"] = g.get("wipes") if g.get("wipes") else 0
+	g["enemiesDefeated"] = g.get("enemiesDefeated") if g.get("enemiesDefeated") else 0
 	g["pendingIdleAether"] = g.get("pendingIdleAether") if g.get("pendingIdleAether") else 0.0
 	g["pendingIdleMarks"] = g.get("pendingIdleMarks") if g.get("pendingIdleMarks") else 0.0
 	g["idleAcc"] = g.get("idleAcc") if g.get("idleAcc") else 0
@@ -133,6 +135,8 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	# post-this-feature save just default-fills [].
 	if not g.get("expeditions"):
 		g["expeditions"] = []
+	if not g.get("partyPresets"):
+		g["partyPresets"] = []
 	if not g.get("dungeons"):
 		g["dungeons"] = []
 	if not g.get("superBossQuests"):

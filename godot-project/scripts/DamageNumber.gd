@@ -18,6 +18,12 @@ static func spawn(parent: Node2D, pos: Vector2, text: String, color: Color, stag
 	label.text = text
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_font_size_override("font_size", 20)
+	# 24-item batch, Group D2: "add outline to combat text to enhance
+	# readability" -- floating text crosses busy, moving sprites and the
+	# light parchment field, so a dark outline keeps it legible on any
+	# background.
+	label.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.03, 1.0))
+	label.add_theme_constant_override("outline_size", 5)
 	label.position = start_pos
 	label.z_index = 10
 	parent.add_child(label)

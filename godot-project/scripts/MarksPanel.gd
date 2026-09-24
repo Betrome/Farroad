@@ -42,16 +42,17 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# 20-item batch's own Group H recomputed the (now 7-icon, Catalogue
-	# folded into Settings) bottom row: Units 0.0288, Party 0.1675, this
-	# one 0.3063, Road (GameController's own button, not a panel, true
-	# center) 0.4450, Expedition 0.5838, Quests 0.7225, Settings 0.8613 --
-	# same 0.11*vp.x icon size/0.93*vp.y row as before, just recomputed.
+	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
+	# bottom row: Units 0.0133, Party 0.1367, this one 0.2600, Expedition
+	# 0.3833, Road (GameController's own button, moved next to Expedition
+	# to stay near true center) 0.5067, Quests 0.6300, Settings 0.7533,
+	# Shop 0.8767 -- same 0.11*vp.x icon size/0.93*vp.y row as before, just
+	# recomputed.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -297,9 +298,18 @@ func _describe_pull_result(r: Dictionary) -> String:
 			var noun: String = "charge action" if r.get("isCharge") else "action"
 			return "Duplicate %s, converted to +1 Lore on it: %s." % [noun, aname] if r["duplicate"] else "New %s: %s." % [noun, aname]
 		"cond":
-			return "Duplicate gambit condition, converted to +1 Lore: %s." % FarroadCore.cond_label(r["id"]) if r["duplicate"] else "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
+			if not r["duplicate"]:
+				return "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
+			# 24-item batch, Group D6: name the action that actually received
+			# the Lore (do_pull now reports it as loreActionId).
+			return "Duplicate gambit condition (%s), converted to +1 Lore on %s." % [
+				FarroadCore.cond_label(r["id"]), _action_name(r.get("loreActionId", ""))]
 		_:
 			return ""
+
+func _action_name(aid: String) -> String:
+	var act = FarroadCore.ACTIONS.get(aid)
+	return act["name"] if act else (aid if aid != "" else "an action")
 
 func _on_pull_pressed() -> void:
 	var result := FarroadProgression.do_pull(g)
@@ -345,6 +355,11 @@ func _describe_pull_results(results: Array) -> String:
 	var dup_conds := 0
 	var new_equip := 0
 	var dup_equip := 0
+	# 24-item batch, Group D6: "list how much aether and what actions got
+	# lore from duplicate each pull" -- tallied per action name, in the
+	# order each first appeared.
+	var dup_aether := 0
+	var lore_by_action: Dictionary = {}
 	for r in results:
 		match r["kind"]:
 			"unit":
@@ -352,14 +367,19 @@ func _describe_pull_results(results: Array) -> String:
 				new_units.append(def["name"] if def else r["id"])
 			"unit_dup":
 				unit_dups += 1
+				dup_aether += int(r.get("aetherGain", 0))
 			"action":
 				if r["duplicate"]:
 					dup_actions += 1
+					var an := _action_name(r["id"])
+					lore_by_action[an] = int(lore_by_action.get(an, 0)) + 1
 				else:
 					new_actions += 1
 			"cond":
 				if r["duplicate"]:
 					dup_conds += 1
+					var cn := _action_name(r.get("loreActionId", ""))
+					lore_by_action[cn] = int(lore_by_action.get(cn, 0)) + 1
 				else:
 					new_conds += 1
 			"equip":
@@ -372,11 +392,16 @@ func _describe_pull_results(results: Array) -> String:
 	if not new_units.is_empty():
 		parts.append("new companion%s: %s" % ["" if new_units.size() == 1 else "s", ", ".join(new_units)])
 	if unit_dups > 0:
-		parts.append("%d duplicate companion%s -> Aether" % [unit_dups, "" if unit_dups == 1 else "s"])
+		parts.append("%d duplicate companion%s -> +%d Aether" % [unit_dups, "" if unit_dups == 1 else "s", dup_aether])
 	if new_actions > 0 or dup_actions > 0:
 		parts.append("%d new / %d duplicate action%s" % [new_actions, dup_actions, "" if (new_actions + dup_actions) == 1 else "s"])
 	if new_conds > 0 or dup_conds > 0:
 		parts.append("%d new / %d duplicate gambit%s" % [new_conds, dup_conds, "" if (new_conds + dup_conds) == 1 else "s"])
 	if new_equip > 0 or dup_equip > 0:
 		parts.append("%d new / %d duplicate equipment" % [new_equip, dup_equip])
+	if not lore_by_action.is_empty():
+		var lore_bits: Array = []
+		for an2 in lore_by_action.keys():
+			lore_bits.append("%s +%d" % [an2, lore_by_action[an2]])
+		parts.append("Lore: " + ", ".join(lore_bits))
 	return "; ".join(parts) + "."

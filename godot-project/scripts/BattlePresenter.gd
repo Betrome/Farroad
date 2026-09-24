@@ -37,12 +37,21 @@ const HOP_HEIGHT_FRAC := 0.099      # of viewport height (doubled from round 4's
 # stops -- 0.05 originally drew the two shapes nearly on top of each other
 # at the peak of the hop; 50% farther back than that.
 const HOP_STOP_SHORT := 0.075       # of viewport width
-# The ~1s/beat pacing comes entirely from the motion itself, not a trailing
-# static pause -- BEAT_PAUSE is just enough to let a spawned damage
-# number/HP-bar update register on screen before the next beat starts.
-const HOP_TIME := 0.475             # per leg (there, then back) -- ~1s round trip
-const PROJECTILE_TIME := 0.95
-const BEAT_PAUSE := 0.05
+# 24-item batch (Group B3): "if actions are physical, have the next action
+# take place while they are in the middle of moving back to their
+# position, so after 0.75 seconds. Make magic actions take 0.75 seconds."
+# HOP_TIME is now just the OUTBOUND leg's own duration -- the return leg
+# is fire-and-forget (started, never awaited), so the two are no longer
+# coupled into one blocking round trip. PHYS_BEAT_TOTAL is the actual
+# gate before the next beat's step() fires: since HOP_TIME(0.475) is
+# comfortably under PHYS_BEAT_TOTAL(0.75), and the RETURN leg takes its
+# own HOP_TIME to finish, the return is still visibly mid-flight when the
+# next action starts, exactly as asked. MAGIC_BEAT_TOTAL replaces the old
+# PROJECTILE_TIME+BEAT_PAUSE pair -- the projectile's own flight duration
+# IS the full magic beat now, nothing tacked on after.
+const HOP_TIME := 0.475             # outbound leg only now (see above)
+const PHYS_BEAT_TOTAL := 0.75
+const MAGIC_BEAT_TOTAL := 0.75
 const IDLE_PAUSE := 0.45            # no-target/burned-out beats -- nothing to animate anyway
 
 ## camp/element glyphs -- mirrors ELEMENT_GLYPH/actionGlyphText exactly
@@ -987,15 +996,10 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 ## wave and the boss at the end that is slightly bigger. Completing a
 ## wave 'lights up' its related circle as the party runs to the next
 ## encounter. Just above the line of circles have a small line of text
-## that shows the current wave." Scoped to the wave 1-20 tutorial
-## stretch specifically (WAVE_PROGRESS_COUNT=20, the 20th being the
-## first-boss wave) -- there's no equivalent fixed-length "20 waves"
-## structure past that point to represent this way. Rebuilt fresh every
-## wave (a new BattlePresenter per fight, same as everything else in this
-## chrome) with its LIT/unlit state driven by g["clearedWaves"] (passed
-## in via start_battle, GameController owns the real save state) rather
-## than anything tracked locally, so it always reflects genuine progress,
-## not just this session/this presenter's own memory.
+## that shows the current wave." WAVE_PROGRESS_COUNT matches
+## FarroadProgression.BOSS_EVERY -- one circle per wave of the CURRENT
+## boss-to-boss stretch, the last (bigger) one being its boss. See
+## _refresh_wave_progress for how it tracks/resets (24-item batch, Group D4).
 const WAVE_PROGRESS_COUNT := 20
 var wave_progress_label: Label
 var wave_progress_circles: Array = []   # [{"panel": Panel, "style": StyleBoxFlat, "wave": int}, ...]
@@ -1044,17 +1048,33 @@ func _build_wave_progress_ui() -> void:
 func _wave_circle_color(lit: bool) -> Color:
 	return Palette.GOLD_LIGHT if lit else Color(0.3, 0.3, 0.34, 0.9)
 
-## Sets the "Wave N" text and every circle's lit/unlit state from real
-## cleared-wave data (g["clearedWaves"], a uid-less {wave_num: 1, ...}
-## set) -- called once from start_battle (progress doesn't change
-## mid-fight, no per-beat refresh needed) and again by reflow() (using
-## the cached copy, since a resize doesn't carry fresh save data).
+## Sets the "Wave N" text and every circle's lit/unlit state -- called
+## once from start_battle (progress doesn't change mid-fight) and again by
+## reflow().
+##
+## Ian (24-item batch, Group D4): "wave icons at the bottom should track
+## live for the area you are in, resetting to your checkpoint after wipes
+## and resetting after defeating a boss." The strip used to be a fixed,
+## one-time waves-1-20 tracker lit from g["clearedWaves"] (permanent,
+## never reset) -- useless past wave 20. It now always shows the CURRENT
+## boss-to-boss stretch (BOSS_EVERY waves, the last one the boss), lit
+## purely from how far into that stretch the live wave is. Derived fresh
+## from the current wave rather than any new saved state, so it resets on
+## its own: a wipe sends the wave back to the checkpoint (the stretch's
+## own first wave -> nothing lit), and clearing a boss moves the wave into
+## the next stretch (bounds recompute -> all unlit again). cleared_waves
+## is still accepted/cached for call-site compatibility but no longer read.
 func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
 	_cleared_waves_cache = cleared_waves
-	wave_progress_label.text = "Wave %d" % FarroadCore.current_wave
-	for entry in wave_progress_circles:
-		var lit: bool = cleared_waves.has(entry["wave"]) or cleared_waves.has(str(entry["wave"]))
-		(entry["style"] as StyleBoxFlat).bg_color = _wave_circle_color(lit)
+	var cur: int = int(FarroadCore.current_wave)
+	var span: int = FarroadProgression.BOSS_EVERY
+	var stretch_start: int = int(floor(float(maxi(cur, 1) - 1) / float(span))) * span + 1
+	wave_progress_label.text = "Wave %d  ·  %d-%d" % [cur, stretch_start, stretch_start + span - 1]
+	for i in range(wave_progress_circles.size()):
+		var entry: Dictionary = wave_progress_circles[i]
+		entry["wave"] = stretch_start + i
+		(entry["panel"] as Panel).visible = true
+		(entry["style"] as StyleBoxFlat).bg_color = _wave_circle_color(int(entry["wave"]) < cur)
 
 ## Called by GameController for a side battle (quest/dungeon) specifically
 ## -- overrides the "Wave N" text with the encounter's own name (e.g.
@@ -1066,6 +1086,10 @@ func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
 ## the side battle resolves.
 func set_status_override(text: String) -> void:
 	wave_progress_label.text = text
+	# A quest/dungeon fight isn't part of the Road's boss-to-boss stretch --
+	# hide the strip rather than show a stretch it doesn't belong to.
+	for entry in wave_progress_circles:
+		(entry["panel"] as Panel).visible = false
 
 ## Called by GameController right as the post-wave-clear "run" transition
 ## starts (on the OLD, about-to-be-freed presenter -- the NEW one for the
@@ -1152,6 +1176,22 @@ func _refresh_enrage() -> void:
 	else:
 		var turns_left: int = gate - beat
 		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]
+
+## Ian (24-item batch, Group B4): "after enrage hits 25%, increase game
+## speed by 0.05 seconds every 25%." Enrage first crosses 25% at
+## enrageN==10 (ENRAGE_PCT*10*100 == 25). Below that, no cut at all --
+## matches the "after 25%" wording literally, not a gradual ramp from 0.
+## MIN_BEAT_FLOOR keeps a long fight's pacing from ever collapsing to an
+## unreadable blur.
+const ENRAGE_SPEEDUP_STEP := 0.05
+const MIN_BEAT_FLOOR := 0.2
+func _enrage_speed_cut() -> float:
+	if not battle.get("enrage", true):
+		return 0.0
+	var pct: float = FarroadCore.ENRAGE_PCT * float(battle.get("enrageN", 0)) * 100.0
+	if pct < 25.0:
+		return 0.0
+	return floor(pct / 25.0) * ENRAGE_SPEEDUP_STEP
 
 ## "TURN ORDER ->" strip -- mirrors the JS version's preview()-powered strip
 ## (a fixed row of upcoming-turn cards, not the history log; that's the
@@ -1620,6 +1660,11 @@ func _animate_beat(e: Dictionary) -> void:
 	var dest_rest: Vector2 = _field_center() if is_aoe else target_view.rest_position
 	var dest_world: Vector2 = _field_center() if is_aoe else target_view.position
 
+	# 24-item batch (Group B4): reduces both the visual tween durations AND
+	# the post-beat gate together, floored at MIN_BEAT_FLOOR so a long
+	# fight's pacing can't collapse to an unreadable blur.
+	var speed_cut: float = _enrage_speed_cut()
+
 	if is_phys:
 		# A LOCAL offset from the actor's own rest position (its shape
 		# animates relative to itself -- see _hop's own comment), stopping
@@ -1633,11 +1678,12 @@ func _animate_beat(e: Dictionary) -> void:
 		# animation -- a fallback-shape unit always answers false, so this
 		# branch is a no-op change for every unit without real art yet.
 		var use_run: bool = actor_view.prefers_run_approach()
+		var leg_time: float = maxf(MIN_BEAT_FLOOR * 0.5, (RUN_TIME if use_run else HOP_TIME) - speed_cut)
 		actor_view.play_state("run" if use_run else "jump")
 		if use_run:
-			await _run_to(actor_view, Vector2.ZERO, approach_offset)
+			await _run_to(actor_view, Vector2.ZERO, approach_offset, leg_time)
 		else:
-			await _hop(actor_view, Vector2.ZERO, approach_offset)
+			await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
 		actor_view.play_state("attack")
 		_apply_hit_effects(e)
 		# Ian: "sear triggers after the afflicted unit acts" -- _apply_hit_
@@ -1647,20 +1693,26 @@ func _animate_beat(e: Dictionary) -> void:
 		var actor_still_alive: bool = float(actor_view.unit["hp"]) > 0.0
 		if actor_still_alive:
 			actor_view.play_state("run" if use_run else "jump")
-		if use_run:
-			await _run_to(actor_view, actor_view.shape.position, Vector2.ZERO)
-		else:
-			await _hop(actor_view, actor_view.shape.position, Vector2.ZERO)
-		if actor_still_alive:
-			actor_view.play_state("idle")
+		# Ian (Group B3): "have the next action take place while they are
+		# in the middle of moving back to their position, so after 0.75
+		# seconds." The return leg is now fire-and-forget (started, never
+		# awaited) -- _return_and_settle keeps animating it home and sets
+		# "idle" once it lands, entirely independent of this function's own
+		# return. The gate below gives the WHOLE beat (outbound + this
+		# wait) a fixed total budget; since the return leg's own duration
+		# (leg_time) is longer than what's left of that budget once the
+		# outbound leg is subtracted, the unit is still visibly mid-return
+		# when the next beat's step() actually fires.
+		_return_and_settle(actor_view, use_run, actor_still_alive, leg_time)
+		var phys_total: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
+		await get_tree().create_timer(maxf(0.05, phys_total - leg_time)).timeout
 	else:
 		actor_view.play_state("cast")
-		await _animate_projectile(actor_view, dest_world)
+		var magic_total: float = maxf(MIN_BEAT_FLOOR, MAGIC_BEAT_TOTAL - speed_cut)
+		await _animate_projectile(actor_view, dest_world, magic_total)
 		_apply_hit_effects(e)
 		if float(actor_view.unit["hp"]) > 0.0:
 			actor_view.play_state("idle")
-
-	await get_tree().create_timer(BEAT_PAUSE).timeout
 
 ## `stagger` tracks how many floating texts have already spawned at each
 ## target THIS beat (across hits/heals/status notes together) -- see
@@ -1764,11 +1816,14 @@ func _apply_status_notes(e: Dictionary, stagger: Dictionary) -> void:
 ## the shape, positioned relative to the UnitView's own origin) never moves,
 ## so they stay anchored at the unit's normal spot on the field throughout
 ## the hop instead of jumping toward the target along with the shape.
-func _hop(actor: UnitView, from: Vector2, to: Vector2) -> void:
+## `duration` defaults to HOP_TIME but is passed explicitly by
+## _animate_beat once enrage pacing (Group B4) is in play, since the
+## effective duration then varies beat-to-beat.
+func _hop(actor: UnitView, from: Vector2, to: Vector2, duration: float = HOP_TIME) -> void:
 	var height: float = _vp.y * HOP_HEIGHT_FRAC
 	var tw := create_tween()
 	tw.tween_method(func(t: float): actor.shape.position = from.lerp(to, t) + Vector2(0, -height * sin(t * PI)),
-		0.0, 1.0, HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		0.0, 1.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
 
 ## Ian: "have the option for units to use a different animation such as
@@ -1780,16 +1835,33 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2) -> void:
 ## yet), deliberately quicker than a HOP_TIME round trip since a run
 ## reads as brisker than an arcing jump.
 const RUN_TIME := 0.35
-func _run_to(actor: UnitView, from: Vector2, to: Vector2) -> void:
+func _run_to(actor: UnitView, from: Vector2, to: Vector2, duration: float = RUN_TIME) -> void:
 	actor.shape.position = from
 	var tw := create_tween()
-	tw.tween_property(actor.shape, "position", to, RUN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(actor.shape, "position", to, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
+
+## Fire-and-forget wrapper (Group B3) -- started without being awaited by
+## _animate_beat, so the actor keeps visibly animating home in the
+## background while combat has already moved on to the next actor's beat.
+## was_alive is captured at call time (before this coroutine starts, which
+## may itself run past the point some OTHER beat changes actor.unit["hp"])
+## so a mid-flight death elsewhere can't retroactively flip whether this
+## unit settles into "idle" once it lands.
+func _return_and_settle(actor: UnitView, use_run: bool, was_alive: bool, duration: float) -> void:
+	if use_run:
+		await _run_to(actor, actor.shape.position, Vector2.ZERO, duration)
+	else:
+		await _hop(actor, actor.shape.position, Vector2.ZERO, duration)
+	if was_alive:
+		actor.play_state("idle")
 
 ## Magic/ranged attack (and heals): a projectile travels actor -> a
 ## world-space destination (the real target's own position, or the
 ## field's center for an AoE action -- see _animate_beat's own dest_world).
-func _animate_projectile(actor: UnitView, dest: Vector2) -> void:
+## `duration` defaults to MAGIC_BEAT_TOTAL but is passed explicitly once
+## enrage pacing (Group B4) is in play.
+func _animate_projectile(actor: UnitView, dest: Vector2, duration: float = MAGIC_BEAT_TOTAL) -> void:
 	var bolt := Polygon2D.new()
 	var r: float = _vp.y * 0.008
 	bolt.polygon = PackedVector2Array([Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)])
@@ -1797,6 +1869,6 @@ func _animate_projectile(actor: UnitView, dest: Vector2) -> void:
 	bolt.position = actor.position
 	add_child(bolt)
 	var tw := create_tween()
-	tw.tween_property(bolt, "position", dest, PROJECTILE_TIME)
+	tw.tween_property(bolt, "position", dest, duration)
 	await tw.finished
 	bolt.queue_free()

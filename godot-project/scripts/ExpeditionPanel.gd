@@ -42,14 +42,15 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
-	# 20-item batch's own Group H recomputed the (now 7-icon) bottom row --
-	# see MarksPanel.gd's own copy of this comment for the full layout.
-	# This panel now sits at 0.5838.
+	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
+	# bottom row -- see MarksPanel.gd's own copy of this comment for the
+	# full layout. This panel now sits at 0.3833 (moved earlier in the row
+	# so Road, right after it, stays close to true center).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -286,6 +287,32 @@ func _refresh_send_picker() -> void:
 	# custom_minimum_size anywhere); a real ~1.35x taller floor here makes
 	# them easier to tap without changing the HFlowContainer auto-layout.
 	var btn_min_size := Vector2(0, 44)
+
+	# 24-item batch, Group E2: "choose party drop down above the ... units
+	# to choose individual units for expedition." Picks from the Party
+	# tab's own saved presets (Group E1). Only BENCHED, not-already-away
+	# members can actually go out on an expedition (the fielded Road party
+	# never leaves), so each entry shows how many of its members are
+	# sendable right now, and choosing one selects exactly those -- the
+	# per-unit toggles below still work for fine-tuning afterward.
+	var presets: Array = g.get("partyPresets", [])
+	if not presets.is_empty():
+		var preset_opt := OptionButton.new()
+		preset_opt.custom_minimum_size = btn_min_size
+		preset_opt.add_item("Choose a saved party...", 0)
+		for i in range(presets.size()):
+			var sendable := _preset_sendable(presets[i], avail)
+			preset_opt.add_item("%s (%d sendable)" % [presets[i]["name"], sendable.size()], i + 1)
+			if sendable.is_empty():
+				preset_opt.set_item_disabled(i + 1, true)
+		preset_opt.select(0)
+		preset_opt.item_selected.connect(func(idx: int):
+			if idx <= 0:
+				return
+			selected_uids = _preset_sendable(presets[idx - 1], avail)
+			_refresh_send_picker())
+		send_container.add_child(preset_opt)
+
 	var units_row := HFlowContainer.new()
 	units_row.add_theme_constant_override("h_separation", 6)
 	units_row.add_theme_constant_override("v_separation", 6)
@@ -319,6 +346,13 @@ func _refresh_send_picker() -> void:
 	send_btn.disabled = selected_uids.is_empty() or selected_direction == ""
 	send_btn.pressed.connect(_on_send_pressed)
 	send_container.add_child(send_btn)
+
+func _preset_sendable(preset: Dictionary, avail: Array) -> Array:
+	var out: Array = []
+	for uid in preset["party"]:
+		if avail.has(uid) and not out.has(uid) and out.size() < FarroadProgression.PARTY_CAP:
+			out.append(uid)
+	return out
 
 func _on_unit_toggled(uid: String) -> void:
 	if selected_uids.has(uid):

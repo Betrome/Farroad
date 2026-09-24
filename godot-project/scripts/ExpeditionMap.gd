@@ -129,9 +129,24 @@ func _meander_offset(exp: Dictionary, travel_frac: float) -> float:
 	var sign_val: float = 1.0 if (h % 2 == 0) else -1.0
 	return sign_val * unit_mag * _radius * MEANDER_AMPLITUDE_FRAC * travel_frac
 
+## 24-item batch, Group E3: the map's depth scale grows with the deepest
+## exploration so far (rounded up to the next NODE_EVERY), never below
+## EW_VISUAL_REF -- a fixed 150 used to pile everything past wave 150 up
+## at the edge, which would also have hidden every 50-wave node past it.
+const NODE_EVERY := 50
+const MIN_NODE_SPACING_PX := 7.0
+
+func _visual_ref() -> float:
+	var deepest: float = EW_VISUAL_REF
+	for dir in FarroadProgression.direction_ids():
+		deepest = maxf(deepest, float(g["directions"].get(dir, {}).get("maxDepth", 0)))
+	for exp in g["expeditions"]:
+		deepest = maxf(deepest, float(exp.get("ew", 0)))
+	return ceilf(deepest / NODE_EVERY) * NODE_EVERY
+
 func _dot_position(exp: Dictionary) -> Vector2:
 	var dir_vec: Vector2 = _dir_vec(exp["direction"])
-	var travel_frac: float = clampf(float(exp["ew"]) / EW_VISUAL_REF, 0.0, 1.0)
+	var travel_frac: float = clampf(float(exp["ew"]) / _visual_ref(), 0.0, 1.0)
 	var perp: Vector2 = dir_vec.rotated(PI / 2.0)
 	return _center + dir_vec * _radius * travel_frac + perp * _meander_offset(exp, travel_frac)
 
@@ -148,16 +163,29 @@ func _build_dot_button(exp: Dictionary) -> Button:
 	return btn
 
 func _draw() -> void:
+	var ref: float = _visual_ref()
+	# Ian: "add a connected line and node in general direction for every
+	# 50 waves a party explores in their chosen direction." A node at each
+	# multiple of NODE_EVERY along the already-revealed line; if a very
+	# deep direction would crowd them closer than MIN_NODE_SPACING_PX, only
+	# every k-th milestone is drawn so they stay legible.
+	var px_per_node: float = _radius * float(NODE_EVERY) / ref
+	var node_step: int = NODE_EVERY * maxi(1, int(ceil(MIN_NODE_SPACING_PX / maxf(px_per_node, 0.001))))
+	var node_r: float = maxf(2.0, _radius * 0.028)
 	for dir in FarroadProgression.direction_ids():
 		var dir_vec: Vector2 = _dir_vec(dir)
 		var max_depth: float = float(g["directions"].get(dir, {}).get("maxDepth", 0))
-		var revealed_frac: float = clampf(max_depth / EW_VISUAL_REF, 0.0, 1.0)
+		var revealed_frac: float = clampf(max_depth / ref, 0.0, 1.0)
 		var revealed_end: Vector2 = _center + dir_vec * _radius * revealed_frac
 		var full_end: Vector2 = _center + dir_vec * _radius
 		if revealed_frac > 0.0:
 			draw_line(_center, revealed_end, LINE_COLOR, 2.0)
 		if revealed_frac < 1.0:
 			draw_line(revealed_end, full_end, LINE_COLOR_FOGGED, 2.0)
+		var depth: int = node_step
+		while float(depth) <= max_depth:
+			draw_circle(_center + dir_vec * _radius * (float(depth) / ref), node_r, LINE_COLOR)
+			depth += node_step
 
 	for exp in g["expeditions"]:
 		var dot_color: Color = DOT_ARRIVED_COLOR if exp.get("arrivedAt") != null else DOT_COLOR

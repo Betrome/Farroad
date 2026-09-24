@@ -207,17 +207,20 @@ func _run_bonuses_suite() -> void:
 	})
 	out["afterApply"] = {
 		"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"],
-		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"],
-		"heavystrikeChargeCost": FarroadCore.ACTIONS["heavystrike"]["chargeCost"]
+		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"], "mendRank": FarroadCore.ACTIONS["mend"]["rank"],
+		"heavystrikeChargeCost": FarroadCore.ACTIONS["heavystrike"]["chargeCost"],
+		"heavystrikeRank": FarroadCore.ACTIONS["heavystrike"]["rank"]
 	}
 	FarroadCore.apply_bonuses({})
 	out["afterReset"] = {
 		"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"],
-		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"],
+		"mendPower": FarroadCore.ACTIONS["mend"]["power"], "mendCleanse": FarroadCore.ACTIONS["mend"]["cleanse"], "mendRank": FarroadCore.ACTIONS["mend"]["rank"],
 		"heavystrikeChargeCost": FarroadCore.ACTIONS["heavystrike"]["chargeCost"]
 	}
 	FarroadCore.apply_bonuses({"strike": {"swift": 5}})
 	out["afterReapply"] = {"strikeRank": FarroadCore.ACTIONS["strike"]["rank"], "strikeDefPierce": FarroadCore.ACTIONS["strike"]["defPierce"]}
+	FarroadCore.apply_bonuses({"ember": {"potent": 4}})
+	out["slowdownOnly"] = {"emberRank": FarroadCore.ACTIONS["ember"]["rank"], "emberPower": FarroadCore.ACTIONS["ember"]["power"]}
 	FarroadCore.apply_bonuses({})
 
 	out["piercingProof"] = {"unpierced": _dmg_against_high_res(false), "pierced": _dmg_against_high_res(true)}
@@ -467,6 +470,21 @@ func _run_progression_suite() -> void:
 	aether["fireBefore"] = FarroadProgression.affinity_raw(g3, "kesh", "fire")
 	FarroadProgression.spend_affinity(g3, "kesh", "fire")
 	aether["fireAfter"] = FarroadProgression.affinity_raw(g3, "kesh", "fire")
+	# 24-item batch (Group B6): "no max on affinities" -- push a SECOND axis
+	# 45 purchases deep (well past the old 40-raw AFFINITY_CAP) to prove
+	# affinity_maxed never refuses, affinity_mul stays uncapped past the old
+	# plateau, and the new quadratic cost curve matches bit-exact.
+	var water_spent := 0
+	for wi in range(45):
+		var w_cost: int = FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g3, "kesh").get("water", 0))
+		water_spent += w_cost
+		FarroadProgression.spend_affinity(g3, "kesh", "water")
+	aether["waterRawAfter45"] = FarroadProgression.affinity_raw(g3, "kesh", "water")
+	aether["waterMulAfter45"] = FarroadCore.affinity_mul(FarroadProgression.affinity_raw(g3, "kesh", "water"))
+	aether["waterMaxedAt45"] = FarroadProgression.affinity_maxed(g3, "kesh", "water")
+	aether["waterTotalSpent"] = water_spent
+	aether["waterCostAt10th"] = FarroadProgression.affinity_cost_to_next(9)
+	aether["waterCostAt1st"] = FarroadProgression.affinity_cost_to_next(0)
 	aether["evadeBefore"] = FarroadProgression.pct_stat_value(g3, "kesh", "evade")
 	FarroadProgression.spend_pct_stat(g3, "kesh", "evade")
 	aether["evadeAfter"] = FarroadProgression.pct_stat_value(g3, "kesh", "evade")
@@ -585,6 +603,59 @@ func _run_progression_suite() -> void:
 	marks["anyChargePullSeen"] = any_charge_pull_seen
 	out["marks"] = marks
 
+	# 24-item batch, Group C6: SHOP -- fixed-price Crystal purchases, using
+	# the REAL FarroadProgression.buy_shop_* functions directly (not a hand
+	# copy -- unlike the JS side, which has no exported equivalents to call
+	# since buyShopGambit/etc. are UI-closure-private in farroad-ui.js).
+	var g_shop := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(g_shop, 1)
+	g_shop["mc"] = {"name": "MC", "chargeAction": "heavystrike", "acquiredCharges": ["heavystrike"]}
+	var shop := {}
+	var some_cond: String = ""
+	for cid in FarroadCore.ALL_CONDITION_IDS:
+		if cid != "none":
+			some_cond = cid
+			break
+	shop["gambitRefusedNoCrystal"] = FarroadProgression.buy_shop_gambit(g_shop, some_cond)
+	g_shop["crystal"] = 1000
+	shop["gambitBought"] = FarroadProgression.buy_shop_gambit(g_shop, some_cond)
+	shop["gambitDupeRefused"] = FarroadProgression.buy_shop_gambit(g_shop, some_cond)
+	shop["crystalAfterGambit"] = g_shop["crystal"]
+	var some_action: String = ""
+	for aid in FarroadCore.equippable():
+		if not (g_shop["actions"] as Array).has(aid):
+			some_action = aid
+			break
+	shop["actionBought"] = FarroadProgression.buy_shop_action(g_shop, some_action)
+	shop["actionDupeRefused"] = FarroadProgression.buy_shop_action(g_shop, some_action)
+	var some_charge: String = ""
+	for cid2 in FarroadCore.CHARGE_ACTIONS:
+		if not (g_shop["mc"]["acquiredCharges"] as Array).has(cid2):
+			some_charge = cid2
+			break
+	shop["chargeBought"] = FarroadProgression.buy_shop_action(g_shop, some_charge)
+	shop["chargeDupeRefused"] = FarroadProgression.buy_shop_action(g_shop, some_charge)
+	shop["crystalAfterActions"] = g_shop["crystal"]
+	var some_unit: String = ""
+	for r in FarroadCore.ROSTER:
+		if not g_shop["owned"].get(r["id"], false):
+			some_unit = r["id"]
+			break
+	shop["unitBought"] = FarroadProgression.buy_shop_unit(g_shop, some_unit)
+	shop["unitDupeRefused"] = FarroadProgression.buy_shop_unit(g_shop, some_unit)
+	shop["crystalAfterUnit"] = g_shop["crystal"]
+	shop["unitOwnedAfter"] = bool(g_shop["owned"].get(some_unit, false))
+	var some_item: String = FarroadCore.EQUIPMENT.keys()[0]
+	shop["equip1"] = FarroadProgression.buy_shop_equipment(g_shop, some_item)
+	shop["equip2"] = FarroadProgression.buy_shop_equipment(g_shop, some_item)
+	shop["equipOwnedCount"] = g_shop["equipInv"][some_item]
+	shop["crystalAfterEquip"] = g_shop["crystal"]
+	g_shop["crystal"] = 0
+	var crystal_before_refuse: int = g_shop["crystal"]
+	shop["equipRefusedNoCrystal"] = FarroadProgression.buy_shop_equipment(g_shop, some_item)
+	shop["crystalUnchangedAfterRefusal"] = g_shop["crystal"] == crystal_before_refuse
+	out["shop"] = shop
+
 	# Step 3h: EXPEDITION -- real-time idle sending + offline catch-up,
 	# mirrors parity-reference.js's own 'expedition' section exactly,
 	# using the REAL FarroadProgression functions (not a hand copy --
@@ -653,7 +724,43 @@ func _run_progression_suite() -> void:
 	exped["offlineAetherAfterIdleCollect"] = g9["aether"] - aether_before9_collect
 	exped["offlineMarksAfterIdleCollect"] = g9["marks"] - marks_before9_collect
 	exped["offlineIdlePendingAfterCollect"] = {"aether": g9.get("pendingIdleAether", 0.0), "marks": g9.get("pendingIdleMarks", 0.0)}
+	# 24-item batch, Group E4: direct road-event coverage, mirrors
+	# parity-reference.js's own 'roadEvents' check exactly.
+	var gev := FarroadProgression.new_game(11, null)
+	FarroadProgression.start_wave(gev, 1)
+	var ev_exp := {"partyIds": ["kesh"], "direction": "west", "ew": 37, "hpFrac": 0.3, "bank": {"aether": 0.0, "marks": 0.0}, "log": []}
+	for ei in range(40):
+		FarroadProgression.roll_expedition_event(gev, ev_exp, FarroadProgression.direction_mul("west"), 1000 + ei)
+	exped["roadEvents"] = {"bank": ev_exp["bank"], "hpFrac": ev_exp["hpFrac"], "log": ev_exp["log"], "rngCalls": gev["rng"].calls}
 	out["expedition"] = exped
+
+	# 24-item batch, Group E1: party presets -- mirrors parity-reference.js's
+	# own 'partyPresets' section exactly, using the REAL functions.
+	var gp := FarroadProgression.new_game(7, null)
+	FarroadProgression.start_wave(gp, 1)
+	FarroadProgression.join_companion(gp, "ansa")
+	FarroadProgression.join_companion(gp, "vey")
+	var presets := {}
+	presets["emptyNameRefused"] = FarroadProgression.save_party_preset(gp, "   ")
+	presets["savedA"] = FarroadProgression.save_party_preset(gp, "  Main team  ")
+	gp["party"] = ["kesh"]
+	presets["savedB"] = FarroadProgression.save_party_preset(gp, "Solo")
+	for pi in range(8):
+		FarroadProgression.save_party_preset(gp, "Filler %d" % pi)
+	presets["countAtCap"] = (gp["partyPresets"] as Array).size()
+	presets["overCapRefused"] = FarroadProgression.save_party_preset(gp, "One too many")
+	presets["loadA"] = FarroadProgression.load_party_preset(gp, 0)
+	presets["partyAfterLoadA"] = (gp["party"] as Array).duplicate()
+	gp["expeditions"].append({"partyIds": ["ansa"]})
+	presets["loadAWithAnsaAway"] = FarroadProgression.load_party_preset(gp, 0)
+	presets["partyAfterAwayLoad"] = (gp["party"] as Array).duplicate()
+	presets["badIndexRefused"] = FarroadProgression.load_party_preset(gp, 99)
+	presets["deleteSolo"] = FarroadProgression.delete_party_preset(gp, 1)
+	var names_after: Array = []
+	for p in gp["partyPresets"]:
+		names_after.append(p["name"])
+	presets["namesAfterDelete"] = names_after
+	out["partyPresets"] = presets
 
 	# Step 3i: QUESTS/dungeons -- mirrors parity-reference.js's own
 	# 'questsDungeons' section exactly, using the REAL FarroadProgression
@@ -722,6 +829,7 @@ func _run_progression_suite() -> void:
 	var gq := FarroadProgression.new_game(7, null)
 	FarroadProgression.start_wave(gq, 1)
 	var aether_before_q: float = gq["aether"]
+	var crystal_before_q: int = int(gq.get("crystal", 0))
 	var prep_q := FarroadProgression.prep_quest_attempt(gq, "kesh")
 	FarroadProgression.start_side_battle(gq, prep_q["enemies"], prep_q["wave"], prep_q["meta"])
 	var bg1 := 0
@@ -730,13 +838,14 @@ func _run_progression_suite() -> void:
 		FarroadCore.step(gq["battle"])
 	var event_q := FarroadProgression.finish_side_battle(gq, gq["battle"]["over"], false, 1700000000)
 	qd["questCycleEvent"] = event_q
+	# 24-item batch (Group A/C5): reward is now auto-credited on clear, not
+	# banked -- confirms g["aether"]/g["crystal"] already moved by exactly
+	# the event's own reported amounts, immediately, with no separate
+	# collect step at all.
 	qd["questCycleAetherGain"] = gq["aether"] - aether_before_q
-	qd["questCyclePendingAfterClear"] = gq["quests"]["kesh"]["pendingAether"]
-	var collected_q: float = FarroadProgression.collect_quest_reward(gq, "kesh")
-	qd["questCycleCollectedAmount"] = collected_q
-	qd["questCycleAetherAfterCollect"] = gq["aether"] - aether_before_q
-	qd["questCyclePendingAfterCollect"] = gq["quests"]["kesh"]["pendingAether"]
+	qd["questCycleCrystalGain"] = int(gq.get("crystal", 0)) - crystal_before_q
 	qd["questCycleStageAfter"] = gq["quests"]["kesh"]["stage"]
+	qd["questCycleEnemiesDefeated"] = gq["enemiesDefeated"]
 	qd["questCycleSideBattleCleared"] = gq["sideBattle"] == null and gq["roadBattle"] == null
 
 	var gg2 := FarroadProgression.new_game(7, null)
@@ -755,6 +864,9 @@ func _run_progression_suite() -> void:
 	var dungeon_d := FarroadProgression.unlock_direction_dungeon(gd_, "west", 1, 1700000000)
 	var prep_d := FarroadProgression.prep_dungeon_attempt(gd_, dungeon_d["id"], 1700000000)
 	FarroadProgression.start_side_battle(gd_, prep_d["enemies"], prep_d["wave"], prep_d["meta"])
+	var aether_before_d_baseline: float = gd_["aether"]
+	var marks_before_d_baseline: float = gd_["marks"]
+	var crystal_before_d_baseline: int = int(gd_.get("crystal", 0))
 	var wave_advances := 0
 	var final_event_d := {}
 	var guard_d := 0
@@ -774,14 +886,13 @@ func _run_progression_suite() -> void:
 	qd["dungeonCycleFinalEvent"] = final_event_d
 	qd["dungeonCycleClears"] = dungeon_d["clears"]
 	qd["dungeonCycleSideBattleCleared"] = gd_["sideBattle"] == null
-	qd["dungeonCyclePendingAfterClear"] = {"aether": dungeon_d.get("pendingAether", 0.0), "marks": dungeon_d.get("pendingMarks", 0.0)}
-	var aether_before_d_collect: float = gd_["aether"]
-	var marks_before_d_collect: float = gd_["marks"]
-	var collected_d: Dictionary = FarroadProgression.collect_dungeon_reward(gd_, dungeon_d["id"])
-	qd["dungeonCycleCollectedAmount"] = collected_d
-	qd["dungeonCycleAetherAfterCollect"] = gd_["aether"] - aether_before_d_collect
-	qd["dungeonCycleMarksAfterCollect"] = gd_["marks"] - marks_before_d_collect
-	qd["dungeonCyclePendingAfterCollect"] = {"aether": dungeon_d.get("pendingAether", 0.0), "marks": dungeon_d.get("pendingMarks", 0.0)}
+	# 24-item batch (Group A/C5): auto-credited on clear now, not banked --
+	# confirms the FINAL event's own reported aether/marks/crystal exactly
+	# matches g's own before/after deltas across the whole multi-wave run.
+	qd["dungeonCycleAetherGain"] = gd_["aether"] - aether_before_d_baseline
+	qd["dungeonCycleMarksGain"] = gd_["marks"] - marks_before_d_baseline
+	qd["dungeonCycleCrystalGain"] = int(gd_.get("crystal", 0)) - crystal_before_d_baseline
+	qd["dungeonCycleEnemiesDefeated"] = gd_["enemiesDefeated"]
 
 	# dungeon_available's calendar-day cooldown: flips false immediately
 	# after a clear, stays false later the SAME UTC day, and flips back
@@ -922,8 +1033,8 @@ func _run_save_suite() -> void:
 		return
 	var g := {
 		"seed": 999, "rng": FarroadCore.make_rng(999), "wave": 5, "farthest": 5, "bossesCleared": 0,
-		"aether": 42.5, "loreByAction": {"strike": 3}, "marks": 7.25, "wipes": 1,
-		"party": ["kesh", "ansa"], "actions": ["strike", "ember", "sear"], "conditions": ["none", "foe_lowest_hp"],
+		"aether": 42.5, "loreByAction": {"strike": 3}, "marks": 7.25, "crystal": 13, "wipes": 1, "enemiesDefeated": 57,
+		"party": ["kesh", "ansa"], "partyPresets": [{"name": "Main", "party": ["kesh", "ansa"]}], "actions": ["strike", "ember", "sear"], "conditions": ["none", "foe_lowest_hp"],
 		"actionCounts": {"sear": 1}, "condCounts": {"foe_lowest_hp": 1}, "bonuses": {"strike": {"potent": 2}},
 		"recovery": {"kesh": 3}, "loadout": {"kesh": [{"cond": "none", "action": "strike"}]},
 		"hpCarry": {"kesh": 0.8}, "chargeCarry": {"kesh": 12.5}, "touched": {"kesh": true}, "clearedWaves": {1: 1, 2: 1, 3: 1, 4: 1},
