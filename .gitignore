@@ -1,0 +1,6 @@
+
+# Third-party art whose licence forbids redistribution (the repo is public).
+# Ships inside game builds only. Source + licence notes: art_src/third_party/README.md
+godot-project/sprites/units/ansa/
+godot-project/sprites/units/ansa.tres
+tools/__pycache__/
