@@ -34,7 +34,7 @@ HEAD = 1.0
 FOOT_Z, ANKLE_Z = 0.0, 0.12
 KNEE_Z, HIP_Z = 0.72, 1.40
 NECK_Z = 2.95
-HEAD_C = NECK_Z + 0.55
+HEAD_C = NECK_Z + 0.47
 SHOULDER_Z, SHOULDER_X = 2.72, 0.42
 UPPER_ARM, FOREARM, HAND = 0.55, 0.50, 0.18
 HIP_X = 0.2
@@ -108,7 +108,8 @@ def limb(name, bone_name, a, b, r):
     return o
 
 
-part("head", "head", (0, 0, HEAD_C), (0.5, 0.46, 0.55))
+part("head", "head", (0, 0, HEAD_C), (0.44, 0.41, 0.47))
+part("nose", "head", (0.41, 0, HEAD_C - 0.05), (0.09, 0.07, 0.07))   # shows which way the face points
 part("torso", "spine", (0, 0, (HIP_Z + NECK_Z) / 2 + 0.05), (0.26, 0.4, 0.78))
 part("hips", "root", (0, 0, HIP_Z - 0.02), (0.24, 0.34, 0.2))
 for side, sy in (("L", 1), ("R", -1)):
@@ -138,21 +139,57 @@ for name, rot in pose.get("bones", {}).items():
 r = pose.get("root", {})
 if "location" in r:
     rig.pose.bones["root"].location = r["location"]
+if "hips" in r:
+    # world-space offset [forward(+X), left(+Y), up(+Z)] -> root bone local
+    # axes (the root bone points +Z: local X = X, local Y = Z, local Z = -Y)
+    dx, dy, dz = r["hips"]
+    rig.pose.bones["root"].location = (dx, dz, -dy)
 if "rotation" in r:
     rig.pose.bones["root"].rotation_mode = "XYZ"
     rig.pose.bones["root"].rotation_euler = [math.radians(v) for v in r["rotation"]]
+
+# Target-based posing (world coordinates; +X forward, +Y the character's
+# left, +Z up, ground at 0). "targets": hand.L/R and foot.L/R positions
+# (2-bone IK on forearm/shin); "aim.R"/"aim.L": a point the hand (and so
+# the sword) points at. Knees bend forward, elbows bend down/back.
+def empty(name, loc):
+    e = bpy.data.objects.new(name, None)
+    e.location = loc
+    scene.collection.objects.link(e)
+    return e
+
+
+targets = pose.get("targets", {})
+for side, sy in (("L", 1), ("R", -1)):
+    if f"hand.{side}" in targets:
+        t = empty(f"t_hand.{side}", targets[f"hand.{side}"])
+        pl = empty(f"p_elbow.{side}", targets.get(f"elbow.{side}", (-1.5, sy * 1.2, 1.2)))
+        c = rig.pose.bones[f"forearm.{side}"].constraints.new("IK")
+        c.target, c.pole_target, c.chain_count = t, pl, 2
+        c.pole_angle = math.radians(-90)
+    if f"aim.{side}" in targets:
+        a = empty(f"t_aim.{side}", targets[f"aim.{side}"])
+        c = rig.pose.bones[f"hand.{side}"].constraints.new("DAMPED_TRACK")
+        c.target, c.track_axis = a, "TRACK_Y"
+    if f"foot.{side}" in targets:
+        fx, fy, fz = targets[f"foot.{side}"]
+        t = empty(f"t_foot.{side}", (fx, fy, fz + ANKLE_Z))
+        pl = empty(f"p_knee.{side}", (fx + 2.0, fy, 1.0))
+        c = rig.pose.bones[f"shin.{side}"].constraints.new("IK")
+        c.target, c.pole_target, c.chain_count = t, pl, 2
+        c.pole_angle = math.radians(-90)
 bpy.ops.object.mode_set(mode="OBJECT")
 bpy.context.view_layer.update()
 
 # ---- camera: orthographic, front-right 3/4, slightly above ----
 cam_data = bpy.data.cameras.new("cam")
 cam_data.type = "ORTHO"
-cam_data.ortho_scale = 5.4
+cam_data.ortho_scale = float(pose.get("ortho_scale", 4.7))
 cam = bpy.data.objects.new("cam", cam_data)
 scene.collection.objects.link(cam)
-az = math.radians(float(pose.get("camera_azimuth", -35)))   # 0 = side view from the character's right
+az = math.radians(float(pose.get("camera_azimuth", -45)))   # 0 = side view from the character's right
 el = math.radians(float(pose.get("camera_elevation", 8)))
-target = Vector((0.2, 0, 2.0))
+target = Vector((0.2, 0, 2.05))
 d = 12
 cam.location = target + Vector((d * math.sin(-az) * math.cos(el), -d * math.cos(az) * math.cos(el), d * math.sin(el)))
 cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
