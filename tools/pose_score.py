@@ -174,11 +174,50 @@ def adiff(a, b):
     return abs((a - b + 180) % 360 - 180)
 
 
-def score(ref, other, mirror_mode="no"):
-    """Compare `other` against `ref` (both Pose/dict/path). mirror_mode applies to ref."""
+ARM_SWAP = [(2, 5), (3, 6), (4, 7)]
+LEG_SWAP = [(8, 11), (9, 12), (10, 13)]
+
+
+def swapped(pose, pairs):
+    pts = list(pose.pts)
+    for i, j in pairs:
+        pts[i], pts[j] = pts[j], pts[i]
+    return Pose(pts, pose.sword, pose.width, pose.height)
+
+
+def fix_sides(ref, other):
+    """Detectors often swap left/right limbs on side-on figures. Relabel `other`'s arms
+    so the wrist nearer the sword hilt is "R" (else whichever labelling matches `ref`
+    better), and its legs by whichever labelling matches `ref` better.
+    Returns (pose, [what was swapped])."""
+    done = []
+
+    def err(p):
+        a, _ = normalise(ref)
+        b, _ = normalise(p)
+        e = limb_errors(a, b)
+        return sum(e.values()) / max(1, len(e))
+    if other.sword and other.ok(4) and other.ok(7):
+        h = other.sword[0]
+        d = lambda i: math.hypot(other.pts[i][0] - h[0], other.pts[i][1] - h[1])  # noqa: E731
+        if d(7) < d(4):
+            other, _ = swapped(other, ARM_SWAP), done.append("arms")
+    elif err(swapped(other, ARM_SWAP)) < err(other):
+        other, _ = swapped(other, ARM_SWAP), done.append("arms")
+    if err(swapped(other, LEG_SWAP)) < err(other):
+        other, _ = swapped(other, LEG_SWAP), done.append("legs")
+    return other, done
+
+
+def score(ref, other, mirror_mode="no", side_swap=False):
+    """Compare `other` against `ref` (both Pose/dict/path). mirror_mode applies to ref;
+    side_swap relabels other's left/right limbs first (see fix_sides; for detector output)."""
     ref, other = load(ref), load(other)
     ref, flipped = face_right(ref, mirror_mode)
     other, _ = face_right(other, "no")
+    swaps = []
+    if side_swap:
+        other, swaps = fix_sides(ref, other)
     a, sa = normalise(ref)
     b, sb = normalise(other)
     joints = {NAMES[i]: math.hypot(a[i][0] - b[i][0], a[i][1] - b[i][1]) for i in BODY if i in a and i in b}
@@ -186,7 +225,7 @@ def score(ref, other, mirror_mode="no"):
     res = {"joint": round(sum(joints.values()) / len(joints), 3) if joints else None,
            "limb": round(sum(limbs.values()) / len(limbs), 1) if limbs else None,
            "sword": round(adiff(angle(sa), angle(sb)), 1) if sa and sb else None,
-           "mirrored": flipped, "joints": {k: round(v, 3) for k, v in joints.items()},
+           "mirrored": flipped, "side_swaps": swaps, "joints": {k: round(v, 3) for k, v in joints.items()},
            "limbs": {k: round(v, 1) for k, v in limbs.items()}}
     worst = sorted(limbs.items(), key=lambda kv: -kv[1])[:3]
     res["worst"] = [k for k, v in worst if v > 15]

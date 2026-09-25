@@ -2,7 +2,12 @@
 Fit the Farroad rig to a 2D target pose (runs inside Blender).
 
   blender -b --factory-startup -P tools/pose_fit.py -- TARGET.json OUT_DIR
-      [--init POSE.json] [--evals 60000] [--seed 1] [--fit-azimuth -45] [--no-render]
+      [--body male|female] [--init POSE.json] [--evals 60000] [--seed 1]
+      [--fit-azimuth -45] [--no-render]
+
+--body picks the rig's body profile (blender_rig.set_body; default male, or the
+target's "body" key). configure() re-derives the parameter ranges, starting
+positions and proportions from it, so fit each body separately.
 
 TARGET.json is a COCO-18 keypoint file (see tools/pose_score.py): the
 reference's skeleton, "R" = the sword arm / the limbs nearer the camera.
@@ -53,33 +58,40 @@ import blender_rig as br  # noqa: E402
 import pose_score as ps  # noqa: E402
 
 SIZE = 512
-# name, default, step, lo, hi
-PARAMS = [
-    ("hips.x", 0.0, 0.15, -1.5, 1.5), ("hips.y", 0.0, 0.1, -1.0, 1.0), ("hips.z", 0.0, 0.1, -1.1, 0.3),
-    ("rot.x", 0.0, 8, -45, 45), ("rot.y", 0.0, 8, -60, 60), ("rot.z", 0.0, 10, -90, 90),
-    ("spine.x", 0.0, 8, -50, 50), ("spine.y", 0.0, 8, -50, 50), ("spine.z", 0.0, 8, -60, 60),
-    ("head.x", 0.0, 8, -40, 40), ("head.y", 0.0, 8, -40, 40), ("head.z", 0.0, 8, -40, 40),
-    ("hand.R.x", 0.12, 0.2, -3, 3), ("hand.R.y", -0.5, 0.2, -2.5, 2.5), ("hand.R.z", 1.72, 0.2, 0, 5),
-    ("hand.L.x", 0.12, 0.2, -3, 3), ("hand.L.y", 0.5, 0.2, -2.5, 2.5), ("hand.L.z", 1.72, 0.2, 0, 5),
-    ("elbow.R", 0.0, 30, -400, 400), ("elbow.L", 0.0, 30, -400, 400),
-    ("foot.R.x", 0.0, 0.15, -2.5, 2.5), ("foot.R.y", -0.2, 0.1, -2.0, 1.0),
-    ("foot.L.x", 0.0, 0.15, -2.5, 2.5), ("foot.L.y", 0.2, 0.1, -1.0, 2.0),
-    ("knee.R", 0.0, 20, -75, 75), ("knee.L", 0.0, 20, -75, 75),      # knees bend forward-ish
-    ("aim.yaw", 0.0, 15, -200, 200), ("aim.pitch", 0.0, 15, -90, 90),
-]
-NAMES = [p[0] for p in PARAMS]
+PARAMS = []   # (name, default, step, lo, hi); filled for the current body by configure()
+
+
+def make_params():
+    """Parameter ranges/starts for the body blender_rig.set_body() selected
+    (hands start at the rest wrists, feet under the hips)."""
+    hy, fy = br.SHOULDER_X + 0.08, br.HIP_X
+    top = br.TOTAL_H + 0.3      # hands can't usefully go above the head top
+    return [
+        ("hips.x", 0.0, 0.15, -1.5, 1.5), ("hips.y", 0.0, 0.1, -1.0, 1.0), ("hips.z", 0.0, 0.1, -1.1, 0.25),
+        ("rot.x", 0.0, 8, -45, 45), ("rot.y", 0.0, 8, -60, 60), ("rot.z", 0.0, 10, -90, 90),
+        ("spine.x", 0.0, 8, -50, 50), ("spine.y", 0.0, 8, -50, 50), ("spine.z", 0.0, 8, -60, 60),
+        ("head.x", 0.0, 8, -40, 40), ("head.y", 0.0, 8, -40, 40), ("head.z", 0.0, 8, -40, 40),
+        ("hand.R.x", 0.12, 0.2, -3, 3), ("hand.R.y", -hy, 0.2, -2.5, 2.5), ("hand.R.z", br.WRIST_Z + 0.05, 0.2, 0, top),
+        ("hand.L.x", 0.12, 0.2, -3, 3), ("hand.L.y", hy, 0.2, -2.5, 2.5), ("hand.L.z", br.WRIST_Z + 0.05, 0.2, 0, top),
+        ("elbow.R", 0.0, 30, -400, 400), ("elbow.L", 0.0, 30, -400, 400),
+        ("foot.R.x", 0.0, 0.15, -2.5, 2.5), ("foot.R.y", -fy, 0.1, -2.0, 1.0),
+        ("foot.L.x", 0.0, 0.15, -2.5, 2.5), ("foot.L.y", fy, 0.1, -1.0, 2.0),
+        ("knee.R", 0.0, 20, -75, 75), ("knee.L", 0.0, 20, -75, 75),      # knees bend forward-ish
+        ("aim.yaw", 0.0, 15, -200, 200), ("aim.pitch", 0.0, 15, -90, 90),
+    ]
+
+
+NAMES = [p[0] for p in make_params()]
 IDX = {n: i for i, n in enumerate(NAMES)}
 DEFAULT_WEIGHTS = {"limb": 1.0, "joint": 10.0, "sword": 0.6, "feet": 300.0, "spread": 150.0,
                    "frame": 2.0, "hidden": 15.0, "reg": 0.03, "short": 60.0,
                    "clear": 60.0, "over": 25.0}
 # limb lengths as a share of the neck -> mid-hip length, to compare foreshortening
 # (how much of each limb's length shows in 2D) between a real person and the chibi rig
-TORSO = br.NECK_Z - br.HIP_Z
+TORSO = 1.0          # neck -> hip length of the current body (configure())
 PROPORTIONS = {
     "human": {"upper_arm": 0.58, "forearm": 0.52, "thigh": 0.83, "shin": 0.83, "sword": 1.8},
-    "rig": {"upper_arm": br.UPPER_ARM / TORSO, "forearm": br.FOREARM / TORSO,
-            "thigh": (br.HIP_Z - br.KNEE_Z) / TORSO, "shin": (br.KNEE_Z - br.ANKLE_Z) / TORSO,
-            "sword": (br.SWORD_LEN + 0.12) / TORSO},
+    "rig": {},
 }
 LIMB_SEGS = [("upper_arm", 2, 3), ("forearm", 3, 4), ("upper_arm", 5, 6), ("forearm", 6, 7),
              ("thigh", 8, 9), ("shin", 9, 10), ("thigh", 11, 12), ("shin", 12, 13)]
@@ -90,8 +102,23 @@ RETARGET = [  # (joint, parent, kind): rebuilt from the neck outward
     (6, 5, "upper_arm"), (7, 6, "forearm"), (8, -1, "hip"), (11, -1, "hip"),
     (9, 8, "thigh"), (10, 9, "shin"), (12, 11, "thigh"), (13, 12, "shin"),
     (14, 0, None), (15, 0, None), (16, 0, None), (17, 0, None)]
-WIDTHS = {"human": {"shoulder": 0.36, "hip": 0.19},
-          "rig": {"shoulder": br.SHOULDER_X / TORSO, "hip": br.HIP_X / TORSO}}
+WIDTHS = {"human": {"shoulder": 0.36, "hip": 0.19}, "rig": {}}
+
+
+def configure(body="male"):
+    """Select a body profile: blender_rig.set_body() plus everything here derived
+    from the rig's proportions. Call before building the rig."""
+    global TORSO
+    br.set_body(body)
+    TORSO = br.NECK_Z - br.HIP_Z
+    PROPORTIONS["rig"] = {"upper_arm": br.UPPER_ARM / TORSO, "forearm": br.FOREARM / TORSO,
+                          "thigh": (br.HIP_Z - br.KNEE_Z) / TORSO, "shin": (br.KNEE_Z - br.ANKLE_Z) / TORSO,
+                          "sword": (br.SWORD_LEN + 0.12) / TORSO}
+    WIDTHS["rig"] = {"shoulder": br.SHOULDER_X / TORSO, "hip": br.HIP_X / TORSO}
+    PARAMS[:] = make_params()
+
+
+configure("male")
 
 
 def retarget(norm, sword, frm="human", to="rig"):
@@ -212,11 +239,13 @@ def seg_dist(p, a, b):
     return math.hypot(p[0] - a[0] - t * ax, p[1] - a[1] - t * ay)
 
 
-def blade_on_face(norm, sword, clear=0.45):
+def blade_on_face(norm, sword, clear=None):
     """How far (torso lengths) the sword line cuts into a circle around the head in 2D.
     A blade drawn across the face makes Qwen hide it behind the head, cut off from the hands."""
     if not sword or 4 not in norm or 16 not in norm or 17 not in norm:
         return 0.0
+    if clear is None:           # head radius + a margin, in torso lengths
+        clear = (max(br.HEAD_R[0], br.HEAD_R[2]) + 0.1) / TORSO
     head = ((norm[16][0] + norm[17][0]) / 2, (norm[16][1] + norm[17][1]) / 2)
     hilt = norm[4]
     tip = (hilt[0] + sword[0], hilt[1] + sword[1])
@@ -377,7 +406,7 @@ def first_guess(rig, target, obj=None):
     # put on a plane of constant Y (the body's side planes) and the height follows from that
     hp = on_plane(px[-1], 1, 0.0)
     feet_z = []
-    for side, ank, fy in (("R", 10, -0.3), ("L", 13, 0.3)):
+    for side, ank, fy in (("R", 10, -br.HIP_X - 0.1), ("L", 13, br.HIP_X + 0.1)):
         if ank in px:
             f = on_plane(px[ank], 1, fy)
             if f is not None:
@@ -467,7 +496,7 @@ def fit(scene, target, init=None, max_evals=30000, seed=1, spec=None):
     base = list(init) if init else first_guess(rig, target, obj)
     starts = [base]
     if not init or spec.get("multistart"):
-        for dz in (0.0, -0.3, -0.6):
+        for dz in (0.0, -0.25, -0.5):
             for lean in (-10, 0, 20):      # + = forward
                 for flip in (0, 180):
                     w = list(base)
@@ -516,6 +545,7 @@ def to_pose(rig_scene, v):
     rig = Rig(rig_scene)
     rig.set(v)
     pose = br.read_pose(rig_scene)
+    pose["body"] = br.BODY_NAME
     pose["fit_params"] = {n: round(x, 3) for n, x in zip(NAMES, v)}
     return pose
 
@@ -543,6 +573,7 @@ def main():
         for k in ("set", "weights", "prior"):
             spec.setdefault(k, {}).update(e.get(k, {}))
         spec["lock"] = list(set(spec.get("lock", [])) | set(e.get("lock", [])))
+    configure(opt("--body") or tj.get("body", "male"))
     init = None
     if opt("--init"):
         with open(opt("--init")) as fh:

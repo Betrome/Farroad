@@ -60,22 +60,39 @@ def round_dir(cfg):
     return os.path.join(cfg["work"], "rounds", "r%03d" % cfg["round"])
 
 
-def fit(cfg, out):
+BODIES = ("male", "female")   # each master gets a guide fitted on its own body profile
+
+
+def fit_cmd(cfg, out, body):
+    """The Blender command that fits one body into out/<body>/."""
     target = os.path.join(cfg["work"], cfg["target"])
-    spec_path = os.path.join(out, "spec.json")
+    bdir = os.path.join(out, body)
+    os.makedirs(bdir, exist_ok=True)
+    spec_path = os.path.join(bdir, "spec.json")
     with open(spec_path, "w") as fh:
         json.dump(cfg.get("spec", {}), fh, indent=1)
     cmd = [BLENDER, "-b", "--factory-startup", "-P", os.path.join(ROOT, "tools", "pose_fit.py"), "--",
-           target, out, "--spec", spec_path, "--evals", str(cfg.get("evals", 60000)),
+           target, bdir, "--body", body, "--spec", spec_path, "--evals", str(cfg.get("evals", 60000)),
            "--seed", str(cfg.get("fit_seed", 1)), "--fit-azimuth", str(cfg.get("fit_azimuth", -45))]
-    if cfg.get("init"):
-        cmd += ["--init", os.path.join(cfg["work"], cfg["init"])]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    log = "\n".join(line for line in r.stdout.splitlines() if line.startswith(("fit:", "score:", "Error", "Trace")))
-    print(log)
-    if not os.path.exists(os.path.join(out, "openpose.png")):
-        print(r.stdout[-3000:], r.stderr[-3000:])
-        raise SystemExit("fit failed")
+    if cfg.get("init"):     # a previous round's folder (its <body>/pose.json) or a pose.json
+        init = os.path.join(cfg["work"], cfg["init"])
+        if not init.endswith(".json"):
+            init = os.path.join(init, body, "pose.json")
+        cmd += ["--init", init]
+    return cmd
+
+
+def fit(cfg, out):
+    """Fit both bodies (two Blender processes in parallel)."""
+    procs = {b: subprocess.Popen(fit_cmd(cfg, out, b), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+             for b in BODIES}
+    for b, pr in procs.items():
+        so, se = pr.communicate(timeout=1800)
+        log = "\n".join(line for line in so.splitlines() if line.startswith(("fit:", "score:", "Error", "Trace")))
+        print(b, log)
+        if not os.path.exists(os.path.join(out, b, "openpose.png")):
+            print(so[-3000:], se[-3000:])
+            raise SystemExit("fit failed: " + b)
 
 
 def guide_image(out, kind):
@@ -128,12 +145,13 @@ def wait_for_server(tries=60):
     raise SystemExit("ComfyUI unreachable")
 
 
-def qwen(cfg, out, guide):
+def qwen(cfg, out, guides):
+    """Re-pose each master with the guide fitted on its own body."""
     prompt = cfg.get("prompt") or PROMPT.format(intent=cfg["intent"])
     wait_for_server()
-    pose_name = cg.upload(qe.prep(guide, 1024, bg=(0, 0, 0)), "pp_pose.png")
     results = {}
     for who, master in MASTERS.items():
+        pose_name = cg.upload(qe.prep(guides[who], 1024, bg=(0, 0, 0)), "pp_pose_%s.png" % who)
         if cfg.get("reuse_qwen") and os.path.exists(os.path.join(out, who + "_qwen.png")):
             results[who] = os.path.join(out, who + "_qwen.png")
             continue
@@ -158,7 +176,9 @@ def qwen(cfg, out, guide):
     return results, prompt
 
 
-STEEL = [(120, 136, 148), (176, 188, 196), (224, 230, 234)]   # sword greys the masters lack
+# sword greys the masters lack: neutral (not blue-tinted) so the shirt's highlights
+# don't snap to them, which also lets sprite_sword() find the blade by colour
+STEEL = [(140, 142, 146), (186, 188, 192), (228, 230, 232)]
 
 
 def palette_for(who, steel=True):
@@ -256,29 +276,177 @@ def pixel(out, who, src, bg_tol=40, steel=True):
     return dst, {"w": w, "h": h, "figures": n}
 
 
-def dwpose(img_path, out_json):
-    """Keypoints for a sprite from the desktop's DWPreprocessor (no bbox detector)."""
-    name = cg.upload(qe.prep(img_path, 1024), "pp_dw.png")
+DW_ESTIMATOR = "dw-ll_ucoco_384.onnx"   # the torchscript default isn't on the desktop
+
+
+def dwpose(img_path, bbox="None", pixel_art=True, size=1024, near=None):
+    """COCO-18 keypoints from the desktop's DWPreprocessor, as a pose_score.Pose in
+    `size` px canvas coordinates (None if nobody was found). Pixel art is nearest-
+    upscaled onto a white square first; bbox "None" for sprites/renders ("yolox_l.onnx"
+    finds nobody in stylised images), "yolox_l.onnx" first for photos."""
+    if pixel_art:
+        src = qe.prep(img_path, size)
+    else:
+        src = img_path
+    name = cg.upload(src, "pp_dw.png")
     wf = {"1": {"class_type": "LoadImage", "inputs": {"image": name}},
           "2": {"class_type": "DWPreprocessor", "inputs": {
               "image": ["1", 0], "detect_hand": "disable", "detect_body": "enable", "detect_face": "disable",
-              "resolution": 1024, "bbox_detector": "None", "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt"}},
-          "3": {"class_type": "SavePoseKpsAsJsonFile", "inputs": {"pose_kps": ["2", 1], "filename_prefix": "farroad_dw"}}}
+              "resolution": 1024, "bbox_detector": bbox, "pose_estimator": DW_ESTIMATOR}},
+          "3": {"class_type": "PreviewImage", "inputs": {"images": ["2", 0]}}}
     pid = cg.post("/prompt", {"prompt": wf})["prompt_id"]
+    t0 = time.time()
     while True:
         h = cg.get("/history/" + pid)
         if pid in h:
             break
-        time.sleep(0.5)
-    if h[pid].get("status", {}).get("status_str") == "error":
-        return False
-    return False   # (the model is missing on the desktop; see SKILL.md) - wire the json fetch when it works
+        if time.time() - t0 > 300:
+            return None
+        time.sleep(0.3)
+    entry = h[pid]
+    if entry.get("status", {}).get("status_str") == "error":
+        print("dwpose error:", json.dumps(entry["status"])[:500])
+        return None
+    raw = entry["outputs"].get("2", {}).get("openpose_json")
+    if not raw:
+        return None
+    frames = json.loads(raw[0])
+    frame = frames[0] if isinstance(frames, list) else frames
+    if not frame.get("people"):
+        return None
+    def count(p):
+        return sum(1 for i in range(18) if p["pose_keypoints_2d"][3 * i + 2] > 0)
+
+    def dist(p):   # neck (or first found joint) to `near`, in image pixels
+        k = p["pose_keypoints_2d"]
+        W, H = frame.get("canvas_width", size), frame.get("canvas_height", size)
+        for i in (1, 0, 2, 5, 8, 11):
+            if k[3 * i + 2] > 0:
+                x, y = k[3 * i], k[3 * i + 1]
+                if max(x, y) <= 1.0:
+                    x, y = x * W, y * H
+                return (x - near[0]) ** 2 + (y - near[1]) ** 2
+        return 1e18
+    # the person nearest `near` if given, else the most complete one
+    best = min(frame["people"], key=dist) if near else max(frame["people"], key=count)
+    return ps.load({"canvas_width": frame.get("canvas_width", size), "canvas_height": frame.get("canvas_height", size),
+                    "people": [best]})
+
+
+def fg_bbox(img, white=235):
+    """Bounding box of the non-white / opaque pixels."""
+    im = img.convert("RGBA")
+    px = im.load()
+    xs, ys = [], []
+    for y in range(im.height):
+        for x in range(im.width):
+            r, g, b, a = px[x, y]
+            if a > 0 and min(r, g, b) < white:
+                xs.append(x)
+                ys.append(y)
+    return (min(xs), min(ys), max(xs) + 1, max(ys) + 1) if xs else (0, 0, im.width, im.height)
+
+
+def sprite_sword(sprite_path, pose=None):
+    """The sword in a pixelized sprite as [hilt, tip] (sprite px): a line through the
+    steel-coloured pixels (the masters have no such greys), hilt = the end nearer a wrist."""
+    import math
+    im = Image.open(sprite_path).convert("RGBA")
+    px = im.load()
+    steel = set(STEEL)
+    mask = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    mp = mask.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            if px[x, y][3] and px[x, y][:3] in steel:
+                mp[x, y] = (255, 255, 255, 255)
+    comps = components8(mask)
+    if not comps:
+        return None
+    # the blade = the longest steel piece (plus pieces lined up with it, a blade the
+    # downsample broke up); stray steel pixels elsewhere are ignored
+    pts = [(x + 0.5, y + 0.5) for x, y in max(comps, key=len)]
+    if len(pts) < 4:
+        return None
+    mx = sum(p[0] for p in pts) / len(pts)
+    my = sum(p[1] for p in pts) / len(pts)
+    sxx = sum((p[0] - mx) ** 2 for p in pts)
+    syy = sum((p[1] - my) ** 2 for p in pts)
+    sxy = sum((p[0] - mx) * (p[1] - my) for p in pts)
+    ang = 0.5 * math.atan2(2 * sxy, sxx - syy)
+    ux, uy = math.cos(ang), math.sin(ang)
+    proj = [(p[0] - mx) * ux + (p[1] - my) * uy for p in pts]
+    if max(proj) - min(proj) < 4:
+        return None
+    a = (mx + ux * min(proj), my + uy * min(proj))
+    b = (mx + ux * max(proj), my + uy * max(proj))
+    if pose:
+        wrists = [pose.xy(i) for i in (4, 7) if pose.ok(i)]
+        if wrists:
+            da = min(math.hypot(a[0] - w[0], a[1] - w[1]) for w in wrists)
+            db = min(math.hypot(b[0] - w[0], b[1] - w[1]) for w in wrists)
+            if db < da:
+                a, b = b, a
+    return [a, b]
+
+
+def auto_keypoints(out, who, min_body=12):
+    """DWPose on the pixelized sprite (x16), else on the raw Qwen image; writes WHO_kp.json
+    in 64 px sprite coordinates, with the sword found from the steel pixels.
+    Returns the number of body joints (0-13) found, or 0 if it fell short."""
+    sprite = os.path.join(out, who + "_px.png")
+    qimg = os.path.join(out, who + "_qwen.png")
+    for src in (sprite, qimg):
+        try:
+            pose = dwpose(src)
+        except Exception as e:  # noqa: BLE001
+            print("dwpose failed:", e)
+            pose = None
+        n = sum(1 for i in range(14) if pose and pose.ok(i))
+        if not (pose and n >= min_body and pose.ok(1) and (pose.ok(8) or pose.ok(11))):
+            continue
+        if src == sprite:       # prep() put the 64 px sprite on 1024 at x16
+            k, ox, oy = 1 / 16, 0.0, 0.0
+        else:                   # align the Qwen figure's box with the sprite's
+            qb, sb = fg_bbox(Image.open(qimg)), fg_bbox(Image.open(sprite))
+            k = (sb[3] - sb[1]) / max(1, qb[3] - qb[1])
+            ox, oy = sb[0] - qb[0] * k, sb[1] - qb[1] * k
+        pts = [((x * k + ox), (y * k + oy), c) if c > 0 else (0.0, 0.0, 0.0) for x, y, c in pose.pts]
+        p64 = ps.Pose(pts, None, 64, 64)
+        p64.sword = sprite_sword(sprite, p64)
+        d = p64.to_json()
+        d["source"] = "dwpose:" + os.path.basename(src)
+        with open(os.path.join(out, who + "_kp.json"), "w") as fh:
+            json.dump(d, fh)
+        return n
+    return 0
+
+
+def rig_overlay(out, body, size=512):
+    guide = Image.open(os.path.join(out, body, "openpose.png")).convert("RGB")
+    shaded = Image.open(os.path.join(out, body, "shaded.png")).convert("RGB")
+    return Image.blend(shaded, guide, 0.6).resize((size, size))
+
+
+def draw_kp(img, pose, k):
+    """Thin skeleton of a 64 px pose on an x`k` sprite tile (to check detections)."""
+    from pose_render import LIMBS, COLORS
+    d = ImageDraw.Draw(img)
+    for n, (a, b) in enumerate(LIMBS[:12]):
+        if pose.ok(a) and pose.ok(b):
+            d.line([(pose.pts[a][0] * k, pose.pts[a][1] * k), (pose.pts[b][0] * k, pose.pts[b][1] * k)],
+                   fill=COLORS[n] + (255,), width=2)
+    if pose.sword:
+        (hx, hy), (tx, ty) = pose.sword
+        d.line([(hx * k, hy * k), (tx * k, ty * k)], fill=(255, 0, 255, 255), width=2)
+        d.ellipse([hx * k - 4, hy * k - 4, hx * k + 4, hy * k + 4], outline=(255, 0, 255, 255), width=2)
 
 
 def annotate_sheet(out):
-    """The rig guide over its shaded render, then both sprites at 8x with a 4 px grid
-    (labels in sprite pixels) for hand annotation."""
-    tiles = []
+    """Each body's rig guide over its shaded render, then both sprites at 8x with a
+    4 px grid (labels in sprite pixels) and any detected skeleton, for checking or
+    hand annotation."""
+    tiles = [rig_overlay(out, b) for b in BODIES]
     for who in MASTERS:
         sp = Image.open(os.path.join(out, who + "_px.png")).convert("RGBA")
         big = Image.new("RGBA", (512, 512), (255, 255, 255, 255))
@@ -291,10 +459,10 @@ def annotate_sheet(out):
             if g % 8 == 0:
                 d.text((g * 8 + 2, 2), str(g), fill=(200, 0, 0, 255))
                 d.text((2, g * 8 + 2), str(g), fill=(200, 0, 0, 255))
+        kp = os.path.join(out, who + "_kp.json")
+        if os.path.exists(kp):
+            draw_kp(big, ps.load(kp), 8)
         tiles.append(big)
-    guide = Image.open(os.path.join(out, "openpose.png")).convert("RGB")
-    shaded = Image.open(os.path.join(out, "shaded.png")).convert("RGB")
-    tiles = [Image.blend(shaded, guide, 0.6)] + tiles
     sheet = Image.new("RGB", (522 * len(tiles) - 10, 512), (60, 60, 60))
     for i, t in enumerate(tiles):
         sheet.paste(t.convert("RGB"), (i * 522, 0))
@@ -308,16 +476,19 @@ def cmd_run(path):
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "round.json"), "w") as fh:
         json.dump(cfg, fh, indent=1)
-    if not (cfg.get("reuse_fit") and os.path.exists(os.path.join(out, "pose.json"))):
+    if not (cfg.get("reuse_fit") and all(os.path.exists(os.path.join(out, b, "pose.json")) for b in BODIES)):
         fit(cfg, out)
-    guide = guide_image(out, cfg.get("guide", "openpose_hilt"))
-    results, prompt = qwen(cfg, out, guide)
-    px = {}
+    kind = cfg.get("guide", "openpose_hilt")
+    guides = {b: guide_image(os.path.join(out, b), kind) for b in BODIES}
+    results, prompt = qwen(cfg, out, guides)
+    px, kps = {}, {}
     for who, src in results.items():
         px[who] = pixel(out, who, src, cfg.get("bg_tol", 40), cfg.get("steel", True))[1]
+        kps[who] = auto_keypoints(out, who)
+        print("%s: DWPose found %d/14 body joints%s" % (who, kps[who], "" if kps[who] else " -> annotate by hand"))
     annotate_sheet(out)
     with open(os.path.join(out, "run.json"), "w") as fh:
-        json.dump({"prompt": prompt, "guide": os.path.basename(guide), "pixel": px}, fh, indent=1)
+        json.dump({"prompt": prompt, "guide": kind, "pixel": px, "dwpose_joints": kps}, fh, indent=1)
     print("done:", out)
 
 
@@ -370,10 +541,10 @@ def sprite_tile(path, pose=None):
 
 def contact_sheet(out, rec):
     tiles = []
-    tgt = ps.load(os.path.join(out, "target_right.json"))
+    tgt = ps.load(os.path.join(out, "male", "target_right.json"))
     tiles.append(("reference skeleton", skeleton_tile(tgt)))
-    tiles.append(("rig (shaded)", Image.open(os.path.join(out, "shaded.png")).convert("RGB").resize((TILE, TILE))))
-    tiles.append(("rig skeleton (guide)", Image.open(os.path.join(out, "openpose.png")).convert("RGB").resize((TILE, TILE))))
+    for b in BODIES:
+        tiles.append(("%s rig + guide" % b, rig_overlay(out, b, TILE)))
     for who in MASTERS:
         tiles.append((who + " (64px, x4)", sprite_tile(os.path.join(out, who + "_px.png"))))
     W = TILE * 6 + 7 * 6
@@ -388,12 +559,14 @@ def contact_sheet(out, rec):
         d.text((x + 4, 32), label, fill=(255, 255, 120) if i < 3 else (40, 40, 120), font=f)
     x = 6 + 5 * (TILE + 6)
     s = rec["scores"]
-    lines = ["ref -> rig", "  limb %.1f deg  joint %.2f" % (s["rig"]["limb"], s["rig"]["joint"])]
-    if s["rig"].get("sword") is not None:
-        lines.append("  sword %.1f deg" % s["rig"]["sword"])
+    lines = []
+    for b in BODIES:
+        r = s["rig_" + b]
+        lines.append("ref -> %s rig: limb %.1f" % (b, r["limb"]))
     for who in MASTERS:
         r = s.get(who)
-        lines.append("rig -> %s" % who)
+        how = "DWPose" if rec.get("kp_source", {}).get(who, "").startswith("dw") else "hand"
+        lines.append("rig -> %s sprite (%s)" % (who, how))
         if r:
             lines.append("  limb %.1f  joint %.2f" % (r["limb"], r["joint"]))
             if r.get("sword") is not None:
@@ -430,19 +603,26 @@ def wrap(text, n):
 
 def cmd_finish(out, notes_path=None):
     cfg = json.load(open(os.path.join(out, "round.json")))
-    fitr = json.load(open(os.path.join(out, "fit.json")))
     run = json.load(open(os.path.join(out, "run.json")))
-    rig = ps.load(os.path.join(out, "openpose.json"))
-    scores = {"rig": {k: fitr["score"][k] for k in ("joint", "limb", "sword", "worst", "limbs")}}
+    scores, fits, src = {}, {}, {}
+    for b in BODIES:
+        fitr = json.load(open(os.path.join(out, b, "fit.json")))
+        fits[b] = {k: fitr[k] for k in ("objective", "evals", "seconds", "terms")}
+        scores["rig_" + b] = {k: fitr["score"][k] for k in ("joint", "limb", "sword", "worst", "limbs")}
+    both = [scores["rig_" + b] for b in BODIES]
+    scores["rig"] = {k: round(sum(r[k] or 0 for r in both) / len(both), 3) for k in ("joint", "limb", "sword")}
     for who in MASTERS:
+        rig = ps.load(os.path.join(out, who, "openpose.json"))
         kp = load_kp(out, who)
-        scores[who] = ps.score(rig, kp) if kp else None
+        if kp and not kp.sword:
+            kp.sword = sprite_sword(os.path.join(out, who + "_px.png"), kp)
+        kj = os.path.join(out, who + "_kp.json")
+        src[who] = json.load(open(kj)).get("source", "hand") if os.path.exists(kj) else "none"
+        scores[who] = ps.score(rig, kp, side_swap=True) if kp else None
     rec = {"round": cfg["round"], "pose": cfg["pose"], "attempt": cfg.get("attempt", 1),
            "intent": cfg.get("intent"), "spec": cfg.get("spec", {}), "init": cfg.get("init"),
            "fit_azimuth": cfg.get("fit_azimuth", -45), "guide": run["guide"], "prompt": run["prompt"],
-           "fit": {k: fitr[k] for k in ("objective", "evals", "seconds", "terms")},
-           "fit_view_score": {k: fitr.get("fit_view_score", {}).get(k) for k in ("joint", "limb", "sword")},
-           "scores": scores, "pixel": run["pixel"]}
+           "fit": fits, "scores": scores, "pixel": run["pixel"], "kp_source": src}
     if notes_path:
         rec.update(json.load(open(notes_path)))
     elif os.path.exists(os.path.join(out, "notes.json")):
@@ -451,14 +631,18 @@ def cmd_finish(out, notes_path=None):
     with open(os.path.join(out, "record.json"), "w") as fh:
         json.dump(rec, fh, indent=1)
     s = scores
-    print("ref->rig %s | male %s | female %s" % (
-        ps.fmt(fitr["score"]), ps.fmt(s["male"]) if s["male"] else "-", ps.fmt(s["female"]) if s["female"] else "-"))
+    print("ref->rig M %s / F %s | male %s | female %s" % (
+        ps.fmt(s["rig_male"]), ps.fmt(s["rig_female"]),
+        ps.fmt(s["male"]) if s["male"] else "-", ps.fmt(s["female"]) if s["female"] else "-"))
     cmd_gallery(cfg["work"])
 
 
 # ---------------------------------------------------------------- gallery
-def records(work):
-    base = os.path.join(work, "rounds")
+ARCHIVE = "archive_v1"   # rounds 1-25 on the old (one-body, long-torso) rig
+
+
+def records(work, sub="rounds"):
+    base = os.path.join(work, sub)
     out = []
     for d in sorted(os.listdir(base)) if os.path.isdir(base) else []:
         p = os.path.join(base, d, "record.json")
@@ -469,6 +653,24 @@ def records(work):
 
 def cmd_gallery(work):
     recs = records(work)
+    rows = gallery_rows(recs, "rounds")
+    old = records(work, ARCHIVE + "/rounds")
+    archive = ""
+    if old:
+        archive = ("<section><details><summary><b>Archive (old proportions): rounds 1-%d</b></summary>"
+                   "<p>First practice run on the original rig (one body, torso too long, legs too short); "
+                   "sprite keypoints annotated by hand.</p>%s%s</details></section>" % (
+                       max(r["round"] for r in old), trend_table(old), "\n".join(gallery_rows(old, ARCHIVE + "/rounds"))))
+    notes = ("<p>Rig with separate male and female body profiles (each sprite is re-posed with a guide fitted on its "
+             "own body). Sprite keypoints come from DWPose (dw-ll_ucoco_384.onnx, no bbox) from round 1; hand "
+             "annotation only where it misses joints (marked 'hand' on the sheet). Detected left/right limbs are "
+             "matched to the rig before scoring, and the sprite's sword is found from its steel pixels.</p>")
+    page = PAGE % (notes + trend_table(recs), "\n".join(rows) + archive)
+    with open(os.path.join(work, "gallery.html"), "w", encoding="utf-8") as fh:
+        fh.write(page)
+
+
+def gallery_rows(recs, base):
     rows = []
     for r in sorted(recs, key=lambda r: -r["round"]):
         s = r["scores"]
@@ -478,14 +680,16 @@ def cmd_gallery(work):
             '<section><h2>Round %d &middot; %s <small>attempt %d</small></h2>'
             '<p class="scores">ref&rarr;rig limb <b>%.1f&deg;</b> joint %.2f%s &middot; rig&rarr;male <b>%s</b>'
             ' &middot; rig&rarr;female <b>%s</b></p>'
-            '<img src="rounds/r%03d/sheet.png" alt="round %d">'
+            '<img src="%s/r%03d/sheet.png" alt="round %d" loading="lazy">'
             '<p><b>Intent:</b> %s</p><p><b>Notes:</b> %s</p><p><b>Next:</b> %s</p></section>' % (
                 r["round"], html.escape(r["pose"]), r.get("attempt", 1), s["rig"]["limb"], s["rig"]["joint"],
-                (" sword %.0f&deg;" % sw) if sw is not None else "", cell("male"), cell("female"),
-                r["round"], r["round"], html.escape(r.get("intent") or ""), html.escape(r.get("notes", "")),
+                (" sword %.0f&deg;" % sw) if sw else "", cell("male"), cell("female"),
+                base, r["round"], r["round"], html.escape(r.get("intent") or ""), html.escape(r.get("notes", "")),
                 html.escape(r.get("change", ""))))
-    trend = trend_table(recs)
-    page = """<!doctype html><html><head><meta charset="utf-8"><title>Pose practice</title>
+    return rows
+
+
+PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Pose practice</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root { --bg: #16161a; --fg: #e8e8e8; --muted: #a0a0a8; --card: #202026; --accent: #ffd860; }
@@ -502,9 +706,7 @@ th:first-child, td:first-child { text-align: left; }
 Limb = mean limb-angle error in degrees (lower is better). Newest first.</p>
 %s
 %s
-</body></html>""" % (trend, "\n".join(rows))
-    with open(os.path.join(work, "gallery.html"), "w", encoding="utf-8") as fh:
-        fh.write(page)
+</body></html>"""
 
 
 def trend_table(recs):
