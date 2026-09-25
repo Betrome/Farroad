@@ -279,7 +279,9 @@ func _build(unit_size: float) -> void:
 				var ps: float = float(frames.get_meta("pixel_scale"))
 				var anchor: Vector2 = frames.get_meta("anchor")
 				anim.scale = Vector2(ps, ps)
-				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				# Below 1x, nearest would drop every other pixel; smooth it
+				# instead (a stopgap until the art is made at its display size).
+				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if ps >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 				anim.offset = frame_tex.get_size() / 2.0 - anchor + Vector2(0, half / ps)
 				_art_body_size = (frames.get_meta("body_size", frame_tex.get_size()) as Vector2) * ps
 			else:
