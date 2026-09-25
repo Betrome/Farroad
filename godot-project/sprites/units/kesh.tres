@@ -1,4 +1,4 @@
-[gd_resource type="SpriteFrames" load_steps=16 format=3]
+[gd_resource type="SpriteFrames" load_steps=7 format=3]
 
 [ext_resource type="Texture2D" path="res://sprites/units/kesh/idle_0.png" id="1"]
 [ext_resource type="Texture2D" path="res://sprites/units/kesh/idle_1.png" id="2"]
@@ -6,18 +6,9 @@
 [ext_resource type="Texture2D" path="res://sprites/units/kesh/idle_3.png" id="4"]
 [ext_resource type="Texture2D" path="res://sprites/units/kesh/idle_4.png" id="5"]
 [ext_resource type="Texture2D" path="res://sprites/units/kesh/idle_5.png" id="6"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_0.png" id="7"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_1.png" id="8"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_2.png" id="9"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_3.png" id="10"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_4.png" id="11"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_5.png" id="12"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_6.png" id="13"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_7.png" id="14"]
-[ext_resource type="Texture2D" path="res://sprites/units/kesh/attack_8.png" id="15"]
 
 [resource]
-animations = [{"frames": [{"duration": 1.0, "texture": ExtResource("1")}, {"duration": 1.0, "texture": ExtResource("2")}, {"duration": 1.0, "texture": ExtResource("3")}, {"duration": 1.0, "texture": ExtResource("4")}, {"duration": 1.0, "texture": ExtResource("5")}, {"duration": 1.0, "texture": ExtResource("6")}], "loop": true, "name": &"idle", "speed": 6.0}, {"frames": [{"duration": 1.0, "texture": ExtResource("7")}, {"duration": 1.0, "texture": ExtResource("8")}, {"duration": 1.0, "texture": ExtResource("9")}, {"duration": 1.0, "texture": ExtResource("10")}, {"duration": 1.0, "texture": ExtResource("11")}, {"duration": 1.0, "texture": ExtResource("12")}, {"duration": 1.0, "texture": ExtResource("13")}, {"duration": 1.0, "texture": ExtResource("14")}, {"duration": 1.0, "texture": ExtResource("15")}], "loop": false, "name": &"attack", "speed": 14.0}]
-metadata/pixel_scale = 0.5
-metadata/anchor = Vector2(55.5, 130.0)
-metadata/body_size = Vector2(99.0, 124.0)
+animations = [{"frames": [{"duration": 1.0, "texture": ExtResource("1")}, {"duration": 1.0, "texture": ExtResource("2")}, {"duration": 1.0, "texture": ExtResource("3")}, {"duration": 1.0, "texture": ExtResource("4")}, {"duration": 1.0, "texture": ExtResource("5")}, {"duration": 1.0, "texture": ExtResource("6")}], "loop": true, "name": &"idle", "speed": 7.0}]
+metadata/pixel_scale = 1.3
+metadata/anchor = Vector2(32.0, 60.0)
+metadata/body_size = Vector2(38.0, 49.0)
