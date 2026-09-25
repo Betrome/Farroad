@@ -11,7 +11,8 @@ ROUND.json (written by hand or by a driver script):
   {"work": WORK_DIR (default: the folder above the round file), "round": 12, "pose": "lunge", "target": "refs/lunge.json",
    "intent": "a deep fencing lunge, sword arm fully extended forward",
    "spec": {...pose_fit "fit" overrides...}, "init": "rounds/r011/pose.json" (optional),
-   "fit_azimuth": -45, "guide": "openpose" | "openpose_thick", "seed": 1,
+   "fit_azimuth": -45, "guide": "openpose" | "openpose_body" | "openpose_hilt" | "openpose_body_hilt",
+   "seed": 1,
    "prompt": optional full prompt (else built from intent), "evals": 60000}
 
 `run` writes WORK/rounds/rNNN/: the fit (pose.json, fit.json, guides), the
@@ -84,14 +85,36 @@ def guide_image(out, kind):
         return src
     data = json.load(open(os.path.join(out, "openpose.json")))
     kp = data["people"][0]["pose_keypoints_2d"]
-    if kind == "openpose_body":      # no face points: just the body and the sword
+    if kind.startswith("openpose_body"):      # no face points: just the body and the sword
         for i in (14, 15, 16, 17):
             kp[3 * i + 2] = 0
     img = pose_render.render(kp, 512, 512)
-    ImageDraw.Draw(img).line([tuple(data["sword"][0]), tuple(data["sword"][1])], fill=(200, 200, 200), width=6)
+    if kind.endswith("hilt"):
+        draw_sword(ImageDraw.Draw(img), data["sword"][0], data["sword"][1])
+    else:
+        ImageDraw.Draw(img).line([tuple(data["sword"][0]), tuple(data["sword"][1])], fill=(200, 200, 200), width=6)
     path = os.path.join(out, "guide_%s.png" % kind)
     img.save(path)
     return path
+
+
+def draw_sword(d, hilt, tip):
+    """A sword that shows which end is which: a short dark grip, a crossguard across the
+    blade at the hilt end, and a light blade tapering to a point."""
+    import math
+    (hx, hy), (tx, ty) = hilt, tip
+    L = math.hypot(tx - hx, ty - hy) or 1
+    ux, uy = (tx - hx) / L, (ty - hy) / L
+    nx, ny = -uy, ux
+    g = 0.12 * L                                  # guard sits a little way up from the fist
+    gx, gy = hx + ux * g, hy + uy * g
+    d.line([(hx - ux * 0.08 * L, hy - uy * 0.08 * L), (gx, gy)], fill=(110, 80, 60), width=7)
+    w = 5
+    bx, by = tx - ux * 3 * w, ty - uy * 3 * w      # where the edges start to meet at the point
+    d.polygon([(gx + nx * w, gy + ny * w), (bx + nx * w, by + ny * w), (tx, ty),
+               (bx - nx * w, by - ny * w), (gx - nx * w, gy - ny * w)], fill=(215, 215, 215))
+    c = 22
+    d.line([(gx + nx * c, gy + ny * c), (gx - nx * c, gy - ny * c)], fill=(170, 170, 170), width=6)
 
 
 def wait_for_server(tries=60):
@@ -148,6 +171,48 @@ def palette_for(who, steel=True):
     return shared_palette(ims)
 
 
+def components8(img):
+    """Opaque 8-connected components (a one-pixel diagonal blade stays in one piece)."""
+    px = img.load()
+    W, H = img.size
+    seen, comps = set(), []
+    for y in range(H):
+        for x in range(W):
+            if px[x, y][3] and (x, y) not in seen:
+                comp, stack = [], [(x, y)]
+                seen.add((x, y))
+                while stack:
+                    cx, cy = stack.pop()
+                    comp.append((cx, cy))
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            n = (cx + dx, cy + dy)
+                            if 0 <= n[0] < W and 0 <= n[1] < H and n not in seen and px[n][3]:
+                                seen.add(n)
+                                stack.append(n)
+                comps.append(comp)
+    return comps
+
+
+def keep_near_largest(img, reach):
+    """Drop opaque components farther than `reach` px from the largest one."""
+    comps = components8(img)
+    if len(comps) < 2:
+        return img
+    big = max(comps, key=len)
+    bset = set(big)
+    px = img.load()
+    for comp in comps:
+        if comp is big:
+            continue
+        near = any((x + dx, y + dy) in bset for x, y in comp
+                   for dx in range(-reach, reach + 1) for dy in range(-reach, reach + 1))
+        if not near:
+            for p in comp:
+                px[p] = (0, 0, 0, 0)
+    return img
+
+
 def cap_colours(img, n):
     """Merge the closest pair of colours (rarer into commoner) until at most n remain."""
     img = img.convert("RGBA")
@@ -174,7 +239,10 @@ def pixel(out, who, src, bg_tol=40, steel=True):
     # bg_tol 40, not pixelize's 90: Qwen's background is pure white, and a looser
     # flood fill eats the light-grey sword blade where it touches the background
     sprite, k, n, st = pixelize(Image.open(src), block=16, palette=palette_for(who, steel),
-                                keep_largest=True, bg_tol=bg_tol)
+                                keep_largest=False, bg_tol=bg_tol, min_speck=1)
+    # keep_largest would delete a blade that the 16 px downsample cut off from the hand;
+    # keep every piece that lies within a few pixels of the main figure instead
+    sprite = keep_near_largest(sprite, 3)
     sprite = cap_colours(sprite, 16)
     canvas = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     # bottom-centre on a 64 px canvas (feet on the same row as the master's)
@@ -242,7 +310,7 @@ def cmd_run(path):
         json.dump(cfg, fh, indent=1)
     if not (cfg.get("reuse_fit") and os.path.exists(os.path.join(out, "pose.json"))):
         fit(cfg, out)
-    guide = guide_image(out, cfg.get("guide", "openpose"))
+    guide = guide_image(out, cfg.get("guide", "openpose_hilt"))
     results, prompt = qwen(cfg, out, guide)
     px = {}
     for who, src in results.items():
