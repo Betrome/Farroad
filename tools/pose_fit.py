@@ -85,7 +85,7 @@ NAMES = [p[0] for p in make_params()]
 IDX = {n: i for i, n in enumerate(NAMES)}
 DEFAULT_WEIGHTS = {"limb": 1.0, "joint": 10.0, "sword": 0.6, "feet": 300.0, "spread": 150.0,
                    "frame": 2.0, "hidden": 15.0, "reg": 0.03, "short": 60.0,
-                   "clear": 60.0, "over": 25.0}
+                   "clear": 60.0, "over": 40.0}
 # limb lengths as a share of the neck -> mid-hip length, to compare foreshortening
 # (how much of each limb's length shows in 2D) between a real person and the chibi rig
 TORSO = 1.0          # neck -> hip length of the current body (configure())
@@ -252,17 +252,18 @@ def blade_on_face(norm, sword, clear=None):
     return max(0.0, clear - seg_dist(head, hilt, tip))
 
 
-def blade_on_body(norm, sword, samples=12):
-    """Share of the blade (beyond the first 15%) that lies over the torso in 2D.
-    Qwen splits a blade laid over the arm/torso into two swords (or drops it)."""
-    quad = [norm.get(i) for i in (2, 5, 11, 8)]
-    if not sword or 4 not in norm or any(q is None for q in quad):
+def blade_on_body(norm, sword, samples=12, half_width=0.35):
+    """Share of the blade (beyond the first 15%) lying over the torso in 2D, the torso
+    being the neck -> mid-hip segment thickened to `half_width` torso lengths (a side
+    view's shoulder/hip quad is too thin to catch it). Qwen splits a blade laid over the
+    torso into two swords or reads it as the character being run through."""
+    if not sword or 4 not in norm or 1 not in norm or -1 not in norm:
         return 0.0
     hx, hy = norm[4]
     hits = 0
     for k in range(samples):
         t = 0.15 + 0.85 * k / (samples - 1)
-        if inside((hx + sword[0] * t, hy + sword[1] * t), quad) > 0:
+        if seg_dist((hx + sword[0] * t, hy + sword[1] * t), norm[1], norm[-1]) < half_width:
             hits += 1
     return hits / samples
 

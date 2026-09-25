@@ -380,46 +380,66 @@ def sprite_sword(sprite_path, pose=None):
         return None
     a = (mx + ux * min(proj), my + uy * min(proj))
     b = (mx + ux * max(proj), my + uy * max(proj))
-    if pose:
-        wrists = [pose.xy(i) for i in (4, 7) if pose.ok(i)]
-        if wrists:
-            da = min(math.hypot(a[0] - w[0], a[1] - w[1]) for w in wrists)
-            db = min(math.hypot(b[0] - w[0], b[1] - w[1]) for w in wrists)
-            if db < da:
-                a, b = b, a
+    if pose and pose.xy(1) and pose.xy(-1):
+        # hilt = the end nearer the torso centre (more robust than the detected wrists,
+        # which DWPose sometimes puts on the blade)
+        n, m = pose.xy(1), pose.xy(-1)
+        c = ((n[0] + m[0]) / 2, (n[1] + m[1]) / 2)
+        if math.hypot(b[0] - c[0], b[1] - c[1]) < math.hypot(a[0] - c[0], a[1] - c[1]):
+            a, b = b, a
     return [a, b]
 
 
-def auto_keypoints(out, who, min_body=12):
-    """DWPose on the pixelized sprite (x16), else on the raw Qwen image; writes WHO_kp.json
+def auto_keypoints(out, who, min_body=10):
+    """DWPose on a few renderings of the sprite (64 px sprite x16 on 1024 and x6 on 512,
+    the raw Qwen image); keeps the one with the most body joints and writes WHO_kp.json
     in 64 px sprite coordinates, with the sword found from the steel pixels.
-    Returns the number of body joints (0-13) found, or 0 if it fell short."""
+    Returns the number of body joints (0-13) found, or 0 if none was usable
+    (< min_body joints, or no neck/hip)."""
     sprite = os.path.join(out, who + "_px.png")
     qimg = os.path.join(out, who + "_qwen.png")
-    for src in (sprite, qimg):
+    best = None
+    for kind, scale, canvas in (("px", 16, 1024), ("px", 6, 512), ("qwen", 1, 1024)):
+        if kind == "px":
+            im = Image.open(sprite).convert("RGBA")
+            im = im.resize((im.width * scale, im.height * scale), Image.NEAREST)
+            c = Image.new("RGBA", (canvas, canvas), (255, 255, 255, 255))
+            off = ((canvas - im.width) // 2, (canvas - im.height) // 2)
+            c.alpha_composite(im, off)
+            src = os.path.join(out, "_dw_in.png")
+            c.convert("RGB").save(src)
+        else:
+            src = qimg
         try:
-            pose = dwpose(src)
+            pose = dwpose(src, pixel_art=False)
         except Exception as e:  # noqa: BLE001
             print("dwpose failed:", e)
             pose = None
         n = sum(1 for i in range(14) if pose and pose.ok(i))
         if not (pose and n >= min_body and pose.ok(1) and (pose.ok(8) or pose.ok(11))):
             continue
-        if src == sprite:       # prep() put the 64 px sprite on 1024 at x16
-            k, ox, oy = 1 / 16, 0.0, 0.0
+        if best and n <= best[0]:
+            continue
+        if kind == "px":        # canvas (DWPose may report it resized) -> sprite pixels
+            kx = canvas / pose.width
+            k, ox, oy = kx / scale, -off[0] / scale, -off[1] / scale
         else:                   # align the Qwen figure's box with the sprite's
             qb, sb = fg_bbox(Image.open(qimg)), fg_bbox(Image.open(sprite))
-            k = (sb[3] - sb[1]) / max(1, qb[3] - qb[1])
-            ox, oy = sb[0] - qb[0] * k, sb[1] - qb[1] * k
-        pts = [((x * k + ox), (y * k + oy), c) if c > 0 else (0.0, 0.0, 0.0) for x, y, c in pose.pts]
-        p64 = ps.Pose(pts, None, 64, 64)
-        p64.sword = sprite_sword(sprite, p64)
-        d = p64.to_json()
-        d["source"] = "dwpose:" + os.path.basename(src)
-        with open(os.path.join(out, who + "_kp.json"), "w") as fh:
-            json.dump(d, fh)
-        return n
-    return 0
+            kx = Image.open(qimg).width / pose.width
+            k = (sb[3] - sb[1]) / max(1, qb[3] - qb[1]) * kx
+            ox, oy = sb[0] - qb[0] * k / kx, sb[1] - qb[1] * k / kx
+        pts = [((x * k + ox), (y * k + oy), c_) if c_ > 0 else (0.0, 0.0, 0.0) for x, y, c_ in pose.pts]
+        best = (n, pts, "dwpose:%s x%s" % (kind, scale))
+    if not best:
+        return 0
+    n, pts, tag = best
+    p64 = ps.Pose(pts, None, 64, 64)
+    p64.sword = sprite_sword(sprite, p64)
+    d = p64.to_json()
+    d["source"] = tag
+    with open(os.path.join(out, who + "_kp.json"), "w") as fh:
+        json.dump(d, fh)
+    return n
 
 
 def rig_overlay(out, body, size=512):
@@ -494,16 +514,12 @@ def cmd_run(path):
 
 # ---------------------------------------------------------------- finish
 def load_kp(out, who):
-    j = os.path.join(out, who + "_kp.json")
-    if os.path.exists(j):
-        return ps.load(j)
+    """WHO_kp.txt (hand annotation, overrides a bad detection) else WHO_kp.json (DWPose)."""
     t = os.path.join(out, who + "_kp.txt")
     if os.path.exists(t):
-        pose = ps.parse_points(open(t).read(), 64, 64)
-        with open(j, "w") as fh:
-            json.dump(pose.to_json(), fh)
-        return pose
-    return None
+        return ps.parse_points(open(t).read(), 64, 64)
+    j = os.path.join(out, who + "_kp.json")
+    return ps.load(j) if os.path.exists(j) else None
 
 
 def font(size):
@@ -601,6 +617,10 @@ def wrap(text, n):
     return lines
 
 
+def src_is_dw(out, who):
+    return not os.path.exists(os.path.join(out, who + "_kp.txt")) and os.path.exists(os.path.join(out, who + "_kp.json"))
+
+
 def cmd_finish(out, notes_path=None):
     cfg = json.load(open(os.path.join(out, "round.json")))
     run = json.load(open(os.path.join(out, "run.json")))
@@ -614,10 +634,13 @@ def cmd_finish(out, notes_path=None):
     for who in MASTERS:
         rig = ps.load(os.path.join(out, who, "openpose.json"))
         kp = load_kp(out, who)
-        if kp and not kp.sword:
+        if kp and (not kp.sword or src_is_dw(out, who)):
             kp.sword = sprite_sword(os.path.join(out, who + "_px.png"), kp)
         kj = os.path.join(out, who + "_kp.json")
-        src[who] = json.load(open(kj)).get("source", "hand") if os.path.exists(kj) else "none"
+        if os.path.exists(os.path.join(out, who + "_kp.txt")):
+            src[who] = "hand"
+        else:
+            src[who] = json.load(open(kj)).get("source", "hand") if os.path.exists(kj) else "none"
         scores[who] = ps.score(rig, kp, side_swap=True) if kp else None
     rec = {"round": cfg["round"], "pose": cfg["pose"], "attempt": cfg.get("attempt", 1),
            "intent": cfg.get("intent"), "spec": cfg.get("spec", {}), "init": cfg.get("init"),
@@ -662,9 +685,11 @@ def cmd_gallery(work):
                    "sprite keypoints annotated by hand.</p>%s%s</details></section>" % (
                        max(r["round"] for r in old), trend_table(old), "\n".join(gallery_rows(old, ARCHIVE + "/rounds"))))
     notes = ("<p>Rig with separate male and female body profiles (each sprite is re-posed with a guide fitted on its "
-             "own body). Sprite keypoints come from DWPose (dw-ll_ucoco_384.onnx, no bbox) from round 1; hand "
-             "annotation only where it misses joints (marked 'hand' on the sheet). Detected left/right limbs are "
-             "matched to the rig before scoring, and the sprite's sword is found from its steel pixels.</p>")
+             "own body). Reference keypoints: DWPose (dw-ll_ucoco_384.onnx; yolox on a crop for photos) where it "
+             "agreed with a hand check, hand-marked otherwise; authored poses are hand-drawn skeletons. Sprite "
+             "keypoints: DWPose was tried from round 1 but on the 64 px chibi sprites it puts the neck/shoulders on "
+             "the chin, so from round 3 the sprites are hand-annotated (the sheet says which). The sprite's sword "
+             "angle comes from its steel pixels.</p>")
     page = PAGE % (notes + trend_table(recs), "\n".join(rows) + archive)
     with open(os.path.join(work, "gallery.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
