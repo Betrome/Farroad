@@ -238,3 +238,52 @@ world.node_tree.nodes["Background"].inputs[1].default_value = 0.0
 scene.render.filepath = os.path.join(out_dir, "shaded.png")
 bpy.ops.render.render(write_still=True)
 print("rendered", out_dir)
+
+# openpose.json: COCO-18 keypoints projected into the camera, plus the sword
+# (hilt -> tip) so tools/pose_render.py can draw a skeleton guide for
+# Qwen-Image-Edit (which reads OpenPose images natively).
+from bpy_extras.object_utils import world_to_camera_view  # noqa: E402
+
+bpy.context.view_layer.update()
+
+
+def px(p):
+    v = world_to_camera_view(scene, cam, p)
+    return [round(v.x * SIZE, 1), round((1 - v.y) * SIZE, 1)]
+
+
+pb = rig.pose.bones
+mw = rig.matrix_world
+
+def posed(bone_name, rest_point):
+    """World position of a rest-pose point carried along by a bone."""
+    b = pb[bone_name]
+    return mw @ b.matrix @ b.bone.matrix_local.inverted() @ Vector(rest_point)
+
+
+head_c = posed("head", (0, 0, HEAD_C))
+nose = posed("head", (0.41, 0, HEAD_C - 0.05))
+fwd = (nose - head_c).normalized()
+lat = (posed("head", (0, 1, HEAD_C)) - head_c).normalized()   # character's left
+up = (posed("head", (0, 0, HEAD_C + 1)) - head_c).normalized()
+pts = {
+    0: nose, 1: mw @ pb["spine"].tail,
+    2: mw @ pb["upper_arm.R"].head, 3: mw @ pb["forearm.R"].head, 4: mw @ pb["hand.R"].head,
+    5: mw @ pb["upper_arm.L"].head, 6: mw @ pb["forearm.L"].head, 7: mw @ pb["hand.L"].head,
+    8: mw @ pb["thigh.R"].head, 9: mw @ pb["shin.R"].head, 10: mw @ pb["foot.R"].head,
+    11: mw @ pb["thigh.L"].head, 12: mw @ pb["shin.L"].head, 13: mw @ pb["foot.L"].head,
+    14: head_c + fwd * 0.36 - lat * 0.16 + up * 0.06, 15: head_c + fwd * 0.36 + lat * 0.16 + up * 0.06,
+    16: head_c - lat * 0.4, 17: head_c + lat * 0.4,
+}
+kp = []
+for i in range(18):
+    kp += px(pts[i]) + [1.0]
+bm = blade.matrix_world
+ends = [bm @ Vector((0, 0, SWORD_LEN / 2)), bm @ Vector((0, 0, -SWORD_LEN / 2))]
+hand = mw @ pb["hand.R"].tail
+tip = max(ends, key=lambda e: (e - hand).length)
+with open(os.path.join(out_dir, "openpose.json"), "w") as fh:
+    json.dump({"canvas_width": SIZE, "canvas_height": SIZE,
+               "people": [{"pose_keypoints_2d": kp}],
+               "sword": [px(hand), px(tip)]}, fh)
+print("wrote openpose.json")
