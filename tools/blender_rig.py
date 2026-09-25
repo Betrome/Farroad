@@ -344,8 +344,17 @@ def render_guides(scene, out_dir, prefix="", size=512):
 
 def write_openpose(scene, path, size):
     """COCO-18 keypoints projected into the camera, plus the sword (hilt -> tip)."""
+    kp, sword = project_keypoints(scene, size)
+    with open(path, "w") as fh:
+        json.dump({"canvas_width": size, "canvas_height": size,
+                   "people": [{"pose_keypoints_2d": kp}], "sword": sword}, fh)
+
+
+def project_keypoints(scene, size=512, update=True):
+    """(flat COCO-18 [x, y, 1] * 18, [[hilt x, y], [tip x, y]]) in render pixels."""
     from bpy_extras.object_utils import world_to_camera_view
-    bpy.context.view_layer.update()
+    if update:
+        bpy.context.view_layer.update()
     rig = bpy.data.objects["rig"]
     cam = scene.camera
     pb = rig.pose.bones
@@ -380,10 +389,7 @@ def write_openpose(scene, path, size):
     ends = [bm @ Vector((0, 0, SWORD_LEN / 2)), bm @ Vector((0, 0, -SWORD_LEN / 2))]
     hand = mw @ pb["hand.R"].tail
     tip = max(ends, key=lambda e: (e - hand).length)
-    with open(path, "w") as fh:
-        json.dump({"canvas_width": size, "canvas_height": size,
-                   "people": [{"pose_keypoints_2d": kp}],
-                   "sword": [px(hand), px(tip)]}, fh)
+    return kp, [px(hand), px(tip)]
 
 
 # ---------------------------------------------------------------- UI (in the .blend)
