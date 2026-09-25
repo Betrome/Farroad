@@ -212,6 +212,7 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(name_lbl)
 
+	var charges: int = FarroadProgression.dungeon_charges(d, _now())
 	var info_lbl := Label.new()
 	var total_waves: int = (d["waves"] as Array).size()
 	info_lbl.text = "%d waves (ends in a boss) · +%d Crystal" % [total_waves, FarroadProgression.DUNGEON_CRYSTAL]
@@ -220,21 +221,25 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(info_lbl)
 
-	# Ian: "Dungeons: can only be completed once per day." Real UTC-
-	# calendar-day gate (FarroadProgression.dungeon_available), not just a
-	# fixed 24h cooldown -- resets at midnight UTC regardless of when it
-	# was actually cleared.
-	var available: bool = FarroadProgression.dungeon_available(d, _now())
+	# Dungeon charges: a clear uses one, each dungeon gains one at midnight
+	# UTC, up to DUNGEON_MAX_CHARGES, so a missed day can be made up.
+	var row := HBoxContainer.new()
+	box.add_child(row)
+	var charge_lbl := Label.new()
+	charge_lbl.text = "Charges %d/%d" % [charges, FarroadProgression.DUNGEON_MAX_CHARGES]
+	charge_lbl.modulate = Palette.TEXT_FAINT if charges == 0 else Palette.TEXT_INK
+	charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(charge_lbl)
 	var enter_btn := Button.new()
 	enter_btn.text = "Enter"
-	enter_btn.disabled = busy or not available
+	enter_btn.disabled = busy or charges <= 0
 	if busy:
 		enter_btn.tooltip_text = "A quest or dungeon attempt is already in progress."
-	elif not available:
-		enter_btn.tooltip_text = "Already cleared today -- resets at midnight UTC."
+	elif charges <= 0:
+		enter_btn.tooltip_text = "No charges left -- each dungeon gains one at midnight UTC (up to %d)." % FarroadProgression.DUNGEON_MAX_CHARGES
 	var id: String = d["id"]
 	enter_btn.pressed.connect(func(): _on_enter_dungeon_pressed(id))
-	box.add_child(enter_btn)
+	row.add_child(enter_btn)
 	return card
 
 ## Mirrors renderQuests()'s companion-quest card (farroad-ui.js:2610-2634).

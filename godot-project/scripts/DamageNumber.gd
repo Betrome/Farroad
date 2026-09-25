@@ -25,7 +25,8 @@ static func spawn(parent: Node2D, pos: Vector2, text: String, color: Color, stag
 	label.add_theme_color_override("font_outline_color", Color(0.08, 0.05, 0.03, 1.0))
 	label.add_theme_constant_override("outline_size", 5)
 	label.position = start_pos
-	label.z_index = 10
+	# No raised z_index: the label is added after the units, so it already
+	# draws over them, and a raised z_index drew it over the pop-up windows too.
 	parent.add_child(label)
 
 	var tw := parent.create_tween()

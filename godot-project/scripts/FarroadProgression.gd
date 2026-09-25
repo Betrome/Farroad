@@ -421,23 +421,30 @@ static func buy_shop_gambit(g: Dictionary, cond_id: String) -> bool:
 ## MC exists yet -- pulls/Shop both only unlock well past mandatory
 ## character creation in practice, but this stays a real, not just
 ## theoretical, guard.
+## Ian: actions the player already has stay on sale; buying one again turns
+## into one Lore for that action (the same as a duplicate drop or pull).
+static func shop_action_owned(g: Dictionary, action_id: String) -> bool:
+	var act = FarroadCore.ACTIONS.get(action_id)
+	if act == null:
+		return false
+	if bool(act.get("isCharge", false)):
+		return g.get("mc") != null and (g["mc"].get("acquiredCharges", []) as Array).has(action_id)
+	return (g["actions"] as Array).has(action_id)
+
 static func buy_shop_action(g: Dictionary, action_id: String) -> bool:
 	var act = FarroadCore.ACTIONS.get(action_id)
 	if act == null:
 		return false
 	var is_charge: bool = bool(act.get("isCharge", false))
-	if is_charge:
-		if g["mc"] == null:
-			return false
-		if (g["mc"].get("acquiredCharges", []) as Array).has(action_id):
-			return false
-	elif g["actions"].has(action_id):
+	if is_charge and g["mc"] == null:
 		return false
 	var price: int = int(SHOP_ACTION_PRICE.get(act.get("rarity", "common"), 20))
 	if int(g.get("crystal", 0)) < price:
 		return false
 	g["crystal"] = int(g["crystal"]) - price
-	if is_charge:
+	if shop_action_owned(g, action_id):
+		_credit_lore(g, action_id)
+	elif is_charge:
 		g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
 		g["mc"]["acquiredCharges"].append(action_id)
 	else:
@@ -2514,26 +2521,43 @@ static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now)
 	waves.append({"wave": boss_wave, "enemies": boss_enemies.map(bake_enemy_snapshot)})
 	var dungeon := {"id": "dgn%d_%d" % [int(now), randi() % 1000000],
 		"name": "%s Dungeon (depth %d)" % [cfg["label"], base_wave], "direction": dir, "tier": tier,
-		"waves": waves, "clears": 0}
+		"waves": waves, "clears": 0, "charges": DUNGEON_START_CHARGES, "chargeDay": _utc_day(now)}
 	g["dungeons"].append(dungeon)
 	return dungeon
 
-## 20-item batch, Group G: "dungeons can only be completed once per day."
-## Real-world calendar-DAY boundary (UTC, since `now` is a plain unix
-## timestamp with no timezone anywhere in this project) -- "YYYY-MM-DD"
-## string comparison rather than a fixed 24h cooldown, so a dungeon
-## reliably resets at midnight UTC regardless of what time of day it was
-## first cleared, matching how a real daily-reset feature is normally
-## expected to behave (not "24h after your last clear, whenever that was").
+## Dungeon charges (Ian): "completing the dungeon consumes one, but at
+## midnight one more is added for each dungeon", max DUNGEON_MAX_CHARGES --
+## so a player who misses a day can catch up later. Days are UTC calendar
+## days (unix time has no timezone anywhere in this project). Each dungeon
+## keeps its own `charges` and the UTC day number they were last topped up
+## on (`chargeDay`); refilling is lazy, done whenever charges are read.
+const DUNGEON_MAX_CHARGES := 3
+const DUNGEON_START_CHARGES := 1
+
+static func _utc_day(ts) -> int:
+	return int(floor(float(ts) / 86400.0))
+
+## Kept for callers that still compare calendar days.
 static func _calendar_day(ts) -> String:
 	var dt := Time.get_datetime_dict_from_unix_time(int(ts))
 	return "%04d-%02d-%02d" % [int(dt["year"]), int(dt["month"]), int(dt["day"])]
 
+## Tops up (in place) and returns the dungeon's charges at `now`.
+static func dungeon_charges(dungeon: Dictionary, now) -> int:
+	var today := _utc_day(now)
+	if not dungeon.has("charges"):
+		# older saves had a once-per-day flag: available today = 1 charge
+		var last = dungeon.get("lastClearedAt")
+		dungeon["charges"] = 0 if (last != null and _utc_day(last) == today) else DUNGEON_START_CHARGES
+		dungeon["chargeDay"] = today
+	var days: int = today - int(dungeon.get("chargeDay", today))
+	if days > 0:
+		dungeon["charges"] = mini(DUNGEON_MAX_CHARGES, int(dungeon["charges"]) + days)
+	dungeon["chargeDay"] = maxi(today, int(dungeon.get("chargeDay", today)))
+	return int(dungeon["charges"])
+
 static func dungeon_available(dungeon: Dictionary, now) -> bool:
-	var last = dungeon.get("lastClearedAt")
-	if last == null:
-		return true
-	return _calendar_day(now) != _calendar_day(last)
+	return dungeon_charges(dungeon, now) > 0
 
 ## Mirrors questStageWave/questStageAether (farroad-progression.js:1168-1203).
 ## Ian: "reduce new unit quests difficulty to about 50% of current." A
@@ -2687,10 +2711,8 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 				dungeon = d
 		if result == "party" and dungeon != null:
 			dungeon["clears"] = int(dungeon["clears"]) + 1
-			# 20-item batch, Group G: "dungeons can only be completed once
-			# per day" -- stamped on every real clear; dungeon_available()
-			# below is the actual gate (checked by QuestsPanel before
-			# offering Enter).
+			# a completed run uses one charge (failing costs nothing)
+			dungeon["charges"] = maxi(0, dungeon_charges(dungeon, now) - 1)
 			dungeon["lastClearedAt"] = now
 			# Ian: dungeons give Crystal only now -- no Aether/Marks.
 			g["crystal"] = int(g.get("crystal", 0)) + DUNGEON_CRYSTAL

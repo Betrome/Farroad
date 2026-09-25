@@ -207,19 +207,18 @@ func _on_buy_gambit(cid: String) -> void:
 		_refresh()
 
 func _refresh_actions() -> void:
-	var mc_charges: Array = g.get("mc", {}).get("acquiredCharges", []) if g.get("mc") != null else []
-	for aid in (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS):
+	# Unowned actions first; owned ones stay buyable and turn into Lore.
+	var all_ids: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
+	var owned_ids: Array = all_ids.filter(func(a): return FarroadProgression.shop_action_owned(g, a))
+	for aid in all_ids.filter(func(a): return not owned_ids.has(a)) + owned_ids:
 		var act: Dictionary = FarroadCore.ACTIONS.get(aid, {})
 		var is_charge: bool = bool(act.get("isCharge", false))
-		var owned: bool = mc_charges.has(aid) if is_charge else (g["actions"] as Array).has(aid)
-		if owned:
-			continue
 		var price: int = int(FarroadProgression.SHOP_ACTION_PRICE.get(act.get("rarity", "common"), 20))
-		var suffix: String = " ⚡" if is_charge else ""
-		list_container.add_child(_build_buy_row(_rarity_name(act.get("name", aid), act.get("rarity", "common")) + suffix,
-			price, _on_buy_action.bind(aid)))
-	if list_container.get_child_count() == 0:
-		list_container.add_child(_empty_label("Every action is already owned."))
+		var label: String = _rarity_name(act.get("name", aid), act.get("rarity", "common")) + (" ⚡" if is_charge else "")
+		if owned_ids.has(aid):
+			label += "
+[font_size=12][color=#%s]Owned -- buying again gives +1 Lore for this action[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
+		list_container.add_child(_build_buy_row(label, price, _on_buy_action.bind(aid)))
 
 func _on_buy_action(aid: String) -> void:
 	if FarroadProgression.buy_shop_action(g, aid):
