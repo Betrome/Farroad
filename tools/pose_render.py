@@ -57,7 +57,12 @@ def main():
     data = json.load(open(sys.argv[1]))
     frame = data[0] if isinstance(data, list) else data
     kp = frame["people"][0]["pose_keypoints_2d"]
-    render(kp, frame["canvas_width"], frame["canvas_height"]).save(sys.argv[2])
+    img = render(kp, frame["canvas_width"], frame["canvas_height"])
+    if "sword" in frame:   # blender_rig.py adds the sword as a grey hilt->tip line
+        (a, b) = frame["sword"]
+        ImageDraw.Draw(img).line([tuple(a), tuple(b)], fill=(200, 200, 200),
+                                 width=max(3, round(6 * frame["canvas_width"] / 512)))
+    img.save(sys.argv[2])
 
 
 if __name__ == "__main__":
