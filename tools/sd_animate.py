@@ -5,7 +5,8 @@ Farroad art pipeline: animate a character with Stable Diffusion alone
 
 For each pose in a sequence:
   - start from the PREVIOUS frame's image (img2img; frame 1 starts from the
-    reference design itself), so details carry over frame to frame,
+    reference design itself), so details carry over frame to frame -- or,
+    with --init-from-reference, from the reference every time,
   - guide the new pose with an OpenPose skeleton (ControlNet),
   - lock identity to the reference design with IP-Adapter (if installed
     on the server; --no-ipadapter to skip),
@@ -67,6 +68,8 @@ def main():
     ap.add_argument("--ip-weight", type=float, default=0.8)
     ap.add_argument("--no-ipadapter", action="store_true")
     ap.add_argument("--colors", type=int, default=40)
+    ap.add_argument("--init-from-reference", action="store_true",
+                    help="start every frame from the reference instead of the previous frame (no error build-up)")
     a = ap.parse_args()
 
     os.makedirs(a.out_dir, exist_ok=True)
@@ -86,7 +89,8 @@ def main():
         raw = os.path.join(a.out_dir, "raw_%d.png" % i)
         os.replace(saved[0], raw)
         raws.append(raw)
-        init_name = cg.upload(raw, "%s_raw_%d.png" % (tag, i))
+        if not a.init_from_reference:
+            init_name = cg.upload(raw, "%s_raw_%d.png" % (tag, i))
         print("frame %d: %.1fs" % (i, secs))
 
     first = [px.pixelize(Image.open(r), colors=256, keep_largest=True, orphans=False)[0] for r in raws]
