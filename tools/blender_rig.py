@@ -4,11 +4,12 @@ posed with IK controls and rendered as pose guides (depth, shaded,
 OpenPose skeleton) for SD ControlNet / Qwen-Image-Edit.
 
 Headless render of a saved pose (what the pipeline uses):
-  blender -b --factory-startup -P tools/blender_rig.py -- pose.json out_dir [--size 512]
+  blender -b --factory-startup -P tools/blender_rig.py -- pose.json out_dir [--size 512] [--body male|female]
     -> out_dir/depth.png, shaded.png, openpose.json, openpose.png
 
 Build the hand-posing file (open it in Blender, drag the controls):
-  blender -b --factory-startup -P tools/blender_rig.py -- --build art_src/mc/rig/farroad_rig.blend
+  blender -b --factory-startup -P tools/blender_rig.py -- --build art_src/mc/rig/farroad_rig_male.blend --body male
+  (and farroad_rig_female.blend --body female: the two masters have different proportions)
 
 In the .blend, a "Farroad" tab in the 3D view sidebar (N) loads, saves and
 renders poses in art_src/mc/v2/rig_poses/. Controls (empties, drawn in front):
@@ -22,7 +23,8 @@ Spine and head: rotate the bones directly in Pose Mode.
 Hands/feet can only reach 97% of the limb length, so elbows and knees always bend.
 
 pose.json:
-  {"root": {"hips": [fwd, left, up], "rotation": [x, y, z]},   # hips offset (world) / degrees
+  {"body": "male",                                             # which body profile (default male)
+   "root": {"hips": [fwd, left, up], "rotation": [x, y, z]},   # hips offset (world) / degrees
    "bones": {"spine": [x, y, z], "head": [x, y, z]},           # euler degrees, bone-local
    "targets": {"hand.R": [x, y, z], "aim.R": [...], "elbow.R": [...],
                "foot.R": [x, y, 0], "knee.R": [...], ...}}      # world; foot = ground point
@@ -38,29 +40,59 @@ import sys
 import bpy
 from mathutils import Matrix, Vector
 
-# ---- proportions (1 unit = 1 head height; total ~4 heads) ----
-HEAD = 1.0
+# ---- body profiles ----
+# Heights are measured off each master sprite (art_src/mc/v2/*_master.png) as a
+# share of total height, with the total fixed at 3.9 units (1 unit ~ one head).
+# Radii are half-widths/depths of the mannequin parts. Pick one with
+# set_body() (CLI: --body male|female; a pose JSON may also say "body").
+TOTAL_H = 3.9
+BODIES = {
+    "male": {    # 47 px tall: chin 0.77, shoulders 0.71, crotch 0.43, knees 0.23
+        "neck": 0.77, "shoulder": 0.71, "hip": 0.47, "knee": 0.23,
+        "head_r": (0.46, 0.46, 0.43), "shoulder_x": 0.42, "hip_x": 0.2,
+        "upper_arm": 0.55, "forearm": 0.48,
+        "torso_r": (0.26, 0.42), "hips_r": (0.24, 0.33, 0.2),
+        "arm_r": (0.12, 0.105), "leg_r": (0.16, 0.13),
+    },
+    "female": {  # 47 px tall: chin 0.745, shoulders 0.72, crotch 0.43, knees 0.21; bigger head, narrower shoulders
+        "neck": 0.745, "shoulder": 0.705, "hip": 0.46, "knee": 0.21,
+        "head_r": (0.47, 0.46, 0.5), "shoulder_x": 0.34, "hip_x": 0.19,
+        "upper_arm": 0.5, "forearm": 0.45,
+        "torso_r": (0.23, 0.34), "hips_r": (0.23, 0.32, 0.2),
+        "arm_r": (0.1, 0.09), "leg_r": (0.15, 0.12),
+    },
+}
 FOOT_Z, ANKLE_Z = 0.0, 0.12
-KNEE_Z, HIP_Z = 0.72, 1.40
-NECK_Z = 2.95
-HEAD_C = NECK_Z + 0.47
-SHOULDER_Z, SHOULDER_X = 2.72, 0.42
-UPPER_ARM, FOREARM, HAND = 0.55, 0.50, 0.18
-HIP_X = 0.2
+HAND = 0.18
 SWORD_LEN, SWORD_W = 1.35, 0.09
 REACH = 0.97          # max hand/foot distance as a share of limb length (keeps elbows/knees bent)
 CAM_TARGET = Vector((0.2, 0, 2.05))
 CAM_DIST = 12
 
-WRIST_Z = SHOULDER_Z - UPPER_ARM - FOREARM
-DEFAULTS = {   # rest pose for every control (world coordinates)
-    "hand.L": (0.12, 0.5, WRIST_Z + 0.05), "hand.R": (0.12, -0.5, WRIST_Z + 0.05),
-    "aim.L": (0.5, 0.55, 0.6), "aim.R": (2.5, -0.5, WRIST_Z),
-    "elbow.L": (-1.5, 1.2, 1.2), "elbow.R": (-1.5, -1.2, 1.2),
-    "foot.L": (0.0, HIP_X, 0.0), "foot.R": (0.0, -HIP_X, 0.0),
-    "knee.L": (2.0, HIP_X, 1.0), "knee.R": (2.0, -HIP_X, 1.0),
-}
-HIPS_REST = Vector((0, 0, HIP_Z - 0.1))   # root bone head
+
+def set_body(name="male"):
+    """Set the module-level proportions (used by build() and the rest) to a body profile."""
+    global BODY_NAME, BODY, HEAD_R, NECK_Z, HEAD_C, SHOULDER_Z, SHOULDER_X, HIP_Z, KNEE_Z, HIP_X
+    global UPPER_ARM, FOREARM, WRIST_Z, DEFAULTS, HIPS_REST
+    BODY_NAME, BODY = name, BODIES[name]
+    HEAD_R = BODY["head_r"]
+    HEAD_C = TOTAL_H - HEAD_R[2]
+    NECK_Z = BODY["neck"] * TOTAL_H
+    SHOULDER_Z, SHOULDER_X = BODY["shoulder"] * TOTAL_H, BODY["shoulder_x"]
+    HIP_Z, KNEE_Z, HIP_X = BODY["hip"] * TOTAL_H, BODY["knee"] * TOTAL_H, BODY["hip_x"]
+    UPPER_ARM, FOREARM = BODY["upper_arm"], BODY["forearm"]
+    WRIST_Z = SHOULDER_Z - UPPER_ARM - FOREARM
+    DEFAULTS = {   # rest pose for every control (world coordinates)
+        "hand.L": (0.12, SHOULDER_X + 0.08, WRIST_Z + 0.05), "hand.R": (0.12, -SHOULDER_X - 0.08, WRIST_Z + 0.05),
+        "aim.L": (0.5, SHOULDER_X + 0.13, 0.6), "aim.R": (2.5, -SHOULDER_X - 0.08, WRIST_Z),
+        "elbow.L": (-1.5, 1.2, 1.2), "elbow.R": (-1.5, -1.2, 1.2),
+        "foot.L": (0.0, HIP_X, 0.0), "foot.R": (0.0, -HIP_X, 0.0),
+        "knee.L": (2.0, HIP_X, 1.0), "knee.R": (2.0, -HIP_X, 1.0),
+    }
+    HIPS_REST = Vector((0, 0, HIP_Z - 0.1))   # root bone head
+
+
+set_body("male")
 
 
 def repo_root():
@@ -92,7 +124,7 @@ def build(scene):
 
     bone("root", (0, 0, HIP_Z - 0.1), (0, 0, HIP_Z))
     bone("spine", (0, 0, HIP_Z), (0, 0, NECK_Z), "root")
-    bone("head", (0, 0, NECK_Z), (0, 0, NECK_Z + HEAD * 1.1), "spine")
+    bone("head", (0, 0, NECK_Z), (0, 0, TOTAL_H), "spine")
     for side, sy in (("L", 1), ("R", -1)):
         # rest pose is pre-bent (elbows back, knees forward) so IK knows the bend direction
         sh = (0, sy * SHOULDER_X, SHOULDER_Z)
@@ -144,17 +176,17 @@ def build(scene):
         return part(name, bone_name, (a + b) / 2, (r, r, d.length / 2 + r * 0.6),
                     rot=Vector((0, 0, 1)).rotation_difference(d))
 
-    part("head", "head", (0, 0, HEAD_C), (0.44, 0.41, 0.47))
-    part("nose", "head", (0.41, 0, HEAD_C - 0.05), (0.09, 0.07, 0.07))   # shows which way the face points
-    part("torso", "spine", (0, 0, (HIP_Z + NECK_Z) / 2 + 0.05), (0.26, 0.4, 0.78))
-    part("hips", "root", (0, 0, HIP_Z - 0.02), (0.24, 0.34, 0.2))
+    part("head", "head", (0, 0, HEAD_C), HEAD_R)
+    part("nose", "head", (HEAD_R[0] - 0.03, 0, HEAD_C - 0.05), (0.09, 0.07, 0.07))   # shows which way the face points
+    part("torso", "spine", (0, 0, (HIP_Z + NECK_Z) / 2 + 0.05), BODY["torso_r"] + ((NECK_Z - HIP_Z) / 2 + 0.08,))
+    part("hips", "root", (0, 0, HIP_Z - 0.02), BODY["hips_r"])
     for side, sy in (("L", 1), ("R", -1)):
         x = sy * SHOULDER_X
-        limb(f"uarm.{side}", f"upper_arm.{side}", (0, x, SHOULDER_Z), (-0.06, x, SHOULDER_Z - UPPER_ARM), 0.12)
-        limb(f"farm.{side}", f"forearm.{side}", (-0.06, x, SHOULDER_Z - UPPER_ARM), (0, x, WRIST_Z), 0.105)
+        limb(f"uarm.{side}", f"upper_arm.{side}", (0, x, SHOULDER_Z), (-0.06, x, SHOULDER_Z - UPPER_ARM), BODY["arm_r"][0])
+        limb(f"farm.{side}", f"forearm.{side}", (-0.06, x, SHOULDER_Z - UPPER_ARM), (0, x, WRIST_Z), BODY["arm_r"][1])
         part(f"hand.{side}", f"hand.{side}", (0, x, WRIST_Z - 0.08), (0.1, 0.09, 0.12))
-        limb(f"thigh.{side}", f"thigh.{side}", (0, sy * HIP_X, HIP_Z), (0.06, sy * HIP_X, KNEE_Z), 0.16)
-        limb(f"shin.{side}", f"shin.{side}", (0.06, sy * HIP_X, KNEE_Z), (0, sy * HIP_X, ANKLE_Z), 0.13)
+        limb(f"thigh.{side}", f"thigh.{side}", (0, sy * HIP_X, HIP_Z), (0.06, sy * HIP_X, KNEE_Z), BODY["leg_r"][0])
+        limb(f"shin.{side}", f"shin.{side}", (0.06, sy * HIP_X, KNEE_Z), (0, sy * HIP_X, ANKLE_Z), BODY["leg_r"][1])
         part(f"boot.{side}", f"foot.{side}", (0.12, sy * HIP_X, 0.08), (0.24, 0.13, 0.1))
 
     # sword in the right hand, blade pointing out of the fist along the hand bone
@@ -304,7 +336,7 @@ def read_pose(scene):
             v.z -= ANKLE_Z
         targets[name] = r3(v)
     hips = ctrl_obj("hips")
-    pose = {"root": {"hips": r3(hips.location - HIPS_REST),
+    pose = {"body": BODY_NAME, "root": {"hips": r3(hips.location - HIPS_REST),
                      "rotation": r3(math.degrees(a) for a in hips.rotation_euler)},
             "bones": {}, "targets": targets}
     for n in ("spine", "head"):
@@ -369,7 +401,7 @@ def project_keypoints(scene, size=512, update=True):
         return mw @ b.matrix @ b.bone.matrix_local.inverted() @ Vector(rest_point)
 
     head_c = posed("head", (0, 0, HEAD_C))
-    nose = posed("head", (0.41, 0, HEAD_C - 0.05))
+    nose = posed("head", (HEAD_R[0] - 0.03, 0, HEAD_C - 0.05))
     fwd = (nose - head_c).normalized()
     lat = (posed("head", (0, 1, HEAD_C)) - head_c).normalized()   # character's left
     up = (posed("head", (0, 0, HEAD_C + 1)) - head_c).normalized()
@@ -379,8 +411,8 @@ def project_keypoints(scene, size=512, update=True):
         5: mw @ pb["upper_arm.L"].head, 6: mw @ pb["forearm.L"].head, 7: mw @ pb["hand.L"].head,
         8: mw @ pb["thigh.R"].head, 9: mw @ pb["shin.R"].head, 10: mw @ pb["foot.R"].head,
         11: mw @ pb["thigh.L"].head, 12: mw @ pb["shin.L"].head, 13: mw @ pb["foot.L"].head,
-        14: head_c + fwd * 0.36 - lat * 0.16 + up * 0.06, 15: head_c + fwd * 0.36 + lat * 0.16 + up * 0.06,
-        16: head_c - lat * 0.4, 17: head_c + lat * 0.4,
+        14: head_c + fwd * HEAD_R[0] * 0.8 - lat * 0.16 + up * 0.06, 15: head_c + fwd * HEAD_R[0] * 0.8 + lat * 0.16 + up * 0.06,
+        16: head_c - lat * HEAD_R[1] * 0.9, 17: head_c + lat * HEAD_R[1] * 0.9,
     }
     kp = []
     for i in range(18):
@@ -494,13 +526,16 @@ if tools not in sys.path:
     sys.path.insert(0, tools)
 import importlib, blender_rig
 importlib.reload(blender_rig)
+blender_rig.set_body(bpy.context.scene.get("farroad_body", "male"))
 blender_rig.register_ui()
 '''
 
 
-def build_blend(path):
+def build_blend(path, body="male"):
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    set_body(body)
     scene = bpy.context.scene
+    scene["farroad_body"] = body
     build(scene)
     apply_pose(scene, {})
     txt = bpy.data.texts.new("farroad_rig_ui.py")
@@ -513,16 +548,19 @@ def build_blend(path):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    body = argv[argv.index("--body") + 1] if "--body" in argv else None
     if argv and argv[0] == "--build":
-        build_blend(argv[1])
+        build_blend(argv[1], body or "male")
         return
     pose_path, out_dir = argv[0], argv[1]
     size = int(argv[argv.index("--size") + 1]) if "--size" in argv else 512
+    with open(pose_path) as fh:
+        pose = json.load(fh)
+    set_body(body or pose.get("body", "male"))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     build(scene)
-    with open(pose_path) as fh:
-        apply_pose(scene, json.load(fh))
+    apply_pose(scene, pose)
     render_guides(scene, out_dir, size=size)
     print("rendered", out_dir)
 
