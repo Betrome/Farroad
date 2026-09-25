@@ -48,3 +48,10 @@ Score three stages: reference->rig, rig->Qwen male, rig->Qwen female (DWPose on 
 - Never foreshorten the sword: a blade pointing at the camera becomes a stub on a 60 px sprite. pose_fit asks for a full-length blade by default. Also annotate the whole blade (don't clip it at a crop edge).
 - Pixelize Qwen output with background tolerance ~40 (not 90: the light-grey blade touching the white background gets flood-filled away) and add a few steel greys to the master palette (light blades otherwise snap to skin beige); cap the result at 16 colours.
 - Qwen follows the guide's limb directions closely when limbs are clear of each other (the long point came out almost exact); it doesn't copy extreme crouches (thighs stay steeper than the rig's).
+- Pixelize's speck filter is 4-connected: a one-pixel diagonal blade falls apart into single pixels and is deleted, and keep_largest drops a blade the downsample cut off from the hand. pose_practice keeps 8-connected pieces within 3 px of the figure instead.
+- Draw the guide's sword with a grip, crossguard and tapering point (`openpose_hilt`, the default). With a plain grey line Qwen can't tell hilt from tip, so blades pointing backward came out reversed or doubled; with the hilt drawn they come out right first time.
+- Prompts describe the body and the sword only. Never use the technique's name: "crown guard" put a gold crown on both characters.
+- Don't use references drawn from behind: the 2D skeleton fits perfectly but reads as a different front-three-quarter pose.
+- Keep the hilt at chin height or lower, and the whole blade clear of the head. Hands up by the head keep producing a second sword behind the head. A blade lying over the arm/torso gets split into two swords (or read as the character being run through).
+- The chibi rig's hands can't reach above the top of its head (~3.7 vs 4.05 units), so "sword held above the head" poses can't be fitted; lock the hands/aim as high as they go and let Qwen stretch the arms (the masters' arms do reach).
+- Qwen draws the masters' own stance height: extreme crouches in the guide come out as ordinary wide stances.

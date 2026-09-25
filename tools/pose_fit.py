@@ -25,7 +25,8 @@ character's left; pitch + = up).
 The fit projects the rig through the real camera and minimises
   limb-angle error + joint * joint error + sword * sword-angle error
   + penalties (feet off the ground, feet not spread along Y, limbs out of
-  frame, the off hand hidden behind the torso, the blade across the face)
+  frame, the off hand hidden behind the torso, the blade across the face
+  or lying over the torso)
 with a pattern search (coordinate steps that grow on success and shrink
 on failure) from a back-projected first guess, then a few perturbed
 restarts. Writes OUT_DIR/pose.json (blender_rig.apply_pose format),
@@ -70,7 +71,7 @@ NAMES = [p[0] for p in PARAMS]
 IDX = {n: i for i, n in enumerate(NAMES)}
 DEFAULT_WEIGHTS = {"limb": 1.0, "joint": 10.0, "sword": 0.6, "feet": 300.0, "spread": 150.0,
                    "frame": 2.0, "hidden": 15.0, "reg": 0.03, "short": 60.0,
-                   "clear": 60.0}
+                   "clear": 60.0, "over": 25.0}
 # limb lengths as a share of the neck -> mid-hip length, to compare foreshortening
 # (how much of each limb's length shows in 2D) between a real person and the chibi rig
 TORSO = br.NECK_Z - br.HIP_Z
@@ -222,6 +223,21 @@ def blade_on_face(norm, sword, clear=0.45):
     return max(0.0, clear - seg_dist(head, hilt, tip))
 
 
+def blade_on_body(norm, sword, samples=12):
+    """Share of the blade (beyond the first 15%) that lies over the torso in 2D.
+    Qwen splits a blade laid over the arm/torso into two swords (or drops it)."""
+    quad = [norm.get(i) for i in (2, 5, 11, 8)]
+    if not sword or 4 not in norm or any(q is None for q in quad):
+        return 0.0
+    hx, hy = norm[4]
+    hits = 0
+    for k in range(samples):
+        t = 0.15 + 0.85 * k / (samples - 1)
+        if inside((hx + sword[0] * t, hy + sword[1] * t), quad) > 0:
+            hits += 1
+    return hits / samples
+
+
 def pole(a, b, ang, base):
     """A pole point 2 units from the a-b midpoint, `ang` degrees around the a->b axis from `base`."""
     axis = (b - a)
@@ -304,6 +320,7 @@ class Objective:
         t["frame"] = out / 10.0
         t["hidden"] = self.rig.hand_hidden(kp)
         t["clear"] = blade_on_face(b, sbn)
+        t["over"] = blade_on_body(b, sbn)
         # forward/back leans (rot.y, spine.z) are free; sideways leans, twists and turning
         # the body away from the battle camera cost a little
         reg = abs(v[IDX["rot.x"]]) + abs(v[IDX["spine.x"]]) + abs(v[IDX["spine.y"]]) \
