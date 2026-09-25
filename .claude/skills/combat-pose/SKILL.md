@@ -55,3 +55,25 @@ Score three stages: reference->rig, rig->Qwen male, rig->Qwen female (DWPose on 
 - Keep the hilt at chin height or lower, and the whole blade clear of the head. Hands up by the head keep producing a second sword behind the head. A blade lying over the arm/torso gets split into two swords (or read as the character being run through).
 - The chibi rig's hands can't reach above the top of its head (~3.7 vs 4.05 units), so "sword held above the head" poses can't be fitted; lock the hands/aim as high as they go and let Qwen stretch the arms (the masters' arms do reach).
 - Qwen draws the masters' own stance height: extreme crouches in the guide come out as ordinary wide stances.
+
+### From the 100-round run on the two-body rig (2026-09-26)
+- Fit and render each body separately and give each master its own body's guide (`pose_practice` does this). The new proportions fit references to 1-4 deg with no folded crouch.
+- Default guide: `openpose_body_hilt` (no face points, sword with grip, guard and point). With it, backward-pointing blades, trailing guards and wind-ups come out right the first time.
+- Upright blades held in front (casting, parry, defensive guard) cross the big chibi head in the 3/4 view and get cut or float. Tilt them forward instead: about 60 deg for the male, about 48 deg for the female (her head is bigger).
+- Raised hands must go forward, not up. Hands at or above the head top produce a second sword behind the head (leap strike), or a buried face (overhead block).
+- Frontal photo references with the feet together give stacked legs. Lock the feet apart (front +0.6 X, back -0.5 X, ±0.35 Y).
+- Qwen tones poses down. Author reaction poses (knockback) about twice as strong as they should look. It never copies deep crouches or thighs-level landings.
+- Prompt words that matter:
+  - "stretched straight out behind along the ground" gives the long lunge leg;
+  - "a single sword" and "the one blade ... nothing in front" stop extra blades;
+  - "with a bright grey blade" stops brown or black blades;
+  - "long" lengthens diagonal blades but makes level blades run through the body. Don't use it on thrusts.
+- A locked hand position is in world space. If the hips can move, the hand ends up somewhere else, so lock `hips.x/y` too.
+- A good result reproduces across Qwen seeds for 16 of the poses (3 seeds tested). Casting and the leap strike depend on the seed: run 2-3 seeds and keep the one that works.
+- DWPose (onnx) is reliable on photos (crop to one figure) and rig renders. On 64 px sprites it often puts the neck on the chin or swaps arms. Check its skeleton on annotate.png and hand-annotate when it's wrong. About 45 of 200 sprite scores used DWPose.
+- The sprite scores are a rough guide only. Judge the 4x sprites by eye.
+- Qwen sometimes adds a grey ground line under the feet; erase it when cleaning up.
+- Still failing:
+  - a thrust wind-up with the sword drawn back close to the body (the blade always overlaps the torso);
+  - an overhead block;
+  - a deep crouch.
