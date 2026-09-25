@@ -62,6 +62,7 @@ var size: float
 
 var shape: Node2D   # public -- BattlePresenter animates ONLY this during a hop/shake/run, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position. Either an AnimatedSprite2D (real art) or a Sprite2D (procedural fallback) -- see play_state()/prefers_run_approach() for the only two ways callers should ever care which.
 var _boss_ring: Sprite2D   # only built for a boss STILL ON the procedural fallback shape -- a bigger, darker copy of the same shape, drawn BEHIND it. Not yet extended to real animated boss art (flagged, revisit once that exists).
+var _art_body_size := Vector2.ZERO   # set only for native-pixel-scale art (see _build)
 var _played_dead_state: bool = false   # guards play_state("dead") to fire only once per death, not on every subsequent update_hp() refresh while already dead
 
 ## Procedural placeholder shapes, one per archetype (party units all share
@@ -258,6 +259,7 @@ func _build(unit_size: float) -> void:
 	var style: Dictionary = _style_for(unit)
 	var frames: SpriteFrames = _load_sprite_frames(_sprite_frames_path_for(unit))
 	_boss_ring = null
+	_art_body_size = Vector2.ZERO
 
 	if frames != null:
 		var anim := AnimatedSprite2D.new()
@@ -267,9 +269,23 @@ func _build(unit_size: float) -> void:
 		if start_anim != "":
 			anim.play(start_anim)
 			var frame_tex: Texture2D = frames.get_frame_texture(start_anim, 0)
-			var largest: float = maxf(frame_tex.get_size().x, frame_tex.get_size().y) if frame_tex != null else 0.0
-			var s: float = size / largest if largest > 0.0 else 1.0
-			anim.scale = Vector2(s, s)
+			if frames.has_meta("pixel_scale") and frame_tex != null:
+				# Pixel art (tools/make_spriteframes.py): draw at a whole-number
+				# scale -- squeezing a ~124px sprite into the ~46px placeholder
+				# square would resample it by a fraction and wreck the pixels.
+				# The canvas point `anchor` (middle of the feet) sits on the
+				# bottom edge of the placeholder square, so the HP/charge bars
+				# below it land just under the character's feet.
+				var ps: float = float(frames.get_meta("pixel_scale"))
+				var anchor: Vector2 = frames.get_meta("anchor")
+				anim.scale = Vector2(ps, ps)
+				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				anim.offset = frame_tex.get_size() / 2.0 - anchor + Vector2(0, half / ps)
+				_art_body_size = (frames.get_meta("body_size", frame_tex.get_size()) as Vector2) * ps
+			else:
+				var largest: float = maxf(frame_tex.get_size().x, frame_tex.get_size().y) if frame_tex != null else 0.0
+				var s: float = size / largest if largest > 0.0 else 1.0
+				anim.scale = Vector2(s, s)
 		shape = anim
 		add_child(shape)
 	else:
@@ -342,6 +358,11 @@ func _build(unit_size: float) -> void:
 	var collision := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(size, size)
+	if _art_body_size != Vector2.ZERO:
+		# Native-scale art stands on the square's bottom edge and rises
+		# above it -- cover the character's own body instead.
+		rect.size = _art_body_size
+		collision.position = Vector2(0, half - _art_body_size.y / 2.0)
 	collision.shape = rect
 	_click_area.add_child(collision)
 	_click_area.input_event.connect(_on_click_area_input_event)
