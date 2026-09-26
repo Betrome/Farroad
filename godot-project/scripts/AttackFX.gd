@@ -30,18 +30,23 @@ const ELEMENTS := {
 	"dark": {"color": Color(0.6, 0.3, 0.9), "charge": 0.6, "peak": 1.5, "radius": 2.0,
 		"subtract": Color(0.45, 0.6, 0.35)},
 }
-const TRAIL_LIFE := 0.22         # seconds a trail sample lives
-const BLADE_BASE := 0.18         # where the band starts along grip->tip (skips the fist)
+const TRAIL_LIFE := 0.38         # seconds the arc takes to retract and fade
+const ARC_REACH := 1.6           # short swings: arc radius as a share of the blade's reach
+const ARC_BAND := 0.7            # band width at the leading edge, as a share of the radius
 
 var element := ""
 var unit_size := 46.0
-var _samples: Array = []          # {base, tip, age}
 var _trail: Polygon2D
 var _light: PointLight2D
 var _light_t := -1.0              # seconds since impact (<0: not in the impact pattern)
 var _light_origin := Vector2.ZERO
 var _swing_dir := Vector2.RIGHT
-var _prev = null                  # [grip, tip] of the previous swing frame
+var _prev = null                  # [grip, tip] of the latest blade seen
+var _windup_blade = null          # [grip, tip] on the last wind-up frame
+var _smear_blade = null           # [grip, tip] on the smear frame
+# the arc: pivot, radius, start angle, signed sweep, how much of it shows,
+# and its age (<0 = not showing)
+var _arc := {"pivot": Vector2.ZERO, "r": 0.0, "a0": 0.0, "da": 0.0, "shown": 0.0, "age": -1.0}
 var _blade_emitter: CPUParticles2D
 static var _tex_cache: Dictionary = {}
 
@@ -64,36 +69,38 @@ func begin(el) -> void:
 	element = str(el) if el != null else ""
 	if not ELEMENTS.has(element):
 		element = ""
-	_samples.clear()
 	_prev = null
+	_windup_blade = null
+	_smear_blade = null
+	_arc["age"] = -1.0
 	_light_t = -1.0
 	_light.enabled = false
 	_stop_blade_emitter()
 
 ## Wind-up frames: a glow gathering on the blade (t 0..1).
 func windup(grip: Vector2, tip: Vector2, t: float) -> void:
+	_windup_blade = [grip, tip]
+	_prev = [grip, tip]
 	var p := profile()
 	if float(p["charge"]) <= 0.0:
 		return
 	_place_light(tip, float(p["charge"]) * t, float(p["radius"]) * 0.4)
 
-## Swing frames (smear and impact): sweep the trail from the previous frame's
-## blade to this one; on impact, the light flash and the particle burst.
+## Swing frames. The trail is ONE arc, worked out from where the blade was
+## on the wind-up to where it is now, pivoting on the current grip -- a clean
+## crescent instead of stitched per-frame samples (which wiggled as the grip
+## moved). The sweep direction is the one that passes through the smear
+## frame's blade, so it always follows the actual swing.
 func swing(grip: Vector2, tip: Vector2, is_impact: bool) -> void:
 	var p := profile()
-	if _prev == null:
-		_prev = [grip, tip]
-	var a0: float = (_prev[1] - _prev[0]).angle()
-	var a1: float = (tip - grip).angle()
-	var r0: float = (_prev[1] - _prev[0]).length()
-	var r1: float = (tip - grip).length()
-	var da: float = wrapf(a1 - a0, -PI, PI)
-	for i in range(1, 9):
-		var t := i / 8.0
-		var dir := Vector2.RIGHT.rotated(a0 + da * t)
-		var r := lerpf(r0, r1, t)
-		_samples.append({"base": grip + dir * r * BLADE_BASE, "tip": grip + dir * r, "age": (1.0 - t) * 0.07})
-	_swing_dir = (tip - _prev[1]).normalized() if (tip - _prev[1]).length() > 0.5 else _swing_dir
+	var start = _windup_blade if _windup_blade != null else (_prev if _prev != null else [grip, tip])
+	if not is_impact:
+		_smear_blade = [grip, tip]
+	_set_arc(grip, start[1], tip, _smear_blade[1] if (_smear_blade != null and is_impact) else null,
+		(tip - grip).length())
+	_arc["shown"] = 1.0 if is_impact else 0.55
+	_arc["age"] = 0.0 if is_impact else -2.0      # the smear frame holds; impact starts the fade
+	_swing_dir = (tip - (_prev[1] if _prev != null else tip)).normalized() if _prev != null and (tip - _prev[1]).length() > 0.5 else _swing_dir
 	_prev = [grip, tip]
 	if not is_impact:
 		_place_light(tip, maxf(float(p["charge"]), float(p["peak"]) * 0.45), float(p["radius"]) * 0.55)
@@ -104,11 +111,59 @@ func swing(grip: Vector2, tip: Vector2, is_impact: bool) -> void:
 	_light_t = 0.0
 	_impact_particles(tip)
 
+const ARC_SPAN := 160.0          # degrees of circle the arc covers between the two blade tips
+
+## The arc passes through the blade tip at the start of the swing and at
+## its end, on a circle that bulges out in front of the character (the
+## way a real swing arcs around the shoulder) -- big and even, however the
+## hands moved. Very short swings fall back to pivoting on the grip.
+func _set_arc(pivot: Vector2, from_tip: Vector2, to_tip: Vector2, via, reach: float) -> void:
+	var chord: Vector2 = to_tip - from_tip
+	var L: float = chord.length()
+	if L < unit_size * 0.25:
+		_set_arc_grip(pivot, from_tip, to_tip, via, reach)
+		return
+	var half := deg_to_rad(ARC_SPAN) / 2.0
+	var R: float = L / (2.0 * sin(half))
+	var mid: Vector2 = (from_tip + to_tip) / 2.0
+	var facing: float = signf(to_tip.x - pivot.x) if absf(to_tip.x - pivot.x) > 1.0 else 1.0
+	var n: Vector2 = chord.orthogonal().normalized()
+	if absf(n.x) < 0.35:
+		if n.y > 0.0:
+			n = -n                               # a mostly back-to-front swing arcs over the head
+	elif n.x * facing < 0.0:
+		n = -n                                   # otherwise bulge toward where the character faces
+	var centre: Vector2 = mid - n * R * cos(half)
+	var a0: float = (from_tip - centre).angle()
+	var a1: float = (to_tip - centre).angle()
+	var cw: float = fposmod(a1 - a0, TAU)
+	var bulge_a: float = fposmod((mid + n * R - centre).angle() - a0, TAU)
+	_arc["pivot"] = centre
+	_arc["r"] = R * 1.12                         # reach a little past the blade tips
+	_arc["a0"] = a0
+	_arc["da"] = cw if bulge_a < cw else cw - TAU
+
+func _set_arc_grip(pivot: Vector2, from_tip: Vector2, to_tip: Vector2, via, reach: float) -> void:
+	var a0: float = (from_tip - pivot).angle()
+	var a1: float = (to_tip - pivot).angle()
+	var cw: float = fposmod(a1 - a0, TAU)
+	var da: float = cw
+	if via != null:
+		var av: float = fposmod((via - pivot).angle() - a0, TAU)
+		if av > cw:
+			da = cw - TAU
+	elif cw > PI:
+		da = cw - TAU
+	_arc["pivot"] = pivot
+	_arc["r"] = reach * ARC_REACH
+	_arc["a0"] = a0
+	_arc["da"] = da
+
 func _process(delta: float) -> void:
-	# trail samples age out; rebuild the tapering band
-	for s in _samples:
-		s["age"] += delta
-	_samples = _samples.filter(func(s): return s["age"] < TRAIL_LIFE)
+	if float(_arc["age"]) >= 0.0:
+		_arc["age"] = float(_arc["age"]) + delta
+		if float(_arc["age"]) > TRAIL_LIFE:
+			_arc["age"] = -1.0
 	_rebuild_trail()
 	if _blade_emitter != null and _prev != null:
 		_blade_emitter.global_position = _prev[1]
@@ -116,28 +171,39 @@ func _process(delta: float) -> void:
 		_light_t += delta
 		_light_pattern(_light_t)
 
+## A crescent: leading edge (the blade now) full width, tapering to a point
+## at the tail; as it ages, the tail retracts toward the blade and it fades.
 func _rebuild_trail() -> void:
-	if _samples.size() < 2:
+	var age: float = float(_arc["age"])
+	if age == -1.0 or float(_arc["r"]) <= 0.0:
 		_trail.polygon = PackedVector2Array()
 		return
+	var life: float = 1.0 if age < 0.0 else 1.0 - age / TRAIL_LIFE      # smear frame: held
+	var tail: float = (1.0 - float(_arc["shown"])) + (1.0 - life) * 0.85   # 0..1 along the sweep
+	var pivot: Vector2 = _arc["pivot"]
+	var r: float = _arc["r"]
+	var a0: float = _arc["a0"]
+	var da: float = _arc["da"]
+	var c: Color = profile()["color"]
+	var edge := c.lerp(Color.WHITE, 0.5)
 	var outer := PackedVector2Array()
 	var inner := PackedVector2Array()
 	var cols_o := PackedColorArray()
 	var cols_i := PackedColorArray()
-	var c: Color = profile()["color"]
-	var edge := c.lerp(Color.WHITE, 0.45)
-	for s in _samples:
-		var life: float = 1.0 - s["age"] / TRAIL_LIFE      # 1 = just drawn
-		# full blade width where the sword is now, tapering to the tip behind it
-		var width := clampf(life, 0.0, 1.0)
-		outer.append(s["tip"])
-		inner.append(s["tip"].lerp(s["base"], width))
-		cols_o.append(Color(edge, 0.95 * life))
-		cols_i.append(Color(c, 0.35 * life))
+	var n := 28
+	for i in range(n + 1):
+		var t: float = lerpf(tail, 1.0, float(i) / n)          # tail -> leading edge
+		var k: float = (t - tail) / maxf(0.001, 1.0 - tail)     # 0 at the tail, 1 at the blade
+		var dir := Vector2.RIGHT.rotated(a0 + da * t)
+		var band: float = ARC_BAND * pow(k, 0.8)
+		outer.append(pivot + dir * r)
+		inner.append(pivot + dir * r * (1.0 - band))
+		var alpha: float = life * (0.25 + 0.75 * k)
+		cols_o.append(Color(edge, 1.0 * alpha))
+		cols_i.append(Color(c, 0.55 * alpha))   # a filled band, brightest on the outer edge
 	inner.reverse()
 	cols_i.reverse()
-	var poly := outer + inner
-	_trail.polygon = poly
+	_trail.polygon = outer + inner
 	_trail.vertex_colors = cols_o + cols_i
 
 # ---------------------------------------------------------------- light
