@@ -77,3 +77,15 @@ Score three stages: reference->rig, rig->Qwen male, rig->Qwen female (DWPose on 
   - a thrust wind-up with the sword drawn back close to the body (the blade always overlaps the torso);
   - an overhead block;
   - a deep crouch.
+
+### Targeted run on the weak poses (t001-t046, 3 Qwen seeds per body; `pose_practice.py run_multi`/`finish_multi`)
+- Judge a setting by 3 seeds per body, not one. Several "seed-dependent" poses were really guide problems.
+- Blade tilt without hand-tuning: set `"face_margin": 0.8, "weights": {"clear": 200, "sword": 0.1}, "prior": {"aim.pitch": [50, 1.5]}` and pin the hands at chest height. The fit then raises the blade only until it clears the face of that body's head (~60 deg male, ~58 deg female). Nearly vertical blades (~80 deg) come out as 1 px lines. Parry 15/18 and defensive guard 17/18 with this.
+- Never write "to block an attack": Qwen draws the enemy's sword too.
+- Casting: hold the sword LOW at the side, pointing forward-down, with the free arm out at shoulder height (18/18). A raised blade next to the outstretched arm gets merged into a two-handed grip.
+- Thrust wind-up: chamber the hilt at shoulder height, beside the head and clear of its outline, with the point forward and slightly down (16/18). Hilts at the hip always overlap the body. A grip that touches the head outline turns into a second blade behind the head.
+- Overhead block without rig changes: sword hand beside the near side of the head, off hand above and a little in front of the far side, blade level (aim yaw ~95, pitch ~2) (17/18). Hands in front of the forehead bury the face.
+- Deep crouch: lock hips ~1.0 low, spread the feet wide sideways, and describe the silhouette ("very low and compact, knees sharply bent and spread wide, hips close to the heels, thighs level with the ground"). This works for the male (12/15). The female is often drawn ENLARGED: a compact pose gets scaled up until the head reaches standing height. Check the sprite's top row (a correct-size crouch starts around y 20+). Shrinking the guide or the master didn't fix it.
+- Didn't help: the depth render as image 3 (Qwen copies the mannequin look and drops the sword); a second Qwen pass on a pixel sprite (it barely changes pixel art).
+- `--spec` merges scalar options too now (face_margin, proportions; before, they were silently dropped). `spec_by_body` sets per-body overrides.
+- Pixelize palette: a fourth, dark steel grey (96,99,105) keeps dark blade outlines grey instead of hair-brown.

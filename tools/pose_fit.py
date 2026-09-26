@@ -18,7 +18,8 @@ Optional keys steer the fit:
           "weights": {"joint": 25, "sword": 0.6, "limb": 1},
           "prior":  {param: [value, weight]},  # soft pull toward a value
           "proportions": "human"|"rig",  # body the target was measured on
-          "sword_full": true}   # ask for a full-length (unforeshortened) blade
+          "sword_full": true,   # ask for a full-length (unforeshortened) blade
+          "face_margin": 0.1}   # blade/head clearance beyond this body's head radius (units)
 Params (see PARAMS): hips.x/y/z (offset), rot.x/y/z, spine.x/y/z, head.x/y/z
 (rot.y + = hips pitch forward, spine.z - = lean forward, spine.x + = lean
 sideways toward the camera, spine.y = twist, rot.z = turn about the vertical),
@@ -304,7 +305,9 @@ def inside(p, quad):
 
 # ---------------------------------------------------------------- objective
 class Objective:
-    def __init__(self, rig, target, weights, priors, proportions="human", sword_full=True):
+    def __init__(self, rig, target, weights, priors, proportions="human", sword_full=True, face_margin=0.1):
+        # 2D clearance kept between the blade and the head centre, from this body's head size
+        self.face_clear = (max(br.HEAD_R[0], br.HEAD_R[2]) + face_margin) / TORSO
         self.rig = rig
         self.w = dict(DEFAULT_WEIGHTS, **weights)
         self.priors = priors
@@ -349,7 +352,7 @@ class Objective:
             out += max(0, 8 - x) + max(0, x - (SIZE - 8)) + max(0, 8 - y) + max(0, y - (SIZE - 8))
         t["frame"] = out / 10.0
         t["hidden"] = self.rig.hand_hidden(kp)
-        t["clear"] = blade_on_face(b, sbn)
+        t["clear"] = blade_on_face(b, sbn, self.face_clear)
         t["over"] = blade_on_body(b, sbn)
         # forward/back leans (rot.y, spine.z) are free; sideways leans, twists and turning
         # the body away from the battle camera cost a little
@@ -492,7 +495,8 @@ def fit(scene, target, init=None, max_evals=30000, seed=1, spec=None):
     lock = set(spec.get("lock", []))
     free = [i for i, n in enumerate(NAMES) if n not in lock]
     obj = Objective(rig, target, spec.get("weights", {}), {k: tuple(x) for k, x in spec.get("prior", {}).items()},
-                    spec.get("proportions", "human"), spec.get("sword_full", True))
+                    spec.get("proportions", "human"), spec.get("sword_full", True),
+                    spec.get("face_margin", 0.1))
     t0 = time.time()
     base = list(init) if init else first_guess(rig, target, obj)
     starts = [base]
@@ -571,9 +575,13 @@ def main():
     if extra:
         with open(extra) as fh:
             e = json.load(fh)
-        for k in ("set", "weights", "prior"):
-            spec.setdefault(k, {}).update(e.get(k, {}))
-        spec["lock"] = list(set(spec.get("lock", [])) | set(e.get("lock", [])))
+        for k, val in e.items():
+            if k == "lock":
+                spec["lock"] = list(set(spec.get("lock", [])) | set(val))
+            elif isinstance(val, dict):
+                spec.setdefault(k, {}).update(val)
+            else:            # scalars: proportions, sword_full, face_margin, multistart
+                spec[k] = val
     configure(opt("--body") or tj.get("body", "male"))
     init = None
     if opt("--init"):

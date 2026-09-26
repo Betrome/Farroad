@@ -56,8 +56,25 @@ TILE = 256
 
 
 # ---------------------------------------------------------------- run
+SERIES = {"r": "rounds", "t": "targeted"}   # round-number prefix -> folder
+
+
 def round_dir(cfg):
-    return os.path.join(cfg["work"], "rounds", "r%03d" % cfg["round"])
+    pre = cfg.get("series", "r")
+    return os.path.join(cfg["work"], SERIES[pre], "%s%03d" % (pre, cfg["round"]))
+
+
+def body_spec(cfg, body):
+    """cfg["spec"] with cfg["spec_by_body"][body] merged in (set/prior/weights update, lock unions)."""
+    spec = json.loads(json.dumps(cfg.get("spec", {})))
+    for k, v in cfg.get("spec_by_body", {}).get(body, {}).items():
+        if k == "lock":
+            spec["lock"] = sorted(set(spec.get("lock", [])) | set(v))
+        elif isinstance(v, dict):
+            spec.setdefault(k, {}).update(v)
+        else:
+            spec[k] = v
+    return spec
 
 
 BODIES = ("male", "female")   # each master gets a guide fitted on its own body profile
@@ -70,12 +87,13 @@ def fit_cmd(cfg, out, body):
     os.makedirs(bdir, exist_ok=True)
     spec_path = os.path.join(bdir, "spec.json")
     with open(spec_path, "w") as fh:
-        json.dump(cfg.get("spec", {}), fh, indent=1)
+        json.dump(body_spec(cfg, body), fh, indent=1)
     cmd = [BLENDER, "-b", "--factory-startup", "-P", os.path.join(ROOT, "tools", "pose_fit.py"), "--",
            target, bdir, "--body", body, "--spec", spec_path, "--evals", str(cfg.get("evals", 60000)),
            "--seed", str(cfg.get("fit_seed", 1)), "--fit-azimuth", str(cfg.get("fit_azimuth", -45))]
-    if cfg.get("init"):     # a previous round's folder (its <body>/pose.json) or a pose.json
-        init = os.path.join(cfg["work"], cfg["init"])
+    ib = cfg.get("init_by_body", {}).get(body)
+    if ib or cfg.get("init"):   # a previous round's folder (its <body>/pose.json) or a pose.json
+        init = os.path.join(cfg["work"], ib or cfg["init"])
         if not init.endswith(".json"):
             init = os.path.join(init, body, "pose.json")
         cmd += ["--init", init]
@@ -178,7 +196,7 @@ def qwen(cfg, out, guides):
 
 # sword greys the masters lack: neutral (not blue-tinted) so the shirt's highlights
 # don't snap to them, which also lets sprite_sword() find the blade by colour
-STEEL = [(140, 142, 146), (186, 188, 192), (228, 230, 232)]
+STEEL = [(96, 99, 105), (140, 142, 146), (186, 188, 192), (228, 230, 232)]   # + a dark grey: blade outlines otherwise snap to hair brown
 
 
 def palette_for(who, steel=True):
@@ -255,10 +273,10 @@ def cap_colours(img, n):
                     px[x, y] = common
 
 
-def pixel(out, who, src, bg_tol=40, steel=True):
+def pixel(out, who, src, bg_tol=40, steel=True, master=None, block=16):
     # bg_tol 40, not pixelize's 90: Qwen's background is pure white, and a looser
     # flood fill eats the light-grey sword blade where it touches the background
-    sprite, k, n, st = pixelize(Image.open(src), block=16, palette=palette_for(who, steel),
+    sprite, k, n, st = pixelize(Image.open(src), block=block, palette=palette_for(master or who, steel),
                                 keep_largest=False, bg_tol=bg_tol, min_speck=1)
     # keep_largest would delete a blade that the 16 px downsample cut off from the hand;
     # keep every piece that lies within a few pixels of the main figure instead
@@ -512,6 +530,144 @@ def cmd_run(path):
     print("done:", out)
 
 
+# ---------------------------------------------------------------- multi-seed (targeted run)
+PROMPT3 = (" Image 3 is a grey mannequin in the same pose, showing the body's shape and depth; follow its "
+           "silhouette but not its look.")
+
+
+def qwen_one(images, prompt, seed, dst):
+    """One Qwen edit of already-uploaded images, saved to dst."""
+    tmp = dst + "_tmp"
+    for attempt in range(5):
+        try:
+            saved, secs = cg.run(qe.workflow(images, prompt, seed, "farroad_pp"), tmp)
+            break
+        except Exception as e:  # noqa: BLE001
+            print("qwen failed (%s); waiting" % e)
+            time.sleep(60)
+            wait_for_server()
+    else:
+        raise SystemExit("qwen kept failing")
+    shutil.move(saved[0], dst)
+    shutil.rmtree(tmp, ignore_errors=True)
+    return dst
+
+
+def cmd_run_multi(path):
+    """A targeted round: fit both bodies, then Qwen with several seeds per body
+    (cfg "seeds", default [1, 2, 3]). Optional "image3": "depth"|"shaded" adds that
+    render as image 3; optional "second_prompt" re-edits each pixelized result once more
+    (image 1 = the sprite, image 2 = the guide). Writes WHO_s<seed>_px.png etc."""
+    cfg = json.load(open(path))
+    cfg.setdefault("work", os.path.dirname(os.path.dirname(os.path.abspath(path))))
+    cfg.setdefault("series", "t")
+    out = round_dir(cfg)
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "round.json"), "w") as fh:
+        json.dump(cfg, fh, indent=1)
+    if not (cfg.get("reuse_fit") and all(os.path.exists(os.path.join(out, b, "pose.json")) for b in BODIES)):
+        fit(cfg, out)
+    kind = cfg.get("guide", "openpose_body_hilt")
+    prompt = cfg.get("prompt") or PROMPT.format(intent=cfg["intent"])
+    if cfg.get("image3"):
+        prompt += PROMPT3
+    wait_for_server()
+    for who, master in MASTERS.items():
+        guide = guide_image(os.path.join(out, who), kind)
+        gs = cfg.get("guide_scale_by_body", {}).get(who, cfg.get("guide_scale"))
+        if gs:   # shrink the skeleton about its bottom centre (Qwen enlarges compact poses)
+            g = Image.open(guide).convert("RGB")
+            small = g.resize((int(g.width * gs), int(g.height * gs)), Image.LANCZOS)
+            canvas = Image.new("RGB", g.size, (0, 0, 0))
+            canvas.paste(small, ((g.width - small.width) // 2, g.height - small.height - int(g.height * 0.02)))
+            guide = os.path.join(out, who, "guide_scaled.png")
+            canvas.save(guide)
+        ms = cfg.get("master_scale_by_body", {}).get(who)
+        if ms:   # show the master smaller (x ms instead of x16) on the 1024 canvas, feet at the bottom
+            im = Image.open(master).convert("RGBA")
+            im = im.resize((im.width * ms, im.height * ms), Image.NEAREST)
+            canvas = Image.new("RGBA", (1024, 1024), (255, 255, 255, 255))
+            canvas.alpha_composite(im, ((1024 - im.width) // 2, 1024 - im.height - (1024 - 64 * 16) // 2))
+            mpath = os.path.join(out, who, "master_scaled.png")
+            canvas.convert("RGB").save(mpath)
+            mname = cg.upload(mpath, "pp_%s.png" % who)
+        else:
+            mname = cg.upload(qe.prep(master, 1024), "pp_%s.png" % who)
+        names = [mname,
+                 cg.upload(qe.prep(guide, 1024, bg=(0, 0, 0)), "pp_pose_%s.png" % who)]
+        if cfg.get("image3"):
+            names.append(cg.upload(qe.prep(os.path.join(out, who, cfg["image3"] + ".png"), 1024, bg=(0, 0, 0)),
+                                   "pp_img3_%s.png" % who))
+        for seed in cfg.get("seeds", [1, 2, 3]):
+            tag = "%s_s%d" % (who, seed)
+            q = qwen_one(names, prompt, seed, os.path.join(out, tag + "_qwen.png"))
+            pixel(out, tag, q, cfg.get("bg_tol", 40), cfg.get("steel", True), master=who, block=ms or 16)
+            if cfg.get("second_prompt"):
+                shutil.copy(os.path.join(out, tag + "_px.png"), os.path.join(out, tag + "_px1.png"))
+                n2 = [cg.upload(qe.prep(os.path.join(out, tag + "_px.png"), 1024), "pp_2nd_%s.png" % who), names[1]]
+                q2 = qwen_one(n2, cfg["second_prompt"], seed, os.path.join(out, tag + "_qwen2.png"))
+                pixel(out, tag, q2, cfg.get("bg_tol", 40), cfg.get("steel", True), master=who)
+            print(tag, "done")
+    with open(os.path.join(out, "run.json"), "w") as fh:
+        json.dump({"prompt": prompt, "guide": kind, "seeds": cfg.get("seeds", [1, 2, 3]),
+                   "second_prompt": cfg.get("second_prompt"), "image3": cfg.get("image3")}, fh, indent=1)
+    multi_sheet(out, None)
+    print("done:", out)
+
+
+def multi_sheet(out, rec, T=176):
+    """reference | male rig | female rig | male seeds | female seeds, plus the notes."""
+    cfg = json.load(open(os.path.join(out, "round.json")))
+    seeds = cfg.get("seeds", [1, 2, 3])
+    tiles = [("reference", skeleton_tile(ps.load(os.path.join(out, "male", "target_right.json")), T))]
+    for b in BODIES:
+        tiles.append(("%s rig" % b, rig_overlay(out, b, T)))
+    for who in MASTERS:
+        for sd in seeds:
+            sp = Image.open(os.path.join(out, "%s_s%d_px.png" % (who, sd))).convert("RGBA").resize((T, T), Image.NEAREST)
+            bg = Image.new("RGBA", (T, T), (236, 236, 228, 255))
+            bg.alpha_composite(sp)
+            tiles.append(("%s seed %d" % (who, sd), bg.convert("RGB")))
+    W = len(tiles) * (T + 4) + 4
+    sheet = Image.new("RGB", (W, T + 40 + 110), (30, 30, 36))
+    d = ImageDraw.Draw(sheet)
+    f = font(13)
+    title = "%s%03d - %s (attempt %d)" % (cfg.get("series", "t"), cfg["round"], cfg["pose"], cfg.get("attempt", 1))
+    if rec:
+        pa = rec.get("pass", {})
+        title += "    pass by eye: male %s/%d, female %s/%d" % (pa.get("male", "?"), len(seeds), pa.get("female", "?"), len(seeds))
+    d.text((6, 4), title, fill="white", font=font(17))
+    for i, (label, im) in enumerate(tiles):
+        x = 4 + i * (T + 4)
+        sheet.paste(im, (x, 28))
+        d.text((x + 3, 30), label, fill=(255, 255, 120) if i < 3 else (40, 40, 120), font=f)
+    y = T + 34
+    for chunk in wrap((rec or {}).get("notes", ""), 230)[:6]:
+        d.text((6, y), chunk, fill=(210, 210, 210), font=f)
+        y += 17
+    sheet.save(os.path.join(out, "sheet.png"))
+
+
+def cmd_finish_multi(out):
+    """notes.json must hold notes, change and pass {"male": n, "female": n} (judged by eye)."""
+    cfg = json.load(open(os.path.join(out, "round.json")))
+    run = json.load(open(os.path.join(out, "run.json")))
+    scores = {}
+    for b in BODIES:
+        fitr = json.load(open(os.path.join(out, b, "fit.json")))
+        scores["rig_" + b] = {k: fitr["score"][k] for k in ("joint", "limb", "sword")}
+    scores["rig"] = {k: round(sum((scores["rig_" + b][k] or 0) for b in BODIES) / 2, 3) for k in ("joint", "limb", "sword")}
+    rec = {"round": cfg["round"], "series": cfg.get("series", "t"), "pose": cfg["pose"], "attempt": cfg.get("attempt", 1),
+           "intent": cfg.get("intent"), "spec": cfg.get("spec", {}), "spec_by_body": cfg.get("spec_by_body", {}),
+           "run": run, "scores": scores}
+    rec.update(json.load(open(os.path.join(out, "notes.json"))))
+    multi_sheet(out, rec)
+    with open(os.path.join(out, "record.json"), "w") as fh:
+        json.dump(rec, fh, indent=1)
+    print("%s%03d %s pass M %s F %s" % (rec["series"], rec["round"], rec["pose"], rec["pass"]["male"], rec["pass"]["female"]))
+    cmd_gallery(cfg["work"])
+
+
 # ---------------------------------------------------------------- finish
 def load_kp(out, who):
     """WHO_kp.txt (hand annotation, overrides a bad detection) else WHO_kp.json (DWPose)."""
@@ -690,7 +846,23 @@ def cmd_gallery(work):
              "keypoints: DWPose was tried from round 1 but on the 64 px chibi sprites it puts the neck/shoulders on "
              "the chin, so from round 3 the sprites are hand-annotated (the sheet says which). The sprite's sword "
              "angle comes from its steel pixels.</p>")
-    page = PAGE % (notes + trend_table(recs), "\n".join(rows) + archive)
+    tg = records(work, "targeted")
+    targeted = ""
+    if tg:
+        trows = []
+        for r in sorted(tg, key=lambda r: -r["round"]):
+            pa = r.get("pass", {})
+            n = len(r["run"].get("seeds", [1, 2, 3]))
+            trows.append('<section><h2>t%03d &middot; %s <small>attempt %d</small></h2>'
+                         '<p class="scores">pass (by eye): male <b>%s/%d</b> &middot; female <b>%s/%d</b>'
+                         ' &middot; ref&rarr;rig limb %.1f&deg;</p><img src="targeted/t%03d/sheet.png" loading="lazy">'
+                         '<p><b>Notes:</b> %s</p><p><b>Next:</b> %s</p></section>' % (
+                             r["round"], html.escape(r["pose"]), r.get("attempt", 1), pa.get("male", "?"), n,
+                             pa.get("female", "?"), n, r["scores"]["rig"]["limb"], r["round"],
+                             html.escape(r.get("notes", "")), html.escape(r.get("change", ""))))
+        targeted = ("<section><h2>Targeted run (weak poses, 3 Qwen seeds per body)</h2><p>Success = 3 of 3 seeds "
+                    "pass by eye for both bodies.</p></section>" + "\n".join(trows))
+    page = PAGE % (notes + trend_table(recs), targeted + "\n".join(rows) + archive)
     with open(os.path.join(work, "gallery.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
 
@@ -775,7 +947,7 @@ def cmd_batch(work, first, last, dst):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("run", "finish", "gallery", "batch"))
+    ap.add_argument("cmd", choices=("run", "finish", "gallery", "batch", "run_multi", "finish_multi"))
     ap.add_argument("args", nargs="*")
     ap.add_argument("--notes")
     a = ap.parse_args()
@@ -783,6 +955,10 @@ def main():
         cmd_run(a.args[0])
     elif a.cmd == "finish":
         cmd_finish(a.args[0], a.notes)
+    elif a.cmd == "run_multi":
+        cmd_run_multi(a.args[0])
+    elif a.cmd == "finish_multi":
+        cmd_finish_multi(a.args[0])
     elif a.cmd == "gallery":
         cmd_gallery(a.args[0])
     else:
