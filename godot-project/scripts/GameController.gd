@@ -279,6 +279,7 @@ func _try_resume_save() -> bool:
 		return false
 	g = FarroadSave.deserialize(parsed)
 	FarroadProgression.apply_custom_mc(g)
+	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
 	var resume_wave: int = g["wave"] if g.get("wave") else 1
 	# skip_drops=true: this wave was never cleared when saved, so
 	# grant_drops(w) must not treat resuming it as a fresh visit --
@@ -296,6 +297,7 @@ func _try_resume_save() -> bool:
 func _on_mc_confirmed(mc: Dictionary) -> void:
 	g = FarroadProgression.new_game(7, mc)
 	FarroadProgression.apply_custom_mc(g)
+	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
 	FarroadProgression.start_wave(g, 1)
 	_save_game()   # mirrors doSave() immediately after boot(7,mc)
 	_start_game()
@@ -1421,6 +1423,42 @@ func _show_change_name_popup() -> void:
 		o["backdrop"].queue_free())
 	vbox.add_child(save_btn)
 
+	await _finish_detail_overlay(o)
+
+## Ian: "let people change it in the menu" -- male/female main character.
+func _show_change_body_popup() -> void:
+	if g.get("mc") == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Appearance"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	vbox.add_child(row)
+	var current: String = str(g["mc"].get("body", "male"))
+	for body in ["male", "female"]:
+		var btn := Button.new()
+		btn.text = body.capitalize() + (" (current)" if body == current else "")
+		btn.icon = UnitView.body_preview(body)
+		btn.expand_icon = true
+		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		btn.custom_minimum_size = Vector2(_vp.x * 0.3, _vp.x * 0.36)
+		btn.disabled = body == current
+		btn.pressed.connect(func():
+			g["mc"]["body"] = body
+			UnitView.mc_body = body
+			if current_presenter != null:
+				current_presenter.call("sync_mc_body")
+			if side_presenter != null:
+				side_presenter.call("sync_mc_body")
+			_save_game()
+			o["backdrop"].queue_free())
+		row.add_child(btn)
 	await _finish_detail_overlay(o)
 
 ## Same sanitize rule McCreatePanel._sanitize_name uses -- small per-file

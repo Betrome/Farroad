@@ -15,6 +15,8 @@ var _on_confirm: Callable
 
 var mc_points: Dictionary = {}        # {atk,mag,def,res,spd,hp: int 0..15}
 var mc_charge_choice: String = ""
+var mc_body: String = "male"
+var body_buttons: Dictionary = {}
 
 var root: Control
 var name_edit: LineEdit
@@ -69,6 +71,7 @@ func _build_ui(parent: Node) -> void:
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root_vbox.add_child(subtitle)
 
+	_build_body_block(root_vbox)
 	_build_name_block(root_vbox)
 	_build_stats_block(root_vbox)
 	_build_charges_block(root_vbox)
@@ -81,6 +84,39 @@ func _build_ui(parent: Node) -> void:
 
 	_refresh_stats()
 	_refresh_charges()
+
+## Ian: a male or female main character (changeable later in the Menu).
+func _build_body_block(parent: VBoxContainer) -> void:
+	var label := Label.new()
+	label.text = "Character"
+	label.add_theme_font_size_override("font_size", 16)
+	parent.add_child(label)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	parent.add_child(row)
+	for body in ["male", "female"]:
+		var btn := Button.new()
+		btn.text = body.capitalize()
+		btn.icon = UnitView.body_preview(body)
+		btn.expand_icon = true
+		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		btn.custom_minimum_size = Vector2(_vp.x * 0.3, _vp.x * 0.36)
+		btn.pressed.connect(func():
+			mc_body = body
+			_refresh_body())
+		body_buttons[body] = btn
+		row.add_child(btn)
+	_refresh_body()
+
+func _refresh_body() -> void:
+	for body in body_buttons:
+		(body_buttons[body] as Button).add_theme_stylebox_override("normal", _charge_style(body == mc_body))
+		(body_buttons[body] as Button).add_theme_stylebox_override("hover", _charge_style(body == mc_body))
+		var col: Color = Color.WHITE if body == mc_body else Palette.TEXT_INK
+		for key in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			(body_buttons[body] as Button).add_theme_color_override(key, col)
 
 func _build_name_block(parent: VBoxContainer) -> void:
 	var label := Label.new()
@@ -253,6 +289,6 @@ func _on_confirm_pressed() -> void:
 		return
 	var built: Dictionary = FarroadProgression.mc_build_stats(mc_points)
 	var mc := {"name": name, "stats": built["stats"], "hp": built["hp"], "growth": built["growth"],
-		"chargeAction": mc_charge_choice, "acquiredCharges": [mc_charge_choice]}
+		"chargeAction": mc_charge_choice, "acquiredCharges": [mc_charge_choice], "body": mc_body}
 	root.queue_free()
 	_on_confirm.call(mc)

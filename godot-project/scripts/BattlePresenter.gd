@@ -370,6 +370,16 @@ func sync_mc_name(old_name: String, new_name: String) -> void:
 		unit_views_by_name.erase(old_name)
 	unit_views_by_name[new_name] = view
 
+## The MC's body changed in the menu: rebuild just that unit's view with
+## the other sprite set, in place (same size, same spot, live HP/charge).
+func sync_mc_body() -> void:
+	var view: UnitView = unit_views_by_id.get("kesh")
+	if view == null:
+		return
+	view.resize(view.size)
+	view.update_hp()
+	view.update_charge()
+
 func _layout_units(units: Array) -> void:
 	var party_front := []
 	var party_back := []

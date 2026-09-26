@@ -81,6 +81,14 @@ func _build_ui(parent: Node) -> void:
 	change_name_btn.pressed.connect(_on_change_name_pressed)
 	vbox.add_child(change_name_btn)
 
+	# Ian: male/female main character, changeable any time.
+	var body_btn := Button.new()
+	body_btn.text = "Change Appearance"
+	body_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_change_body_popup"):
+			_parent.call("_show_change_body_popup"))
+	vbox.add_child(body_btn)
+
 	# Group H (20-item batch): Catalogue folded in here so it no longer
 	# needs its own bottom-row icon.
 	var catalogue_btn := Button.new()

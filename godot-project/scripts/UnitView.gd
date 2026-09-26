@@ -202,8 +202,20 @@ static func _style_for(u: Dictionary) -> Dictionary:
 ## enemy of that archetype, same granularity the procedural shapes/tints
 ## already use). An enemy with no `arch` at all (shouldn't normally
 ## happen) has no path to check and always falls back.
+## The main character's body ("male"/"female"), set by GameController from
+## g["mc"]["body"]: the MC is always roster id "kesh", and a female MC uses
+## the mc_female sprite set instead of kesh's.
+static var mc_body: String = "male"
+const MC_SPRITES := {"male": "kesh", "female": "mc_female"}
+
+static func body_preview(body: String) -> Texture2D:
+	var path := "res://sprites/units/%s/idle_0.png" % MC_SPRITES.get(body, "kesh")
+	return load(path) if ResourceLoader.exists(path) else null
+
 static func _sprite_frames_path_for(u: Dictionary) -> String:
 	if u["isParty"]:
+		if u["id"] == "kesh":
+			return "res://sprites/units/%s.tres" % MC_SPRITES.get(mc_body, "kesh")
 		return "res://sprites/units/%s.tres" % u["id"]
 	var arch = u.get("arch")
 	if arch == null:
@@ -255,6 +267,11 @@ func setup(u: Dictionary, unit_size: float) -> void:
 func resize(unit_size: float) -> void:
 	for c in get_children():
 		c.queue_free()
+	_trail = null
+	_trail_light = null
+	_trail_prev = null
+	_weapon_meta = {}
+	_impact_meta = {}
 	_build(unit_size)
 
 func _build(unit_size: float) -> void:
