@@ -27,7 +27,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import attack_anim as aa   # noqa: E402  (anchor/blade helpers)
-import idle_bob             # noqa: E402
+import living_frames as lf  # noqa: E402
 import sword_fix as sf      # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,6 +124,26 @@ def corridor_pixels(img, hilt, tip, width=3.2):
     return out
 
 
+def sword_spec(img, layer, known=None, old_line=None):
+    """(the key with its own blade erased, grip, angle) -- the standard sword
+    is drawn per frame later (tools/living_frames.py)."""
+    if layer is None:
+        return img, None, None
+    det = sf.detect(img)
+    if known:
+        grip, ang = known
+        px = img.load()
+        pts = {p for p in det[2] if aa.is_blade(px[p])} if det else set()
+        if old_line:
+            pts |= set(corridor_pixels(img, *old_line))
+    elif det:
+        grip, ang, pts = det
+    else:
+        return img, None, None
+    erased = sf.keep_body(sf.erase_pixels(img, pts)) if pts else img
+    return erased, grip, ang
+
+
 def standard_sword(img, layer, known=None, old_line=None):
     """(new image, [grip, tip] or None)."""
     if layer is None:
@@ -159,29 +179,23 @@ def main():
     if os.path.isdir(a.keys):
         paths.update({k: v for k, v in load_manifest(a.keys, a.body).items() if v})
 
-    # ---- idle: the breathing bob of the master, with the standard sword
+    # ---- idle: the master, breathing in layers (tools/living_frames.py)
     master = Image.open(os.path.join(ROOT, "art_src", "mc", "v2", f"{a.body}_master_64.png")).convert("RGBA")
     ms = dict(MASTER_SWORD[a.body])
     erase = [(x + PAD, y + PAD) for x, y in master_erase(master, ms["erase"])]
     ms["grip"] = (ms["grip"][0] + PAD, ms["grip"][1] + PAD)
     master = _pad(master)
     m_orig = master.copy()
-    master = sf.fix(master, ms["grip"], ms["angle"], "front", erase)
+    master = sf.keep_body(sf.erase_pixels(master, erase))          # sword-free
     master_parts = parts_of(master, load_mask(f"master_{a.body}", (64, 64)), m_orig)
     refs = part_refs(master, master_parts)
     ref = aa.anchor(master)
     torso_y_ref = _torso_y(master)
-    ang = math.radians(ms["angle"])
-    L = 2 + sf.BLADE
-    idle_weapon = [ms["grip"][0], ms["grip"][1] + 1, ms["grip"][0] + math.cos(ang) * L, ms["grip"][1] + 1 + math.sin(ang) * L]
-    # bob_frames adds one row on top, so its feet sit 1 px lower: shift up by 1
-    idle_frames = [f.convert("RGBA") for f in idle_bob.bob_frames(master, frames=6)]
-    # the same bob on the part map (part id in red, the sprite's alpha)
-    pm = Image.merge("RGBA", (master_parts.point(lambda v: v * 30), master_parts, master_parts, master.split()[3]))
-    idle_parts = [f.split()[0].point(lambda v: round(v / 30)) for f in idle_bob.bob_frames(pm, frames=6)]
+    placed = {"idle": [(f, (0, 0), w, pt) for f, pt, w in
+                       lf.idle_frames(master, master_parts, ms["grip"], ms["angle"])]}
+    master = placed["idle"][0][0]
 
-    # ---- every other animation, aligned to the idle
-    placed = {"idle": [(f, (0, -1), idle_weapon, pt) for f, pt in zip(idle_frames, idle_parts)]}
+    # ---- every other animation, aligned to the idle; held frames stay alive
     roles = {}
     for anim, spec in ANIMS.items():
         out = []
@@ -199,13 +213,13 @@ def main():
                 known = ((hx - 2 * (tx - hx) / L, hy - 2 * (ty - hy) / L),
                          math.degrees(math.atan2(ty - hy, tx - hx)))
             orig = img.copy()
-            img, weapon = standard_sword(img, layer, known, ((hx, hy), (tx, ty)) if known else None)
-            parts = parts_of(img, load_mask(f"{key}_{a.body}", (64, 64)), orig)
-            ax, ay = aa.anchor(img)
+            erased, grip, ang = sword_spec(img, layer, known, ((hx, hy), (tx, ty)) if known else None)
+            parts = parts_of(erased, load_mask(f"{key}_{a.body}", (64, 64)), orig)
+            ax, ay = aa.anchor(erased)
             dx = ref[0] - ax
-            dy = (torso_y_ref - _torso_y(img)) if align == "air" else (ref[1] - ay)
-            for h in range(hold):
-                out.append((img, (dx, dy), weapon, parts))
+            dy = (torso_y_ref - _torso_y(erased)) if align == "air" else (ref[1] - ay)
+            for h, (f, p, weapon) in enumerate(lf.hold_frames(erased, parts, grip, ang, layer, hold)):
+                out.append((f, (dx, dy), weapon, p))
                 if role and h == 0:
                     roles.setdefault(anim, {})[role] = len(out) - 1
         placed[anim] = out
@@ -226,7 +240,7 @@ def main():
     for f in os.listdir(folder):
         if f.endswith(".png") or f.endswith(".png.import"):
             os.remove(os.path.join(folder, f))
-    weapon_meta, fps = {}, {"idle": 7}
+    weapon_meta, fps = {}, {"idle": 8}
     for anim, frames in placed.items():
         weapon_meta[anim] = []
         for n, (img, (dx, dy), weapon, parts) in enumerate(frames):
@@ -247,7 +261,7 @@ def main():
             weapon_meta[anim].append(None if weapon is None else
                                      [round(weapon[0] + dx + ox, 1), round(weapon[1] + dy + oy, 1),
                                       round(weapon[2] + dx + ox, 1), round(weapon[3] + dy + oy, 1)])
-        fps[anim] = ANIMS[anim]["fps"] if anim in ANIMS else 7
+        fps[anim] = ANIMS[anim]["fps"] if anim in ANIMS else 8
     anchor = (ref[0] + ox, ref[1] + oy)
     mbb = master.getbbox()
     body = (mbb[2] - mbb[0], mbb[3] - mbb[1])
