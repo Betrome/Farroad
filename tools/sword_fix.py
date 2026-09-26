@@ -33,9 +33,10 @@ def sword_layer(size, grip, angle_deg):
     """The sword alone on a transparent layer, plus the grip pixels."""
     a = math.radians(angle_deg)
     ux, uy = math.cos(a), math.sin(a)
-    nx, ny = -uy, ux
-    if ny > 0 or (ny == 0 and nx < 0):     # highlight on the upper side
-        nx, ny = -nx, -ny
+    # the highlight edge sits one pixel straight up (flat-ish blades) or
+    # left (steep ones): an axis step keeps the blade one solid 2 px strip,
+    # where a diagonal offset left a gap and read as two blades
+    nx, ny = (0, -1) if abs(ux) >= abs(uy) else (-1, 0)
     layer = {}
     grip_px = set()
     for k in range(-GRIP, 1):

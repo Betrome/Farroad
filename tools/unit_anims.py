@@ -35,8 +35,8 @@ GODOT = os.path.join(ROOT, "godot-project")
 
 # (key, hold, sword layer, align) -- align "feet" or "air"
 ANIMS = {
-    "attack": {"fps": 14, "impact": "impact", "steps": [
-        ("chop_anticipation", 1, "front", "feet"), ("chop_windup", 4, "behind", "feet"),
+    "attack": {"fps": 14, "steps": [
+        ("chop_anticipation", 2, "front", "feet"), ("chop_windup", 4, "behind", "feet"),
         ("chop_mid", 1, "front", "feet", "smear"), ("chop_impact", 4, "front", "feet", "impact"),
         ("chop_follow", 2, "front", "feet"), ("chop_recover", 2, "front", "feet")]},
     "jump": {"fps": 12, "steps": [("jump_crouch", 2, "front", "feet"), ("air_tuck", 1, "front", "air")]},
@@ -69,18 +69,26 @@ def master_erase(img, rects):
     return pts
 
 
+SWORDS = {}   # key -> (hilt, tip) from the manifest, when it gives one
+
+
 def load_manifest(keys_dir, body):
-    """{key: path} from the anim_keys manifest (or files named <key>_<body>.png)."""
+    """{key: path} from anim_keys/manifest.json (animations -> [{key, frames:
+    {body: {file, sword: {hilt, tip}}}}]); also any <key>_<body>.png file."""
     paths = {}
     man = os.path.join(keys_dir, "manifest.json")
     if os.path.exists(man):
         with open(man) as fh:
             data = json.load(fh)
-        for anim, keys in data.get("animations", data).items():
+        for anim, keys in data.get("animations", {}).items():
             for k in keys:
-                name = k["key"] if isinstance(k, dict) else k
-                p = k.get(body) if isinstance(k, dict) else None
-                paths[name] = os.path.join(keys_dir, p) if p else None
+                fr = k.get("frames", {}).get(body)
+                if not fr:
+                    continue
+                paths[k["key"]] = os.path.join(keys_dir, anim, fr["file"])
+                sw = fr.get("sword")
+                if sw and sw.get("hilt") and sw.get("tip"):
+                    SWORDS[k["key"]] = (tuple(sw["hilt"]), tuple(sw["tip"]))
     for root, _, files in os.walk(keys_dir):
         for f in files:
             if f.endswith(f"_{body}.png"):
@@ -90,14 +98,44 @@ def load_manifest(keys_dir, body):
     return paths
 
 
-def standard_sword(img, layer, known=None):
+def corridor_pixels(img, hilt, tip, width=3.2):
+    """Steel-looking pixels (grey, or the dark outline) along the old blade
+    line: what Qwen drew there, whatever shade it came out."""
+    import colorsys
+    px = img.load()
+    hx, hy = hilt
+    tx, ty = tip
+    L = math.hypot(tx - hx, ty - hy) or 1
+    ux, uy = (tx - hx) / L, (ty - hy) / L
+    out = []
+    for y in range(img.height):
+        for x in range(img.width):
+            c = px[x, y]
+            if not c[3]:
+                continue
+            t = (x - hx) * ux + (y - hy) * uy
+            if t < 1 or t > L + 2:
+                continue
+            if abs((x - hx) * uy - (y - hy) * ux) > width:
+                continue
+            _, l, sat = colorsys.rgb_to_hls(c[0] / 255, c[1] / 255, c[2] / 255)
+            if sat < 0.35 or l < 0.12 or (c[2] > c[0] and l > 0.45):
+                out.append((x, y))
+    return out
+
+
+def standard_sword(img, layer, known=None, old_line=None):
     """(new image, [grip, tip] or None)."""
     if layer is None:
         return img, None
     det = sf.detect(img)
     if known:
         grip, ang = known
-        pts = det[2] if det else None
+        px = img.load()
+        # light blade pixels only: the dark-outline pass in sf.detect can eat a forearm
+        pts = {p for p in det[2] if aa.is_blade(px[p])} if det else set()
+        if old_line:
+            pts |= set(corridor_pixels(img, *old_line))
     elif det:
         grip, ang, pts = det
     else:
@@ -147,7 +185,14 @@ def main():
             if key not in paths or not paths[key] or not os.path.exists(paths[key]):
                 raise SystemExit(f"missing key {key} for {a.body}")
             img = _pad(Image.open(paths[key]).convert("RGBA"))
-            img, weapon = standard_sword(img, layer)
+            known = None
+            if key in SWORDS:
+                (hx, hy), (tx, ty) = SWORDS[key]
+                hx, hy, tx, ty = hx + PAD, hy + PAD, tx + PAD, ty + PAD
+                L = math.hypot(tx - hx, ty - hy) or 1
+                known = ((hx - 2 * (tx - hx) / L, hy - 2 * (ty - hy) / L),
+                         math.degrees(math.atan2(ty - hy, tx - hx)))
+            img, weapon = standard_sword(img, layer, known, ((hx, hy), (tx, ty)) if known else None)
             ax, ay = aa.anchor(img)
             dx = ref[0] - ax
             dy = (torso_y_ref - _torso_y(img)) if align == "air" else (ref[1] - ay)
