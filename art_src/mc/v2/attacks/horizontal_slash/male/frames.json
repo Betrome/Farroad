@@ -1,0 +1,107 @@
+{
+ "attack": "horizontal_slash",
+ "body": "male",
+ "fps": 12,
+ "frames": [
+  {
+   "frame": 0,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 1,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 2,
+   "key": "slash_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 3,
+   "key": "slash_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 4,
+   "key": "slash_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 5,
+   "key": "slash_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 6,
+   "key": "hslash_mid",
+   "role": "smear"
+  },
+  {
+   "frame": 7,
+   "key": "hslash_follow",
+   "role": "strike"
+  },
+  {
+   "frame": 8,
+   "key": "hslash_follow",
+   "role": "strike"
+  },
+  {
+   "frame": 9,
+   "key": "hslash_follow",
+   "role": "strike"
+  },
+  {
+   "frame": 10,
+   "key": "hslash_follow",
+   "role": "strike"
+  },
+  {
+   "frame": 11,
+   "key": "hslash_follow",
+   "role": "recover"
+  },
+  {
+   "frame": 12,
+   "key": "hslash_follow",
+   "role": "recover"
+  },
+  {
+   "frame": 13,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 14,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 15,
+   "key": "@idle",
+   "role": "idle"
+  }
+ ],
+ "blade_windup": [
+  [
+   19,
+   18
+  ],
+  [
+   9,
+   13
+  ]
+ ],
+ "blade_strike": [
+  [
+   47,
+   24
+  ],
+  [
+   60,
+   19
+  ]
+ ]
+}

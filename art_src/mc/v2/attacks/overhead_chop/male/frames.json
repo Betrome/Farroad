@@ -1,0 +1,107 @@
+{
+ "attack": "overhead_chop",
+ "body": "male",
+ "fps": 12,
+ "frames": [
+  {
+   "frame": 0,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 1,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 2,
+   "key": "chop_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 3,
+   "key": "chop_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 4,
+   "key": "chop_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 5,
+   "key": "chop_windup",
+   "role": "windup"
+  },
+  {
+   "frame": 6,
+   "key": "chop_mid",
+   "role": "smear"
+  },
+  {
+   "frame": 7,
+   "key": "chop_end",
+   "role": "strike"
+  },
+  {
+   "frame": 8,
+   "key": "chop_end",
+   "role": "strike"
+  },
+  {
+   "frame": 9,
+   "key": "chop_end",
+   "role": "strike"
+  },
+  {
+   "frame": 10,
+   "key": "chop_end",
+   "role": "strike"
+  },
+  {
+   "frame": 11,
+   "key": "chop_end",
+   "role": "recover"
+  },
+  {
+   "frame": 12,
+   "key": "chop_end",
+   "role": "recover"
+  },
+  {
+   "frame": 13,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 14,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 15,
+   "key": "@idle",
+   "role": "idle"
+  }
+ ],
+ "blade_windup": [
+  [
+   37,
+   18
+  ],
+  [
+   9,
+   4
+  ]
+ ],
+ "blade_strike": [
+  [
+   36,
+   33
+  ],
+  [
+   46,
+   51
+  ]
+ ]
+}

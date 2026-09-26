@@ -1,0 +1,107 @@
+{
+ "attack": "rising_slash",
+ "body": "male",
+ "fps": 12,
+ "frames": [
+  {
+   "frame": 0,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 1,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 2,
+   "key": "boar_tooth",
+   "role": "windup"
+  },
+  {
+   "frame": 3,
+   "key": "boar_tooth",
+   "role": "windup"
+  },
+  {
+   "frame": 4,
+   "key": "boar_tooth",
+   "role": "windup"
+  },
+  {
+   "frame": 5,
+   "key": "boar_tooth",
+   "role": "windup"
+  },
+  {
+   "frame": 6,
+   "key": "rising_slash",
+   "role": "smear"
+  },
+  {
+   "frame": 7,
+   "key": "rising_slash",
+   "role": "strike"
+  },
+  {
+   "frame": 8,
+   "key": "rising_slash",
+   "role": "strike"
+  },
+  {
+   "frame": 9,
+   "key": "rising_slash",
+   "role": "strike"
+  },
+  {
+   "frame": 10,
+   "key": "rising_slash",
+   "role": "strike"
+  },
+  {
+   "frame": 11,
+   "key": "rising_slash",
+   "role": "recover"
+  },
+  {
+   "frame": 12,
+   "key": "rising_slash",
+   "role": "recover"
+  },
+  {
+   "frame": 13,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 14,
+   "key": "@idle",
+   "role": "idle"
+  },
+  {
+   "frame": 15,
+   "key": "@idle",
+   "role": "idle"
+  }
+ ],
+ "blade_windup": [
+  [
+   30,
+   42
+  ],
+  [
+   54,
+   56
+  ]
+ ],
+ "blade_strike": [
+  [
+   30,
+   26
+  ],
+  [
+   55,
+   10
+  ]
+ ]
+}
