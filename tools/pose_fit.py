@@ -19,7 +19,10 @@ Optional keys steer the fit:
           "prior":  {param: [value, weight]},  # soft pull toward a value
           "proportions": "human"|"rig",  # body the target was measured on
           "sword_full": true,   # ask for a full-length (unforeshortened) blade
-          "face_margin": 0.1}   # blade/head clearance beyond this body's head radius (units)
+          "face_margin": 0.1,   # blade/head clearance beyond this body's head radius (units)
+          "lift": 0.0,          # raise the whole body off the ground (jumps; feet stay "on" z=lift)
+          "free_feet": false,   # let foot.R.z / foot.L.z lift single feet (running, jumps)
+          "bounds": {param: [lo, hi]}}   # override a parameter's range (e.g. rot.y for lying down)
 Params (see PARAMS): hips.x/y/z (offset), rot.x/y/z, spine.x/y/z, head.x/y/z
 (rot.y + = hips pitch forward, spine.z - = lean forward, spine.x + = lean
 sideways toward the camera, spine.y = twist, rot.z = turn about the vertical),
@@ -79,6 +82,7 @@ def make_params():
         ("foot.L.x", 0.0, 0.15, -2.5, 2.5), ("foot.L.y", fy, 0.1, -1.0, 2.0),
         ("knee.R", 0.0, 20, -75, 75), ("knee.L", 0.0, 20, -75, 75),      # knees bend forward-ish
         ("aim.yaw", 0.0, 15, -200, 200), ("aim.pitch", 0.0, 15, -90, 90),
+        ("foot.R.z", 0.0, 0.1, 0.0, 1.6), ("foot.L.z", 0.0, 0.1, 0.0, 1.6),   # locked unless "free_feet"
     ]
 
 
@@ -90,6 +94,7 @@ DEFAULT_WEIGHTS = {"limb": 1.0, "joint": 10.0, "sword": 0.6, "feet": 300.0, "spr
 # limb lengths as a share of the neck -> mid-hip length, to compare foreshortening
 # (how much of each limb's length shows in 2D) between a real person and the chibi rig
 TORSO = 1.0          # neck -> hip length of the current body (configure())
+LIFT = 0.0           # spec "lift": raise the whole body (hips and feet) off the ground, units
 PROPORTIONS = {
     "human": {"upper_arm": 0.58, "forearm": 0.52, "thigh": 0.83, "shin": 0.83, "sword": 1.8},
     "rig": {},
@@ -183,11 +188,14 @@ class Rig:
         b = self.pb[bone]
         return self.mw @ (b.tail if tail else b.head)
 
+    foot_z = {}
+
     def set(self, v):
         """Put parameter vector v on the rig (two depsgraph updates)."""
         g = lambda n: v[IDX[n]]  # noqa: E731
+        self.foot_z = {"R": g("foot.R.z"), "L": g("foot.L.z")}
         hips = br.ctrl_obj("hips")
-        hips.location = br.HIPS_REST + Vector((g("hips.x"), g("hips.y"), g("hips.z")))
+        hips.location = br.HIPS_REST + Vector((g("hips.x"), g("hips.y"), g("hips.z") + LIFT))
         hips.rotation_euler = [math.radians(g("rot." + a)) for a in "xyz"]
         for bn in ("spine", "head"):
             self.pb[bn].rotation_euler = [math.radians(g(bn + "." + a)) for a in "xyz"]
@@ -203,7 +211,7 @@ class Rig:
             br.ctrl_obj("hand." + side).location = h
             br.ctrl_obj("elbow." + side).location = pole(sh, h, g("elbow." + side), Vector((-1, 0, 0)))
             hp = self.world("thigh." + side)
-            f = Vector((g("foot.%s.x" % side), g("foot.%s.y" % side), br.ANKLE_Z))
+            f = Vector((g("foot.%s.x" % side), g("foot.%s.y" % side), br.ANKLE_Z + LIFT + g("foot.%s.z" % side)))
             br.ctrl_obj("foot." + side).location = f
             br.ctrl_obj("knee." + side).location = pole(hp, f, g("knee." + side), Vector((1, 0, 0)))
         yaw, pitch = math.radians(g("aim.yaw")), math.radians(g("aim.pitch"))
@@ -218,7 +226,8 @@ class Rig:
         return ps.Pose([(kp[3 * i], kp[3 * i + 1], 1.0) for i in range(18)], sword, SIZE, SIZE)
 
     def feet_lift(self):
-        return sum(max(0.0, br.ctrl_obj("foot." + s).matrix_world.translation.z - br.ANKLE_Z - 0.01)
+        return sum(max(0.0, br.ctrl_obj("foot." + s).matrix_world.translation.z - br.ANKLE_Z - LIFT
+                       - self.foot_z.get(s, 0.0) - 0.01)
                    for s in ("R", "L"))
 
     def hand_hidden(self, kp):
@@ -493,6 +502,8 @@ def fit(scene, target, init=None, max_evals=30000, seed=1, spec=None):
     rig = Rig(scene)
     rng = random.Random(seed)
     lock = set(spec.get("lock", []))
+    if not spec.get("free_feet"):      # feet stay on the ground unless a pose asks otherwise
+        lock |= {"foot.R.z", "foot.L.z"}
     free = [i for i, n in enumerate(NAMES) if n not in lock]
     obj = Objective(rig, target, spec.get("weights", {}), {k: tuple(x) for k, x in spec.get("prior", {}).items()},
                     spec.get("proportions", "human"), spec.get("sword_full", True),
@@ -583,6 +594,11 @@ def main():
             else:            # scalars: proportions, sword_full, face_margin, multistart
                 spec[k] = val
     configure(opt("--body") or tj.get("body", "male"))
+    global LIFT
+    LIFT = float(spec.get("lift", 0.0))
+    for name, (lo, hi) in spec.get("bounds", {}).items():   # widen/narrow a parameter's range
+        i = IDX[name]
+        PARAMS[i] = (PARAMS[i][0], PARAMS[i][1], PARAMS[i][2], lo, hi)
     init = None
     if opt("--init"):
         with open(opt("--init")) as fh:

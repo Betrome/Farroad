@@ -32,5 +32,27 @@ Reference images were used only to extract a skeleton; none are committed and no
 | casting | t011 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
 | parry | t034 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
 | defensive_guard | t036 | [Getty Ms. Ludwig XV 13 24v - Fiore dei Liberi - Combat with Sword - Go](https://commons.wikimedia.org/wiki/File:Getty_Ms._Ludwig_XV_13_24v_-_Fiore_dei_Liberi_-_Combat_with_Sword_-_Google_Art_Project_(6916021).jpg) | Fiore Furlan dei Liberi da Premariacco (Italian, about 1340/ | Public domain |
+| run_contact | t054 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| run_passing | t098 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| run_pushoff | t056 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| jump_crouch | t062 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| jump_takeoff | t099 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| air_tuck | t080 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| air_dive | t095 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| air_fall_strike | t097 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| stab_forward | t066 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| stab_low | t067 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| stab_down | t086 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| stab_up | t069 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| diag_cut | t094 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| hslash_mid | t088 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| upcut_mid | t072 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| chop_windup | t073 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| chop_mid | t074 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| chop_end | t075 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| hit_flinch | t076 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| wounded_idle | t077 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| collapse_knees | t078 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
+| lying | t079 | authored stick figure (no reference image) | Claude (from the pose description) | own work |
 
 Hand-placed adjustments (feet, blade tilt, hand positions) are listed in each round's spec in the practice records.

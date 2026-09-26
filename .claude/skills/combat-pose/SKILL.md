@@ -89,3 +89,12 @@ Score three stages: reference->rig, rig->Qwen male, rig->Qwen female (DWPose on 
 - Didn't help: the depth render as image 3 (Qwen copies the mannequin look and drops the sword); a second Qwen pass on a pixel sprite (it barely changes pixel art).
 - `--spec` merges scalar options too now (face_margin, proportions; before, they were silently dropped). `spec_by_body` sets per-body overrides.
 - Pixelize palette: a fourth, dark steel grey (96,99,105) keeps dark blade outlines grey instead of hair-brown.
+
+### Targeted block 2 (t051-t099): running, jumps, mid-air, stabs, slashes, hit/down poses
+- Running: author with a lean of ~35 deg or more, a long stride, and a heel kicked up high behind. Say "clearly running, not walking". Leans of ~15 deg and a high front knee read as walking or marching. Contact 6/6, push-off 6/6, passing 16/18.
+- Airborne: fit on the ground and raise the pixel sprite afterwards (`air_px`), keeping the ground line fixed. A rig lift (`lift`) pushes the head and sword out of the frame. Only compact or tilted silhouettes read as airborne: tuck (knees to chest), forward dive (body tilted, legs trailing). Upright splits and upright "falling" poses read as standing (5 tries). Feet tucked up near the hips plus the word "falling" gets drawn as a somersault. A falling strike works from the upright tuck with the sword angled down-forward (5/6).
+- Stabs: forward, low and upward worked first time. The downward stab needs the point planted diagonally ahead (-50 deg). A vertical blade merges with the front leg.
+- Slashes mid-swing: keep the fists out in front of the torso silhouette (hand-x prior, `over` weight 150, "nothing behind the hands"). Otherwise the male gets one blade running through his body. Chop wind-up, mid and end, and the upward cut worked first time.
+- Hit flinch, wounded idle, collapse to the knees: first time, 6/6.
+- Lying down works without rig changes: widen the `bounds` on `rot.y` (±100) and `hips.z` (-1.8), set rot.y -85 and hips.z -1.35, and say "lying flat on the back, collapsed, eyes closed" (12/12).
+- New spec options: `free_feet` (foot.R.z / foot.L.z), `lift`, `bounds`. New round options: `air_px`, `keep_place` (keeps Qwen's placement, centred horizontally), `guide_scale(_by_body)`, `master_scale_by_body`.

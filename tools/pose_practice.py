@@ -273,7 +273,7 @@ def cap_colours(img, n):
                     px[x, y] = common
 
 
-def pixel(out, who, src, bg_tol=40, steel=True, master=None, block=16):
+def pixel(out, who, src, bg_tol=40, steel=True, master=None, block=16, keep_place=False, air_px=0):
     # bg_tol 40, not pixelize's 90: Qwen's background is pure white, and a looser
     # flood fill eats the light-grey sword blade where it touches the background
     sprite, k, n, st = pixelize(Image.open(src), block=block, palette=palette_for(master or who, steel),
@@ -288,7 +288,12 @@ def pixel(out, who, src, bg_tol=40, steel=True, master=None, block=16):
     if w > 64 or h > 64:
         sprite.thumbnail((64, 64), Image.NEAREST)
         w, h = sprite.size
-    canvas.alpha_composite(sprite, ((64 - w) // 2, 64 - h - 2 if h < 62 else 0))
+    if keep_place:   # airborne poses: keep Qwen's placement (the ground line stays fixed, the body sits higher)
+        qb = fg_bbox(Image.open(src))
+        x0, y0 = int(round(qb[0] / block)), int(round(qb[1] / block))
+        canvas.alpha_composite(sprite, ((64 - w) // 2, max(0, min(64 - h, y0))))   # centred; Qwen's height kept
+    else:   # air_px: airborne poses sit that many pixels above the fixed ground line
+        canvas.alpha_composite(sprite, ((64 - w) // 2, max(0, 64 - h - 2 - air_px) if h < 62 else 0))
     dst = os.path.join(out, who + "_px.png")
     canvas.save(dst)
     return dst, {"w": w, "h": h, "figures": n}
@@ -601,7 +606,8 @@ def cmd_run_multi(path):
         for seed in cfg.get("seeds", [1, 2, 3]):
             tag = "%s_s%d" % (who, seed)
             q = qwen_one(names, prompt, seed, os.path.join(out, tag + "_qwen.png"))
-            pixel(out, tag, q, cfg.get("bg_tol", 40), cfg.get("steel", True), master=who, block=ms or 16)
+            pixel(out, tag, q, cfg.get("bg_tol", 40), cfg.get("steel", True), master=who, block=ms or 16,
+                  keep_place=cfg.get("keep_place", False), air_px=cfg.get("air_px", 0))
             if cfg.get("second_prompt"):
                 shutil.copy(os.path.join(out, tag + "_px.png"), os.path.join(out, tag + "_px1.png"))
                 n2 = [cg.upload(qe.prep(os.path.join(out, tag + "_px.png"), 1024), "pp_2nd_%s.png" % who), names[1]]
