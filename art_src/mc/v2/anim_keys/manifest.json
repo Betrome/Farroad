@@ -1,0 +1,450 @@
+{
+ "format": "64x64 RGBA, true pixels, facing right, feet on the bottom row unless airborne",
+ "animations": {
+  "overhead_chop": [
+   {
+    "key": "chop_anticipation",
+    "frames": {
+     "male": {
+      "file": "01_chop_anticipation_male.png",
+      "source_round": "t101",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        35.1,
+        29.8
+       ],
+       "tip": [
+        47.3,
+        23.1
+       ]
+      }
+     },
+     "female": {
+      "file": "01_chop_anticipation_female.png",
+      "source_round": "t101",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        35.4,
+        28.4
+       ],
+       "tip": [
+        47.3,
+        22.1
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "chop_windup",
+    "frames": {
+     "male": {
+      "file": "02_chop_windup_male.png",
+      "source_round": "t102",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        29.2,
+        13.1
+       ],
+       "tip": [
+        42.7,
+        2.8
+       ]
+      }
+     },
+     "female": {
+      "file": "02_chop_windup_female.png",
+      "source_round": "t102",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        28.0,
+        21.9
+       ],
+       "tip": [
+        16.6,
+        30.6
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "chop_mid",
+    "frames": {
+     "male": {
+      "file": "03_chop_mid_male.png",
+      "source_round": "t103",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        34.8,
+        18.9
+       ],
+       "tip": [
+        48.5,
+        2.5
+       ]
+      }
+     },
+     "female": {
+      "file": "03_chop_mid_female.png",
+      "source_round": "t103",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        33.8,
+        17.8
+       ],
+       "tip": [
+        46.8,
+        3.7
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "chop_impact",
+    "frames": {
+     "male": {
+      "file": "04_chop_impact_male.png",
+      "source_round": "t104",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        35.0,
+        43.0
+       ],
+       "tip": [
+        50.5,
+        58.5
+       ]
+      }
+     },
+     "female": {
+      "file": "04_chop_impact_female.png",
+      "source_round": "t104",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        35.6,
+        45.4
+       ],
+       "tip": [
+        48.6,
+        59.4
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "chop_follow",
+    "frames": {
+     "male": {
+      "file": "05_chop_follow_male.png",
+      "source_round": "t105",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        34.6,
+        45.6
+       ],
+       "tip": [
+        19.5,
+        60.5
+       ]
+      }
+     },
+     "female": {
+      "file": "05_chop_follow_female.png",
+      "source_round": "t105",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        33.2,
+        46.3
+       ],
+       "tip": [
+        22.3,
+        61.4
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "chop_recover",
+    "frames": {
+     "male": {
+      "file": "06_chop_recover_male.png",
+      "source_round": "t106",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        31.7,
+        36.2
+       ],
+       "tip": [
+        48.6,
+        46.4
+       ]
+      }
+     },
+     "female": {
+      "file": "06_chop_recover_female.png",
+      "source_round": "t106",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        33.2,
+        37.0
+       ],
+       "tip": [
+        46.4,
+        44.7
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "jump": [
+   {
+    "key": "jump_crouch",
+    "frames": {
+     "male": {
+      "file": "01_jump_crouch_male.png",
+      "source_round": "t062",
+      "seed": 4,
+      "sword": null
+     },
+     "female": {
+      "file": "01_jump_crouch_female.png",
+      "source_round": "t062",
+      "seed": 5,
+      "sword": {
+       "hilt": [
+        28.6,
+        42.8
+       ],
+       "tip": [
+        9.7,
+        50.0
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "air_tuck",
+    "frames": {
+     "male": {
+      "file": "02_air_tuck_male.png",
+      "source_round": "t080",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        33.2,
+        27.2
+       ],
+       "tip": [
+        45.6,
+        21.6
+       ]
+      }
+     },
+     "female": {
+      "file": "02_air_tuck_female.png",
+      "source_round": "t080",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        35.7,
+        26.9
+       ],
+       "tip": [
+        47.4,
+        21.3
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "landing",
+    "frames": {
+     "male": {
+      "file": "03_landing_male.png",
+      "source_round": "t024",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        40.7,
+        43.9
+       ],
+       "tip": [
+        53.1,
+        51.2
+       ]
+      }
+     },
+     "female": {
+      "file": "03_landing_female.png",
+      "source_round": "t107",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        39.2,
+        37.1
+       ],
+       "tip": [
+        54.6,
+        44.3
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "hit": [
+   {
+    "key": "hit_flinch",
+    "frames": {
+     "male": {
+      "file": "01_hit_flinch_male.png",
+      "source_round": "t076",
+      "seed": 1,
+      "sword": null
+     },
+     "female": {
+      "file": "01_hit_flinch_female.png",
+      "source_round": "t076",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        35.1,
+        31.0
+       ],
+       "tip": [
+        51.5,
+        26.6
+       ]
+      }
+     }
+    }
+   }
+  ],
+  "death": [
+   {
+    "key": "collapse_knees",
+    "frames": {
+     "male": {
+      "file": "01_collapse_knees_male.png",
+      "source_round": "t078",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        30.7,
+        52.6
+       ],
+       "tip": [
+        44.2,
+        61.9
+       ]
+      }
+     },
+     "female": {
+      "file": "01_collapse_knees_female.png",
+      "source_round": "t078",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        32.5,
+        50.0
+       ],
+       "tip": [
+        50.3,
+        61.9
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "topple",
+    "frames": {
+     "male": {
+      "file": "02_topple_male.png",
+      "source_round": "t110",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        18.6,
+        57.1
+       ],
+       "tip": [
+        14.5,
+        56.4
+       ]
+      }
+     },
+     "female": {
+      "file": "02_topple_female.png",
+      "source_round": "t110",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        21.7,
+        56.3
+       ],
+       "tip": [
+        8.6,
+        58.1
+       ]
+      }
+     }
+    }
+   },
+   {
+    "key": "lying",
+    "frames": {
+     "male": {
+      "file": "03_lying_male.png",
+      "source_round": "t079",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        30.1,
+        58.4
+       ],
+       "tip": [
+        46.5,
+        61.4
+       ]
+      }
+     },
+     "female": {
+      "file": "03_lying_female.png",
+      "source_round": "t079",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        33.5,
+        58.4
+       ],
+       "tip": [
+        29.3,
+        59.1
+       ]
+      }
+     }
+    }
+   }
+  ]
+ }
+}
