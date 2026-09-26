@@ -269,6 +269,7 @@ func resize(unit_size: float) -> void:
 		c.queue_free()
 	_trail = null
 	_trail_light = null
+	_light_tween = null
 	_trail_prev = null
 	_weapon_meta = {}
 	_impact_meta = {}
@@ -322,12 +323,14 @@ func _build(unit_size: float) -> void:
 				var s: float = size / largest if largest > 0.0 else 1.0
 				anim.scale = Vector2(s, s)
 		shape = anim
+		shape.light_mask = 1 | UNIT_LIGHT_LAYER
 		add_child(shape)
 	else:
 		var sp := Sprite2D.new()
 		sp.texture = _get_shape_texture(style["shape"], style["tint"])
 		sp.scale = Vector2(size, size) / float(_SHAPE_TEX_SIZE)
 		shape = sp
+		shape.light_mask = 1 | UNIT_LIGHT_LAYER
 		add_child(shape)
 
 		# A bigger, darker copy of the SAME shape drawn behind it -- the only
@@ -419,10 +422,79 @@ func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: 
 ## doesn't happen to define that particular name yet -- callers never need
 ## to check first, "unit by unit" rollout means any given unit may only
 ## have SOME of the 7 defined.
-## The action's element decides the trail and light colour (null/physical
-## = pale steel). BattlePresenter calls this right before play_state("attack").
-func set_trail_color(c: Color) -> void:
-	_trail_color = c
+## Attack light per element, timed to the attack (Ian): a glow gathers on
+## the blade through the wind-up (`charge`), brightens on the smear, flashes
+## on the impact frame at the blade tip -- right on the target, lighting it
+## -- (`peak`, `radius` in multiples of the unit's size) and dies away over
+## `decay` seconds. `flicker` jitters the energy (fire, wind); dark
+## SUBTRACTS light, so it darkens and tints what it touches. "" = a plain
+## physical attack: no wind-up glow, a small white spark on impact.
+const ELEMENT_LIGHT := {
+	"": {"color": Color(0.92, 0.96, 1.0), "charge": 0.0, "peak": 1.3, "radius": 1.1, "decay": 0.18, "flicker": 0.0},
+	"fire": {"color": Color(1.0, 0.5, 0.15), "charge": 0.9, "peak": 2.2, "radius": 2.2, "decay": 0.55, "flicker": 0.35},
+	"water": {"color": Color(0.3, 0.62, 1.0), "charge": 0.6, "peak": 1.6, "radius": 2.8, "decay": 0.45, "flicker": 0.05},
+	"earth": {"color": Color(0.85, 0.6, 0.25), "charge": 0.4, "peak": 2.4, "radius": 1.8, "decay": 0.15, "flicker": 0.0},
+	"air": {"color": Color(0.55, 1.0, 0.75), "charge": 0.6, "peak": 1.8, "radius": 1.5, "decay": 0.12, "flicker": 0.5},
+	"light": {"color": Color(1.0, 0.95, 0.6), "charge": 1.0, "peak": 3.0, "radius": 3.2, "decay": 0.5, "flicker": 0.0},
+	"dark": {"color": Color(0.62, 0.32, 0.9), "charge": 0.8, "peak": 1.6, "radius": 2.4, "decay": 0.5, "flicker": 0.1,
+		"subtract": Color(0.45, 0.6, 0.35)},
+}
+const UNIT_LIGHT_LAYER := 2   # light-mask bit that unit sprites add, and attack lights target
+var _light_profile: Dictionary = ELEMENT_LIGHT[""]
+var _light_base_energy := 0.0
+var _light_tween: Tween
+
+## BattlePresenter calls this right before play_state("attack") with the
+## action's element (null for plain physical attacks).
+func set_attack_element(element) -> void:
+	_light_profile = ELEMENT_LIGHT.get(str(element) if element != null else "", ELEMENT_LIGHT[""])
+	_trail_color = _light_profile["color"]
+
+func _process(_delta: float) -> void:
+	# flicker: jitter the light around its current (tweened) energy
+	if _trail_light != null and _trail_light.enabled and float(_light_profile["flicker"]) > 0.0:
+		var f: float = float(_light_profile["flicker"])
+		_trail_light.energy = _light_base_energy * randf_range(1.0 - f, 1.0 + f * 0.5)
+
+func _set_light(pos: Vector2, energy: float, radius_mul: float) -> void:
+	_ensure_trail()
+	var p: Dictionary = _light_profile
+	_trail_light.global_position = pos
+	if p.has("subtract"):
+		_trail_light.blend_mode = Light2D.BLEND_MODE_SUB
+		_trail_light.color = p["subtract"]
+	else:
+		_trail_light.blend_mode = Light2D.BLEND_MODE_ADD
+		_trail_light.color = p["color"]
+	_trail_light.texture_scale = maxf(0.2, size / 64.0 * radius_mul)
+	_trail_light.enabled = energy > 0.0
+	_light_base_energy = energy
+	_trail_light.energy = energy
+
+## The light's beat within the attack: wind-up -> smear -> impact flash -> decay.
+func _light_frame(anim_name: String, f: int, impact: int) -> void:
+	var p: Dictionary = _light_profile
+	var cur = _weapon_global(anim_name, f)
+	if cur == null:
+		return
+	if _light_tween != null and _light_tween.is_valid():
+		_light_tween.kill()
+	var radius: float = float(p["radius"])
+	if f < impact - 1:
+		# gathering on the blade through the wind-up
+		var t := float(f + 1) / float(maxi(1, impact - 1))
+		_set_light(cur[1], float(p["charge"]) * t, radius * 0.45)
+	elif f == impact - 1:
+		_set_light(cur[1], maxf(float(p["charge"]), float(p["peak"]) * 0.5), radius * 0.6)
+	elif f == impact:
+		_set_light(cur[1], float(p["peak"]), radius)
+		var decay: float = float(p["decay"])
+		_light_tween = create_tween()
+		_light_tween.set_parallel(true)
+		_light_tween.tween_method(func(e: float): _light_base_energy = e; _trail_light.energy = e,
+			float(p["peak"]), 0.0, decay).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		_light_tween.tween_property(_trail_light, "texture_scale", _trail_light.texture_scale * 1.25, decay)
+		_light_tween.chain().tween_callback(func(): _trail_light.enabled = false)
 
 ## Awaitable: returns once the attack animation reaches its impact frame
 ## (or at once for units without one, or after `cap` seconds).
@@ -468,6 +540,8 @@ func _on_anim_frame() -> void:
 		return
 	var impact: int = int(_impact_meta[anim_name])
 	var f: int = asp.frame
+	if f <= impact:
+		_light_frame(anim_name, f, impact)
 	if f < impact - TRAIL_FRAMES_BEFORE or f > impact + TRAIL_FRAMES_AFTER:
 		return
 	var cur = _weapon_global(anim_name, f)
@@ -494,17 +568,11 @@ func _on_anim_frame() -> void:
 	while _trail.get_point_count() > 28:
 		_trail.remove_point(0)
 	_trail_prev = cur
-	_trail_light.global_position = cur[1]
-	_trail_light.color = _trail_color
-	_trail_light.enabled = true
-	_trail_light.energy = 0.8
 	if f == impact + TRAIL_FRAMES_AFTER:
-		var tw := create_tween().set_parallel(true)
+		var tw := create_tween()
 		tw.tween_property(_trail, "modulate:a", 0.0, TRAIL_FADE)
-		tw.tween_property(_trail_light, "energy", 0.0, TRAIL_FADE)
-		tw.chain().tween_callback(func():
+		tw.tween_callback(func():
 			_trail.clear_points()
-			_trail_light.enabled = false
 			_trail_prev = null)
 
 func _ensure_trail() -> void:
@@ -540,8 +608,10 @@ func _ensure_trail() -> void:
 	lg.set_color(1, Color(1, 1, 1, 0))
 	lt.gradient = lg
 	_trail_light.texture = lt
-	_trail_light.texture_scale = size / 64.0 * 0.9   # a glow about the blade tip, not a floodlight
 	_trail_light.enabled = false
+	# only sprites on the unit light layer catch it -- not the battlefield
+	# background or the UI (Ian: the lights are there to light the other sprites)
+	_trail_light.range_item_cull_mask = UNIT_LIGHT_LAYER
 	add_child(_trail_light)
 
 func play_state(anim_name: String) -> void:

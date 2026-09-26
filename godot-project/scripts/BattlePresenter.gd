@@ -1697,7 +1697,7 @@ func _animate_beat(e: Dictionary) -> void:
 			await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
 		# Real attack art: the hit lands on the animation's impact frame,
 		# with the weapon trail in the action's element colour (UnitView).
-		actor_view.set_trail_color(_element_color(act))
+		actor_view.set_attack_element(act.get("element") if act != null else null)
 		actor_view.play_state("attack")
 		await actor_view.wait_for_impact()
 		_apply_hit_effects(e)
@@ -1874,14 +1874,6 @@ func _return_and_settle(actor: UnitView, use_run: bool, was_alive: bool, duratio
 		await actor.wait_for_animation(0.3)
 		if float(actor.unit["hp"]) > 0.0:
 			actor.play_state("idle")
-
-## Trail/light colour per element (physical/none: pale steel).
-const ELEMENT_COLOR := {"fire": Color(1.0, 0.55, 0.2), "water": Color(0.35, 0.65, 1.0),
-	"earth": Color(0.75, 0.6, 0.3), "air": Color(0.6, 1.0, 0.75), "light": Color(1.0, 0.95, 0.55),
-	"dark": Color(0.7, 0.4, 1.0)}
-func _element_color(act) -> Color:
-	var el = act.get("element") if act != null else null
-	return ELEMENT_COLOR.get(el, Color(0.85, 0.95, 1.0)) if el != null else Color(0.85, 0.95, 1.0)
 
 ## Magic/ranged attack (and heals): a projectile travels actor -> a
 ## world-space destination (the real target's own position, or the
