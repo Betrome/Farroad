@@ -3,5 +3,8 @@
 # Ships inside game builds only. Source + licence notes: art_src/third_party/README.md
 godot-project/sprites/units/ansa/
 godot-project/sprites/units/ansa.tres
+# (no longer used in the game -- kept locally for reference only)
+art_src/third_party/otsoga_godot/
 tools/__pycache__/
 *.blend1
+art_src/mc/v2/region_masks/_raw/

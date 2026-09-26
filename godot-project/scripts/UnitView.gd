@@ -207,6 +207,9 @@ static func _style_for(u: Dictionary) -> Dictionary:
 ## the mc_female sprite set instead of kesh's.
 static var mc_body: String = "male"
 const MC_SPRITES := {"male": "kesh", "female": "mc_female"}
+## The live game state (set by GameController): party units' looks come from
+## Appearance (body = male/female sprite set, per-part colours).
+static var game_state: Dictionary = {}
 
 static func body_preview(body: String) -> Texture2D:
 	var path := "res://sprites/units/%s/idle_0.png" % MC_SPRITES.get(body, "kesh")
@@ -214,6 +217,10 @@ static func body_preview(body: String) -> Texture2D:
 
 static func _sprite_frames_path_for(u: Dictionary) -> String:
 	if u["isParty"]:
+		# every party unit is, for now, a variation of the male or female
+		# main character (Ian) -- see Appearance
+		if not game_state.is_empty():
+			return "res://sprites/units/%s.tres" % Appearance.sprite_set(game_state, u["id"])
 		if u["id"] == "kesh":
 			return "res://sprites/units/%s.tres" % MC_SPRITES.get(mc_body, "kesh")
 		return "res://sprites/units/%s.tres" % u["id"]
@@ -317,6 +324,8 @@ func _build(unit_size: float) -> void:
 				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if ps >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 				anim.offset = frame_tex.get_size() / 2.0 - anchor + Vector2(0, half / ps)
 				_art_body_size = (frames.get_meta("body_size", frame_tex.get_size()) as Vector2) * ps
+				if frames.has_meta("part_ref") and unit["isParty"]:
+					anim.material = Appearance.material_for(game_state, unit["id"], frames.get_meta("part_ref"))
 				_weapon_meta = frames.get_meta("weapon", {})
 				_impact_meta = frames.get_meta("impact", {})
 				if not _weapon_meta.is_empty():
@@ -445,7 +454,7 @@ func wait_for_impact(cap: float = 1.2) -> void:
 		return
 	var target: int = int(_impact_meta[anim_name])
 	var t0 := Time.get_ticks_msec()
-	while is_inside_tree() and String(asp.animation) == anim_name and asp.frame < target \
+	while is_inside_tree() and is_instance_valid(asp) and String(asp.animation) == anim_name and asp.frame < target \
 			and asp.is_playing() and (Time.get_ticks_msec() - t0) < cap * 1000.0:
 		await get_tree().process_frame
 
@@ -455,7 +464,7 @@ func wait_for_animation(cap: float = 1.0) -> void:
 		return
 	var asp: AnimatedSprite2D = shape
 	var t0 := Time.get_ticks_msec()
-	while is_inside_tree() and asp.is_playing() and (Time.get_ticks_msec() - t0) < cap * 1000.0:
+	while is_inside_tree() and is_instance_valid(asp) and asp.is_playing() and (Time.get_ticks_msec() - t0) < cap * 1000.0:
 		await get_tree().process_frame
 
 ## Frame -> the sword's grip/tip in global coordinates, or null.

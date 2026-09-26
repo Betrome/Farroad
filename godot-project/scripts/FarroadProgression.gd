@@ -1920,7 +1920,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
 		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0,
 		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0,
-		"party": ["kesh"], "partyPresets": [], "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
+		"party": ["kesh"], "partyPresets": [], "appearance": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
 		"lvl": {"kesh": 1}, "bank": {"kesh": 0}, "maxLevelEver": 1, "owned": {"kesh": 1},

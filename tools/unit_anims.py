@@ -165,7 +165,10 @@ def main():
     erase = [(x + PAD, y + PAD) for x, y in master_erase(master, ms["erase"])]
     ms["grip"] = (ms["grip"][0] + PAD, ms["grip"][1] + PAD)
     master = _pad(master)
+    m_orig = master.copy()
     master = sf.fix(master, ms["grip"], ms["angle"], "front", erase)
+    master_parts = parts_of(master, load_mask(f"master_{a.body}", (64, 64)), m_orig)
+    refs = part_refs(master, master_parts)
     ref = aa.anchor(master)
     torso_y_ref = _torso_y(master)
     ang = math.radians(ms["angle"])
@@ -173,9 +176,12 @@ def main():
     idle_weapon = [ms["grip"][0], ms["grip"][1] + 1, ms["grip"][0] + math.cos(ang) * L, ms["grip"][1] + 1 + math.sin(ang) * L]
     # bob_frames adds one row on top, so its feet sit 1 px lower: shift up by 1
     idle_frames = [f.convert("RGBA") for f in idle_bob.bob_frames(master, frames=6)]
+    # the same bob on the part map (part id in red, the sprite's alpha)
+    pm = Image.merge("RGBA", (master_parts.point(lambda v: v * 30), master_parts, master_parts, master.split()[3]))
+    idle_parts = [f.split()[0].point(lambda v: round(v / 30)) for f in idle_bob.bob_frames(pm, frames=6)]
 
     # ---- every other animation, aligned to the idle
-    placed = {"idle": [(f, (0, -1), idle_weapon) for f in idle_frames]}
+    placed = {"idle": [(f, (0, -1), idle_weapon, pt) for f, pt in zip(idle_frames, idle_parts)]}
     roles = {}
     for anim, spec in ANIMS.items():
         out = []
@@ -192,12 +198,14 @@ def main():
                 L = math.hypot(tx - hx, ty - hy) or 1
                 known = ((hx - 2 * (tx - hx) / L, hy - 2 * (ty - hy) / L),
                          math.degrees(math.atan2(ty - hy, tx - hx)))
+            orig = img.copy()
             img, weapon = standard_sword(img, layer, known, ((hx, hy), (tx, ty)) if known else None)
+            parts = parts_of(img, load_mask(f"{key}_{a.body}", (64, 64)), orig)
             ax, ay = aa.anchor(img)
             dx = ref[0] - ax
             dy = (torso_y_ref - _torso_y(img)) if align == "air" else (ref[1] - ay)
             for h in range(hold):
-                out.append((img, (dx, dy), weapon))
+                out.append((img, (dx, dy), weapon, parts))
                 if role and h == 0:
                     roles.setdefault(anim, {})[role] = len(out) - 1
         placed[anim] = out
@@ -206,7 +214,7 @@ def main():
     x0 = y0 = 10 ** 6
     x1 = y1 = -10 ** 6
     for frames in placed.values():
-        for img, (dx, dy), _ in frames:
+        for img, (dx, dy), _, _ in frames:
             bb = img.getbbox()
             x0, y0 = min(x0, bb[0] + dx), min(y0, bb[1] + dy)
             x1, y1 = max(x1, bb[2] + dx), max(y1, bb[3] + dy)
@@ -221,9 +229,20 @@ def main():
     weapon_meta, fps = {}, {"idle": 7}
     for anim, frames in placed.items():
         weapon_meta[anim] = []
-        for n, (img, (dx, dy), weapon) in enumerate(frames):
+        for n, (img, (dx, dy), weapon, parts) in enumerate(frames):
             canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            canvas.alpha_composite(img, (int(round(dx)) + ox, int(round(dy)) + oy))
+            at = (int(round(dx)) + ox, int(round(dy)) + oy)
+            canvas.alpha_composite(img, at)
+            # each opaque pixel's part goes in its alpha (255 - part) for the
+            # recolour shader (godot-project/shaders/unit_recolor.gdshader)
+            pcan = Image.new("L", (W, H), 0)
+            pcan.paste(parts, at)
+            cp, pp = canvas.load(), pcan.load()
+            for yy in range(H):
+                for xx in range(W):
+                    c = cp[xx, yy]
+                    if c[3]:
+                        cp[xx, yy] = (c[0], c[1], c[2], 255 - pp[xx, yy])
             canvas.save(os.path.join(folder, f"{anim}_{n}.png"))
             weapon_meta[anim].append(None if weapon is None else
                                      [round(weapon[0] + dx + ox, 1), round(weapon[1] + dy + oy, 1),
@@ -233,12 +252,77 @@ def main():
     mbb = master.getbbox()
     body = (mbb[2] - mbb[0], mbb[3] - mbb[1])
     impact = {anim: r["impact"] for anim, r in roles.items() if "impact" in r}
-    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact)
+    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact, refs)
     print(f"{a.unit_id}: canvas {W}x{H}, anchor {anchor}, frames " +
           ", ".join(f"{k} {len(v)}" for k, v in placed.items()))
 
 
 PAD = 32   # work canvas margin, so a sword reaching past the 64 px key isn't clipped
+MASKS = os.path.join(ROOT, "art_src", "mc", "v2", "region_masks")
+SWORD_COLS = {sf.OUTLINE[:3], sf.STEEL[:3], sf.EDGE[:3], sf.GUARD[:3], sf.GRIP_C[:3]}
+
+
+def load_mask(name, size):
+    """Part ids (tools/region_masks.py) padded like the key, or all-zero."""
+    path = os.path.join(MASKS, name + ".png")
+    m = Image.new("L", (size[0] + 2 * PAD, size[1] + 2 * PAD), 0)
+    if os.path.exists(path):
+        m.paste(Image.open(path).convert("L"), (PAD, PAD))
+    return m
+
+
+def parts_of(img, mask, orig):
+    """Part id for every opaque pixel of the finished key: the mask where the
+    pixel is still the key's own, 0 for the painted sword, and for anything
+    else (pixels the sword clean-up filled in) the neighbours' part."""
+    px, mk, og = img.load(), mask.load(), orig.load()
+    W, H = img.size
+    out = Image.new("L", img.size, 0)
+    o = out.load()
+    todo = []
+    for y in range(H):
+        for x in range(W):
+            c = px[x, y]
+            if not c[3]:
+                continue
+            if c == og[x, y]:
+                o[x, y] = mk[x, y]
+            elif c[:3] in SWORD_COLS:
+                o[x, y] = 0
+            else:
+                todo.append((x, y))
+    for _ in range(3):
+        for (x, y) in todo:
+            if o[x, y]:
+                continue
+            nb = [o[x + dx, y + dy] for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                  if (dx or dy) and 0 <= x + dx < W and 0 <= y + dy < H and o[x + dx, y + dy]]
+            if nb:
+                o[x, y] = max(set(nb), key=nb.count)
+    return out
+
+
+def part_refs(img, parts):
+    """Each part's reference brightness: the luma of its most common colour
+    (its main lit tone) -- the shader maps that tone to the chosen colour."""
+    px, pt = img.load(), parts.load()
+    counts = {i: {} for i in range(7)}
+    for y in range(img.height):
+        for x in range(img.width):
+            c = px[x, y]
+            if c[3] and pt[x, y]:
+                counts[pt[x, y]][c[:3]] = counts[pt[x, y]].get(c[:3], 0) + 1
+    refs = []
+    for i in range(7):
+        if not counts[i]:
+            refs.append(0.5)
+            continue
+        if i == 3:   # eyes: the iris -- the brightest tone that isn't the white
+            c = max((k for k in counts[i] if sum(k) < 700), key=lambda k: sum(k), default=max(counts[i], key=counts[i].get))
+        else:
+            c = max(counts[i], key=counts[i].get)
+        refs.append(round((0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255, 4))
+    return refs
 
 
 def _pad(img):
@@ -263,7 +347,7 @@ def _gd(v):
     return repr(float(v)) if isinstance(v, float) else str(v)
 
 
-def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact):
+def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref):
     ext, anims, idx = [], [], 1
     for anim, frames in placed.items():
         refs = []
@@ -279,7 +363,8 @@ def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact):
         "metadata/anchor = Vector2(%s, %s)" % (float(anchor[0]), float(anchor[1])),
         "metadata/body_size = Vector2(%s, %s)" % (float(body[0]), float(body[1])),
         "metadata/weapon = %s" % _gd(weapon),
-        "metadata/impact = %s" % _gd(impact), ""]
+        "metadata/impact = %s" % _gd(impact),
+        "metadata/part_ref = %s" % _gd([float(v) for v in part_ref]), ""]
     with open(os.path.join(GODOT, "sprites", "units", uid + ".tres"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
 

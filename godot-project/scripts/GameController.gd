@@ -280,6 +280,7 @@ func _try_resume_save() -> bool:
 	g = FarroadSave.deserialize(parsed)
 	FarroadProgression.apply_custom_mc(g)
 	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
+	UnitView.game_state = g
 	var resume_wave: int = g["wave"] if g.get("wave") else 1
 	# skip_drops=true: this wave was never cleared when saved, so
 	# grant_drops(w) must not treat resuming it as a fresh visit --
@@ -298,6 +299,7 @@ func _on_mc_confirmed(mc: Dictionary) -> void:
 	g = FarroadProgression.new_game(7, mc)
 	FarroadProgression.apply_custom_mc(g)
 	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
+	UnitView.game_state = g
 	FarroadProgression.start_wave(g, 1)
 	_save_game()   # mirrors doSave() immediately after boot(7,mc)
 	_start_game()
@@ -1426,6 +1428,9 @@ func _show_change_name_popup() -> void:
 	await _finish_detail_overlay(o)
 
 ## Ian: "let people change it in the menu" -- male/female main character.
+## Ian: male/female plus colours for skin, hair, eyes, top, bottoms and
+## shoes, for the MC and every owned unit (see Appearance). Changes apply
+## live -- in battle too -- and save straight away.
 func _show_change_body_popup() -> void:
 	if g.get("mc") == null:
 		return
@@ -1435,31 +1440,93 @@ func _show_change_body_popup() -> void:
 	title.text = "Appearance"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	vbox.add_child(row)
-	var current: String = str(g["mc"].get("body", "male"))
-	for body in ["male", "female"]:
-		var btn := Button.new()
-		btn.text = body.capitalize() + (" (current)" if body == current else "")
-		btn.icon = UnitView.body_preview(body)
-		btn.expand_icon = true
-		btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-		btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		btn.custom_minimum_size = Vector2(_vp.x * 0.3, _vp.x * 0.36)
-		btn.disabled = body == current
-		btn.pressed.connect(func():
-			g["mc"]["body"] = body
-			UnitView.mc_body = body
-			if current_presenter != null:
-				current_presenter.call("sync_mc_body")
-			if side_presenter != null:
-				side_presenter.call("sync_mc_body")
-			_save_game()
-			o["backdrop"].queue_free())
-		row.add_child(btn)
+
+	var uids: Array = ["kesh"]
+	for uid in (g.get("owned", {}) as Dictionary).keys():
+		if uid != "kesh":
+			uids.append(uid)
+	var picker := OptionButton.new()
+	for uid in uids:
+		var def = FarroadCore.roster_by_id(uid)
+		picker.add_item(def["name"] if def else uid)
+	vbox.add_child(picker)
+
+	var body_box := VBoxContainer.new()
+	body_box.add_theme_constant_override("separation", 6)
+	vbox.add_child(body_box)
+	# lambdas capture locals by value, so the rebuild callable lives in a
+	# shared dictionary to be able to call itself
+	var state := {"uid": "kesh"}
+	state["rebuild"] = func():
+		for c in body_box.get_children():
+			c.queue_free()
+		var uid: String = state["uid"]
+		var look := Appearance.look(g, uid)
+		# preview: the unit's idle frame through its own recolour
+		var preview := TextureRect.new()
+		preview.texture = UnitView.body_preview(look["body"])
+		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		preview.custom_minimum_size = Vector2(_vp.x * 0.5, _vp.x * 0.5)
+		var frames = load("res://sprites/units/%s.tres" % Appearance.sprite_set(g, uid))
+		if frames != null and frames.has_meta("part_ref"):
+			preview.material = Appearance.material_for(g, uid, frames.get_meta("part_ref"))
+		body_box.add_child(preview)
+		var brow := HBoxContainer.new()
+		body_box.add_child(brow)
+		for body in ["male", "female"]:
+			var bb := Button.new()
+			bb.text = body.capitalize()
+			bb.disabled = body == look["body"]
+			bb.pressed.connect(func():
+				Appearance.set_body(g, uid, body)
+				if uid == "kesh":
+					UnitView.mc_body = body
+				_appearance_changed(uid)
+				state["rebuild"].call())
+			brow.add_child(bb)
+		for part in Appearance.PARTS:
+			var lbl := Label.new()
+			lbl.text = Appearance.PART_LABEL[part]
+			body_box.add_child(lbl)
+			var row := HFlowContainer.new()
+			body_box.add_child(row)
+			var cur = (look["colors"] as Dictionary).get(part)
+			var orig := Button.new()
+			orig.text = "Original"
+			orig.disabled = cur == null
+			orig.pressed.connect(func():
+				Appearance.set_part(g, uid, part, null)
+				_appearance_changed(uid)
+				state["rebuild"].call())
+			row.add_child(orig)
+			for hex in Appearance.PRESETS[part]:
+				var sw := Button.new()
+				sw.custom_minimum_size = Vector2(_vp.x * 0.075, _vp.x * 0.075)
+				var st := StyleBoxFlat.new()
+				st.bg_color = Color(hex)
+				st.set_corner_radius_all(4)
+				st.border_color = Palette.TEXT_INK if hex == cur else Color(0, 0, 0, 0.25)
+				st.set_border_width_all(3 if hex == cur else 1)
+				for k in ["normal", "hover", "pressed"]:
+					sw.add_theme_stylebox_override(k, st)
+				sw.pressed.connect(func():
+					Appearance.set_part(g, uid, part, hex)
+					_appearance_changed(uid)
+					state["rebuild"].call())
+				row.add_child(sw)
+	picker.item_selected.connect(func(i: int):
+		state["uid"] = uids[i]
+		state["rebuild"].call())
+	state["rebuild"].call()
 	await _finish_detail_overlay(o)
+
+func _appearance_changed(uid: String) -> void:
+	for p in [current_presenter, side_presenter]:
+		if p != null:
+			p.call("sync_appearance", uid)
+	_save_game()
 
 ## Same sanitize rule McCreatePanel._sanitize_name uses -- small per-file
 ## duplication (this project's own established convention) rather than a
