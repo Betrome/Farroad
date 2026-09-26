@@ -63,18 +63,13 @@ var size: float
 var shape: Node2D   # public -- BattlePresenter animates ONLY this during a hop/shake/run, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position. Either an AnimatedSprite2D (real art) or a Sprite2D (procedural fallback) -- see play_state()/prefers_run_approach() for the only two ways callers should ever care which.
 var _boss_ring: Sprite2D   # only built for a boss STILL ON the procedural fallback shape -- a bigger, darker copy of the same shape, drawn BEHIND it. Not yet extended to real animated boss art (flagged, revisit once that exists).
 var _art_body_size := Vector2.ZERO   # set only for native-pixel-scale art (see _build)
-# Weapon trail (Godot-side, so it can take the action's element colour and
-# light the scene): the SpriteFrames' "weapon" metadata gives the sword's
-# grip/tip per frame (tools/unit_anims.py), "impact" the frame the hit lands.
+# Attack effects (AttackFX: trail, element light, particles), driven by the
+# SpriteFrames' "weapon" metadata -- the sword's grip/tip per frame
+# (tools/unit_anims.py) -- and "impact", the frame the hit lands.
 var _weapon_meta: Dictionary = {}
 var _impact_meta: Dictionary = {}
-var _trail: Line2D
-var _trail_light: PointLight2D
-var _trail_color := Color(0.85, 0.95, 1.0)
-var _trail_prev = null   # [grip, tip] of the previous trail frame (global)
-const TRAIL_FRAMES_BEFORE := 1   # the smear frame before impact starts the trail
-const TRAIL_FRAMES_AFTER := 3
-const TRAIL_FADE := 0.28
+var _fx: AttackFX
+const UNIT_LIGHT_LAYER := AttackFX.UNIT_LIGHT_LAYER   # light-mask bit unit sprites add; attack lights target it
 var _played_dead_state: bool = false   # guards play_state("dead") to fire only once per death, not on every subsequent update_hp() refresh while already dead
 
 ## Procedural placeholder shapes, one per archetype (party units all share
@@ -267,10 +262,7 @@ func setup(u: Dictionary, unit_size: float) -> void:
 func resize(unit_size: float) -> void:
 	for c in get_children():
 		c.queue_free()
-	_trail = null
-	_trail_light = null
-	_light_tween = null
-	_trail_prev = null
+	_fx = null
 	_weapon_meta = {}
 	_impact_meta = {}
 	_build(unit_size)
@@ -318,6 +310,9 @@ func _build(unit_size: float) -> void:
 				_impact_meta = frames.get_meta("impact", {})
 				if not _weapon_meta.is_empty():
 					anim.frame_changed.connect(_on_anim_frame)
+					_fx = AttackFX.new()
+					add_child(_fx)
+					_fx.setup(size)
 			else:
 				var largest: float = maxf(frame_tex.get_size().x, frame_tex.get_size().y) if frame_tex != null else 0.0
 				var s: float = size / largest if largest > 0.0 else 1.0
@@ -422,79 +417,11 @@ func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: 
 ## doesn't happen to define that particular name yet -- callers never need
 ## to check first, "unit by unit" rollout means any given unit may only
 ## have SOME of the 7 defined.
-## Attack light per element, timed to the attack (Ian): a glow gathers on
-## the blade through the wind-up (`charge`), brightens on the smear, flashes
-## on the impact frame at the blade tip -- right on the target, lighting it
-## -- (`peak`, `radius` in multiples of the unit's size) and dies away over
-## `decay` seconds. `flicker` jitters the energy (fire, wind); dark
-## SUBTRACTS light, so it darkens and tints what it touches. "" = a plain
-## physical attack: no wind-up glow, a small white spark on impact.
-const ELEMENT_LIGHT := {
-	"": {"color": Color(0.92, 0.96, 1.0), "charge": 0.0, "peak": 1.3, "radius": 1.1, "decay": 0.18, "flicker": 0.0},
-	"fire": {"color": Color(1.0, 0.5, 0.15), "charge": 0.9, "peak": 2.2, "radius": 2.2, "decay": 0.55, "flicker": 0.35},
-	"water": {"color": Color(0.3, 0.62, 1.0), "charge": 0.6, "peak": 1.6, "radius": 2.8, "decay": 0.45, "flicker": 0.05},
-	"earth": {"color": Color(0.85, 0.6, 0.25), "charge": 0.4, "peak": 2.4, "radius": 1.8, "decay": 0.15, "flicker": 0.0},
-	"air": {"color": Color(0.55, 1.0, 0.75), "charge": 0.6, "peak": 1.8, "radius": 1.5, "decay": 0.12, "flicker": 0.5},
-	"light": {"color": Color(1.0, 0.95, 0.6), "charge": 1.0, "peak": 3.0, "radius": 3.2, "decay": 0.5, "flicker": 0.0},
-	"dark": {"color": Color(0.62, 0.32, 0.9), "charge": 0.8, "peak": 1.6, "radius": 2.4, "decay": 0.5, "flicker": 0.1,
-		"subtract": Color(0.45, 0.6, 0.35)},
-}
-const UNIT_LIGHT_LAYER := 2   # light-mask bit that unit sprites add, and attack lights target
-var _light_profile: Dictionary = ELEMENT_LIGHT[""]
-var _light_base_energy := 0.0
-var _light_tween: Tween
-
 ## BattlePresenter calls this right before play_state("attack") with the
-## action's element (null for plain physical attacks).
+## action's element (null for plain physical attacks) -- see AttackFX.
 func set_attack_element(element) -> void:
-	_light_profile = ELEMENT_LIGHT.get(str(element) if element != null else "", ELEMENT_LIGHT[""])
-	_trail_color = _light_profile["color"]
-
-func _process(_delta: float) -> void:
-	# flicker: jitter the light around its current (tweened) energy
-	if _trail_light != null and _trail_light.enabled and float(_light_profile["flicker"]) > 0.0:
-		var f: float = float(_light_profile["flicker"])
-		_trail_light.energy = _light_base_energy * randf_range(1.0 - f, 1.0 + f * 0.5)
-
-func _set_light(pos: Vector2, energy: float, radius_mul: float) -> void:
-	_ensure_trail()
-	var p: Dictionary = _light_profile
-	_trail_light.global_position = pos
-	if p.has("subtract"):
-		_trail_light.blend_mode = Light2D.BLEND_MODE_SUB
-		_trail_light.color = p["subtract"]
-	else:
-		_trail_light.blend_mode = Light2D.BLEND_MODE_ADD
-		_trail_light.color = p["color"]
-	_trail_light.texture_scale = maxf(0.2, size / 64.0 * radius_mul)
-	_trail_light.enabled = energy > 0.0
-	_light_base_energy = energy
-	_trail_light.energy = energy
-
-## The light's beat within the attack: wind-up -> smear -> impact flash -> decay.
-func _light_frame(anim_name: String, f: int, impact: int) -> void:
-	var p: Dictionary = _light_profile
-	var cur = _weapon_global(anim_name, f)
-	if cur == null:
-		return
-	if _light_tween != null and _light_tween.is_valid():
-		_light_tween.kill()
-	var radius: float = float(p["radius"])
-	if f < impact - 1:
-		# gathering on the blade through the wind-up
-		var t := float(f + 1) / float(maxi(1, impact - 1))
-		_set_light(cur[1], float(p["charge"]) * t, radius * 0.45)
-	elif f == impact - 1:
-		_set_light(cur[1], maxf(float(p["charge"]), float(p["peak"]) * 0.5), radius * 0.6)
-	elif f == impact:
-		_set_light(cur[1], float(p["peak"]), radius)
-		var decay: float = float(p["decay"])
-		_light_tween = create_tween()
-		_light_tween.set_parallel(true)
-		_light_tween.tween_method(func(e: float): _light_base_energy = e; _trail_light.energy = e,
-			float(p["peak"]), 0.0, decay).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
-		_light_tween.tween_property(_trail_light, "texture_scale", _trail_light.texture_scale * 1.25, decay)
-		_light_tween.chain().tween_callback(func(): _trail_light.enabled = false)
+	if _fx != null:
+		_fx.begin(element)
 
 ## Awaitable: returns once the attack animation reaches its impact frame
 ## (or at once for units without one, or after `cap` seconds).
@@ -536,83 +463,17 @@ func _weapon_global(anim_name: String, frame: int):
 func _on_anim_frame() -> void:
 	var asp: AnimatedSprite2D = shape
 	var anim_name := String(asp.animation)
-	if not _impact_meta.has(anim_name):
+	if _fx == null or not _impact_meta.has(anim_name):
 		return
 	var impact: int = int(_impact_meta[anim_name])
 	var f: int = asp.frame
-	if f <= impact:
-		_light_frame(anim_name, f, impact)
-	if f < impact - TRAIL_FRAMES_BEFORE or f > impact + TRAIL_FRAMES_AFTER:
-		return
 	var cur = _weapon_global(anim_name, f)
-	if cur == null:
+	if cur == null or f > impact:
 		return
-	_ensure_trail()
-	if f == impact - TRAIL_FRAMES_BEFORE or _trail_prev == null:
-		# start the swing from where the blade was on the frame before
-		_trail.clear_points()
-		_trail.modulate.a = 1.0
-		_trail_prev = _weapon_global(anim_name, maxi(0, f - 1))
-		if _trail_prev == null:
-			_trail_prev = cur
-	# sweep the tip around the grip from the previous frame's angle to this one
-	var g: Vector2 = cur[0]
-	var a0: float = (_trail_prev[1] - _trail_prev[0]).angle()
-	var a1: float = (cur[1] - g).angle()
-	var r0: float = (_trail_prev[1] - _trail_prev[0]).length()
-	var r1: float = (cur[1] - g).length()
-	var da: float = wrapf(a1 - a0, -PI, PI)
-	for i in range(1, 9):
-		var t := i / 8.0
-		_trail.add_point(g + Vector2.RIGHT.rotated(a0 + da * t) * lerpf(r0, r1, t))
-	while _trail.get_point_count() > 28:
-		_trail.remove_point(0)
-	_trail_prev = cur
-	if f == impact + TRAIL_FRAMES_AFTER:
-		var tw := create_tween()
-		tw.tween_property(_trail, "modulate:a", 0.0, TRAIL_FADE)
-		tw.tween_callback(func():
-			_trail.clear_points()
-			_trail_prev = null)
-
-func _ensure_trail() -> void:
-	if _trail != null:
-		_trail.gradient.set_color(1, Color(_trail_color.lerp(Color.WHITE, 0.35), 1.0))
-		_trail.gradient.set_color(0, Color(_trail_color, 0.0))
-		return
-	_trail = Line2D.new()
-	_trail.top_level = true   # world space: stays where the swing happened
-	_trail.width = maxf(4.0, size * 0.15)
-	_trail.joint_mode = Line2D.LINE_JOINT_ROUND
-	_trail.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	_trail.end_cap_mode = Line2D.LINE_CAP_ROUND
-	var grad := Gradient.new()
-	grad.set_color(0, Color(_trail_color, 0.0))
-	grad.set_color(1, Color(_trail_color.lerp(Color.WHITE, 0.35), 1.0))
-	_trail.gradient = grad
-	var curve := Curve.new()   # thin at the old end, full width at the blade
-	curve.add_point(Vector2(0, 0.15))
-	curve.add_point(Vector2(1, 1))
-	_trail.width_curve = curve
-	add_child(_trail)
-	_trail_light = PointLight2D.new()
-	_trail_light.top_level = true
-	var lt := GradientTexture2D.new()
-	lt.fill = GradientTexture2D.FILL_RADIAL
-	lt.fill_from = Vector2(0.5, 0.5)
-	lt.fill_to = Vector2(1.0, 0.5)
-	lt.width = 64
-	lt.height = 64
-	var lg := Gradient.new()
-	lg.set_color(0, Color(1, 1, 1, 1))
-	lg.set_color(1, Color(1, 1, 1, 0))
-	lt.gradient = lg
-	_trail_light.texture = lt
-	_trail_light.enabled = false
-	# only sprites on the unit light layer catch it -- not the battlefield
-	# background or the UI (Ian: the lights are there to light the other sprites)
-	_trail_light.range_item_cull_mask = UNIT_LIGHT_LAYER
-	add_child(_trail_light)
+	if f < impact - 1:
+		_fx.windup(cur[0], cur[1], float(f + 1) / float(maxi(1, impact - 1)))
+	else:
+		_fx.swing(cur[0], cur[1], f == impact)
 
 func play_state(anim_name: String) -> void:
 	if shape is AnimatedSprite2D:
