@@ -50,6 +50,7 @@ const HOP_STOP_SHORT := 0.075       # of viewport width
 # PROJECTILE_TIME+BEAT_PAUSE pair -- the projectile's own flight duration
 # IS the full magic beat now, nothing tacked on after.
 const HOP_TIME := 0.475             # outbound leg only now (see above)
+const ATTACK_START_IN_LEG := 0.75   # the attack's wind-up starts this far through the approach leg
 const PHYS_BEAT_TOTAL := 0.75
 const MAGIC_BEAT_TOTAL := 0.75
 const IDLE_PAUSE := 0.45            # no-target/burned-out beats -- nothing to animate anyway
@@ -61,6 +62,7 @@ const ELEMENT_GLYPH := {"fire": "🔥", "water": "💧", "earth": "🪨",
 
 var battle: Dictionary
 var unit_views_by_id: Dictionary = {}
+var _bar_layer: Node2D   # every unit's HP/charge bars and name, drawn under all unit sprites
 var unit_views_by_name: Dictionary = {}
 var active_unit_id: String = ""   # whichever unit's beat is currently animating -- drives the gold border in the Status popup too
 var status_filter_uid: String = ""   # "" shows every unit's card; set (via a battlefield tap) shows just one
@@ -109,6 +111,8 @@ func _recompute_field_fractions() -> void:
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
+	_bar_layer = Node2D.new()
+	add_child(_bar_layer)
 	# Needed for UnitView's own Area2D.input_event (tap-a-unit-for-stats,
 	# post-batch feedback) to ever fire -- off by default project-wide.
 	get_viewport().physics_object_picking = true
@@ -304,6 +308,7 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 		var view := UnitView.new()
 		view.setup(u, _unit_size(u))
 		add_child(view)
+		view.attach_chrome_to(_bar_layer)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
 		view.tapped.connect(_on_unit_tapped.bind(u["id"]))
@@ -389,6 +394,7 @@ func _layout_units(units: Array) -> void:
 		var view := UnitView.new()
 		view.setup(u, _unit_size(u))
 		add_child(view)
+		view.attach_chrome_to(_bar_layer)
 		unit_views_by_id[u["id"]] = view
 		unit_views_by_name[u["name"]] = view
 		view.tapped.connect(_on_unit_tapped.bind(u["id"]))
@@ -1691,14 +1697,24 @@ func _animate_beat(e: Dictionary) -> void:
 		var use_run: bool = actor_view.prefers_run_approach()
 		var leg_time: float = maxf(MIN_BEAT_FLOOR * 0.5, (RUN_TIME if use_run else HOP_TIME) - speed_cut)
 		actor_view.play_state("run" if use_run else "jump")
-		if use_run:
-			await _run_to(actor_view, Vector2.ZERO, approach_offset, leg_time)
-		else:
-			await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
+		# Ian: start the attack's wind-up 3/4 of the way through the jump, so
+		# the blow lands right after touching down. The leg runs on its own;
+		# the attack animation takes over the sprite for the last quarter.
+		var leg_done := [false]
+		var leg := func():
+			if use_run:
+				await _run_to(actor_view, Vector2.ZERO, approach_offset, leg_time)
+			else:
+				await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
+			leg_done[0] = true
+		leg.call()
+		await get_tree().create_timer(leg_time * ATTACK_START_IN_LEG).timeout
 		# Real attack art: the hit lands on the animation's impact frame,
 		# with the weapon trail in the action's element colour (UnitView).
 		actor_view.set_attack_element(act.get("element") if act != null else null)
 		actor_view.play_state("attack")
+		while not leg_done[0]:
+			await get_tree().process_frame
 		await actor_view.wait_for_impact()
 		_apply_hit_effects(e)
 		await actor_view.wait_for_animation(0.6)

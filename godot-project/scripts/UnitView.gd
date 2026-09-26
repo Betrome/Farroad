@@ -69,6 +69,11 @@ var _art_body_size := Vector2.ZERO   # set only for native-pixel-scale art (see 
 var _weapon_meta: Dictionary = {}
 var _impact_meta: Dictionary = {}
 var _fx: AttackFX
+# HP/charge bars and the name live on a separate node that BattlePresenter
+# puts in a layer drawn BEFORE every unit (Ian: sprites always above the
+# bars -- a raised z_index would also have drawn sprites over the pop-ups).
+var _chrome: Node2D
+var _chrome_layer: Node
 const UNIT_LIGHT_LAYER := AttackFX.UNIT_LIGHT_LAYER   # light-mask bit unit sprites add; attack lights target it
 var _played_dead_state: bool = false   # guards play_state("dead") to fire only once per death, not on every subsequent update_hp() refresh while already dead
 
@@ -262,13 +267,19 @@ func setup(u: Dictionary, unit_size: float) -> void:
 func resize(unit_size: float) -> void:
 	for c in get_children():
 		c.queue_free()
+	if _chrome != null and is_instance_valid(_chrome):
+		_chrome.queue_free()
 	_fx = null
 	_weapon_meta = {}
 	_impact_meta = {}
 	_build(unit_size)
+	if _chrome_layer != null and is_instance_valid(_chrome_layer):
+		attach_chrome_to(_chrome_layer)
 
 func _build(unit_size: float) -> void:
 	size = unit_size
+	_chrome = Node2D.new()
+	add_child(_chrome)
 	var half := size / 2.0
 	var bar_h: float = max(4.0, size * 0.12)
 	var charge_h: float = max(2.0, bar_h * 0.5)
@@ -348,13 +359,13 @@ func _build(unit_size: float) -> void:
 	_hp_bg.size = Vector2(size, bar_h)
 	_hp_bg.position = Vector2(-half, half + gap)
 	_hp_bg.color = Color(0.15, 0.15, 0.15)
-	add_child(_hp_bg)
+	_chrome.add_child(_hp_bg)
 
 	_hp_fg = ColorRect.new()
 	_hp_fg.size = Vector2(size, bar_h)
 	_hp_fg.position = _hp_bg.position
 	_hp_fg.color = Color(0.25, 0.85, 0.30)
-	add_child(_hp_fg)
+	_chrome.add_child(_hp_fg)
 
 	# Thin charge bar, directly below the HP bar -- fills toward whichever
 	# charge action the unit itself has (costOfCharge), or the generic
@@ -364,13 +375,13 @@ func _build(unit_size: float) -> void:
 	_charge_bg.size = Vector2(size, charge_h)
 	_charge_bg.position = Vector2(-half, charge_y)
 	_charge_bg.color = Color(0.12, 0.12, 0.16)
-	add_child(_charge_bg)
+	_chrome.add_child(_charge_bg)
 
 	_charge_fg = ColorRect.new()
 	_charge_fg.size = Vector2(0, charge_h)
 	_charge_fg.position = Vector2(-half, charge_y)
 	_charge_fg.color = Color(0.85, 0.7, 0.15)
-	add_child(_charge_fg)
+	_chrome.add_child(_charge_fg)
 
 	# Group I: "space out units vertically so names aren't overlapping. Put
 	# names under the charge bar." -- moved from above the shape (its old
@@ -379,7 +390,7 @@ func _build(unit_size: float) -> void:
 	_name_label.text = unit["name"]
 	_name_label.position = Vector2(-half, charge_y + charge_h + gap)
 	_name_label.add_theme_font_size_override("font_size", int(size * 0.25))
-	add_child(_name_label)
+	_chrome.add_child(_name_label)
 
 	# Tap/click target -- a plain rectangle covering the shape's own bounds
 	# (not the whole footprint including bars/name, which would make
@@ -558,6 +569,28 @@ func damage_spawn_position() -> Vector2:
 ## elements instantly -- NOT `shape`, which stays visible and moving the
 ## whole time. Called right before a view starts a run/retreat/entrance
 ## tween.
+## Moves the bars/name into `layer` (drawn under all units) and keeps them
+## following this view from there.
+func attach_chrome_to(layer: Node) -> void:
+	_chrome_layer = layer
+	if _chrome != null and layer != null and _chrome.get_parent() != layer:
+		_chrome.reparent(layer)
+	_sync_chrome()
+
+func _sync_chrome() -> void:
+	if _chrome == null or not is_instance_valid(_chrome) or _chrome.get_parent() == self:
+		return
+	_chrome.global_position = global_position
+	_chrome.visible = is_visible_in_tree()
+	_chrome.modulate = modulate
+
+func _process(_delta: float) -> void:
+	_sync_chrome()
+
+func _exit_tree() -> void:
+	if _chrome != null and is_instance_valid(_chrome) and _chrome.get_parent() != self:
+		_chrome.queue_free()
+
 func hide_chrome() -> void:
 	_hp_bg.visible = false
 	_hp_fg.visible = false
