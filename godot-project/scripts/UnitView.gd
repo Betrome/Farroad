@@ -63,6 +63,18 @@ var size: float
 var shape: Node2D   # public -- BattlePresenter animates ONLY this during a hop/shake/run, not the whole UnitView, so the name/HP/charge bars below (siblings, not children of shape) stay put at the unit's rest position. Either an AnimatedSprite2D (real art) or a Sprite2D (procedural fallback) -- see play_state()/prefers_run_approach() for the only two ways callers should ever care which.
 var _boss_ring: Sprite2D   # only built for a boss STILL ON the procedural fallback shape -- a bigger, darker copy of the same shape, drawn BEHIND it. Not yet extended to real animated boss art (flagged, revisit once that exists).
 var _art_body_size := Vector2.ZERO   # set only for native-pixel-scale art (see _build)
+# Weapon trail (Godot-side, so it can take the action's element colour and
+# light the scene): the SpriteFrames' "weapon" metadata gives the sword's
+# grip/tip per frame (tools/unit_anims.py), "impact" the frame the hit lands.
+var _weapon_meta: Dictionary = {}
+var _impact_meta: Dictionary = {}
+var _trail: Line2D
+var _trail_light: PointLight2D
+var _trail_color := Color(0.85, 0.95, 1.0)
+var _trail_prev = null   # [grip, tip] of the previous trail frame (global)
+const TRAIL_FRAMES_BEFORE := 1   # the smear frame before impact starts the trail
+const TRAIL_FRAMES_AFTER := 3
+const TRAIL_FADE := 0.28
 var _played_dead_state: bool = false   # guards play_state("dead") to fire only once per death, not on every subsequent update_hp() refresh while already dead
 
 ## Procedural placeholder shapes, one per archetype (party units all share
@@ -284,6 +296,10 @@ func _build(unit_size: float) -> void:
 				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if ps >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 				anim.offset = frame_tex.get_size() / 2.0 - anchor + Vector2(0, half / ps)
 				_art_body_size = (frames.get_meta("body_size", frame_tex.get_size()) as Vector2) * ps
+				_weapon_meta = frames.get_meta("weapon", {})
+				_impact_meta = frames.get_meta("impact", {})
+				if not _weapon_meta.is_empty():
+					anim.frame_changed.connect(_on_anim_frame)
 			else:
 				var largest: float = maxf(frame_tex.get_size().x, frame_tex.get_size().y) if frame_tex != null else 0.0
 				var s: float = size / largest if largest > 0.0 else 1.0
@@ -386,6 +402,131 @@ func _on_click_area_input_event(_viewport: Node, event: InputEvent, _shape_idx: 
 ## doesn't happen to define that particular name yet -- callers never need
 ## to check first, "unit by unit" rollout means any given unit may only
 ## have SOME of the 7 defined.
+## The action's element decides the trail and light colour (null/physical
+## = pale steel). BattlePresenter calls this right before play_state("attack").
+func set_trail_color(c: Color) -> void:
+	_trail_color = c
+
+## Awaitable: returns once the attack animation reaches its impact frame
+## (or at once for units without one, or after `cap` seconds).
+func wait_for_impact(cap: float = 1.2) -> void:
+	if not (shape is AnimatedSprite2D):
+		return
+	var asp: AnimatedSprite2D = shape
+	var anim_name := String(asp.animation)
+	if not _impact_meta.has(anim_name):
+		return
+	var target: int = int(_impact_meta[anim_name])
+	var t0 := Time.get_ticks_msec()
+	while is_inside_tree() and String(asp.animation) == anim_name and asp.frame < target \
+			and asp.is_playing() and (Time.get_ticks_msec() - t0) < cap * 1000.0:
+		await get_tree().process_frame
+
+## Awaitable: returns when the current (non-looping) animation ends, or after `cap`.
+func wait_for_animation(cap: float = 1.0) -> void:
+	if not (shape is AnimatedSprite2D):
+		return
+	var asp: AnimatedSprite2D = shape
+	var t0 := Time.get_ticks_msec()
+	while is_inside_tree() and asp.is_playing() and (Time.get_ticks_msec() - t0) < cap * 1000.0:
+		await get_tree().process_frame
+
+## Frame -> the sword's grip/tip in global coordinates, or null.
+func _weapon_global(anim_name: String, frame: int):
+	var list = _weapon_meta.get(anim_name)
+	if list == null or frame >= (list as Array).size() or list[frame] == null:
+		return null
+	var asp: AnimatedSprite2D = shape
+	var tex: Texture2D = asp.sprite_frames.get_frame_texture(anim_name, frame)
+	var half_tex: Vector2 = tex.get_size() / 2.0
+	var w: Array = list[frame]
+	var grip: Vector2 = asp.to_global(Vector2(w[0], w[1]) - half_tex + asp.offset)
+	var tip: Vector2 = asp.to_global(Vector2(w[2], w[3]) - half_tex + asp.offset)
+	return [grip, tip]
+
+func _on_anim_frame() -> void:
+	var asp: AnimatedSprite2D = shape
+	var anim_name := String(asp.animation)
+	if not _impact_meta.has(anim_name):
+		return
+	var impact: int = int(_impact_meta[anim_name])
+	var f: int = asp.frame
+	if f < impact - TRAIL_FRAMES_BEFORE or f > impact + TRAIL_FRAMES_AFTER:
+		return
+	var cur = _weapon_global(anim_name, f)
+	if cur == null:
+		return
+	_ensure_trail()
+	if f == impact - TRAIL_FRAMES_BEFORE or _trail_prev == null:
+		# start the swing from where the blade was on the frame before
+		_trail.clear_points()
+		_trail.modulate.a = 1.0
+		_trail_prev = _weapon_global(anim_name, maxi(0, f - 1))
+		if _trail_prev == null:
+			_trail_prev = cur
+	# sweep the tip around the grip from the previous frame's angle to this one
+	var g: Vector2 = cur[0]
+	var a0: float = (_trail_prev[1] - _trail_prev[0]).angle()
+	var a1: float = (cur[1] - g).angle()
+	var r0: float = (_trail_prev[1] - _trail_prev[0]).length()
+	var r1: float = (cur[1] - g).length()
+	var da: float = wrapf(a1 - a0, -PI, PI)
+	for i in range(1, 9):
+		var t := i / 8.0
+		_trail.add_point(g + Vector2.RIGHT.rotated(a0 + da * t) * lerpf(r0, r1, t))
+	while _trail.get_point_count() > 28:
+		_trail.remove_point(0)
+	_trail_prev = cur
+	_trail_light.global_position = cur[1]
+	_trail_light.color = _trail_color
+	_trail_light.enabled = true
+	_trail_light.energy = 0.8
+	if f == impact + TRAIL_FRAMES_AFTER:
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(_trail, "modulate:a", 0.0, TRAIL_FADE)
+		tw.tween_property(_trail_light, "energy", 0.0, TRAIL_FADE)
+		tw.chain().tween_callback(func():
+			_trail.clear_points()
+			_trail_light.enabled = false
+			_trail_prev = null)
+
+func _ensure_trail() -> void:
+	if _trail != null:
+		_trail.gradient.set_color(1, Color(_trail_color.lerp(Color.WHITE, 0.35), 1.0))
+		_trail.gradient.set_color(0, Color(_trail_color, 0.0))
+		return
+	_trail = Line2D.new()
+	_trail.top_level = true   # world space: stays where the swing happened
+	_trail.width = maxf(4.0, size * 0.15)
+	_trail.joint_mode = Line2D.LINE_JOINT_ROUND
+	_trail.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_trail.end_cap_mode = Line2D.LINE_CAP_ROUND
+	var grad := Gradient.new()
+	grad.set_color(0, Color(_trail_color, 0.0))
+	grad.set_color(1, Color(_trail_color.lerp(Color.WHITE, 0.35), 1.0))
+	_trail.gradient = grad
+	var curve := Curve.new()   # thin at the old end, full width at the blade
+	curve.add_point(Vector2(0, 0.15))
+	curve.add_point(Vector2(1, 1))
+	_trail.width_curve = curve
+	add_child(_trail)
+	_trail_light = PointLight2D.new()
+	_trail_light.top_level = true
+	var lt := GradientTexture2D.new()
+	lt.fill = GradientTexture2D.FILL_RADIAL
+	lt.fill_from = Vector2(0.5, 0.5)
+	lt.fill_to = Vector2(1.0, 0.5)
+	lt.width = 64
+	lt.height = 64
+	var lg := Gradient.new()
+	lg.set_color(0, Color(1, 1, 1, 1))
+	lg.set_color(1, Color(1, 1, 1, 0))
+	lt.gradient = lg
+	_trail_light.texture = lt
+	_trail_light.texture_scale = size / 64.0 * 0.9   # a glow about the blade tip, not a floodlight
+	_trail_light.enabled = false
+	add_child(_trail_light)
+
 func play_state(anim_name: String) -> void:
 	if shape is AnimatedSprite2D:
 		var asp: AnimatedSprite2D = shape
