@@ -107,9 +107,13 @@ def keep_body(img):
         comps.append(comp)
     out = img.copy()
     o = out.load()
-    for comp in sorted(comps, key=len)[:-1]:
-        for p in comp:
-            o[p] = (0, 0, 0, 0)
+    # only small specks go: erasing a blade drawn across the body can split
+    # the character in two, and both halves must stay
+    biggest = max((len(c) for c in comps), default=0)
+    for comp in comps:
+        if len(comp) < max(6, biggest * 0.08):
+            for p in comp:
+                o[p] = (0, 0, 0, 0)
     return out
 
 

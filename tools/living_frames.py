@@ -83,10 +83,26 @@ def compose(img, parts, lay, off):
     return out, pout
 
 
-def with_sword(img, parts, grip, angle, layer):
+def ground_angle(grip, angle, ground):
+    """Tilt a blade that would reach below `ground` (the feet row) until its
+    tip rests on the ground -- the standard sword is longer than some the
+    keys were drawn with, and a blade through the floor reads wrong."""
+    if ground is None:
+        return angle
+    L = 2 + sf.BLADE
+    r = math.radians(angle)
+    if grip[1] + math.sin(r) * L <= ground:
+        return angle
+    drop = max(-1.0, min(1.0, (ground - grip[1]) / L))
+    flat = math.degrees(math.asin(drop))
+    return flat if math.cos(r) >= 0 else 180.0 - flat
+
+
+def with_sword(img, parts, grip, angle, layer, ground=None):
     """Paint the standard sword; its pixels get part 0 (never recoloured)."""
     if layer is None or grip is None:
         return img, parts, None
+    angle = ground_angle(grip, angle, ground)
     out = sf.fix(img, grip, angle, layer, None)
     a, b = img.load(), out.load()
     p2 = parts.copy()
@@ -121,11 +137,11 @@ HOLD_SWORD = [0, 1.5, 3, 1.5, 0, -1.5]
 HOLD_HEAD = [0, 0, 1, 1, 0, 0]
 
 
-def hold_frames(img, parts, grip, angle, layer, n):
+def hold_frames(img, parts, grip, angle, layer, n, ground=None):
     lay = layers(img, parts, with_torso=False)
     out = []
     for k in range(n):
         dh = HOLD_HEAD[k % len(HOLD_HEAD)] if n > 2 else 0
         f, p = compose(img, parts, lay, {"head": (0, dh)}) if dh else (img, parts)
-        out.append(with_sword(f, p, grip, (angle + HOLD_SWORD[k % len(HOLD_SWORD)]) if grip else angle, layer))
+        out.append(with_sword(f, p, grip, (angle + HOLD_SWORD[k % len(HOLD_SWORD)]) if grip else angle, layer, ground))
     return out

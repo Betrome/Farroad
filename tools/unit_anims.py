@@ -34,15 +34,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GODOT = os.path.join(ROOT, "godot-project")
 
 # (key, hold, sword layer, align) -- align "feet" or "air"
-ANIMS = {
+ANIMS = {   # (key, hold, sword layer, align[, role]) -- role "swing" = first frame after the wind-up
     "attack": {"fps": 14, "steps": [
         ("chop_anticipation", 2, "front", "feet"), ("chop_windup", 4, "behind", "feet"),
-        ("chop_mid", 1, "front", "feet", "smear"), ("chop_impact", 4, "front", "feet", "impact"),
-        ("chop_follow", 2, "front", "feet"), ("chop_recover", 2, "front", "feet")]},
-    "jump": {"fps": 12, "steps": [("jump_crouch", 2, "front", "feet"), ("air_tuck", 1, "front", "air")]},
-    "land": {"fps": 12, "steps": [("landing", 2, "front", "feet")]},
-    "hurt": {"fps": 12, "steps": [("hit_flinch", 3, "front", "feet")]},
-    "dead": {"fps": 10, "steps": [("collapse_knees", 3, "front", "feet"), ("topple", 2, "front", "feet"),
+        ("chop_swing_a", 1, "front", "feet", "swing"), ("chop_mid", 1, "front", "feet"),
+        ("chop_swing_b", 1, "front", "feet"), ("chop_impact", 4, "front", "feet", "impact"),
+        ("chop_follow_a", 1, "front", "feet"), ("chop_follow", 2, "front", "feet"),
+        ("chop_recover", 1, "front", "feet"), ("chop_settle", 1, "front", "feet")]},
+    "jump": {"fps": 12, "steps": [("jump_crouch", 2, "front", "feet"), ("jump_takeoff", 1, "front", "air"),
+                                  ("air_tuck", 1, "front", "air")]},
+    "land": {"fps": 12, "steps": [("land_touch", 1, "front", "air"), ("landing", 2, "front", "feet"),
+                                  ("land_rise", 1, "front", "feet")]},
+    "hurt": {"fps": 12, "steps": [("hit_recoil", 1, "front", "feet"), ("hit_flinch", 2, "front", "feet"),
+                                  ("hit_recover", 1, "front", "feet")]},
+    "dead": {"fps": 10, "steps": [("collapse_knees", 2, "front", "feet"), ("collapse_fall", 1, "front", "feet"),
+                                  ("topple", 1, "front", "feet"), ("topple_fall", 1, "front", "feet"),
                                   ("lying", 1, "front", "feet")]},
 }
 LOOPS = {"idle"}
@@ -218,7 +224,8 @@ def main():
             ax, ay = aa.anchor(erased)
             dx = ref[0] - ax
             dy = (torso_y_ref - _torso_y(erased)) if align == "air" else (ref[1] - ay)
-            for h, (f, p, weapon) in enumerate(lf.hold_frames(erased, parts, grip, ang, layer, hold)):
+            ground = ay if align == "feet" else None
+            for h, (f, p, weapon) in enumerate(lf.hold_frames(erased, parts, grip, ang, layer, hold, ground)):
                 out.append((f, (dx, dy), weapon, p))
                 if role and h == 0:
                     roles.setdefault(anim, {})[role] = len(out) - 1
@@ -266,7 +273,8 @@ def main():
     mbb = master.getbbox()
     body = (mbb[2] - mbb[0], mbb[3] - mbb[1])
     impact = {anim: r["impact"] for anim, r in roles.items() if "impact" in r}
-    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact, refs)
+    swing = {anim: r["swing"] for anim, r in roles.items() if "swing" in r}
+    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact, refs, swing)
     print(f"{a.unit_id}: canvas {W}x{H}, anchor {anchor}, frames " +
           ", ".join(f"{k} {len(v)}" for k, v in placed.items()))
 
@@ -361,7 +369,7 @@ def _gd(v):
     return repr(float(v)) if isinstance(v, float) else str(v)
 
 
-def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref):
+def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref, swing=None):
     ext, anims, idx = [], [], 1
     for anim, frames in placed.items():
         refs = []
@@ -378,7 +386,8 @@ def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref):
         "metadata/body_size = Vector2(%s, %s)" % (float(body[0]), float(body[1])),
         "metadata/weapon = %s" % _gd(weapon),
         "metadata/impact = %s" % _gd(impact),
-        "metadata/part_ref = %s" % _gd([float(v) for v in part_ref]), ""]
+        "metadata/part_ref = %s" % _gd([float(v) for v in part_ref]),
+        "metadata/swing = %s" % _gd(swing or {}), ""]
     with open(os.path.join(GODOT, "sprites", "units", uid + ".tres"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
 
