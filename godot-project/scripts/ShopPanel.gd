@@ -33,13 +33,13 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 -- 8th slot in the bottom row, see
 	# MarksPanel.gd's own copy of this comment for the full 8-slot layout.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8767, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)

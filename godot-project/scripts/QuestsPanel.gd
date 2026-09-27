@@ -147,12 +147,12 @@ func _refresh_card() -> void:
 	for c in card_container.get_children():
 		c.queue_free()
 
-	if not last_result.is_empty():
-		var result_lbl := Label.new()
-		result_lbl.text = _describe_result(last_result)
-		result_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		result_lbl.modulate = Palette.TEXT_DIM
-		card_container.add_child(result_lbl)
+	# Ian: "Once a non-repeatable quest is completed, have it disappear."
+	# The finished quest's card is already gone (completed lines are
+	# filtered out below); its result line used to linger at the top of the
+	# list, though the result pop-up already announced it -- so it no
+	# longer stays around.
+	last_result = {}
 
 	var busy: bool = g.get("sideBattle") != null
 

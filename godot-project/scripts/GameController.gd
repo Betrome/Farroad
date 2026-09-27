@@ -1035,6 +1035,7 @@ func _overlay_host() -> Array:
 ## content into (o["vbox"]) and later finishes via _finish_detail_overlay
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
+var _full_layer: CanvasLayer = null
 func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: bool = false) -> Dictionary:
 	var hs := _overlay_host()
 	var host: Node = hs[0]
@@ -1044,7 +1045,14 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		# opened from closes, and it hosts on the game itself
 		if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 			open_panel.popup.hide()
-		host = self
+		# on its own canvas layer: battle effects (sword trails, spells)
+		# are top-level nodes that would otherwise draw over it, and combat
+		# keeps running behind menus now
+		if _full_layer == null or not is_instance_valid(_full_layer):
+			_full_layer = CanvasLayer.new()
+			_full_layer.layer = 5
+			add_child(_full_layer)
+		host = _full_layer
 		host_size = _vp
 
 	var backdrop := ColorRect.new()
@@ -1076,12 +1084,23 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	backdrop.add_child(box)
 
 	var scroll := ScrollContainer.new()
+	# a full-size screen gets a fixed header above its scrolling list
+	# (o["header"]) for things that should always stay visible
+	var header := VBoxContainer.new()
+	header.add_theme_constant_override("separation", 6)
+	if full:
+		var outer := VBoxContainer.new()
+		outer.add_theme_constant_override("separation", 8)
+		box.add_child(outer)
+		outer.add_child(header)
+		outer.add_child(scroll)
 	# `full` (Ian: "Make the window for customization and stats be full
 	# sized"): the box fills nearly the whole host instead of a small card.
 	var pad: float = _vp.y * 0.05
 	scroll.custom_minimum_size = (Vector2(host_size.x - pad * 1.2, host_size.y - pad * 2.6) if full
 		else Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, _vp.y * 0.6)))
-	box.add_child(scroll)
+	if not full:
+		box.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
 	vbox.custom_minimum_size = Vector2(scroll.custom_minimum_size.x - (16.0 if full else host_size.x * 0.04), 0)
@@ -1106,7 +1125,7 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		if ev is InputEventMouseButton and ev.pressed and ev.button_index in _DISMISS_BUTTONS:
 			get_viewport().set_input_as_handled())
 
-	return {"vbox": vbox, "backdrop": backdrop, "box": box, "host_size": host_size}
+	return {"vbox": vbox, "backdrop": backdrop, "box": box, "host_size": host_size, "header": header, "scroll": scroll}
 
 func _finish_detail_overlay(o: Dictionary) -> void:
 	var backdrop: ColorRect = o["backdrop"]
@@ -1451,14 +1470,17 @@ func _show_change_body_popup() -> void:
 		return
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
+	# Ian: "have the name and character sprite always visible at the top" --
+	# both live in the fixed header; body and colours scroll below them.
+	var header: VBoxContainer = o["header"]
 	var title := Label.new()
 	title.text = "Customize"
 	title.add_theme_font_size_override("font_size", 18)
-	vbox.add_child(title)
+	header.add_child(title)
 
 	# ---- name
 	var name_row := HBoxContainer.new()
-	vbox.add_child(name_row)
+	header.add_child(name_row)
 	var name_edit := LineEdit.new()
 	name_edit.max_length = 20
 	name_edit.text = str(g["mc"].get("name", ""))
@@ -1484,7 +1506,15 @@ func _show_change_body_popup() -> void:
 	body_box.add_theme_constant_override("separation", 6)
 	vbox.add_child(body_box)
 	# lambdas capture locals by value, so shared state lives in a dictionary
-	var state := {"preview": null}
+	var preview := TextureRect.new()
+	preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.custom_minimum_size = Vector2(_vp.x * 0.4, _vp.x * 0.4)
+	header.add_child(preview)
+	var scroll_node: ScrollContainer = o["scroll"]
+	scroll_node.custom_minimum_size.y -= header.get_combined_minimum_size().y + 8.0
+	var state := {"preview": preview}
 	var refresh_preview := func():
 		var pv = state["preview"]
 		if pv == null or not is_instance_valid(pv):
@@ -1496,14 +1526,7 @@ func _show_change_body_popup() -> void:
 		for c in body_box.get_children():
 			c.queue_free()
 		var look := Appearance.look(g, uid)
-		var preview := TextureRect.new()
 		preview.texture = UnitView.body_preview(look["body"])
-		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		preview.custom_minimum_size = Vector2(_vp.x * 0.5, _vp.x * 0.5)
-		state["preview"] = preview
-		body_box.add_child(preview)
 		refresh_preview.call()
 		var brow := HBoxContainer.new()
 		body_box.add_child(brow)
