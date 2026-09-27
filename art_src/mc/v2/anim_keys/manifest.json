@@ -825,6 +825,268 @@
      }
     }
    }
+  ],
+  "cast": [
+   {
+    "key": "cast_ready",
+    "frames": {
+     "male": {
+      "file": "01_cast_ready_male.png",
+      "source_round": "t141",
+      "seed": 3,
+      "sword": {
+       "hilt": [
+        25.4,
+        38.5
+       ],
+       "tip": [
+        39.0,
+        53.1
+       ]
+      },
+      "hand": [
+       40.6,
+       26.0
+      ]
+     },
+     "female": {
+      "file": "01_cast_ready_female.png",
+      "source_round": "t141",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        28.1,
+        39.9
+       ],
+       "tip": [
+        48.1,
+        59.9
+       ]
+      },
+      "hand": [
+       35.4,
+       28.0
+      ]
+     }
+    }
+   },
+   {
+    "key": "cast_gather",
+    "frames": {
+     "male": {
+      "file": "02_cast_gather_male.png",
+      "source_round": "t142",
+      "seed": 1,
+      "sword": {
+       "hilt": [
+        23.3,
+        39.7
+       ],
+       "tip": [
+        40.8,
+        56.2
+       ]
+      },
+      "hand": [
+       38.7,
+       23.5
+      ]
+     },
+     "female": {
+      "file": "02_cast_gather_female.png",
+      "source_round": "t142",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        30.5,
+        41.5
+       ],
+       "tip": [
+        49.1,
+        59.9
+       ]
+      },
+      "hand": [
+       29.7,
+       26.4
+      ]
+     }
+    }
+   },
+   {
+    "key": "cast_push",
+    "frames": {
+     "male": {
+      "file": "03_cast_push_male.png",
+      "source_round": "t145",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        23.6,
+        39.2
+       ],
+       "tip": [
+        38.8,
+        56.2
+       ]
+      },
+      "hand": [
+       43.3,
+       23.4
+      ]
+     },
+     "female": {
+      "file": "03_cast_push_female.png",
+      "source_round": "t145",
+      "seed": 3,
+      "sword": {
+       "hilt": [
+        31.1,
+        38.9
+       ],
+       "tip": [
+        47.7,
+        56.3
+       ]
+      },
+      "hand": [
+       41.6,
+       26.3
+      ]
+     }
+    },
+    "inbetween": true
+   },
+   {
+    "key": "cast_release",
+    "frames": {
+     "male": {
+      "file": "04_cast_release_male.png",
+      "source_round": "t143",
+      "seed": 3,
+      "sword": {
+       "hilt": [
+        22.3,
+        37.7
+       ],
+       "tip": [
+        33.7,
+        49.3
+       ]
+      },
+      "hand": [
+       43.9,
+       23.2
+      ]
+     },
+     "female": {
+      "file": "04_cast_release_female.png",
+      "source_round": "t143",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        30.5,
+        37.5
+       ],
+       "tip": [
+        50.0,
+        59.1
+       ]
+      },
+      "hand": [
+       44.0,
+       28.0
+      ]
+     }
+    }
+   },
+   {
+    "key": "cast_follow",
+    "frames": {
+     "male": {
+      "file": "05_cast_follow_male.png",
+      "source_round": "t144",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        32.5,
+        39.2
+       ],
+       "tip": [
+        47.5,
+        56.5
+       ]
+      },
+      "hand": [
+       41.1,
+       31.7
+      ]
+     },
+     "female": {
+      "file": "05_cast_follow_female.png",
+      "source_round": "t144",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        30.8,
+        39.2
+       ],
+       "tip": [
+        50.6,
+        59.4
+       ]
+      },
+      "hand": [
+       36.6,
+       31.6
+      ]
+     }
+    }
+   },
+   {
+    "key": "cast_recover",
+    "frames": {
+     "male": {
+      "file": "06_cast_recover_male.png",
+      "source_round": "t146",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        26.1,
+        38.5
+       ],
+       "tip": [
+        48.3,
+        51.9
+       ]
+      },
+      "hand": [
+       38.4,
+       33.4
+      ]
+     },
+     "female": {
+      "file": "06_cast_recover_female.png",
+      "source_round": "t146",
+      "seed": 2,
+      "sword": {
+       "hilt": [
+        26.2,
+        39.1
+       ],
+       "tip": [
+        47.7,
+        51.2
+       ]
+      },
+      "hand": [
+       37.4,
+       31.5
+      ]
+     }
+    },
+    "inbetween": true
+   }
   ]
  }
 }
