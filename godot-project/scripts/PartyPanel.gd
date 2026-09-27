@@ -196,6 +196,20 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 		row_btn.tooltip_text = "Tap to move to the %s row" % ("back" if cur_row == "front" else "front")
 		row_btn.pressed.connect(_on_row_toggle_pressed.bind(uid))
 		row.add_child(row_btn)
+		# Ian: jumping to attack stays the default, running is a per-unit
+		# option -- shown once the unit's art has a run animation.
+		var frames = load("res://sprites/units/%s.tres" % Appearance.sprite_set(g, uid))
+		if frames is SpriteFrames and frames.has_animation("run"):
+			var cur_ap: String = str((g.get("approach", {}) as Dictionary).get(uid, "jump"))
+			var ap_btn := Button.new()
+			ap_btn.text = "Run" if cur_ap == "run" else "Jump"
+			ap_btn.tooltip_text = "How this unit reaches its target -- tap to switch"
+			ap_btn.pressed.connect(func():
+				if not g.has("approach") or g["approach"] == null:
+					g["approach"] = {}
+				g["approach"][uid] = "jump" if cur_ap == "run" else "run"
+				_refresh_roster())
+			row.add_child(ap_btn)
 	var btn := Button.new()
 	btn.text = action_text
 	btn.disabled = disabled

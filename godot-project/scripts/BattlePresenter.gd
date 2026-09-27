@@ -1765,7 +1765,9 @@ func _animate_beat(e: Dictionary) -> void:
 		# touching down: start it (time to its impact frame) before landing,
 		# plus a short beat. If the wind-up is longer than the jump allows,
 		# play it faster so the hit still lands on touchdown.
-		var to_impact: float = actor_view.time_to_impact("attack")
+		# Ian: charge actions get their own flashier move when the art has one
+		var strike_anim: String = "charge" if act != null and act.get("isCharge", false) and actor_view.has_animation("charge") else "attack"
+		var to_impact: float = actor_view.time_to_impact(strike_anim)
 		var start_at: float = leg_time + LAND_TO_HIT - to_impact
 		var min_start: float = leg_time * ATTACK_EARLIEST_IN_LEG
 		var attack_speed := 1.0
@@ -1777,7 +1779,7 @@ func _animate_beat(e: Dictionary) -> void:
 		# Real attack art: the hit lands on the animation's impact frame,
 		# with the weapon trail in the action's element colour (UnitView).
 		actor_view.set_attack_element(act.get("element") if act != null else null)
-		actor_view.play_state("attack", attack_speed)
+		actor_view.play_state(strike_anim, attack_speed)
 		while not leg_done[0]:
 			await get_tree().process_frame
 		await actor_view.wait_for_impact()
@@ -1873,6 +1875,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		stagger[h["targetName"]] = n + 1
 		if h["evaded"]:
 			DamageNumber.spawn(self, tv.damage_spawn_position(), "Evade", Color(0.75, 0.75, 0.75), n)
+			tv.evade()
 		else:
 			var color := Color(1.0, 0.55, 0.2) if h.get("crit") else Color(1.0, 0.9, 0.3)
 			DamageNumber.spawn(self, tv.damage_spawn_position(), str(h["damage"]), color, n)

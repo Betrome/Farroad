@@ -495,7 +495,17 @@ func _on_anim_frame() -> void:
 	else:
 		_fx.swing(cur[0], cur[1], f == impact)
 
+## Below this share of max HP a unit with an "idle_low" animation idles
+## hunched and wounded instead (Ian: low-HP idle).
+const LOW_HP_FRAC := 0.25
+
+func _is_low_hp() -> bool:
+	var hp := float(unit["hp"])
+	return hp > 0.0 and hp / float(unit["maxHp"]) < LOW_HP_FRAC
+
 func play_state(anim_name: String, speed: float = 1.0) -> void:
+	if anim_name == "idle" and _is_low_hp() and has_animation("idle_low"):
+		anim_name = "idle_low"
 	if shape is AnimatedSprite2D:
 		var asp: AnimatedSprite2D = shape
 		if asp.sprite_frames != null and asp.sprite_frames.has_animation(anim_name):
@@ -552,10 +562,32 @@ func time_to_impact(anim_name: String) -> float:
 ## animations at all, so it always answers false (today's jump/hop,
 ## unchanged).
 func prefers_run_approach() -> bool:
+	# Ian: jumping stays the default; running is a per-unit choice (Party
+	# tab, g["approach"][uid]) for units whose art has a "run" animation.
+	if not has_animation("run") or not unit.get("isParty", false):
+		return false
+	return str((game_state.get("approach", {}) as Dictionary).get(unit["id"], "jump")) == "run"
+
+func has_animation(anim_name: String) -> bool:
 	if not (shape is AnimatedSprite2D):
 		return false
 	var asp: AnimatedSprite2D = shape
-	return asp.sprite_frames != null and asp.sprite_frames.has_animation("run")
+	return asp.sprite_frames != null and asp.sprite_frames.has_animation(anim_name)
+
+## Plays a one-shot animation (if the art has it), then settles back to idle.
+func play_then_idle(anim_name: String, cap: float = 1.5) -> void:
+	if not has_animation(anim_name):
+		play_state("idle")
+		return
+	play_state(anim_name)
+	await wait_for_animation(cap)
+	if is_instance_valid(self) and float(unit["hp"]) > 0.0 and String((shape as AnimatedSprite2D).animation) == anim_name:
+		play_state("idle")
+
+## An attack that missed this unit: a quick dodge (Ian: evade animation).
+func evade() -> void:
+	if float(unit["hp"]) > 0.0:
+		play_then_idle("evade", 0.8)
 
 ## Called by BattlePresenter.sync_mc_name right after a MC rename -- unlike
 ## hp/charge, the unit dict's own "name" field isn't re-read every frame,
@@ -591,9 +623,19 @@ func update_hp() -> void:
 		visible = true
 		modulate.a = 0.35
 		return
+	var was_down := _played_dead_state
 	_played_dead_state = false
 	visible = true
 	modulate.a = 1.0
+	# Ian: revived units get up instead of popping straight to idle; and
+	# a unit idling crosses between the normal and the wounded idle as its
+	# HP moves past LOW_HP_FRAC.
+	if was_down:
+		play_then_idle("revive", 2.0)
+	elif shape is AnimatedSprite2D:
+		var cur := String((shape as AnimatedSprite2D).animation)
+		if cur == "idle" or cur == "idle_low":
+			play_state("idle")
 
 ## Re-reads unit["charge"] against its own chargeAction's costOfCharge --
 ## same "live dict, no separate sync" reasoning as update_hp(). A unit

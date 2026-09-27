@@ -54,8 +54,25 @@ ANIMS = {   # (key, hold, sword layer, align[, role]) -- role "swing" = first fr
     "dead": {"fps": 10, "steps": [("collapse_knees", 2, "front", "feet"), ("collapse_fall", 1, "front", "feet"),
                                   ("topple", 1, "front", "feet"), ("topple_fall", 1, "front", "feet"),
                                   ("lying", 1, "front", "feet")]},
+    # Ian's second animation batch (all optional until their keys exist).
+    # Key names follow the keyframe brief; adjust once the keys land.
+    "run": {"fps": 12, "optional": True, "steps": [
+        ("run_contact", 1, "front", "feet"), ("run_down", 1, "front", "feet"),
+        ("run_pass", 1, "front", "feet"), ("run_up", 1, "front", "air")]},
+    "evade": {"fps": 14, "optional": True, "steps": [
+        ("evade_crouch", 1, "front", "feet"), ("evade_lean", 3, "front", "feet"),
+        ("evade_recover", 2, "front", "feet")]},
+    "revive": {"fps": 10, "optional": True, "steps": [
+        ("revive_down", 2, "front", "feet"), ("revive_sit", 2, "front", "feet"),
+        ("revive_kneel", 3, "front", "feet"), ("revive_rise", 2, "front", "feet")]},
+    "charge": {"fps": 14, "optional": True, "steps": [
+        ("charge_ready", 4, "front", "feet"), ("charge_leap", 2, "front", "air"),
+        ("charge_slash", 1, "front", "feet", "swing"), ("charge_impact", 4, "front", "feet", "impact"),
+        ("charge_recover", 2, "front", "feet")]},
+    # the wounded idle breathes in layers like the normal idle (one key)
+    "idle_low": {"fps": 8, "optional": True, "living": True, "steps": [("lowhp_idle", 1, "front", "feet")]},
 }
-LOOPS = {"idle"}
+LOOPS = {"idle", "idle_low", "run"}
 
 # Where each master holds its sword (master_64 coords, facing right) and which
 # of the master's own pixels are its old sword, to be erased: rects of
@@ -235,7 +252,11 @@ def main():
             dx = ref[0] - ax
             dy = (torso_y_ref - _torso_y(erased)) if align == "air" else (ref[1] - ay)
             ground = ay if align == "feet" else None
-            for h, (f, p, weapon) in enumerate(lf.hold_frames(erased, parts, grip, ang, layer, hold, ground)):
+            if spec.get("living"):
+                frames_iter = [(f, p, w) for f, p, w in lf.idle_frames(erased, parts, grip, ang, layer)]
+            else:
+                frames_iter = lf.hold_frames(erased, parts, grip, ang, layer, hold, ground)
+            for h, (f, p, weapon) in enumerate(frames_iter):
                 out.append((f, (dx, dy), weapon, p))
                 if key in HANDS:
                     hands_raw.setdefault(anim, {})[len(out) - 1] = (HANDS[key][0] + PAD + dx, HANDS[key][1] + PAD + dy)
