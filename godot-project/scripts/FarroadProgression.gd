@@ -399,7 +399,7 @@ static func do_pull(g: Dictionary) -> Dictionary:
 ## only exists for an actually-purchasable entry).
 ## Crystal sources -- dungeons and companion quest stages pay ONLY Crystal
 ## (no Aether/Marks), per Ian's follow-up to the Crystal/Shop batch.
-const DUNGEON_CRYSTAL := 10
+const DUNGEON_CRYSTAL := 1
 const QUEST_STAGE_CRYSTAL := 1
 const SHOP_GAMBIT_PRICE := 10
 const SHOP_ACTION_PRICE := {"common": 20, "rare": 50, "legendary": 100}

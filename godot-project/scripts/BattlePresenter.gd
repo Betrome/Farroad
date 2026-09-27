@@ -1630,6 +1630,7 @@ func _run_battle_loop() -> void:
 	# same safe fallback every non-"party" outcome already gets).
 	if battle["over"] == null:
 		battle["over"] = "draw"
+	_release_chained("")
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])
@@ -1659,6 +1660,45 @@ func _refresh_charge_bars() -> void:
 func _field_center() -> Vector2:
 	return Vector2(_vp.x / 2.0, (field_top + field_bottom) / 2.0)
 
+## Ian: "If targeting all allies, have it go to the center of your party.
+## If targeting all enemies, have it hit the center of all enemies." The
+## middle of the living units on one side -- rest spots (`body` false) or
+## their body centres (`body` true, where spells land).
+func _side_center(party_side: bool, body: bool) -> Vector2:
+	var sum := Vector2.ZERO
+	var n := 0
+	for v in unit_views_by_id.values():
+		if not is_instance_valid(v) or bool(v.unit["isParty"]) != party_side or float(v.unit["hp"]) <= 0.0:
+			continue
+		sum += v.body_center_global() if body else v.rest_position
+		n += 1
+	return sum / n if n > 0 else _field_center()
+
+func _is_phys_action(action_id: String) -> bool:
+	var a = FarroadCore.ACTIONS.get(action_id)
+	return a != null and a.get("camp") == "atk" and not a.get("heal")
+
+## Ian: "If a character has multiple physical attacks in a row, have them
+## move from their first target to their second, rather than back to their
+## starting position." A unit whose next turn (per the locked turn order)
+## is another physical attack stays where it struck -- uid -> use_run --
+## and its next beat's approach starts from there. Anyone left waiting
+## whose next beat turns out different goes home first.
+var _chained: Dictionary = {}
+
+func _release_chained(except_uid: String) -> void:
+	for uid in _chained.keys():
+		if uid == except_uid:
+			continue
+		var v: UnitView = unit_views_by_id.get(uid)
+		var use_run: bool = _chained[uid]
+		_chained.erase(uid)
+		if v != null and is_instance_valid(v):
+			var alive: bool = float(v.unit["hp"]) > 0.0
+			if alive:
+				v.play_state("run" if use_run else "jump")
+			_return_and_settle(v, use_run, alive, HOP_TIME)
+
 func _animate_beat(e: Dictionary) -> void:
 	var actor_view: UnitView = unit_views_by_id.get(e["actorId"])
 	if actor_view == null:
@@ -1678,8 +1718,17 @@ func _animate_beat(e: Dictionary) -> void:
 	# below regardless of where the visual itself flew, so redirecting
 	# ONLY the animation's destination here is safe and sufficient.
 	var is_aoe: bool = act != null and (act.get("tk") == "allFoes" or act.get("tk") == "allAllies")
-	var dest_rest: Vector2 = _field_center() if is_aoe else target_view.rest_position
-	var dest_world: Vector2 = _field_center() if is_aoe else target_view.position
+	var aoe_side: bool = bool(actor_view.unit["isParty"]) == (act != null and act.get("tk") == "allAllies")
+	var dest_rest: Vector2 = _side_center(aoe_side, false) if is_aoe else target_view.rest_position
+	var dest_world: Vector2 = _side_center(aoe_side, true) if is_aoe else target_view.position
+
+	# a unit still standing at its last target: carries on if this beat is
+	# its own next physical attack, otherwise heads home now
+	var chain_start := Vector2.ZERO
+	if _chained.has(e["actorId"]) and is_phys:
+		chain_start = actor_view.shape.position
+		_chained.erase(e["actorId"])
+	_release_chained("")
 
 	# 24-item batch (Group B4): reduces both the visual tween durations AND
 	# the post-beat gate together, floored at MIN_BEAT_FLOOR so a long
@@ -1707,9 +1756,9 @@ func _animate_beat(e: Dictionary) -> void:
 		var leg_done := [false]
 		var leg := func():
 			if use_run:
-				await _run_to(actor_view, Vector2.ZERO, approach_offset, leg_time)
+				await _run_to(actor_view, chain_start, approach_offset, leg_time)
 			else:
-				await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
+				await _hop(actor_view, chain_start, approach_offset, leg_time)
 			leg_done[0] = true
 		leg.call()
 		# Ian: the attack starts in the air so the HIT lands right after
@@ -1739,6 +1788,14 @@ func _animate_beat(e: Dictionary) -> void:
 		# update_hp() already set "dead" for that case; don't stomp it back
 		# to jump/idle right after.
 		var actor_still_alive: bool = float(actor_view.unit["hp"]) > 0.0
+		var phys_gate: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
+		if actor_still_alive and battle["over"] == null:
+			var nxt: Array = _preview_respecting_locks()
+			if not nxt.is_empty() and nxt[0]["unitId"] == e["actorId"] and _is_phys_action(nxt[0]["actionId"]):
+				_chained[e["actorId"]] = use_run
+				actor_view.play_state("idle")
+				await get_tree().create_timer(maxf(0.05, phys_gate - leg_time)).timeout
+				return
 		if actor_still_alive:
 			actor_view.play_state("run" if use_run else "jump")
 		# Ian (Group B3): "have the next action take place while they are
@@ -1769,7 +1826,7 @@ func _animate_beat(e: Dictionary) -> void:
 		var to_release: float = actor_view.time_to_mark("cast", "release")
 		var gather_t: float = to_release if to_release > 0.0 else magic_total * 0.45
 		await fx.gather(actor_view.cast_hand_global(), gather_t)
-		var hit_at: Vector2 = dest_world if is_aoe else target_view.body_center_global()
+		var hit_at: Vector2 = dest_world if is_aoe else target_view.body_center_global()  # AoE: that side's centre
 		await fx.launch(actor_view.cast_hand_global(), hit_at, maxf(0.18, magic_total * 0.5))
 		fx.burst(hit_at)
 		_apply_hit_effects(e)

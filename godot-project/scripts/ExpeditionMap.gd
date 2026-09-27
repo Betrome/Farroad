@@ -98,6 +98,18 @@ func _build_direction_buttons() -> void:
 		add_child(btn)
 		_direction_buttons[dir] = btn
 		_style_direction_button(btn, dir)
+		# Ian: "Show furthest wave reached in each direction" -- the
+		# direction's own maxDepth, just inward of its button.
+		var depth: int = int(g["directions"].get(dir, {}).get("maxDepth", 0))
+		var lbl := Label.new()
+		lbl.text = "W%d" % depth if depth > 0 else "—"
+		lbl.add_theme_font_size_override("font_size", maxi(8, int(btn_size * 0.28)))
+		lbl.add_theme_color_override("font_color", Palette.TEXT_INK)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.size = Vector2(btn_size * 1.4, btn_size * 0.4)
+		lbl.position = pos - _dir_vec(dir) * btn_size * 0.95 - lbl.size / 2.0
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(lbl)
 
 func _style_direction_button(btn: Button, dir: String) -> void:
 	var occupied: bool = false

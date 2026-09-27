@@ -964,9 +964,11 @@ func _refresh_hud() -> void:
 ## see BattlePresenter.loop_paused's own comment for why this exists. Only
 ## one of these popups is ever open at a time in practice, so a single
 ## shared pause flag is enough -- no need to track which panel asked.
-func _set_battle_paused(paused: bool) -> void:
-	if current_presenter != null:
-		current_presenter.call("set_loop_paused", paused)
+## Ian: "Don't have menu pause combat." Kept as the panels' shared hook,
+## but menus no longer stop the fight (side battles still park the Road
+## via set_loop_paused directly).
+func _set_battle_paused(_paused: bool) -> void:
+	pass
 
 ## Called by every panel (dynamic has_method()+call()) at the very start
 ## of its own _on_toggle_pressed, BEFORE opening its own popup -- closes
@@ -1033,10 +1035,17 @@ func _overlay_host() -> Array:
 ## content into (o["vbox"]) and later finishes via _finish_detail_overlay
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
-func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER) -> Dictionary:
+func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: bool = false) -> Dictionary:
 	var hs := _overlay_host()
 	var host: Node = hs[0]
 	var host_size: Vector2 = hs[1]
+	if full:
+		# a full-size screen takes over the whole view: the menu it was
+		# opened from closes, and it hosts on the game itself
+		if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
+			open_panel.popup.hide()
+		host = self
+		host_size = _vp
 
 	var backdrop := ColorRect.new()
 	backdrop.color = Color(0, 0, 0, 0.55)
@@ -1067,11 +1076,15 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER) -> Dict
 	backdrop.add_child(box)
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, _vp.y * 0.6))
+	# `full` (Ian: "Make the window for customization and stats be full
+	# sized"): the box fills nearly the whole host instead of a small card.
+	var pad: float = _vp.y * 0.05
+	scroll.custom_minimum_size = (Vector2(host_size.x - pad * 1.2, host_size.y - pad * 2.6) if full
+		else Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, _vp.y * 0.6)))
 	box.add_child(scroll)
 
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(host_size.x * 0.76, 0)
+	vbox.custom_minimum_size = Vector2(scroll.custom_minimum_size.x - (16.0 if full else host_size.x * 0.04), 0)
 	vbox.add_theme_constant_override("separation", 8)
 	scroll.add_child(vbox)
 
@@ -1305,7 +1318,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 ## state except enemies defeated (g["enemiesDefeated"], a real counter
 ## bumped by every win path -- Road, quests, dungeons, expeditions).
 func _show_stats_popup() -> void:
-	var o := _build_detail_overlay()
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
 	title.text = "Stats"
@@ -1427,52 +1440,71 @@ func _show_change_name_popup() -> void:
 
 	await _finish_detail_overlay(o)
 
-## Ian: "let people change it in the menu" -- male/female main character.
-## Ian: male/female plus colours for skin, hair, eyes, top, bottoms and
-## shoes, for the MC and every owned unit (see Appearance). Changes apply
-## live -- in battle too -- and save straight away.
+## Ian: "let people change it in the menu" -- male/female main character,
+## plus colours for skin, hair, eyes, top, bottoms and shoes (presets and
+## RGB sliders). Ian: "Can only customize the MC" and "Move change name to
+## the customization box" -- so this is the MC's one full-size customise
+## screen: name, body, colours. Changes apply live, in battle too, and save
+## straight away.
 func _show_change_body_popup() -> void:
 	if g.get("mc") == null:
 		return
-	var o := _build_detail_overlay()
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
-	title.text = "Appearance"
+	title.text = "Customize"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
 
-	var uids: Array = ["kesh"]
-	for uid in (g.get("owned", {}) as Dictionary).keys():
-		if uid != "kesh":
-			uids.append(uid)
-	var picker := OptionButton.new()
-	for uid in uids:
-		var def = FarroadCore.roster_by_id(uid)
-		picker.add_item(def["name"] if def else uid)
-	vbox.add_child(picker)
+	# ---- name
+	var name_row := HBoxContainer.new()
+	vbox.add_child(name_row)
+	var name_edit := LineEdit.new()
+	name_edit.max_length = 20
+	name_edit.text = str(g["mc"].get("name", ""))
+	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_row.add_child(name_edit)
+	var save_name := Button.new()
+	save_name.text = "Rename"
+	save_name.pressed.connect(func():
+		var sanitized := _sanitize_mc_name(name_edit.text)
+		if sanitized == "":
+			return
+		var old_name: String = str(g["mc"].get("name", ""))
+		FarroadProgression.set_mc_name(g, sanitized)
+		name_edit.text = sanitized
+		for p in [current_presenter, side_presenter]:
+			if p != null:
+				p.call("sync_mc_name", old_name, sanitized)
+		_save_game())
+	name_row.add_child(save_name)
 
+	var uid := "kesh"
 	var body_box := VBoxContainer.new()
 	body_box.add_theme_constant_override("separation", 6)
 	vbox.add_child(body_box)
-	# lambdas capture locals by value, so the rebuild callable lives in a
-	# shared dictionary to be able to call itself
-	var state := {"uid": "kesh"}
+	# lambdas capture locals by value, so shared state lives in a dictionary
+	var state := {"preview": null}
+	var refresh_preview := func():
+		var pv = state["preview"]
+		if pv == null or not is_instance_valid(pv):
+			return
+		var frames = load("res://sprites/units/%s.tres" % Appearance.sprite_set(g, uid))
+		if frames != null and frames.has_meta("part_ref"):
+			pv.material = Appearance.material_for(g, uid, frames.get_meta("part_ref"))
 	state["rebuild"] = func():
 		for c in body_box.get_children():
 			c.queue_free()
-		var uid: String = state["uid"]
 		var look := Appearance.look(g, uid)
-		# preview: the unit's idle frame through its own recolour
 		var preview := TextureRect.new()
 		preview.texture = UnitView.body_preview(look["body"])
 		preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		preview.custom_minimum_size = Vector2(_vp.x * 0.5, _vp.x * 0.5)
-		var frames = load("res://sprites/units/%s.tres" % Appearance.sprite_set(g, uid))
-		if frames != null and frames.has_meta("part_ref"):
-			preview.material = Appearance.material_for(g, uid, frames.get_meta("part_ref"))
+		state["preview"] = preview
 		body_box.add_child(preview)
+		refresh_preview.call()
 		var brow := HBoxContainer.new()
 		body_box.add_child(brow)
 		for body in ["male", "female"]:
@@ -1481,8 +1513,7 @@ func _show_change_body_popup() -> void:
 			bb.disabled = body == look["body"]
 			bb.pressed.connect(func():
 				Appearance.set_body(g, uid, body)
-				if uid == "kesh":
-					UnitView.mc_body = body
+				UnitView.mc_body = body
 				_appearance_changed(uid)
 				state["rebuild"].call())
 			brow.add_child(bb)
@@ -1516,10 +1547,55 @@ func _show_change_body_popup() -> void:
 					_appearance_changed(uid)
 					state["rebuild"].call())
 				row.add_child(sw)
-	picker.item_selected.connect(func(i: int):
-		state["uid"] = uids[i]
-		state["rebuild"].call())
+			# Ian: "Add rgb color sliders to character customization." They
+			# start from the current colour (or the first preset, close to
+			# the sprite's own, while the part is still Original); dragging
+			# recolours the preview live, and the colour saves on release.
+			var start := Color(str(cur)) if cur != null else Color(str(Appearance.PRESETS[part][0]))
+			var grid := GridContainer.new()
+			grid.columns = 4
+			body_box.add_child(grid)
+			var chip := ColorRect.new()
+			chip.color = start
+			chip.custom_minimum_size = Vector2(_vp.x * 0.06, _vp.x * 0.06)
+			var sliders := []
+			for ch in 3:
+				var cl := Label.new()
+				cl.text = ["R", "G", "B"][ch]
+				grid.add_child(cl)
+				var sl := HSlider.new()
+				sl.min_value = 0
+				sl.max_value = 255
+				sl.step = 1
+				sl.value = roundi([start.r, start.g, start.b][ch] * 255.0)
+				sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				sl.custom_minimum_size = Vector2(0, _vp.y * 0.03)
+				grid.add_child(sl)
+				var vl := Label.new()
+				vl.text = str(int(sl.value))
+				vl.custom_minimum_size = Vector2(_vp.x * 0.09, 0)
+				grid.add_child(vl)
+				if ch == 0:
+					grid.add_child(chip)
+				else:
+					grid.add_child(Control.new())
+				sliders.append([sl, vl])
+			var apply := func(save: bool):
+				var c := Color8(int(sliders[0][0].value), int(sliders[1][0].value), int(sliders[2][0].value))
+				for pair in sliders:
+					pair[1].text = str(int(pair[0].value))
+				chip.color = c
+				Appearance.set_part(g, uid, part, "#" + c.to_html(false))
+				refresh_preview.call()
+				if save:
+					_appearance_changed(uid)
+			for pair in sliders:
+				pair[0].value_changed.connect(func(_v): apply.call(false))
+				pair[0].drag_ended.connect(func(_changed): apply.call(true))
 	state["rebuild"].call()
+	# a tap on a slider (no drag) still changes the colour -- make sure it
+	# reaches the battle and the save when the screen closes
+	o["backdrop"].tree_exiting.connect(func(): _appearance_changed(uid))
 	await _finish_detail_overlay(o)
 
 func _appearance_changed(uid: String) -> void:
@@ -1655,6 +1731,91 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 ## nests correctly on top of this one since both are siblings under the
 ## same host popup, not nested inside each other (see
 ## _build_detail_overlay's own comment).
+## Ian: "Shop: inspection icon to see details of actions, units, etc" --
+## a roster unit's base stats, growth, affinities and charge action.
+func _show_unit_detail_popup(uid: String) -> void:
+	var d = FarroadCore.roster_by_id(uid)
+	if d == null:
+		return
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var color: Color = RARITY_COLOR.get(d.get("rarity", "common"), Color(1, 1, 1))
+	var title := RichTextLabel.new()
+	title.bbcode_enabled = true
+	title.fit_content = true
+	title.text = "[b][color=#%s]%s[/color][/b]  %s · %s row" % [color.to_html(false), d["name"],
+		str(d.get("role", "")).capitalize(), str(d.get("row", "front"))]
+	vbox.add_child(title)
+	var st: Dictionary = d.get("stats", {})
+	var stat_lbl := Label.new()
+	stat_lbl.text = "HP %d   ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [int(d.get("hp", 0)),
+		str(st.get("atk", 0)), str(st.get("mag", 0)), str(st.get("def", 0)), str(st.get("res", 0)), str(st.get("spd", 0))]
+	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(stat_lbl)
+	var gr = FarroadProgression.GROWTH.get(uid)
+	if gr != null:
+		var gbits: Array = []
+		for k in gr.keys():
+			gbits.append("%s +%s" % [str(k).to_upper(), str(snappedf(float(gr[k]), 0.01))])
+		var gl := Label.new()
+		gl.text = "Growth per level: %s" % ", ".join(gbits)
+		gl.modulate = Palette.TEXT_DIM
+		gl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		gl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(gl)
+	var crit := Label.new()
+	crit.text = "ATK crit %.0f%%   MAG crit %.0f%%   Evade %.0f%%" % [float(st.get("atkCrit", 0)) * 100.0,
+		float(st.get("magCrit", 0)) * 100.0, float(st.get("evade", 0)) * 100.0]
+	crit.autowrap_mode = TextServer.AUTOWRAP_WORD
+	crit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(crit)
+	var aff: Dictionary = d.get("affinity", {})
+	var aff_bits: Array = []
+	for ax in aff.keys():
+		if float(aff[ax]) != 0.0:
+			aff_bits.append("%s %+d" % [str(ax).capitalize(), int(aff[ax])])
+	if not aff_bits.is_empty():
+		var al := Label.new()
+		al.text = "Affinity: %s" % ", ".join(aff_bits)
+		al.autowrap_mode = TextServer.AUTOWRAP_WORD
+		al.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(al)
+	if d.get("chargeAction"):
+		var cid: String = d["chargeAction"]
+		var cact = FarroadCore.ACTIONS.get(cid)
+		var row := HBoxContainer.new()
+		var cl := Label.new()
+		cl.text = "⚡ Charge action: %s" % (cact["name"] if cact else cid)
+		cl.modulate = Palette.GOLD_PRESSED
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		cl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(cl)
+		var ib := Button.new()
+		ib.text = "ⓘ"
+		ib.custom_minimum_size = Vector2(36, 0)
+		ib.pressed.connect(_show_action_detail_popup.bind(cid))
+		row.add_child(ib)
+		vbox.add_child(row)
+	_finish_detail_overlay(o)
+
+## A gambit condition's full wording and which side it reads.
+func _show_gambit_detail_popup(cond_id: String) -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title := RichTextLabel.new()
+	title.bbcode_enabled = true
+	title.fit_content = true
+	title.text = "[b]%s[/b]" % FarroadCore.cond_label(cond_id)
+	vbox.add_child(title)
+	var side := "a foe" if cond_id.begins_with("foe_") else ("an ally" if cond_id.begins_with("ally_") else "the unit itself")
+	var lbl := Label.new()
+	lbl.text = "Checks %s. When true, the gambit slot's action fires (on the matching target); otherwise the unit tries its next slot." % side
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(lbl)
+	_finish_detail_overlay(o)
+
 func _show_enemy_detail_popup(arch_key: String) -> void:
 	var a = FarroadCore.ARCH.get(arch_key)
 	if a == null:

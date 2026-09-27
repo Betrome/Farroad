@@ -280,6 +280,11 @@ func _refresh_send_picker() -> void:
 		none_lbl.text = "(no benched units available to send)"
 		none_lbl.modulate = Palette.TEXT_DIM
 		send_container.add_child(none_lbl)
+		# the map still shows how far each direction has been explored
+		var idle_size: float = _vp.x * 0.96 - 40.0
+		var idle_map := ExpeditionMap.new()
+		idle_map.setup(g, Vector2(idle_size, idle_size), selected_direction, _on_direction_selected, _on_log_pressed)
+		send_container.add_child(idle_map)
 		return
 
 	# Post-Milestone-3 APK feedback (Group B5): "increase their size" -- every

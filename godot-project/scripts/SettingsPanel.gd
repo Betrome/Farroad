@@ -75,15 +75,10 @@ func _build_ui(parent: Node) -> void:
 			_parent.call("_show_stats_popup"))
 	vbox.add_child(stats_btn)
 
-	# Ian: "add a button to change our main character's name."
-	var change_name_btn := Button.new()
-	change_name_btn.text = "Change Name"
-	change_name_btn.pressed.connect(_on_change_name_pressed)
-	vbox.add_child(change_name_btn)
-
+	# (Ian: the name now lives in the Customize screen.)
 	# Ian: male/female main character, changeable any time.
 	var body_btn := Button.new()
-	body_btn.text = "Change Appearance"
+	body_btn.text = "Customize Character"
 	body_btn.pressed.connect(func():
 		if _parent and _parent.has_method("_show_change_body_popup"):
 			_parent.call("_show_change_body_popup"))

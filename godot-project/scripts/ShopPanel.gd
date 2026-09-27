@@ -176,11 +176,18 @@ func _style_purchase_button(btn: Button, available: bool) -> void:
 	btn.add_theme_color_override("font_disabled_color", font)
 	btn.add_theme_color_override("font_hover_color", font)
 
-func _build_buy_row(label_bbcode: String, price: int, callback: Callable) -> HBoxContainer:
+func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_method: String = "", info_arg: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var lbl := _rich_row(label_bbcode)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(lbl)
+	# Ian: "Shop: inspection icon to see details of actions, units, etc"
+	if info_method != "" and _parent and _parent.has_method(info_method):
+		var info_btn := Button.new()
+		info_btn.text = "ⓘ"
+		info_btn.custom_minimum_size = Vector2(36, 0)
+		info_btn.pressed.connect(func(): _parent.call(info_method, info_arg))
+		row.add_child(info_btn)
 	var available: bool = int(g.get("crystal", 0)) >= price
 	var btn := Button.new()
 	btn.text = "%d Crystal" % price
@@ -197,7 +204,7 @@ func _refresh_gambits() -> void:
 		if cid == "none" or g["conditions"].has(cid):
 			continue
 		list_container.add_child(_build_buy_row(FarroadCore.cond_label(cid),
-			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid)))
+			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid), "_show_gambit_detail_popup", cid))
 	if list_container.get_child_count() == 0:
 		list_container.add_child(_empty_label("Every gambit condition is already owned."))
 
@@ -218,7 +225,7 @@ func _refresh_actions() -> void:
 		if owned_ids.has(aid):
 			label += "
 [font_size=12][color=#%s]Owned -- buying again gives +1 Lore for this action[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
-		list_container.add_child(_build_buy_row(label, price, _on_buy_action.bind(aid)))
+		list_container.add_child(_build_buy_row(label, price, _on_buy_action.bind(aid), "_show_action_detail_popup", aid))
 
 func _on_buy_action(aid: String) -> void:
 	if FarroadProgression.buy_shop_action(g, aid):
@@ -232,7 +239,7 @@ func _refresh_units() -> void:
 			continue
 		var price: int = int(FarroadProgression.SHOP_UNIT_PRICE.get(def.get("rarity", "common"), 100))
 		list_container.add_child(_build_buy_row(_rarity_name(def["name"], def.get("rarity", "common")),
-			price, _on_buy_unit.bind(uid)))
+			price, _on_buy_unit.bind(uid), "_show_unit_detail_popup", uid))
 	if list_container.get_child_count() == 0:
 		list_container.add_child(_empty_label("Every unit is already owned."))
 
@@ -249,7 +256,7 @@ func _refresh_equipment() -> void:
 		var owned: int = int(g["equipInv"].get(iid, 0))
 		var suffix: String = " (owned %d)" % owned if owned > 0 else ""
 		list_container.add_child(_build_buy_row(_rarity_name(item["name"], item.get("rarity", "common")) + suffix,
-			price, _on_buy_equipment.bind(iid)))
+			price, _on_buy_equipment.bind(iid), "_show_equipment_detail_popup", iid))
 
 func _on_buy_equipment(iid: String) -> void:
 	if FarroadProgression.buy_shop_equipment(g, iid):
