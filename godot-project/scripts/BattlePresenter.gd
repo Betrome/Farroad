@@ -50,7 +50,8 @@ const HOP_STOP_SHORT := 0.075       # of viewport width
 # PROJECTILE_TIME+BEAT_PAUSE pair -- the projectile's own flight duration
 # IS the full magic beat now, nothing tacked on after.
 const HOP_TIME := 0.475             # outbound leg only now (see above)
-const ATTACK_START_IN_LEG := 0.75   # the attack's wind-up starts this far through the approach leg
+const LAND_TO_HIT := 0.06            # seconds from touching down to the attack's impact frame
+const ATTACK_EARLIEST_IN_LEG := 0.15 # the attack never starts before this share of the jump (takeoff reads first)
 const PHYS_BEAT_TOTAL := 0.75
 const MAGIC_BEAT_TOTAL := 0.75
 const IDLE_PAUSE := 0.45            # no-target/burned-out beats -- nothing to animate anyway
@@ -1711,11 +1712,23 @@ func _animate_beat(e: Dictionary) -> void:
 				await _hop(actor_view, Vector2.ZERO, approach_offset, leg_time)
 			leg_done[0] = true
 		leg.call()
-		await get_tree().create_timer(leg_time * ATTACK_START_IN_LEG).timeout
+		# Ian: the attack starts in the air so the HIT lands right after
+		# touching down: start it (time to its impact frame) before landing,
+		# plus a short beat. If the wind-up is longer than the jump allows,
+		# play it faster so the hit still lands on touchdown.
+		var to_impact: float = actor_view.time_to_impact("attack")
+		var start_at: float = leg_time + LAND_TO_HIT - to_impact
+		var min_start: float = leg_time * ATTACK_EARLIEST_IN_LEG
+		var attack_speed := 1.0
+		if to_impact > 0.0 and start_at < min_start:
+			attack_speed = to_impact / (leg_time + LAND_TO_HIT - min_start)
+			start_at = min_start
+		if start_at > 0.0:
+			await get_tree().create_timer(start_at).timeout
 		# Real attack art: the hit lands on the animation's impact frame,
 		# with the weapon trail in the action's element colour (UnitView).
 		actor_view.set_attack_element(act.get("element") if act != null else null)
-		actor_view.play_state("attack")
+		actor_view.play_state("attack", attack_speed)
 		while not leg_done[0]:
 			await get_tree().process_frame
 		await actor_view.wait_for_impact()

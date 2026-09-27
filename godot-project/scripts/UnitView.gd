@@ -495,11 +495,22 @@ func _on_anim_frame() -> void:
 	else:
 		_fx.swing(cur[0], cur[1], f == impact)
 
-func play_state(anim_name: String) -> void:
+func play_state(anim_name: String, speed: float = 1.0) -> void:
 	if shape is AnimatedSprite2D:
 		var asp: AnimatedSprite2D = shape
 		if asp.sprite_frames != null and asp.sprite_frames.has_animation(anim_name):
-			asp.play(anim_name)
+			asp.play(anim_name, speed)
+
+## Seconds from the start of `anim_name` to its impact frame (0 if it has none).
+func time_to_impact(anim_name: String) -> float:
+	if not (shape is AnimatedSprite2D) or not _impact_meta.has(anim_name):
+		return 0.0
+	var sf: SpriteFrames = (shape as AnimatedSprite2D).sprite_frames
+	var fps: float = sf.get_animation_speed(anim_name)
+	var t := 0.0
+	for i in int(_impact_meta[anim_name]):
+		t += sf.get_frame_duration(anim_name, i) / fps
+	return t
 
 ## Whether this unit's physical-attack approach/return should be a
 ## straight-line RUN instead of the default sine-arc JUMP -- a per-unit
