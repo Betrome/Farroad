@@ -47,6 +47,10 @@ ANIMS = {   # (key, hold, sword layer, align[, role]) -- role "swing" = first fr
                                   ("land_rise", 1, "front", "feet")]},
     "hurt": {"fps": 12, "steps": [("hit_recoil", 1, "front", "feet"), ("hit_flinch", 2, "front", "feet"),
                                   ("hit_recover", 1, "front", "feet")]},
+    "cast": {"fps": 12, "optional": True, "steps": [
+        ("cast_ready", 2, "front", "feet"), ("cast_gather", 3, "front", "feet"), ("cast_push", 1, "front", "feet"),
+        ("cast_release", 2, "front", "feet", "release"), ("cast_follow", 1, "front", "feet"),
+        ("cast_recover", 1, "front", "feet")]},
     "dead": {"fps": 10, "steps": [("collapse_knees", 2, "front", "feet"), ("collapse_fall", 1, "front", "feet"),
                                   ("topple", 1, "front", "feet"), ("topple_fall", 1, "front", "feet"),
                                   ("lying", 1, "front", "feet")]},
@@ -76,6 +80,7 @@ def master_erase(img, rects):
 
 
 SWORDS = {}   # key -> (hilt, tip) from the manifest, when it gives one
+HANDS = {}    # key -> casting palm (x, y) from the manifest (cast keys)
 
 
 def load_manifest(keys_dir, body):
@@ -92,6 +97,8 @@ def load_manifest(keys_dir, body):
                 if not fr:
                     continue
                 paths[k["key"]] = os.path.join(keys_dir, anim, fr["file"])
+                if fr.get("hand"):
+                    HANDS[k["key"]] = tuple(fr["hand"])
                 sw = fr.get("sword")
                 if sw and sw.get("hilt") and sw.get("tip"):
                     SWORDS[k["key"]] = (tuple(sw["hilt"]), tuple(sw["tip"]))
@@ -203,7 +210,10 @@ def main():
 
     # ---- every other animation, aligned to the idle; held frames stay alive
     roles = {}
+    hands_raw = {}
     for anim, spec in ANIMS.items():
+        if spec.get("optional") and any(st[0] not in paths or not paths[st[0]] for st in spec["steps"]):
+            continue
         out = []
         for step in spec["steps"]:
             key, hold, layer, align = step[:4]
@@ -227,6 +237,8 @@ def main():
             ground = ay if align == "feet" else None
             for h, (f, p, weapon) in enumerate(lf.hold_frames(erased, parts, grip, ang, layer, hold, ground)):
                 out.append((f, (dx, dy), weapon, p))
+                if key in HANDS:
+                    hands_raw.setdefault(anim, {})[len(out) - 1] = (HANDS[key][0] + PAD + dx, HANDS[key][1] + PAD + dy)
                 if role and h == 0:
                     roles.setdefault(anim, {})[role] = len(out) - 1
         placed[anim] = out
@@ -274,7 +286,10 @@ def main():
     body = (mbb[2] - mbb[0], mbb[3] - mbb[1])
     impact = {anim: r["impact"] for anim, r in roles.items() if "impact" in r}
     swing = {anim: r["swing"] for anim, r in roles.items() if "swing" in r}
-    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact, refs, swing)
+    release = {anim: r["release"] for anim, r in roles.items() if "release" in r}
+    hand_meta = {anim: [([round(hr[i][0] + ox, 1), round(hr[i][1] + oy, 1)] if i in hr else None)
+                        for i in range(len(placed[anim]))] for anim, hr in hands_raw.items()}
+    write_tres(a.unit_id, placed, fps, a.scale, anchor, body, weapon_meta, impact, refs, swing, release, hand_meta)
     print(f"{a.unit_id}: canvas {W}x{H}, anchor {anchor}, frames " +
           ", ".join(f"{k} {len(v)}" for k, v in placed.items()))
 
@@ -369,7 +384,7 @@ def _gd(v):
     return repr(float(v)) if isinstance(v, float) else str(v)
 
 
-def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref, swing=None):
+def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref, swing=None, release=None, hand=None):
     ext, anims, idx = [], [], 1
     for anim, frames in placed.items():
         refs = []
@@ -387,7 +402,9 @@ def write_tres(uid, placed, fps, scale, anchor, body, weapon, impact, part_ref, 
         "metadata/weapon = %s" % _gd(weapon),
         "metadata/impact = %s" % _gd(impact),
         "metadata/part_ref = %s" % _gd([float(v) for v in part_ref]),
-        "metadata/swing = %s" % _gd(swing or {}), ""]
+        "metadata/swing = %s" % _gd(swing or {}),
+        "metadata/release = %s" % _gd(release or {}),
+        "metadata/hand = %s" % _gd(hand or {}), ""]
     with open(os.path.join(GODOT, "sprites", "units", uid + ".tres"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
 
