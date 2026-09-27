@@ -1755,9 +1755,23 @@ func _animate_beat(e: Dictionary) -> void:
 		var phys_total: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
 		await get_tree().create_timer(maxf(0.05, phys_total - leg_time)).timeout
 	else:
+		# Spells (Ian): the caster's cast animation plays while power gathers
+		# at the casting hand; on the release frame the spell flies with its
+		# element's look and bursts on the target, where the hit lands.
+		var el = act.get("element") if act != null else null
+		if act != null and act.get("heal") and el == null:
+			el = "heal"
+		var fx := _spell_fx()
+		fx.unit_size = actor_view.size
+		fx.begin(el)
 		actor_view.play_state("cast")
 		var magic_total: float = maxf(MIN_BEAT_FLOOR, MAGIC_BEAT_TOTAL - speed_cut)
-		await _animate_projectile(actor_view, dest_world, magic_total)
+		var to_release: float = actor_view.time_to_mark("cast", "release")
+		var gather_t: float = to_release if to_release > 0.0 else magic_total * 0.45
+		await fx.gather(actor_view.cast_hand_global(), gather_t)
+		var hit_at: Vector2 = dest_world if is_aoe else target_view.body_center_global()
+		await fx.launch(actor_view.cast_hand_global(), hit_at, maxf(0.18, magic_total * 0.5))
+		fx.burst(hit_at)
 		_apply_hit_effects(e)
 		if float(actor_view.unit["hp"]) > 0.0:
 			actor_view.play_state("idle")
@@ -1912,6 +1926,14 @@ func _return_and_settle(actor: UnitView, use_run: bool, was_alive: bool, duratio
 ## field's center for an AoE action -- see _animate_beat's own dest_world).
 ## `duration` defaults to MAGIC_BEAT_TOTAL but is passed explicitly once
 ## enrage pacing (Group B4) is in play.
+var _spell_fx_node: AttackFX
+func _spell_fx() -> AttackFX:
+	if _spell_fx_node == null or not is_instance_valid(_spell_fx_node):
+		_spell_fx_node = AttackFX.new()
+		add_child(_spell_fx_node)
+		_spell_fx_node.setup(_vp.y * 0.05)
+	return _spell_fx_node
+
 func _animate_projectile(actor: UnitView, dest: Vector2, duration: float = MAGIC_BEAT_TOTAL) -> void:
 	var bolt := Polygon2D.new()
 	var r: float = _vp.y * 0.008

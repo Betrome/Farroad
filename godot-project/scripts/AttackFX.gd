@@ -29,6 +29,7 @@ const ELEMENTS := {
 	"light": {"color": Color(1.0, 0.93, 0.7), "charge": 0.7, "peak": 1.4, "radius": 2.2},
 	"dark": {"color": Color(0.6, 0.3, 0.9), "charge": 0.6, "peak": 1.5, "radius": 2.0,
 		"subtract": Color(0.45, 0.6, 0.35)},
+	"heal": {"color": Color(0.55, 1.0, 0.55), "charge": 0.6, "peak": 1.2, "radius": 1.8},
 }
 const TRAIL_LIFE := 0.38         # seconds the arc takes to retract and fade
 const ARC_REACH := 1.6           # short swings: arc radius as a share of the blade's reach
@@ -246,6 +247,10 @@ func _light_pattern(t: float) -> void:
 			e = peak if k < 3 and fmod(t, 0.07) < 0.035 else 0.0
 			pos = _light_origin + _swing_dir * (unit_size * 0.6 * t / 0.21)
 			scale = rad * 0.8
+		"heal":   # a soft green swell that rises off the target
+			e = peak * (1.0 - exp(-t / 0.08)) * exp(-t / 0.45)
+			pos = _light_origin + Vector2(0, -25.0 * t)
+			scale = rad * (0.9 + 0.3 * t)
 		"light":  # a slow swell and a long soft fade
 			e = peak * (1.0 - exp(-t / 0.05)) * exp(-t / 0.5)
 			scale = rad * (0.9 + 0.4 * t)
@@ -269,6 +274,9 @@ func _start_blade_emitter(at: Vector2) -> void:
 		return
 	var c := _emitter(at, false)
 	match element:
+		"heal":
+			_fx_setup(c, 10, 0.5, Vector2.UP, 180.0, 5.0, 20.0, Vector2(0, -20), 1.0, 2.0, _ramp([Color(0.85, 1, 0.8), Color(0.4, 0.95, 0.45, 0.0)]))
+			c.texture = _star_texture()
 		"fire":
 			_fx_setup(c, 18, 0.35, Vector2.UP, 40.0, 10.0, 35.0, Vector2(0, -60), 1.5, 3.0, _ramp([Color(1, 0.9, 0.4), Color(1, 0.45, 0.1), Color(0.6, 0.1, 0.05, 0.0)]))
 		"water":
@@ -297,6 +305,11 @@ func _stop_blade_emitter() -> void:
 
 func _impact_particles(at: Vector2) -> void:
 	match element:
+		"heal":
+			var c := _burst(at + Vector2(0, unit_size * 0.2), 22, 0.9, Vector2.UP, 40.0, 25.0, 55.0, Vector2(0, -30), 1.0, 2.0, _ramp([Color(0.85, 1, 0.8), Color(0.4, 0.95, 0.45), Color(0.3, 0.8, 0.4, 0.0)]))
+			c.texture = _star_texture()
+			c.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+			c.emission_rect_extents = Vector2(unit_size * 0.35, unit_size * 0.25)
 		"fire":
 			_burst(at, 26, 0.6, Vector2.UP, 70.0, 30.0, 80.0, Vector2(0, -70), 1.5, 3.5, _ramp([Color(1, 0.95, 0.5), Color(1, 0.5, 0.1), Color(0.5, 0.08, 0.05, 0.0)]))
 		"water":
@@ -397,3 +410,112 @@ func _star_texture() -> Texture2D:   # a 3x3 plus: a pixel sparkle
 	var t := ImageTexture.create_from_image(img)
 	_tex_cache["star"] = t
 	return t
+
+
+# ================================================================ spells
+## Magic, built from the same element looks: power GATHERS at the caster's
+## hand (particles drawn inward, a growing light), a PROJECTILE flies with
+## its element's motion and trail (lighting the sprites it passes), and the
+## element's impact BURST lands on the target. Heals use "heal".
+
+## Awaitable: particles converge on `at` while the light builds.
+func gather(at: Vector2, duration: float) -> void:
+	var p := profile()
+	var c := _emitter(at, true)
+	var col: Color = p["color"]
+	_fx_setup(c, 20, maxf(0.15, duration), Vector2.RIGHT, 180.0, 0.0, 0.0, Vector2.ZERO, 1.0, 2.2,
+		_ramp([Color(col, 0.0), col.lerp(Color.WHITE, 0.4), Color(col, 0.9)]))
+	c.explosiveness = 0.0
+	c.one_shot = false
+	c.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	c.emission_sphere_radius = unit_size * 0.55
+	c.radial_accel_min = -unit_size * 4.0
+	c.radial_accel_max = -unit_size * 3.0
+	if element == "light" or element == "heal":
+		c.texture = _star_texture()
+	c.emitting = true
+	var steps := maxi(1, int(duration / 0.05))
+	for i in steps:
+		var t := float(i + 1) / steps
+		_place_light(at, maxf(0.35, float(p["charge"])) * t, float(p["radius"]) * (0.3 + 0.3 * t))
+		await get_tree().create_timer(duration / steps).timeout
+	c.emitting = false
+	get_tree().create_timer(c.lifetime + 0.1).timeout.connect(c.queue_free)
+
+## Awaitable: the spell flies from `from` to `to` over `duration`.
+func launch(from: Vector2, to: Vector2, duration: float) -> void:
+	var p := profile()
+	var col: Color = p["color"]
+	var head := Node2D.new()
+	head.top_level = true
+	head.global_position = from
+	add_child(head)
+	var glow := Sprite2D.new()                    # soft halo
+	glow.texture = _radial_texture()
+	glow.modulate = Color(col, 0.75)
+	glow.scale = Vector2.ONE * (unit_size / 64.0) * (0.5 if element != "light" else 0.35)
+	head.add_child(glow)
+	var core := Polygon2D.new()                   # a solid pixel-ish core
+	var r := maxf(2.0, unit_size * (0.08 if element != "earth" else 0.13))
+	core.polygon = PackedVector2Array([Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)]) if element == "earth" \
+		else PackedVector2Array([Vector2(0, -r), Vector2(r, 0), Vector2(0, r), Vector2(-r, 0)])
+	core.color = col.lerp(Color.WHITE, 0.55) if element != "dark" else Color(0.18, 0.06, 0.28)
+	head.add_child(core)
+	var beam: Line2D = null
+	if element == "light":                         # light is a beam: a line trails from the hand
+		beam = Line2D.new()
+		beam.top_level = true
+		beam.width = maxf(2.0, unit_size * 0.08)
+		beam.default_color = Color(1.0, 0.97, 0.8, 0.9)
+		add_child(beam)
+	_swing_dir = (to - from).normalized()
+	var trail := _emitter(from, false)
+	_prev = [from, from]
+	_start_trail_for(trail)
+	var dist := from.distance_to(to)
+	var arc: float = float({"water": 0.35, "earth": 0.3, "heal": 0.25}.get(element, 0.0)) * dist
+	var wobble: float = float({"air": 0.08, "dark": 0.06}.get(element, 0.0)) * dist
+	var tw := create_tween()
+	tw.tween_method(func(t: float):
+		var pos := from.lerp(to, t) + Vector2(0, -arc * sin(t * PI))
+		if wobble > 0.0:
+			pos += (to - from).normalized().orthogonal() * wobble * sin(t * TAU * 1.5)
+		head.global_position = pos
+		trail.global_position = pos
+		core.rotation += 0.35 if element == "earth" else 0.0
+		if beam != null:
+			beam.points = PackedVector2Array([from, pos])
+		_place_light(pos, float(p["peak"]) * 0.6, float(p["radius"]) * 0.5),
+		0.0, 1.0, duration).set_trans(Tween.TRANS_SINE if arc > 0.0 else Tween.TRANS_LINEAR)
+	await tw.finished
+	trail.emitting = false
+	get_tree().create_timer(trail.lifetime + 0.1).timeout.connect(trail.queue_free)
+	head.queue_free()
+	if beam != null:
+		var bt := create_tween()
+		bt.tween_property(beam, "modulate:a", 0.0, 0.2)
+		bt.tween_callback(beam.queue_free)
+
+## The element's impact on the target: its light pattern and particle burst.
+func burst(at: Vector2) -> void:
+	_light_origin = at
+	_light_t = 0.0
+	_impact_particles(at)
+
+func _start_trail_for(c: CPUParticles2D) -> void:
+	# the blade-trail emitter styles, reused for a flying spell
+	var saved := _blade_emitter
+	_blade_emitter = null
+	_start_blade_emitter(c.global_position)
+	if _blade_emitter != null:
+		var src := _blade_emitter
+		for prop in ["amount", "lifetime", "direction", "spread", "initial_velocity_min", "initial_velocity_max",
+				"gravity", "scale_amount_min", "scale_amount_max", "color_ramp", "texture", "particle_flag_align_y"]:
+			c.set(prop, src.get(prop))
+		src.queue_free()
+	else:   # earth / plain: a little dust behind
+		_fx_setup(c, 8, 0.3, -_swing_dir, 30.0, 10.0, 30.0, Vector2(0, 60), 1.0, 2.0,
+			_ramp([Color(profile()["color"], 0.8), Color(profile()["color"], 0.0)]))
+	c.amount = maxi(c.amount, 14)
+	c.emitting = true
+	_blade_emitter = saved

@@ -501,6 +501,39 @@ func play_state(anim_name: String, speed: float = 1.0) -> void:
 		if asp.sprite_frames != null and asp.sprite_frames.has_animation(anim_name):
 			asp.play(anim_name, speed)
 
+## Seconds from the start of `anim_name` to a marked frame (SpriteFrames
+## metadata `meta_name` = {anim: frame}); 0 if it has none.
+func time_to_mark(anim_name: String, meta_name: String) -> float:
+	if not (shape is AnimatedSprite2D):
+		return 0.0
+	var sf: SpriteFrames = (shape as AnimatedSprite2D).sprite_frames
+	var marks: Dictionary = sf.get_meta(meta_name, {}) if sf.has_meta(meta_name) else {}
+	if not marks.has(anim_name):
+		return 0.0
+	var fps: float = sf.get_animation_speed(anim_name)
+	var t := 0.0
+	for i in int(marks[anim_name]):
+		t += sf.get_frame_duration(anim_name, i) / fps
+	return t
+
+## Where a spell leaves from: the casting palm on the current cast frame
+## (SpriteFrames "hand" metadata), else just in front of the body.
+func cast_hand_global() -> Vector2:
+	if shape is AnimatedSprite2D:
+		var asp: AnimatedSprite2D = shape
+		var hands: Dictionary = asp.sprite_frames.get_meta("hand", {}) if asp.sprite_frames.has_meta("hand") else {}
+		var list = hands.get(String(asp.animation))
+		if list != null and asp.frame < (list as Array).size() and list[asp.frame] != null:
+			var tex: Texture2D = asp.sprite_frames.get_frame_texture(asp.animation, asp.frame)
+			return asp.to_global(Vector2(list[asp.frame][0], list[asp.frame][1]) - tex.get_size() / 2.0 + asp.offset)
+	var facing := 1.0 if unit.get("isParty") else -1.0
+	return shape.global_position + Vector2(size * 0.35 * facing, -size * 0.35)
+
+## Roughly the middle of the unit's body -- where spells land.
+func body_center_global() -> Vector2:
+	var h: float = _art_body_size.y if _art_body_size != Vector2.ZERO else size
+	return global_position + Vector2(0, size / 2.0 - h * 0.55)
+
 ## Seconds from the start of `anim_name` to its impact frame (0 if it has none).
 func time_to_impact(anim_name: String) -> float:
 	if not (shape is AnimatedSprite2D) or not _impact_meta.has(anim_name):
