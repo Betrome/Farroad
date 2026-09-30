@@ -272,7 +272,9 @@ function buildContent(rootDir) {
      Healing and buff/debuff-only actions are exempt (they scale on Spirit
      instead), as is every physical (camp='atk') action, where an element is
      optional. Same fail-loudly pattern as the charge_action check above. */
-  const ELEMENTS = ['fire', 'water', 'earth', 'air', 'light', 'dark'];
+  // Spirit joins the elements for Magibolt (Ian: the default magic action
+  // scales with Spirit instead of fire).
+  const ELEMENTS = ['fire', 'water', 'earth', 'air', 'light', 'dark', 'spirit'];
   Object.keys(ACTIONS).forEach(id => {
     const a = ACTIONS[id];
     if (a.camp === 'mag' && (a.power || 0) > 0 && !a.heal && !a.element)

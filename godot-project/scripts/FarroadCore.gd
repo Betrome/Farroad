@@ -92,7 +92,8 @@ const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"sundered": -0.25, "frail": -0.25, "blurred": 0.20, "warded": -0.40,
 	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "burning": BURN_PCT,
 	"regen": REGEN_PCT}
-const STARTER_ACTIONS: Array[String] = ["strike", "ember"]
+## Ian: Magibolt (Spirit) replaces Ember as the default magic action.
+const STARTER_ACTIONS: Array[String] = ["strike", "magibolt"]
 
 ## Test-only module state (mirrors CURRENT_WAVE/ACTIONS being plain
 ## module-level vars in the JS closure). register_actions() stands in for
@@ -137,7 +138,7 @@ static func cost_of_charge(act) -> float:
 const ATK_CAMP: Array[String] = ["strike", "pierce", "cleave", "flurry", "execute", "guardbreak",
 	"daunt", "cripple", "brace", "vengeance", "onslaught", "rally",
 	"cinderstrike", "riptideblow", "stoneshatter", "squallstrike", "radiantblow", "shadowrend"]
-const MAG_CAMP: Array[String] = ["ember", "gale", "sear", "hex", "smother", "dazzle", "siphon",
+const MAG_CAMP: Array[String] = ["magibolt", "ember", "gale", "sear", "hex", "smother", "dazzle", "siphon",
 	"mend", "renew", "recall", "bulwark", "blur", "quicken",
 	"firebrand", "tidalsurge", "quakebolt", "zephyrbolt", "solarflare", "umbralbolt"]
 const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowofstone", "ashfall",
@@ -544,6 +545,7 @@ static func eff_evade(u: Dictionary) -> float:
 static func eff_charge_rate(u: Dictionary) -> float:
 	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0))
 
+const HYBRID_MUL := 1.6
 static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "mag": return eff_mag(u)
 	if key == "def": return eff_def(u)
@@ -552,7 +554,10 @@ static func stat_by_key(u: Dictionary, key) -> float:
 	# Group D (20-item batch): the 2 new starter charge actions scale off
 	# the average of ATK and MAG, for a unit whose build doesn't lean
 	# hard into either camp.
-	if key == "avgAtkMag": return (eff_atk(u) + eff_mag(u)) / 2.0
+	# Ian: the ATK/MAG average still lost to a single maxed stat -- these
+	# now use the LOWER of the two with a bigger multiplier, so an evenly
+	# built unit does as well as a specialist does with its own stat.
+	if key == "avgAtkMag": return minf(eff_atk(u), eff_mag(u)) * HYBRID_MUL
 	return eff_atk(u)
 
 ## ===== tick cost / mitigation (mirrors farroad-core.js:152-186) =====

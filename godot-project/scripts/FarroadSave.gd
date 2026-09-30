@@ -75,7 +75,16 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	if not g.get("party") or g["party"].is_empty():
 		g["party"] = ["kesh"]
 	if not g.get("actions") or g["actions"].is_empty():
-		g["actions"] = ["strike", "ember"]
+		g["actions"] = ["strike", "magibolt"]
+	# Magibolt replaced Ember as the starter: older saves gain it, and every
+	# loadout slot still on Ember switches to it (Ember stays owned, so any
+	# Lore in it isn't lost -- and it's no longer shared between units).
+	if not g["actions"].has("magibolt"):
+		g["actions"].append("magibolt")
+		for uid in (g.get("loadout", {}) as Dictionary).keys():
+			for sl in g["loadout"][uid]:
+				if sl.get("action") == "ember":
+					sl["action"] = "magibolt"
 	if not g.get("conditions") or g["conditions"].is_empty():
 		g["conditions"] = ["none"]
 	for k in ["actionCounts", "condCounts", "bonuses", "recovery", "loadout", "hpCarry", "chargeCarry", "touched",

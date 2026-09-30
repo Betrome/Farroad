@@ -56,7 +56,7 @@ func _build_ui(parent: Node) -> void:
 	_style_popup(popup)
 	parent.add_child(popup)
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)

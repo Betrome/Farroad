@@ -27,7 +27,7 @@ var tab_buttons: Dictionary = {}
 var list_container: VBoxContainer
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
-const TABS := [["units", "Units"], ["actions", "Actions"], ["gambits", "Gambits"], ["equipment", "Equipment"], ["enemies", "Enemies"]]
+const TABS := [["units", "Units"], ["actions", "Actions"], ["gambits", "Gambits"], ["equipment", "Gear"], ["enemies", "Enemies"]]
 
 ## Post-Milestone-3 APK feedback (round 2): "add filter options for gambits
 ## and actions to reduce scrolling. Include such things as targets,
@@ -42,15 +42,12 @@ var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
 var gambit_filter_group: String = "any"
 
-const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
-	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
+const ACTION_TARGET_OPTIONS := ActionFilter.TARGET_OPTIONS
 ## "camp" in the name/var is legacy -- see GambitsPanel's own identical
 ## copy of this comment for the full reasoning (this filters the real
 ## EFFECTIVE scale stat, not just the coarse phys/mag camp field).
-const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
-	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
-	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
+const ACTION_CAMP_OPTIONS := ActionFilter.STAT_OPTIONS
+const ACTION_EFFECT_OPTIONS := ActionFilter.EFFECT_OPTIONS
 const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", "Ally"], ["foe", "Foe"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
@@ -73,7 +70,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -183,23 +180,7 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 	return opt
 
 func _action_passes_filter(act: Dictionary) -> bool:
-	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
-		return false
-	if action_filter_camp != "any":
-		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
-		if eff_scale != action_filter_camp:
-			return false
-	if action_filter_effect == "heal" and not act.get("heal", false):
-		return false
-	if action_filter_effect == "charge" and not act.get("isCharge", false):
-		return false
-	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
-		return false
-	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
-		return false
-	if action_filter_effect == "element" and not act.get("element"):
-		return false
-	return true
+	return ActionFilter.passes(act, action_filter_target, action_filter_camp, action_filter_effect)
 
 func _refresh_actions() -> void:
 	var filter_row := HFlowContainer.new()
@@ -311,6 +292,34 @@ func _refresh_enemies() -> void:
 			list_container.add_child(row)
 		else:
 			list_container.add_child(_unknown_row())
+
+	# Ian: "Catalogue: needs entries for boss variants like Roadwarden."
+	var bheader := Label.new()
+	bheader.text = "Boss variants"
+	bheader.modulate = Palette.PARTY_BLUE
+	list_container.add_child(bheader)
+	for bv in BOSS_VARIANTS:
+		if seen.has(bv[0]):
+			var brow := HBoxContainer.new()
+			var blbl := _rich_row("[b]%s[/b] — boss %s" % [bv[1], FarroadCore.ARCH[bv[2]]["name"]])
+			blbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			brow.add_child(blbl)
+			var bbtn := Button.new()
+			bbtn.text = "ⓘ"
+			bbtn.custom_minimum_size = Vector2(36, 0)
+			var arch: String = bv[2]
+			var bname: String = bv[1]
+			bbtn.pressed.connect(func():
+				if _parent and _parent.has_method("_show_enemy_detail_popup"):
+					_parent.call("_show_enemy_detail_popup", arch, bname, true))
+			brow.add_child(bbtn)
+			list_container.add_child(brow)
+		else:
+			list_container.add_child(_unknown_row())
+
+## [seen key, display name, archetype] -- bosses that are a stronger
+## version of a normal enemy (the elemental bosses have their own entries).
+const BOSS_VARIANTS := [["roadwarden", "Roadwarden", "ox"]]
 
 func _on_enemy_info_pressed(arch_key: String) -> void:
 	if _parent and _parent.has_method("_show_enemy_detail_popup"):

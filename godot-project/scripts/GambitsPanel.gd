@@ -60,18 +60,15 @@ var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
 
 const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", "Ally"], ["foe", "Foe"]]
-const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
-	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
+const ACTION_TARGET_OPTIONS := ActionFilter.TARGET_OPTIONS
 ## "camp" in the name/var is legacy -- this now filters on the action's
 ## real EFFECTIVE scale stat (act.get("scaleStat"), falling back to the
 ## camp-implied ATK/MAG when unset -- the exact resolution resolve_hit/
 ## heal_for themselves use), not just the coarse phys/mag camp field, so
 ## a DEF/RES/SPD-scaling action (an explicit scaleStat override) shows up
 ## under its own real stat instead of being lumped into "Physical".
-const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
-	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
-	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
+const ACTION_CAMP_OPTIONS := ActionFilter.STAT_OPTIONS
+const ACTION_EFFECT_OPTIONS := ActionFilter.EFFECT_OPTIONS
 
 ## Same swatch-icon technique EquipmentPanel.gd/LorePanel.gd already use --
 ## a Button (unlike an OptionButton's per-item text) can show ONE icon
@@ -138,23 +135,7 @@ func _sorted_owned_conditions() -> Array:
 	return arr
 
 func _action_passes_filter(act: Dictionary) -> bool:
-	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
-		return false
-	if action_filter_camp != "any":
-		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
-		if eff_scale != action_filter_camp:
-			return false
-	if action_filter_effect == "heal" and not act.get("heal", false):
-		return false
-	if action_filter_effect == "charge" and not act.get("isCharge", false):
-		return false
-	if action_filter_effect == "element" and not act.get("element"):
-		return false
-	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
-		return false
-	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
-		return false
-	return true
+	return ActionFilter.passes(act, action_filter_target, action_filter_camp, action_filter_effect)
 
 func _build_filter_dropdown(options: Array, current_value: String, on_change: Callable) -> OptionButton:
 	var opt := OptionButton.new()
@@ -276,17 +257,16 @@ func _refresh_slots() -> void:
 			swap_lbl.text = "⚡ Charge action:"
 			swap_lbl.modulate = Palette.TEXT_DIM
 			swap_row.add_child(swap_lbl)
-			var opt := OptionButton.new()
-			for idx in range(acquired.size()):
-				var aid: String = acquired[idx]
-				var a = FarroadCore.ACTIONS.get(aid)
-				# 24-item batch, Group D5: same " LvN" tag the normal-action
-				# picker already shows.
-				opt.add_item((a["name"] if a else aid) + " Lv%d" % FarroadProgression.action_level(g, aid), idx)
-				if aid == uid_def["chargeAction"]:
-					opt.select(idx)
-			opt.item_selected.connect(func(idx2): _on_charge_action_changed(acquired[idx2]))
-			swap_row.add_child(opt)
+			# Ian: "Change charge action selection to be formatted just like
+			# normal action selection" -- a trigger button (rarity icon,
+			# name, level) opening the same filterable picker overlay.
+			var cur_c = FarroadCore.ACTIONS.get(uid_def["chargeAction"])
+			var charge_btn := Button.new()
+			charge_btn.text = (cur_c["name"] if cur_c else uid_def["chargeAction"]) + " Lv%d" % FarroadProgression.action_level(g, uid_def["chargeAction"])
+			charge_btn.icon = _rarity_icon(cur_c.get("rarity", "common")) if cur_c else null
+			charge_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			charge_btn.pressed.connect(_open_charge_picker.bind(acquired, uid_def["chargeAction"]))
+			swap_row.add_child(charge_btn)
 			# Post-Milestone-3 APK feedback (round 3): "add the informational
 			# popups for actions wherever they can be selected" -- this
 			# dropdown IS a selectable-action control.
@@ -442,6 +422,55 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 			if _parent and _parent.has_method("_show_action_detail_popup"):
 				_parent.call("_show_action_detail_popup", aid))
 		row.add_child(row_info_btn)
+		list_container.add_child(row)
+
+func _open_charge_picker(acquired: Array, current: String) -> void:
+	if not (_parent and _parent.has_method("_show_picker_overlay")):
+		return
+	_parent.call("_show_picker_overlay", "Choose charge action", func(list_container: Container, backdrop: Node):
+		_populate_charge_picker(list_container, backdrop, acquired, current))
+
+func _populate_charge_picker(list_container: Container, backdrop: Node, acquired: Array, current: String) -> void:
+	for c in list_container.get_children():
+		c.queue_free()
+	var filter_row := HFlowContainer.new()
+	filter_row.add_theme_constant_override("h_separation", 6)
+	filter_row.add_theme_constant_override("v_separation", 4)
+	var lbl := Label.new()
+	lbl.text = "Filter:"
+	lbl.modulate = Palette.TEXT_DIM
+	filter_row.add_child(lbl)
+	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v):
+		action_filter_target = v
+		_populate_charge_picker(list_container, backdrop, acquired, current)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v):
+		action_filter_camp = v
+		_populate_charge_picker(list_container, backdrop, acquired, current)))
+	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
+		action_filter_effect = v
+		_populate_charge_picker(list_container, backdrop, acquired, current)))
+	list_container.add_child(filter_row)
+	for aid in acquired:
+		var act = FarroadCore.ACTIONS.get(aid)
+		if aid != current and (act == null or not _action_passes_filter(act)):
+			continue
+		var row := HBoxContainer.new()
+		var row_btn := Button.new()
+		row_btn.text = (act["name"] if act else aid) + " Lv%d" % FarroadProgression.action_level(g, aid)
+		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
+		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row_btn.disabled = aid == current
+		row_btn.pressed.connect(func():
+			_on_charge_action_changed(aid)
+			backdrop.queue_free())
+		row.add_child(row_btn)
+		var info := Button.new()
+		info.text = "ⓘ"
+		info.custom_minimum_size = Vector2(36, 0)
+		info.pressed.connect(func():
+			if _parent and _parent.has_method("_show_action_detail_popup"):
+				_parent.call("_show_action_detail_popup", aid))
+		row.add_child(info)
 		list_container.add_child(row)
 
 const REORDER_TWEEN_TIME := 0.25

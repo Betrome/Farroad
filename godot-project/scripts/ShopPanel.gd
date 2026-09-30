@@ -20,7 +20,7 @@ var tab_buttons: Dictionary = {}
 var list_container: VBoxContainer
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
-const TABS := [["gambits", "Gambits"], ["actions", "Actions"], ["units", "Units"], ["equipment", "Equipment"]]
+const TABS := [["gambits", "Gambits"], ["actions", "Actions"], ["units", "Units"], ["equipment", "Gear"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -46,7 +46,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -199,14 +199,38 @@ func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_m
 	row.add_child(btn)
 	return row
 
+## Ian: "Shop: Filter for actions, gambits, and equipment." Same filters
+## as Catalogue/Gambits (ActionFilter), plus rarity; kept while the Shop
+## stays open, so buying something doesn't reset them.
+var f_target := "any"
+var f_stat := "any"
+var f_effect := "any"
+var f_rarity := "any"
+var f_group := "any"
+var f_slot := "any"
+
+func _filter_row(dropdowns: Array) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 6)
+	for d in dropdowns:
+		row.add_child(d)
+	list_container.add_child(row)
+	return row
+
 func _refresh_gambits() -> void:
+	_filter_row([ActionFilter.dropdown(ActionFilter.GAMBIT_GROUP_OPTIONS, f_group, func(v): f_group = v; _refresh())])
+	var shown := 0
 	for cid in FarroadCore.ALL_CONDITION_IDS:
 		if cid == "none" or g["conditions"].has(cid):
 			continue
+		if f_group != "any" and not cid.begins_with(f_group + "_"):
+			continue
+		shown += 1
 		list_container.add_child(_build_buy_row(FarroadCore.cond_label(cid),
 			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid), "_show_gambit_detail_popup", cid))
-	if list_container.get_child_count() == 0:
-		list_container.add_child(_empty_label("Every gambit condition is already owned."))
+	if shown == 0:
+		list_container.add_child(_empty_label("No gambit conditions left to buy here."))
 
 func _on_buy_gambit(cid: String) -> void:
 	if FarroadProgression.buy_shop_gambit(g, cid):
@@ -217,6 +241,14 @@ func _refresh_actions() -> void:
 	# Unowned actions first; owned ones stay buyable and turn into Lore.
 	var all_ids: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).filter(
 		func(a): return FarroadProgression.shop_action_available(g, a))
+	_filter_row([
+		ActionFilter.dropdown(ActionFilter.TARGET_OPTIONS, f_target, func(v): f_target = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.STAT_OPTIONS, f_stat, func(v): f_stat = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.EFFECT_OPTIONS, f_effect, func(v): f_effect = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh())])
+	all_ids = all_ids.filter(func(a):
+		var ad: Dictionary = FarroadCore.ACTIONS.get(a, {})
+		return ActionFilter.passes(ad, f_target, f_stat, f_effect) and (f_rarity == "any" or ad.get("rarity", "common") == f_rarity))
 	var owned_ids: Array = all_ids.filter(func(a): return FarroadProgression.shop_action_owned(g, a))
 	for aid in all_ids.filter(func(a): return not owned_ids.has(a)) + owned_ids:
 		var act: Dictionary = FarroadCore.ACTIONS.get(aid, {})
@@ -251,8 +283,15 @@ func _on_buy_unit(uid: String) -> void:
 		_refresh()
 
 func _refresh_equipment() -> void:
+	_filter_row([
+		ActionFilter.dropdown(ActionFilter.GEAR_SLOT_OPTIONS, f_slot, func(v): f_slot = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh())])
 	for iid in FarroadCore.EQUIPMENT.keys():
 		var item: Dictionary = FarroadCore.EQUIPMENT[iid]
+		if f_slot != "any" and item.get("slot") != f_slot:
+			continue
+		if f_rarity != "any" and item.get("rarity", "common") != f_rarity:
+			continue
 		var price: int = int(FarroadProgression.SHOP_EQUIPMENT_PRICE.get(item.get("rarity", "common"), 10))
 		var owned: int = int(g["equipInv"].get(iid, 0))
 		var suffix: String = " (owned %d)" % owned if owned > 0 else ""

@@ -51,14 +51,11 @@ var card_container: Container
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
-const ACTION_TARGET_OPTIONS := [["any", "Any target"], ["foe", "Single foe"], ["allFoes", "All foes"],
-	["ally", "Single ally"], ["allAllies", "All allies"], ["self", "Self"], ["deadAlly", "Dead ally"]]
+const ACTION_TARGET_OPTIONS := ActionFilter.TARGET_OPTIONS
 ## "camp" in the name/var is legacy -- see GambitsPanel's own identical
 ## copy of this comment for the full reasoning.
-const ACTION_CAMP_OPTIONS := [["any", "Any stat"], ["atk", "Physical (scales ATK)"], ["mag", "Magic (scales MAG)"],
-	["def", "Scales DEF"], ["res", "Scales RES"], ["spd", "Scales SPD"], ["avgAtkMag", "Scales ATK+MAG avg"]]
-const ACTION_EFFECT_OPTIONS := [["any", "Any effect"], ["heal", "Heals"], ["charge", "Charge action"], ["element", "Elemental"],
-	["buff", "Buff effect"], ["debuff", "Debuff effect"]]
+const ACTION_CAMP_OPTIONS := ActionFilter.STAT_OPTIONS
+const ACTION_EFFECT_OPTIONS := ActionFilter.EFFECT_OPTIONS
 
 const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width -- same convention AetherPanel.gd established
 ## Post-Milestone-3 APK feedback (Group B3): "have rarity text colors
@@ -338,7 +335,7 @@ func _refresh_card() -> void:
 		note_lbl.modulate = Palette.TEXT_DIM
 		box.add_child(note_lbl)
 
-	var scales_text := "scales with %s" % ("MAG" if act.get("camp") == "mag" else "ATK")
+	var scales_text := "scales with %s" % ActionFilter.scale_label(act)
 	if act.get("power"):
 		scales_text += "  ·  power ×%.2f" % float(act["power"])
 	var scales_lbl := Label.new()
@@ -463,23 +460,7 @@ func _on_unequipped_info_pressed() -> void:
 		_parent.call("_show_action_detail_popup", selected_action_id)
 
 func _action_passes_filter(act: Dictionary) -> bool:
-	if action_filter_target != "any" and act.get("tk", "foe") != action_filter_target:
-		return false
-	if action_filter_camp != "any":
-		var eff_scale: String = act.get("scaleStat", "mag" if act.get("camp") == "mag" else "atk")
-		if eff_scale != action_filter_camp:
-			return false
-	if action_filter_effect == "heal" and not act.get("heal", false):
-		return false
-	if action_filter_effect == "charge" and not act.get("isCharge", false):
-		return false
-	if action_filter_effect == "element" and not act.get("element"):
-		return false
-	if action_filter_effect == "buff" and not (act.get("applies") and FarroadCore.is_buff_status(act["applies"])):
-		return false
-	if action_filter_effect == "debuff" and not (act.get("applies") and not FarroadCore.is_buff_status(act["applies"])):
-		return false
-	return true
+	return ActionFilter.passes(act, action_filter_target, action_filter_camp, action_filter_effect)
 
 func _build_filter_dropdown(options: Array, current_value: String, on_change: Callable) -> OptionButton:
 	var opt := OptionButton.new()

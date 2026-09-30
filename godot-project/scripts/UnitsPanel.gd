@@ -39,7 +39,7 @@ var sub_tab_buttons: Dictionary = {}
 var content_container: VBoxContainer
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
-const SUB_TABS := [["summary", "Summary"], ["gambits", "Gambits"], ["aether", "Aether"], ["lore", "Lore"], ["equipment", "Equipment"]]
+const SUB_TABS := [["summary", "Summary"], ["gambits", "Gambits"], ["aether", "Aether"], ["lore", "Lore"], ["equipment", "Gear"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -63,7 +63,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -82,12 +82,21 @@ func _build_ui(parent: Node) -> void:
 	dropdown.item_selected.connect(_on_dropdown_selected)
 	root_vbox.add_child(dropdown)
 
-	var tab_row := HFlowContainer.new()
-	tab_row.add_theme_constant_override("h_separation", 6)
-	tab_row.add_theme_constant_override("v_separation", 6)
+	# Ian: "fit summary, gambits, aether, lore, and equipment onto a single
+	# line" -- five equal-width buttons sharing one row.
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 4)
 	for entry in SUB_TABS:
 		var btn := Button.new()
 		btn.text = entry[1]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.clip_text = true
+		btn.add_theme_font_size_override("font_size", maxi(9, int(_vp.x * 0.026)))
+		var tight := StyleBoxFlat.new()
+		tight.bg_color = Palette.BTN_NORMAL
+		tight.set_corner_radius_all(4)
+		tight.set_content_margin_all(2)
+		btn.add_theme_stylebox_override("normal", tight)
 		btn.pressed.connect(_on_sub_tab_pressed.bind(entry[0]))
 		tab_row.add_child(btn)
 		sub_tab_buttons[entry[0]] = btn
@@ -252,6 +261,26 @@ func _build_summary_card() -> void:
 	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content_container.add_child(stat_lbl)
+
+	# Ian: "have Summary show all stats" -- crit, evade, charge rate,
+	# recovery, and every affinity as the % it changes damage by.
+	var more := Label.new()
+	more.text = "ATK crit %.0f%%   MAG crit %.0f%%   Evade %.0f%%   Charge ×%.2f   Recovery %.0f%%" % [
+		float(base.get("atkCrit", 0.0)) * 100.0, float(base.get("magCrit", 0.0)) * 100.0,
+		float(base.get("evade", 0.0)) * 100.0, float(base.get("chargeRate", 1.0)),
+		FarroadProgression.recovery_of(g, selected_uid) * 100.0]
+	more.autowrap_mode = TextServer.AUTOWRAP_WORD
+	more.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_container.add_child(more)
+	var aff: Dictionary = u.get("affinity", {})
+	var bits: Array = []
+	for ax in ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]:
+		bits.append("%s %+.0f%%" % [ax.capitalize(), FarroadCore.affinity_mul(float(aff.get(ax, 0.0))) * 100.0])
+	var aff_lbl := Label.new()
+	aff_lbl.text = "Affinity: " + "   ".join(bits)
+	aff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	aff_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_container.add_child(aff_lbl)
 
 	if def.get("chargeAction"):
 		var act = FarroadCore.ACTIONS.get(def["chargeAction"])

@@ -539,7 +539,7 @@ static func recovery_maxed(g: Dictionary, uid: String) -> bool:
 
 ## ===== curated onboarding =====
 
-const STARTER_ACTIONS: Array[String] = ["strike", "ember"]
+const STARTER_ACTIONS: Array[String] = ["strike", "magibolt"]
 const CURATED: Array = [
 	{"w": 2, "kind": "action", "id": "sear", "why": "first magic tool — takes reach-wave-8 from 3/10 to 10/10"},
 	{"w": 3, "kind": "cond", "id": "foe_lacks_debuff", "why": "gates Sear — Burning is wasted if reapplied"},
@@ -1051,7 +1051,7 @@ static func auto_equip(g: Dictionary) -> void:
 			if not g["conditions"].has(cd):
 				continue
 			for a in GATE_FOR.get(cd, []):
-				if g["actions"].has(a):
+				if g["actions"].has(a) and action_holder_in_party(g, a, uid) == null:
 					s1 = {"cond": cd, "action": a}
 					break
 		g["loadout"][uid] = [s1, {"cond": "none", "action": "strike"}] if s1 else \
@@ -1090,35 +1090,36 @@ static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
 	var slots: Array = ensure_loadout(g, uid)
 	var probe := build_party_unit(g, uid, 0)
 	var dominant_camp: String = "mag" if float(probe["base"]["mag"]) > float(probe["base"]["atk"]) else "atk"
+	var aff: Dictionary = probe.get("affinity", {})
 
-	var candidates: Array = g["actions"].duplicate()
-	# Ian: "auto-set needs to account for actions other units have
-	# equipped" -- exclude anything already held by ANOTHER fielded party
-	# member (action_holder_in_party already exempts starter actions,
-	# which every unit can freely share), the exact same exclusivity rule
-	# the manual action picker (GambitsPanel._populate_action_picker)
-	# already enforces.
-	candidates = candidates.filter(func(aid): return action_holder_in_party(g, aid, uid) == null)
-	candidates.sort_custom(func(a, b):
-		var act_a = FarroadCore.ACTIONS.get(a)
-		var act_b = FarroadCore.ACTIONS.get(b)
-		if act_a == null or act_b == null:
-			return act_a != null
-		return _auto_assign_score(act_a, dominant_camp) > _auto_assign_score(act_b, dominant_camp))
-	if candidates.is_empty():
-		candidates = ["strike"]
-
+	# Ian: "Auto-Set: Not assign actions already assigned" -- nothing another
+	# owned unit holds (benched included), and no action twice in this
+	# unit's own slots; "assign actions based on elemental attributes as
+	# well" -- the unit's affinity for an action's element (Body for
+	# physical) weighs into its score.
+	var candidates: Array = g["actions"].filter(func(aid):
+		return FarroadCore.ACTIONS.has(aid) and action_holder_in_party(g, aid, uid) == null)
+	candidates.sort_custom(func(x, y):
+		return _auto_assign_score(FarroadCore.ACTIONS[x], dominant_camp, aff) > _auto_assign_score(FarroadCore.ACTIONS[y], dominant_camp, aff))
+	var fallback: String = "magibolt" if dominant_camp == "mag" else "strike"
 	for i in range(slots.size()):
-		var action_id: String = candidates[i % candidates.size()]
+		var action_id: String = candidates[i] if i < candidates.size() else fallback
 		var act = FarroadCore.ACTIONS.get(action_id)
 		slots[i]["action"] = action_id
-		slots[i]["cond"] = ("none" if i == 0 or act == null else _auto_assign_condition(act, g["conditions"]))
+		slots[i]["cond"] = ("none" if i == slots.size() - 1 or act == null else _auto_assign_condition(act, g["conditions"]))
+	# the last slot stays unconditional so the unit always has something to do
 	g["touched"][uid] = true
 	sync_loadout(g, uid)
 
-static func _auto_assign_score(act: Dictionary, dominant_camp: String) -> float:
+static func _auto_assign_score(act: Dictionary, dominant_camp: String, aff: Dictionary = {}) -> float:
 	var camp_bonus: float = 10.0 if act.get("camp") == dominant_camp else 0.0
-	return camp_bonus + float(act.get("rank", 0.0)) + float(act.get("power", 0.0))
+	var ax = act.get("element")
+	if ax == null and act.get("camp") == "atk" and not act.get("heal", false):
+		ax = "body"
+	var aff_bonus: float = 0.0
+	if ax != null:
+		aff_bonus = FarroadCore.affinity_mul(float(aff.get(ax, 0.0))) * 10.0
+	return camp_bonus + aff_bonus + float(act.get("rank", 0.0)) + float(act.get("power", 0.0))
 
 ## Best-fit owned condition for this action's own target type, else
 ## "none" -- a heal/ally-targeting action prefers an HP-threshold ally
@@ -1135,7 +1136,8 @@ static func _auto_assign_condition(act: Dictionary, owned_conditions: Array) -> 
 	elif tk == "deadAlly":
 		preferred = []
 	else:
-		preferred = ["foe_lowest_hp", "foe_lacks_debuff", "foe_armoured"]
+		# an elemental attack goes first at a foe weak to its element
+		preferred = (["foe_weak_%s" % act["element"]] if act.get("element") else []) + 			["foe_lowest_hp", "foe_lacks_debuff", "foe_armoured"]
 	for cid in preferred:
 		if owned_conditions.has(cid):
 			return cid
@@ -1247,10 +1249,13 @@ static func delete_party_preset(g: Dictionary, index: int) -> bool:
 ## (FarroadCore.gd) this UI-level check exists to keep the player from
 ## even creating a conflict that function would otherwise just silently
 ## resolve in favor of the earlier-fielded unit at combat time.
+## Ian: "Each unit has to have unique actions, even if they're benched. Not
+## counting Strike or Magibolt." Checks every owned unit, not just the
+## fielded party (the name is kept for its many callers).
 static func action_holder_in_party(g: Dictionary, action_id: String, exclude_uid: String) -> Variant:
 	if STARTER_ACTIONS.has(action_id):
 		return null
-	for uid in g["party"]:
+	for uid in owned_ids(g):
 		if uid == exclude_uid:
 			continue
 		var sl = g["loadout"].get(uid)
@@ -1606,6 +1611,9 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		# deliberately NOT mirrored to src/farroad-save.js/parity-reference.js.
 		if g.has("seenArch"):
 			g["seenArch"][key] = true
+			# boss variants of normal enemies get their own Catalogue entry
+			if boss and key == TUTORIAL_BOSS_ARCH and super_boss_key == "":
+				g["seenArch"]["roadwarden"] = true
 		# is_first_boss computed above (before count_mul) -- it alone uses the
 		# eased FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL below;
 		# every later boss keeps the full BOSS_LEN/BOSS_HARD_EXTRA unchanged.
@@ -1789,7 +1797,7 @@ static func join_companion(g: Dictionary, uid: String) -> bool:
 	# revisiting this unit -- strike+ember, permanently, until the player
 	# edits it via GAMBITS themselves.
 	if not g["loadout"].has(uid):
-		g["loadout"][uid] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "ember"}]
+		g["loadout"][uid] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "magibolt"}]
 	g["touched"][uid] = true
 	var fielded: bool = g["party"].size() < PARTY_CAP
 	if fielded:
@@ -2640,6 +2648,51 @@ const QUEST_DIFFICULTY_MUL := 0.5
 static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
 	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
 	return maxi(1, roundi(frac * QUEST_DIFFICULTY_MUL * power_level(g)))
+
+## Ian: "Have quests/dungeons show their power level (the recommended power
+## level players should be to complete them)." The fight's enemy stats
+## through the same formula as power_level (stat total / POWER_STAT_DIVISOR
+## plus the wave's level), for its toughest wave.
+static func snapshot_power(snaps: Array, wave: int) -> int:
+	var total := 0.0
+	for e in snaps:
+		var st: Dictionary = e["stats"]
+		total += float(st["hp"]) + float(st["atk"]) + float(st["mag"]) + float(st["def"]) + float(st["res"]) + float(st["spd"])
+	return maxi(1, roundi(total / POWER_STAT_DIVISOR + FarroadCore.level_curve(wave)))
+
+## The fielded party's power on the same scale (what a quest or dungeon
+## fight is actually up against).
+static func party_power(g: Dictionary) -> int:
+	var total := 0.0
+	for uid in g["party"]:
+		var def = FarroadCore.roster_by_id(uid)
+		if def == null:
+			continue
+		var st: Dictionary = stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+		total += st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"]
+	return maxi(1, roundi(total / POWER_STAT_DIVISOR + FarroadCore.level_curve(g.get("farthest", 1))))
+
+static func dungeon_power(dungeon: Dictionary) -> int:
+	var best := 1
+	for wv in dungeon["waves"]:
+		best = maxi(best, snapshot_power(wv["enemies"], int(wv["wave"])))
+	return best
+
+## For a stage not yet frozen, previews its fight on a throwaway RNG (the
+## real stream and the live wave are left untouched).
+static func quest_stage_power(g: Dictionary, uid: String, stage: int) -> int:
+	var q: Dictionary = g["quests"].get(uid, {})
+	var frozen: Array = q.get("frozen", [])
+	if stage < frozen.size() and frozen[stage] != null:
+		return snapshot_power(frozen[stage]["enemies"], int(frozen[stage]["wave"]))
+	var step: Dictionary = FarroadCore.QUEST_LINES[uid][stage]
+	var raw_wave: int = quest_stage_wave(g, uid, stage)
+	var wave: int = next_boss_wave(raw_wave - 1) if step.get("isBoss", false) else raw_wave
+	var saved_wave: int = FarroadCore.current_wave
+	var temp := {"rng": FarroadCore.RNG.new(wave * 7919 + stage), "party": g["party"]}
+	var snaps: Array = build_enemies(temp, wave, true).map(bake_enemy_snapshot)
+	FarroadCore.set_wave(saved_wave)
+	return snapshot_power(snaps, wave)
 
 static func quest_stage_aether(stage_idx: int) -> int:
 	return roundi(QUEST_STAGE_AETHER_MIN + stage_idx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4.0)

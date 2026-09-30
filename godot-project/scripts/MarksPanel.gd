@@ -59,7 +59,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -271,7 +271,7 @@ func _build_unlocked_card() -> void:
 
 	var explain_lbl := Label.new()
 	explain_lbl.text = ("Duplicate actions convert to Lore; duplicate gambits and units convert to Aether; " +
-		"duplicate equipment just adds to your stock. You OWN every unit you pull — the party is the %d " +
+		"duplicate gear just adds to your stock. You OWN every unit you pull — the party is the %d " +
 		"you field, and extras stay benched but yours.") % FarroadProgression.PARTY_CAP
 	if g["party"].size() >= FarroadProgression.PARTY_CAP:
 		explain_lbl.text += " Party full — new units arrive benched."
@@ -318,7 +318,7 @@ func _describe_pull_result(r: Dictionary) -> String:
 		"equip":
 			var item = FarroadCore.EQUIPMENT.get(r["id"])
 			var iname: String = item["name"] if item else r["id"]
-			return ("Duplicate equipment: %s (now own %d)." % [iname, r["ownedCount"]]) if r["duplicate"] else "New equipment: %s." % iname
+			return ("Duplicate gear: %s (now own %d)." % [iname, r["ownedCount"]]) if r["duplicate"] else "New gear: %s." % iname
 		"action":
 			var act = FarroadCore.ACTIONS.get(r["id"])
 			var aname: String = act["name"] if act else r["id"]
@@ -424,7 +424,7 @@ func _describe_pull_results(results: Array) -> String:
 		parts.append("%d new / %d duplicate gambit%s" % [new_conds, dup_conds, "" if (new_conds + dup_conds) == 1 else "s"]
 			+ (" -> +%d Aether" % cond_aether if cond_aether > 0 else ""))
 	if new_equip > 0 or dup_equip > 0:
-		parts.append("%d new / %d duplicate equipment" % [new_equip, dup_equip])
+		parts.append("%d new / %d duplicate gear" % [new_equip, dup_equip])
 	if not lore_by_action.is_empty():
 		var lore_bits: Array = []
 		for an2 in lore_by_action.keys():

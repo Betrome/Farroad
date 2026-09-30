@@ -1,6 +1,7 @@
 id,name,kind,camp,element,scale_stat,power,power_dynamic,rank,initiative,target,hits,applies_status,status_turns,def_pierce,crit_bonus,crit_dynamic,heal,lifesteal,revive,cleanse,self_taunt,charge_gain,charge_cost,rarity,lore_bonuses_applicable,design_note
 strike,Strike,equippable,atk,,,1.00,,1.00,1.000,foe,1,,,0,0,,,,,,,20,,common,"swift,potent,surge,piercing,keen,broad",Baseline. Every other action is measured against this.
 ember,Ember,equippable,mag,fire,,1.05,,1.05,0.952,foe,1,,,0,0,,,,,,,21,,common,"swift,potent,surge,keen,broad",Starter. Hits RES; full power from the back rank.
+magibolt,Magibolt,equippable,mag,spirit,,1.05,,1.05,0.952,foe,1,,,0,0,,,,,,,21,,common,"swift,potent,surge,keen,broad",Starter magic. A bolt of raw spirit; hits RES and scales with Spirit affinity.
 mend,Mend,equippable,mag,,,1.20,,1.05,0.952,ally,1,,,0,0,,TRUE,,,,,22,,common,"swift,potent,surge,broad,cleansing",Heal 1.20 x MAG.
 pierce,Pierce,equippable,atk,,,1.00,,1.50,0.667,foe,1,,,0.75,0,,,,,,,26,,common,"swift,potent,surge,piercing,keen,broad",Ignores 75% DEF but slow. Wins vs armour only. S6.0 exemplar.
 cleave,Cleave,equippable,atk,,,0.66,,1.30,0.769,allFoes,1,,,0,0,,,,,,,27,,common,"swift,potent,surge,piercing,keen",All foes physical.

@@ -52,7 +52,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.84)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -215,7 +215,8 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	var charges: int = FarroadProgression.dungeon_charges(d, _now())
 	var info_lbl := Label.new()
 	var total_waves: int = (d["waves"] as Array).size()
-	info_lbl.text = "%d waves (ends in a boss) · +%d Crystal" % [total_waves, FarroadProgression.DUNGEON_CRYSTAL]
+	info_lbl.text = "%d waves (ends in a boss) · +%d Crystal\n%s" % [total_waves, FarroadProgression.DUNGEON_CRYSTAL,
+		_power_text(FarroadProgression.dungeon_power(d))]
 	info_lbl.modulate = Palette.TEXT_DIM
 	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -260,7 +261,8 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 	var completed: bool = stage >= 5
 	var info_lbl := Label.new()
 	info_lbl.text = "Quest line complete" if completed else \
-		"Stage %d of 5 · +%d Crystal" % [stage + 1, FarroadProgression.QUEST_STAGE_CRYSTAL]
+		"Stage %d of 5 · +%d Crystal\n%s" % [stage + 1, FarroadProgression.QUEST_STAGE_CRYSTAL,
+			_power_text(FarroadProgression.quest_stage_power(g, uid, stage))]
 	info_lbl.modulate = Palette.TEXT_DIM
 	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -291,6 +293,9 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 			attempt_btn.pressed.connect(func(): _on_attempt_quest_pressed(uid))
 		box.add_child(attempt_btn)
 	return card
+
+func _power_text(rec: int) -> String:
+	return "Recommended power %d (your party: %d)" % [rec, FarroadProgression.party_power(g)]
 
 func _on_enter_dungeon_pressed(id: String) -> void:
 	if _parent and _parent.has_method("_enter_dungeon"):

@@ -817,7 +817,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	vbox.add_child(rarity_lbl)
 
 	var body := Label.new()
-	body.text = "Equipment gives a unit permanent stat bonuses for as long as it's worn -- head, body, legs, and two hand slots, each unit gearing up independently. Open the Equipment tab to equip this on whoever needs it most."
+	body.text = "Gear gives a unit permanent stat bonuses for as long as it's worn -- head, body, legs, and two hand slots, each unit gearing up independently. Open Units > Gear to equip this on whoever needs it most."
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
@@ -844,12 +844,12 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 const TAB_TUTORIALS: Dictionary = {
 	"units": {"title": "Units", "body": "Pick any owned unit here to manage them: set their Gambits (the AI rules deciding what they do in a fight), spend Aether to level them up, buy Lore upgrades for their actions, and equip gear -- all from one screen, one unit at a time."},
 	"party": {"title": "Party", "body": "Choose who's actually fighting. Field or bench units (up to 5 fielded at once), and set each unit's row -- front row deals and takes more physical damage, back row is safer but hits softer."},
-	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of equipment. A duplicate pull still pays off: units and conditions convert to Aether, actions convert to Lore, equipment just stacks. Pulls unlock once you're far enough down the Road."},
+	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of gear. A duplicate pull still pays off: units and conditions convert to Aether, actions convert to Lore, gear just stacks. Pulls unlock once you're far enough down the Road."},
 	"expedition": {"title": "Expedition", "body": "Send benched units out on an expedition down one of 8 directions. They fight on their own and keep progressing even while you're away -- recall them anytime, or leave them to push further out for a bigger haul."},
 	"quests": {"title": "Quests", "body": "Two things live here: each companion's own 5-stage quest line, and direction dungeons that unlock as your expeditions explore further. Both are fought live, right on this screen, same as any Road battle."},
-	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, equipment, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
+	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, gear, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
 	"settings": {"title": "Settings", "body": "Game-wide settings live here, including a full Reset Game option if you ever want to start completely fresh."},
-	"shop": {"title": "Shop", "body": "Spend Crystal (earned from dungeons and companion quests) on a specific gambit condition, action, unit, or piece of equipment of your choosing -- a guaranteed pick, priced by rarity, instead of Marks' random pulls."}
+	"shop": {"title": "Shop", "body": "Spend Crystal (earned from dungeons and companion quests) on a specific gambit condition, action, unit, or piece of gear of your choosing -- a guaranteed pick, priced by rarity, instead of Marks' random pulls."}
 }
 
 func _maybe_show_tab_tutorial(tab_id: String) -> void:
@@ -1020,6 +1020,21 @@ func _panel_opening(panel: Node) -> void:
 	# Ian: "When a menu screen is exited and returned to, have it reset to
 	# the top." Runs after the panel has rebuilt and shown its content.
 	_reset_scrolls.call_deferred(panel)
+	_ensure_tab_close_x.call_deferred(panel)
+
+## Every tab menu gets the same always-visible top-right ✕ (top_level, so
+## the PopupPanel doesn't stretch it and its own scrolling can't move it).
+func _ensure_tab_close_x(panel: Node) -> void:
+	if not is_instance_valid(panel) or panel.get("popup") == null:
+		return
+	var pop: PopupPanel = panel.popup
+	var x: Button = pop.get_node_or_null("CloseX")
+	if x == null:
+		x = _make_close_x(func(): pop.hide())
+		x.name = "CloseX"
+		x.top_level = true
+		pop.add_child(x)
+	x.position = Vector2(pop.size.x - x.size.x - 10.0, 10.0)
 
 func _reset_scrolls(panel: Node) -> void:
 	if not is_instance_valid(panel) or panel.get("popup") == null:
@@ -1168,12 +1183,34 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 
 	return {"vbox": vbox, "backdrop": backdrop, "box": box, "host_size": host_size, "header": header, "scroll": scroll}
 
+## A round "✕" close button (shared by every overlay and tab pop-up).
+func _make_close_x(on_close: Callable) -> Button:
+	var b := Button.new()
+	b.text = "✕"
+	var d: float = maxf(34.0, _vp.x * 0.085)
+	b.custom_minimum_size = Vector2(d, d)
+	b.size = b.custom_minimum_size
+	b.add_theme_font_size_override("font_size", int(d * 0.5))
+	var st := StyleBoxFlat.new()
+	st.bg_color = Palette.BTN_NORMAL
+	st.border_color = Palette.BORDER_LEATHER
+	st.set_border_width_all(2)
+	st.set_corner_radius_all(int(d / 2.0))
+	var hv := st.duplicate()
+	hv.bg_color = Palette.BTN_HOVER
+	b.add_theme_stylebox_override("normal", st)
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_stylebox_override("pressed", hv)
+	b.pressed.connect(on_close)
+	return b
+
 func _finish_detail_overlay(o: Dictionary) -> void:
 	var backdrop: ColorRect = o["backdrop"]
-	var close_btn := Button.new()
-	close_btn.text = "Close"
-	close_btn.pressed.connect(func(): backdrop.queue_free())
-	o["vbox"].add_child(close_btn)
+	# Ian: "Always visible X button in top right instead of 'close' at the
+	# bottom." Sits on the backdrop at the box's corner, so scrolling the
+	# box's content never moves it.
+	var close_btn := _make_close_x(func(): backdrop.queue_free())
+	backdrop.add_child(close_btn)
 	await get_tree().process_frame
 	var box: PanelContainer = o["box"]
 	# Ian: "in general, pop-ups aren't centered." Root cause, confirmed by
@@ -1192,6 +1229,7 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	# (GameController itself, confirmed unaffected by direct measurement
 	# too), and self-correcting when it does.
 	box.position = (backdrop.size - box.size) / 2.0
+	close_btn.position = box.position + Vector2(box.size.x - close_btn.size.x - 6.0, 6.0)
 
 ## Post-Milestone-3 APK feedback (round 5): "I want to have the filters be
 ## in the actual drop downs when selecting the actions, not above them...
@@ -1297,7 +1335,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	# Ian: "actions say rank x0.87, not the stat(s) they scale with and the
 	# multiplier." Same "scales with X · power ×N" phrasing LorePanel's own
 	# action-detail card already uses, so both surfaces read consistently.
-	var scale_txt: String = "MAG" if act.get("camp") == "mag" else "ATK"
+	var scale_txt: String = ActionFilter.scale_label(act)
 	var power_lbl := Label.new()
 	power_lbl.text = "%s -- target: %s -- scales with %s" % [camp_txt, target_txt, scale_txt]
 	if act.get("power"):
@@ -1424,7 +1462,7 @@ func _show_stats_popup() -> void:
 		["Highest unit level", str(top_level)],
 		["Actions unlocked", "%d (+%d charge)" % [(g.get("actions", []) as Array).size(), mc_charges]],
 		["Gambits unlocked", "%d / %d" % [maxi(0, (g.get("conditions", []) as Array).size() - 1), FarroadCore.ALL_CONDITION_IDS.size() - 1]],
-		["Equipment pieces", str(equip_pieces)],
+		["Gear pieces", str(equip_pieces)],
 	]
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -1880,7 +1918,7 @@ func _show_gambit_detail_popup(cond_id: String) -> void:
 	vbox.add_child(lbl)
 	_finish_detail_overlay(o)
 
-func _show_enemy_detail_popup(arch_key: String) -> void:
+func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_variant: bool = false) -> void:
 	var a = FarroadCore.ARCH.get(arch_key)
 	if a == null:
 		return
@@ -1891,50 +1929,43 @@ func _show_enemy_detail_popup(arch_key: String) -> void:
 	var title := RichTextLabel.new()
 	title.bbcode_enabled = true
 	title.fit_content = true
-	title.text = "[b][color=#%s]%s[/color][/b]" % [color.to_html(false), a["name"]]
+	title.text = "[b][color=#%s]%s[/color][/b]" % [color.to_html(false), display_name if display_name != "" else a["name"]]
 	vbox.add_child(title)
+	if boss_variant:
+		var bl := Label.new()
+		bl.text = "Boss version of the %s: HP ×%.1f, ATK/MAG ×%.1f, extra Spirit (resists debuffs), drawn larger." % [
+			a["name"], FarroadProgression.BOSS_LEN, 1.1 * FarroadProgression.BOSS_HARD_EXTRA]
+		bl.modulate = Palette.GOLD_PRESSED
+		bl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(bl)
 
-	var stat_lbl := Label.new()
-	stat_lbl.text = "ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [
-		str(a.get("atk", 0)), str(a.get("mag", 0)), str(a.get("def", 0)), str(a.get("res", 0)), str(a.get("spd", 0))]
-	# A real, reported overflow bug: this line's fixed-pixel-font text
-	# doesn't shrink with a narrower _vp.x the way this overlay's own
-	# fraction-based width does (see _show_equipment_detail_popup's own
-	# stat_lbl fix for the full reasoning) -- measured directly at the
-	# real 412-wide portrait viewport: ~366px of unwrapped text against a
-	# ~313-330px available width, a genuine overflow this autowrap fixes.
-	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_child(stat_lbl)
-
-	# Ian: "show enemy growths" -- this archetype's own relative scaling
-	# multipliers (everything beyond the flat ATK/MAG/DEF/RES/SPD above):
-	# HP multiplier and effective tankiness (FarroadCore.dmg_taken_mul,
-	# the SAME real formula build_enemies itself uses -- how much more/
-	# less damage this archetype actually takes than the wolf baseline),
-	# crit rates, evade, and field size (only when notably non-default,
-	# matching content-pipeline.js's own "omit when default" convention
-	# for the `size` CSV field).
-	var growth_bits: Array = []
-	growth_bits.append("HP ×%.2f" % float(a.get("hpMul", 1.0)))
-	growth_bits.append("Takes %.0f%% dmg" % (FarroadCore.dmg_taken_mul(a) * 100.0))
-	growth_bits.append("ATK crit %.0f%%" % (float(a.get("atkCrit", 0.0)) * 100.0))
-	growth_bits.append("MAG crit %.0f%%" % (float(a.get("magCrit", 0.0)) * 100.0))
-	growth_bits.append("Evade %.0f%%" % (float(a.get("evade", 0.0)) * 100.0))
-	if a.get("size") and float(a["size"]) != 1.0:
-		growth_bits.append("Size ×%.2f" % float(a["size"]))
-	var growth_lbl := Label.new()
-	growth_lbl.text = "Growth: %s" % ", ".join(growth_bits)
-	growth_lbl.modulate = Palette.TEXT_DIM
-	growth_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	growth_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_child(growth_lbl)
+	# Ian: "Change enemy catalogue stats to be formatted like units" -- the
+	# same lines a unit's detail shows: base stats, growth, crit/evade,
+	# affinity (as %). Enemy stats grow with the wave instead of a level.
+	var lines: Array = [
+		"HP ×%.2f   ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [float(a.get("hpMul", 1.0)),
+			str(a.get("atk", 0)), str(a.get("mag", 8)), str(a.get("def", 0)), str(a.get("res", 0)), str(a.get("spd", 0))],
+		"Growth: HP, ATK, MAG, DEF and RES grow with the wave (stats above are at wave 1)",
+		"ATK crit %.0f%%   MAG crit %.0f%%   Evade %.0f%%" % [float(a.get("atkCrit", 0.0)) * 100.0,
+			float(a.get("magCrit", 0.04)) * 100.0, float(a.get("evade", 0.0)) * 100.0],
+		"Takes %.0f%% damage%s" % [FarroadCore.dmg_taken_mul(a) * 100.0,
+			("   ·   Size ×%.2f" % float(a["size"])) if a.get("size") and float(a["size"]) != 1.0 else ""]]
+	for i in lines.size():
+		var ll := Label.new()
+		ll.text = lines[i]
+		if i == 1:
+			ll.modulate = Palette.TEXT_DIM
+		ll.autowrap_mode = TextServer.AUTOWRAP_WORD
+		ll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(ll)
 
 	var affinity: Dictionary = a.get("affinity", {})
 	var aff_bits: Array = []
+	# Ian: affinities as the % they change damage by, like units
 	for ax in affinity.keys():
 		if affinity[ax] != 0.0:
-			aff_bits.append("%s %+d" % [str(ax).capitalize(), int(affinity[ax])])
+			aff_bits.append("%s %+.0f%%" % [str(ax).capitalize(), FarroadCore.affinity_mul(float(affinity[ax])) * 100.0])
 	if not aff_bits.is_empty():
 		var aff_lbl := Label.new()
 		aff_lbl.text = "Affinity: %s" % ", ".join(aff_bits)
