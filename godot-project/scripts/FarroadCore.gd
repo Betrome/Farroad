@@ -293,7 +293,13 @@ const SWIFT_DECAY := 0.88
 ## on a regular (non-charge) action now slows its own initiative down;
 ## stacking `swift` on the SAME action still corrects it back up toward
 ## SWIFT_CEIL exactly as before. First-pass rate, easily retuned.
-const LORE_SLOWDOWN_PER_LEVEL := 0.06
+const LORE_SLOWDOWN_PER_LEVEL := 0.05
+## Ian: "Swift: flat reduction. Also, it's not working on charge actions."
+## Each Swift level takes a flat SWIFT_PER_LEVEL off the action's rank (its
+## turn cost, shown x100) -- regular AND charge actions -- mirroring the
+## flat +LORE_SLOWDOWN_PER_LEVEL each other bonus adds to regular actions.
+const SWIFT_PER_LEVEL := 0.05
+const RANK_FLOOR := 0.3
 const BONUS_COST_BROAD := 10
 const CHARGE_UP_COST := 12
 const CHARGE_THRIFT := 15
@@ -318,7 +324,7 @@ static func is_buff_status(s) -> bool:
 ## (farroad-core.js:368-376); `apply_bonuses` still honors old stacks for
 ## backward compatibility, it just isn't newly purchasable.
 const BONUSES := {
-	"swift": {"n": "Swift", "d": "corrective — big gains below ×1.00 initiative, little above it"},
+	"swift": {"n": "Swift", "d": "−5 turn cost per level (other upgrades on normal actions add +5 each)"},
 	"potent": {"n": "Potent", "d": "+15% to whatever it does — damage or healing", "mag": true},
 	"lasting": {"n": "Lasting", "d": "+1 turn on the status it applies — nothing if it applies none"},
 	"deepening": {"n": "Deepening", "d": "debuff bites 25% harder — dead on buffs and on damage"},
@@ -419,14 +425,10 @@ static func apply_bonuses(map: Dictionary) -> void:
 		# Runs unconditionally (not gated on b.get("swift")) so an action
 		# with e.g. only `potent` stacked still gets slower even with no
 		# swift investment at all.
-		if not a.get("isCharge"):
-			var non_swift: int = action_bonus_total(b) - int(b.get("swift", 0))
-			var ini: float = 1.0 / a["rank"]
-			if non_swift > 0:
-				ini = ini / (1.0 + LORE_SLOWDOWN_PER_LEVEL * non_swift)
-			if b.get("swift"):
-				ini = SWIFT_CEIL - (SWIFT_CEIL - ini) * pow(SWIFT_DECAY, b["swift"])
-			a["rank"] = 1.0 / ini
+		var swift_lv: int = int(b.get("swift", 0))
+		var slow_lv: int = 0 if a.get("isCharge") else action_bonus_total(b) - swift_lv
+		if slow_lv > 0 or swift_lv > 0:
+			a["rank"] = maxf(RANK_FLOOR, float(a["rank"]) + LORE_SLOWDOWN_PER_LEVEL * slow_lv - SWIFT_PER_LEVEL * swift_lv)
 		if b.get("weighty"):
 			a["power"] = a["power"] * (1 + 0.12 * b["weighty"])
 		if b.get("piercing"):

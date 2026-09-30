@@ -33,13 +33,13 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 -- 8th slot in the bottom row, see
 	# MarksPanel.gd's own copy of this comment for the full 8-slot layout.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7533, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -117,7 +117,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
 	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
 		await _parent.call("_maybe_show_tab_tutorial", "shop")
@@ -215,7 +215,8 @@ func _on_buy_gambit(cid: String) -> void:
 
 func _refresh_actions() -> void:
 	# Unowned actions first; owned ones stay buyable and turn into Lore.
-	var all_ids: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
+	var all_ids: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).filter(
+		func(a): return FarroadProgression.shop_action_available(g, a))
 	var owned_ids: Array = all_ids.filter(func(a): return FarroadProgression.shop_action_owned(g, a))
 	for aid in all_ids.filter(func(a): return not owned_ids.has(a)) + owned_ids:
 		var act: Dictionary = FarroadCore.ACTIONS.get(aid, {})

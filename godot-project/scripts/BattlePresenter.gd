@@ -793,7 +793,7 @@ func _build_status_card(u: Dictionary) -> Control:
 	for id in FarroadCore.ST:
 		if FarroadCore.has(u, id):
 			var is_buff: bool = FarroadCore.is_buff_status(id)
-			var status_color := "80d9ff" if is_buff else "d980ff"
+			var status_color := "1f6e96" if is_buff else "7b2fa3"   # darker: readable on parchment (Ian)
 			var turns: int = int(u["st"][id])
 			box.add_child(_rich_line("[font_size=12][color=#%s]%s %s[/color] [color=#%s]— %s%s[/color][/font_size]" % [
 				status_color, STATUS_GLYPH.get(id, "●"), STATUS_NAMES.get(id, id.capitalize()),
@@ -1094,7 +1094,10 @@ func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
 		var entry: Dictionary = wave_progress_circles[i]
 		entry["wave"] = stretch_start + i
 		(entry["panel"] as Panel).visible = true
-		(entry["style"] as StyleBoxFlat).bg_color = _wave_circle_color(int(entry["wave"]) < cur)
+		# Ian: "Wave progress bar: have current wave colored blue."
+		(entry["style"] as StyleBoxFlat).bg_color = CURRENT_WAVE_COLOR if int(entry["wave"]) == cur else _wave_circle_color(int(entry["wave"]) < cur)
+
+const CURRENT_WAVE_COLOR := Color(0.25, 0.52, 0.9)
 
 ## Called by GameController for a side battle (quest/dungeon) specifically
 ## -- overrides the "Wave N" text with the encounter's own name (e.g.

@@ -38,7 +38,7 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed this to an 8-icon row (Shop
@@ -49,7 +49,7 @@ func _build_ui(parent: Node) -> void:
 	# recomputed for 8 slots instead of 7 (duplicated per-file, no shared
 	# base).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1367, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -118,7 +118,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_roster()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
 	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
 	# see GameController._maybe_show_tab_tutorial's own comment.
@@ -161,7 +161,7 @@ func _refresh_roster() -> void:
 	party_header.text = "PARTY"
 	party_header.modulate = Palette.PARTY_BLUE
 	roster_container.add_child(party_header)
-	for uid in g["party"]:
+	for uid in FarroadProgression.mc_first(g["party"]):
 		roster_container.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed, true))
 
 	var bench_header := Label.new()

@@ -42,7 +42,7 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
@@ -52,7 +52,7 @@ func _build_ui(parent: Node) -> void:
 	# Shop 0.8767 -- same 0.11*vp.x icon size/0.93*vp.y row as before, just
 	# recomputed.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.2600, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -121,7 +121,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_card()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
 	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
 	# see GameController._maybe_show_tab_tutorial's own comment.
@@ -233,17 +233,44 @@ func _build_unlocked_card() -> void:
 	card_container.add_child(pull_x10_btn)
 
 	var pity_n := int(g.get("pullsSinceUnit", 0))
+	# Ian: a breakdown of each kind's chance and the rarity split inside it
+	# (share of that kind, and the overall per-pull chance in brackets).
+	var odds_grid := GridContainer.new()
+	odds_grid.columns = 4
+	odds_grid.add_theme_constant_override("h_separation", 10)
+	for head in ["", "Common", "Rare", "Legendary"]:
+		var hl := Label.new()
+		hl.text = head
+		hl.add_theme_font_size_override("font_size", 12)
+		if head != "":
+			hl.add_theme_color_override("font_color", {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}.get(head.to_lower(), Palette.TEXT_INK))
+		odds_grid.add_child(hl)
+	for row in FarroadProgression.pull_odds_breakdown(g):
+		var kl := Label.new()
+		kl.text = "%s %d%%" % [row["label"], roundi(row["chance"] * 100.0)]
+		kl.add_theme_font_size_override("font_size", 12)
+		odds_grid.add_child(kl)
+		for rar in ["common", "rare", "legendary"]:
+			var cl := Label.new()
+			cl.add_theme_font_size_override("font_size", 12)
+			var share: float = float((row["rarities"] as Dictionary).get(rar, 0.0))
+			if row["kind"] == "cond":
+				cl.text = "—" if rar != "common" else "no rarity"
+			elif share <= 0.0:
+				cl.text = "—"
+			else:
+				cl.text = "%.0f%% (%.1f%%)" % [share * 100.0, share * row["chance"] * 100.0]
+			odds_grid.add_child(cl)
+	card_container.add_child(odds_grid)
 	var odds_lbl := Label.new()
-	odds_lbl.text = "Rolls across everything: %d%% action · %d%% gambit condition · %d%% equipment · %d%% companion — guaranteed a companion every %d pulls regardless of odds (%d/%d since your last one)." % [
-		roundi(FarroadProgression.PULL_ODDS["action"] * 100), roundi(FarroadProgression.PULL_ODDS["cond"] * 100),
-		roundi(FarroadProgression.PULL_ODDS["equip"] * 100), roundi(FarroadProgression.PULL_ODDS["unit"] * 100),
+	odds_lbl.text = "Percent of that kind (overall chance per pull in brackets). A companion is guaranteed every %d pulls (%d/%d since your last one)." % [
 		FarroadProgression.PULL_PITY_AT, pity_n, FarroadProgression.PULL_PITY_AT]
 	odds_lbl.modulate = Palette.TEXT_DIM
 	odds_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(odds_lbl)
 
 	var explain_lbl := Label.new()
-	explain_lbl.text = ("Duplicate actions and gambits convert to Lore; duplicate units convert to Aether; " +
+	explain_lbl.text = ("Duplicate actions convert to Lore; duplicate gambits and units convert to Aether; " +
 		"duplicate equipment just adds to your stock. You OWN every unit you pull — the party is the %d " +
 		"you field, and extras stay benched but yours.") % FarroadProgression.PARTY_CAP
 	if g["party"].size() >= FarroadProgression.PARTY_CAP:
@@ -300,10 +327,8 @@ func _describe_pull_result(r: Dictionary) -> String:
 		"cond":
 			if not r["duplicate"]:
 				return "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
-			# 24-item batch, Group D6: name the action that actually received
-			# the Lore (do_pull now reports it as loreActionId).
-			return "Duplicate gambit condition (%s), converted to +1 Lore on %s." % [
-				FarroadCore.cond_label(r["id"]), _action_name(r.get("loreActionId", ""))]
+			return "Duplicate gambit condition (%s), converted to +%d Aether." % [
+				FarroadCore.cond_label(r["id"]), int(r.get("aetherGain", 0))]
 		_:
 			return ""
 
@@ -359,6 +384,7 @@ func _describe_pull_results(results: Array) -> String:
 	# lore from duplicate each pull" -- tallied per action name, in the
 	# order each first appeared.
 	var dup_aether := 0
+	var cond_aether := 0
 	var lore_by_action: Dictionary = {}
 	for r in results:
 		match r["kind"]:
@@ -378,8 +404,7 @@ func _describe_pull_results(results: Array) -> String:
 			"cond":
 				if r["duplicate"]:
 					dup_conds += 1
-					var cn := _action_name(r.get("loreActionId", ""))
-					lore_by_action[cn] = int(lore_by_action.get(cn, 0)) + 1
+					cond_aether += int(r.get("aetherGain", 0))
 				else:
 					new_conds += 1
 			"equip":
@@ -396,7 +421,8 @@ func _describe_pull_results(results: Array) -> String:
 	if new_actions > 0 or dup_actions > 0:
 		parts.append("%d new / %d duplicate action%s" % [new_actions, dup_actions, "" if (new_actions + dup_actions) == 1 else "s"])
 	if new_conds > 0 or dup_conds > 0:
-		parts.append("%d new / %d duplicate gambit%s" % [new_conds, dup_conds, "" if (new_conds + dup_conds) == 1 else "s"])
+		parts.append("%d new / %d duplicate gambit%s" % [new_conds, dup_conds, "" if (new_conds + dup_conds) == 1 else "s"]
+			+ (" -> +%d Aether" % cond_aether if cond_aether > 0 else ""))
 	if new_equip > 0 or dup_equip > 0:
 		parts.append("%d new / %d duplicate equipment" % [new_equip, dup_equip])
 	if not lore_by_action.is_empty():

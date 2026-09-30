@@ -266,6 +266,20 @@ static func boss_aether(w: float) -> int:
 	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
 	return int(round(BOSS_AETHER_WAVES * (kr + idle)))
 
+## Ian: "Duplicate gambits become aether, not lore." Worth about one wave's
+## kill reward plus idle trickle at the player's furthest wave.
+const DUP_GAMBIT_WAVES := 1
+
+static func dup_gambit_aether(w: float) -> int:
+	var kr: float = kill_reward(w, enemy_count(int(w)))["aether"]
+	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
+	return maxi(1, int(round(DUP_GAMBIT_WAVES * (kr + idle))))
+
+static func _credit_dup_gambit(g: Dictionary) -> int:
+	var amt := dup_gambit_aether(float(g.get("farthest", g.get("wave", 1))))
+	g["aether"] = float(g.get("aether", 0.0)) + amt
+	return amt
+
 static func dup_unit_aether(w: float) -> int:
 	var kr: float = kill_reward(w, enemy_count(int(w)))["aether"]
 	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
@@ -382,12 +396,12 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		var cid: String = cp[g["rng"].next_int(cp.size())]
 		g["condCounts"][cid] = int(g["condCounts"].get(cid, 0)) + 1
 		var dup_c: bool = g["conditions"].has(cid)
-		var lore_aid: String = ""
+		var gain := 0
 		if not dup_c:
 			g["conditions"].append(cid)
 		else:
-			lore_aid = _credit_random_lore(g)
-		return {"kind": "cond", "id": cid, "duplicate": dup_c, "loreActionId": lore_aid}
+			gain = _credit_dup_gambit(g)
+		return {"kind": "cond", "id": cid, "duplicate": dup_c, "aetherGain": gain}
 
 ## ===== SHOP tab: fixed-price purchases with Crystal (24-item batch,
 ## Group C6) =====
@@ -423,10 +437,26 @@ static func buy_shop_gambit(g: Dictionary, cond_id: String) -> bool:
 ## theoretical, guard.
 ## Ian: actions the player already has stay on sale; buying one again turns
 ## into one Lore for that action (the same as a duplicate drop or pull).
+## The unit whose signature charge action this is ("" if none). Ian: a
+## unit's charge action isn't on sale until you own that unit, and since
+## the unit already has it, buying it counts as a duplicate (+1 Lore).
+static func signature_owner(action_id: String) -> String:
+	for r in FarroadCore.ROSTER:
+		if r.get("chargeAction") == action_id:
+			return r["id"]
+	return ""
+
+static func shop_action_available(g: Dictionary, action_id: String) -> bool:
+	var owner := signature_owner(action_id)
+	return owner == "" or g["owned"].has(owner)
+
 static func shop_action_owned(g: Dictionary, action_id: String) -> bool:
 	var act = FarroadCore.ACTIONS.get(action_id)
 	if act == null:
 		return false
+	var owner := signature_owner(action_id)
+	if owner != "" and g["owned"].has(owner):
+		return true
 	if bool(act.get("isCharge", false)):
 		return g.get("mc") != null and (g["mc"].get("acquiredCharges", []) as Array).has(action_id)
 	return (g["actions"] as Array).has(action_id)
@@ -437,6 +467,8 @@ static func buy_shop_action(g: Dictionary, action_id: String) -> bool:
 		return false
 	var is_charge: bool = bool(act.get("isCharge", false))
 	if is_charge and g["mc"] == null:
+		return false
+	if not shop_action_available(g, action_id):
 		return false
 	var price: int = int(SHOP_ACTION_PRICE.get(act.get("rarity", "common"), 20))
 	if int(g.get("crystal", 0)) < price:
@@ -543,6 +575,26 @@ static func is_curated(w: int) -> bool:
 ## the future MARKS pull screen, Step 3g) =====
 
 const RARITY_PULL_WEIGHT := {"common": 3, "rare": 1, "legendary": 1}
+
+## Ian: "Marks: list breakdown of unit/action/gambit/equipment chances plus
+## rarity chances in each." The real per-pull odds right now: each kind's
+## share (PULL_ODDS) and, inside it, each rarity's share of that kind's
+## weighted pool (the same weights the picks use). Gambit conditions have
+## no rarity. Returns [{kind, label, chance, rarities: {rarity: share}}].
+static func pull_odds_breakdown(g: Dictionary) -> Array:
+	var out := []
+	var unit_pool: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false)).map(func(r): return r.get("rarity", "common"))
+	var action_pool: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).map(func(id): return FarroadCore.ACTIONS.get(id, {}).get("rarity", "common"))
+	var equip_pool: Array = random_equipment_ids().map(func(id): return FarroadCore.EQUIPMENT.get(id, {}).get("rarity", "common"))
+	for spec in [["unit", "Unit", unit_pool], ["action", "Action", action_pool], ["cond", "Gambit", []], ["equip", "Gear", equip_pool]]:
+		var shares := {}
+		var total := 0.0
+		for r in spec[2]:
+			total += RARITY_PULL_WEIGHT.get(r, 1)
+		for r in spec[2]:
+			shares[r] = float(shares.get(r, 0.0)) + RARITY_PULL_WEIGHT.get(r, 1) / total
+		out.append({"kind": spec[0], "label": spec[1], "chance": float(PULL_ODDS[spec[0]]), "rarities": shares})
+	return out
 
 static func weighted_roster_pick(rng: FarroadCore.RNG, list: Array) -> Dictionary:
 	var weights: Array = list.map(func(r): return RARITY_PULL_WEIGHT.get(r.get("rarity", "common"), 1))
@@ -1123,9 +1175,19 @@ static func field_unit(g: Dictionary, uid: String) -> bool:
 ## Mirrors availableForParty (farroad-ui.js:2646-2647), now including the
 ## isOnExpedition filter (Step 3h) -- every owned, unfielded, not-away
 ## unit is available.
+## Ian: "the MC should always be at the top of the list." Owned unit ids,
+## the MC ("kesh") first, the rest in the order they joined.
+static func mc_first(ids: Array) -> Array:
+	var out: Array = ids.filter(func(u): return u == "kesh")
+	out.append_array(ids.filter(func(u): return u != "kesh"))
+	return out
+
+static func owned_ids(g: Dictionary) -> Array:
+	return mc_first((g.get("owned", {}) as Dictionary).keys())
+
 static func available_for_party(g: Dictionary) -> Array:
 	var out := []
-	for uid in g["owned"].keys():
+	for uid in owned_ids(g):
 		if not g["party"].has(uid) and not is_on_expedition(g, uid):
 			out.append(uid)
 	return out
@@ -1690,11 +1752,12 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 		else:
 			g["condCounts"][d["id"]] = g["condCounts"].get(d["id"], 0) + 1
 			var dup2: bool = g["conditions"].has(d["id"])
+			var gain2 := 0
 			if not dup2:
 				g["conditions"].append(d["id"])
 			else:
-				_credit_random_lore(g)
-			events.append({"kind": "cond", "id": d["id"], "wave": w, "duplicate": dup2,
+				gain2 = _credit_dup_gambit(g)
+			events.append({"kind": "cond", "id": d["id"], "wave": w, "duplicate": dup2, "aetherGain": gain2,
 				"why": d.get("why") if curated else null})
 	if not drops.is_empty():
 		auto_equip(g)
@@ -2252,10 +2315,17 @@ static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, si
 ## party/ew, banked or logged as a miss. Never a dungeon (v2.9 correction,
 ## already the real behavior -- dungeons come from the deterministic
 ## per-direction schedule this step deliberately doesn't port).
+## Ian: "change 'won a bonus fight' to 'defeated some bandits'. Also add
+## other enemy variants that could be fought." Who the party ran into.
+const EXPED_FOES := ["some bandits", "a wolf pack", "a band of highwaymen", "a rogue knight",
+	"a cult's lookouts", "some grave robbers", "a raiding party", "a nest of wild beasts",
+	"a smuggler crew", "a deserter patrol"]
+
 static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float, now) -> void:
 	if g["rng"].next() >= EXPED_DISCOVERY_CHANCE:
 		return
 	var names := _expedition_names(exp["partyIds"])
+	var foe: String = EXPED_FOES[g["rng"].next_int(EXPED_FOES.size())]
 	var b_enemies: Array = apply_direction_affinity(
 		apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
 	var b_party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
@@ -2272,10 +2342,10 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 		var b_marks: float = br["marks"] * marks_mul(g) * mul
 		exp["bank"]["aether"] = float(exp["bank"]["aether"]) + b_aether
 		exp["bank"]["marks"] = float(exp["bank"]["marks"]) + b_marks
-		push_expedition_log(exp, "%s won a bonus fight along the way — +%d Aether, +%d Marks." % [
-			names, roundi(b_aether), floori(b_marks)], now)
+		push_expedition_log(exp, "%s defeated %s — +%d Aether, +%d Marks." % [
+			names, foe, roundi(b_aether), floori(b_marks)], now)
 	else:
-		push_expedition_log(exp, "%s were ambushed in a bonus fight and had to disengage — no reward." % names, now)
+		push_expedition_log(exp, "%s were ambushed by %s and had to fall back — no reward." % [names, foe], now)
 
 ## Mirrors resolveAllExpeditions (farroad-ui.js:1339-1340).
 static func resolve_all_expeditions(g: Dictionary, now) -> void:

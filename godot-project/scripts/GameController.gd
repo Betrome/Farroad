@@ -289,6 +289,9 @@ func _try_resume_save() -> bool:
 	var now := Time.get_unix_time_from_system()
 	_offline_summary = FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
 	FarroadProgression.resolve_all_expeditions(g, now)
+	# Ian: the time away must be accurate next launch even after a very
+	# short session -- stamp the save now that this gap has been counted.
+	_save_game()
 	return true
 
 ## Mirrors boot(7,mc) (farroad-ui.js:3234, the real btnMcConfirm handler --
@@ -303,6 +306,29 @@ func _on_mc_confirmed(mc: Dictionary) -> void:
 	FarroadProgression.start_wave(g, 1)
 	_save_game()   # mirrors doSave() immediately after boot(7,mc)
 	_start_game()
+
+## Ian: "Welcome back screen, when closed, should reset... when they open
+## it, the time away should be accurate." Save whenever the app is closed
+## or sent to the background; coming back after a real break reloads the
+## game so the welcome-back catch-up runs fresh from that save (a side
+## battle in progress is simply abandoned, same as closing the app).
+const RESUME_RELOAD_SEC := 60.0
+var _backgrounded_at: float = -1.0
+
+func _notification(what: int) -> void:
+	if g.is_empty() or g.get("mc") == null:
+		return
+	match what:
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
+			_save_game()
+			if what != NOTIFICATION_WM_CLOSE_REQUEST:
+				_backgrounded_at = Time.get_unix_time_from_system()
+		NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_APPLICATION_FOCUS_IN:
+			if _backgrounded_at > 0.0 and Time.get_unix_time_from_system() - _backgrounded_at >= RESUME_RELOAD_SEC:
+				_backgrounded_at = -1.0
+				get_tree().reload_current_scene()
+			else:
+				_backgrounded_at = -1.0
 
 func _save_game() -> void:
 	var snap := FarroadSave.serialize(g, int(Time.get_unix_time_from_system()))
@@ -505,20 +531,24 @@ func _reset_game() -> void:
 ## 8-icon row) -- moved next to Expedition to stay close to true center
 ## (0.5067 vs the ideal 0.5) -- see MarksPanel.gd's own comment for the
 ## full 8-slot layout.
+## Ian: "Move 'Road' button to be a screen wide rectangular button just
+## above the other menu buttons."
+const ROAD_BAR_Y := 0.875
+const ROAD_BAR_H := 0.042
+
 func _build_road_button() -> void:
-	var icon_size: float = _vp.x * 0.11
 	road_button = Button.new()
 	road_button.text = "Road"
-	road_button.position = Vector2(_vp.x * 0.5067, _vp.y * 0.93)
-	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
+	road_button.position = Vector2(_vp.x * 0.02, _vp.y * ROAD_BAR_Y)
+	road_button.custom_minimum_size = Vector2(_vp.x * 0.96, _vp.y * ROAD_BAR_H)
 	road_button.clip_text = true
-	road_button.add_theme_font_size_override("font_size", maxi(9, int(icon_size * 0.24)))
+	road_button.add_theme_font_size_override("font_size", maxi(10, int(_vp.y * ROAD_BAR_H * 0.5)))
 	var normal_style := StyleBoxFlat.new()
 	normal_style.bg_color = Palette.GOLD
-	normal_style.set_corner_radius_all(int(icon_size / 2.0))
+	normal_style.set_corner_radius_all(8)
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.GOLD_LIGHT
-	hover_style.set_corner_radius_all(int(icon_size / 2.0))
+	hover_style.set_corner_radius_all(8)
 	road_button.add_theme_stylebox_override("normal", normal_style)
 	road_button.add_theme_stylebox_override("hover", hover_style)
 	road_button.add_theme_stylebox_override("pressed", hover_style)
@@ -526,9 +556,8 @@ func _build_road_button() -> void:
 	add_child(road_button)
 
 func _reflow_road_button() -> void:
-	var icon_size: float = _vp.x * 0.11
-	road_button.position = Vector2(_vp.x * 0.5067, _vp.y * 0.93)
-	road_button.custom_minimum_size = Vector2(icon_size, icon_size)
+	road_button.position = Vector2(_vp.x * 0.02, _vp.y * ROAD_BAR_Y)
+	road_button.custom_minimum_size = Vector2(_vp.x * 0.96, _vp.y * ROAD_BAR_H)
 
 ## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
 ## shown right after the HUD is built whenever a resumed save had a real
@@ -619,6 +648,7 @@ func _show_welcome_back_popup() -> void:
 		collect_btn.pressed.connect(func():
 			FarroadProgression.collect_idle_reward(g)
 			_refresh_hud()
+			_save_game()
 			idle_lbl.text = "Collected."
 			collect_btn.disabled = true)
 		vbox.add_child(collect_btn)
@@ -814,7 +844,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 const TAB_TUTORIALS: Dictionary = {
 	"units": {"title": "Units", "body": "Pick any owned unit here to manage them: set their Gambits (the AI rules deciding what they do in a fight), spend Aether to level them up, buy Lore upgrades for their actions, and equip gear -- all from one screen, one unit at a time."},
 	"party": {"title": "Party", "body": "Choose who's actually fighting. Field or bench units (up to 5 fielded at once), and set each unit's row -- front row deals and takes more physical damage, back row is safer but hits softer."},
-	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of equipment. A duplicate pull still pays off: units convert to Aether, actions and conditions convert to Lore, equipment just stacks. Pulls unlock once you're far enough down the Road."},
+	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of equipment. A duplicate pull still pays off: units and conditions convert to Aether, actions convert to Lore, equipment just stacks. Pulls unlock once you're far enough down the Road."},
 	"expedition": {"title": "Expedition", "body": "Send benched units out on an expedition down one of 8 directions. They fight on their own and keep progressing even while you're away -- recall them anytime, or leave them to push further out for a bigger haul."},
 	"quests": {"title": "Quests", "body": "Two things live here: each companion's own 5-stage quest line, and direction dungeons that unlock as your expeditions explore further. Both are fought live, right on this screen, same as any Road battle."},
 	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, equipment, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
@@ -987,6 +1017,17 @@ func _panel_opening(panel: Node) -> void:
 	if open_panel != null and open_panel != panel and is_instance_valid(open_panel):
 		open_panel.popup.hide()
 	open_panel = panel
+	# Ian: "When a menu screen is exited and returned to, have it reset to
+	# the top." Runs after the panel has rebuilt and shown its content.
+	_reset_scrolls.call_deferred(panel)
+
+func _reset_scrolls(panel: Node) -> void:
+	if not is_instance_valid(panel) or panel.get("popup") == null:
+		return
+	await get_tree().process_frame
+	for sc in panel.popup.find_children("*", "ScrollContainer", true, false):
+		sc.scroll_vertical = 0
+		sc.scroll_horizontal = 0
 
 ## Group H (20-item batch): Catalogue folded out of the bottom icon row --
 ## reached via a "Catalogue" button inside SettingsPanel's own popup
@@ -2236,9 +2277,9 @@ func _fade_in() -> void:
 ## 0.3833, confirmed by reading each panel's own current _build_ui.
 const ICON_SIZE_FRAC := 0.11
 const ICON_Y_FRAC := 0.93
-const UNITS_ICON_X_FRAC := 0.0133
-const PARTY_ICON_X_FRAC := 0.1367
-const EXPEDITION_ICON_X_FRAC := 0.3833
+const UNITS_ICON_X_FRAC := 0.0288
+const PARTY_ICON_X_FRAC := 0.1675
+const EXPEDITION_ICON_X_FRAC := 0.3063
 
 const REWARD_FLYER_TIME := 0.7
 const REWARD_FLYER_STAGGER := 0.12
@@ -2349,13 +2390,26 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 			current_presenter.log_popup.hide()
 		if current_presenter.status_popup.visible:
 			current_presenter.status_popup.hide()
+	await _spawn_side_presenter(false)
+
+## A fresh presenter for the current side-battle wave; the enemies run in
+## before the fight starts, like on the Road. `reveal_party` fades the
+## party's bars back in after a between-wave run.
+func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter = load("res://scripts/BattlePresenter.gd").new()
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	add_child(side_presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
-	side_presenter.start_battle(g["battle"], g["battle"]["units"])
-	side_presenter.call("set_status_override", _side_battle_label_text(meta))
+	var sp = side_presenter
+	sp.start_battle(g["battle"], g["battle"]["units"], true, {}, reveal_party, false)
+	sp.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
+	if reveal_party:
+		sp.call("reveal_party", CHROME_FADE_TIME)
+	sp.call("run_enemies_entering")
+	await get_tree().create_timer(ENEMY_RUN_IN_TIME).timeout
+	if is_instance_valid(sp):
+		sp.call("begin_combat")
 
 ## Replaces the side presenter's own "Wave N" text (BattlePresenter.
 ## set_status_override) with the quest/dungeon's own name while a side
@@ -2403,18 +2457,19 @@ func _give_up_quest() -> void:
 func _resolve_side_battle(result: String, gave_up: bool) -> void:
 	var event := FarroadProgression.finish_side_battle(g, result, gave_up, Time.get_unix_time_from_system())
 	if event["kind"] == "dungeon_wave_advance":
-		# Same fresh-instance-per-wave convention _begin_next_fight already
-		# uses for the Road -- BattlePresenter._layout_units() never frees
-		# prior UnitViews, so reusing one instance across waves would leak
-		# them; a new instance per wave is both simpler and consistent.
-		side_presenter.queue_free()
-		side_presenter = load("res://scripts/BattlePresenter.gd").new()
-		side_presenter.battle_finished.connect(_on_side_battle_finished)
-		add_child(side_presenter)
-		_raise_self_hosted_overlays()
-		await get_tree().process_frame
-		side_presenter.start_battle(g["battle"], g["battle"]["units"])
-		side_presenter.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
+		# Ian: "Quests/Dungeons: Same movement between waves as with the
+		# Road." The party runs on, settles, the next wave runs in, then
+		# the fight starts -- the Road's own sequence (_on_battle_finished).
+		var old_side = side_presenter
+		_animate_wave_transition(old_side)
+		await get_tree().create_timer(WAVE_RUN_TIME).timeout
+		_animate_wave_retreat(old_side)
+		await get_tree().create_timer(WAVE_RETREAT_TIME).timeout
+		if is_instance_valid(old_side):
+			old_side.queue_free()
+		if g.get("sideBattle") == null:
+			return
+		await _spawn_side_presenter(true)
 		return
 	if side_presenter != null:
 		side_presenter.queue_free()

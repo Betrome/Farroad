@@ -52,11 +52,11 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0133, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -138,8 +138,11 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
+	# Ian: reopening Units starts back on the MC's summary
+	selected_uid = "kesh" if g["owned"].has("kesh") else ""
+	current_sub_tab = "summary"
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
 	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
 	# shown over the tab's own already-visible content (matching every
@@ -157,7 +160,7 @@ func _notify_battle_paused(paused: bool) -> void:
 func _default_uid() -> String:
 	if not g["party"].is_empty():
 		return g["party"][0]
-	var keys: Array = g["owned"].keys()
+	var keys: Array = FarroadProgression.owned_ids(g)
 	return keys[0] if not keys.is_empty() else ""
 
 func _refresh() -> void:
@@ -169,7 +172,7 @@ func _refresh() -> void:
 
 func _refresh_dropdown() -> void:
 	dropdown.clear()
-	var uids: Array = g["owned"].keys()
+	var uids: Array = FarroadProgression.owned_ids(g)
 	for idx in range(uids.size()):
 		var uid: String = uids[idx]
 		var def = FarroadCore.roster_by_id(uid)
@@ -184,7 +187,7 @@ func _refresh_dropdown() -> void:
 ## whole point of "so you can swap between units easily" (previously each
 ## sub-panel had to be independently reopened per unit).
 func _on_dropdown_selected(idx: int) -> void:
-	var uids: Array = g["owned"].keys()
+	var uids: Array = FarroadProgression.owned_ids(g)
 	if idx < 0 or idx >= uids.size():
 		return
 	selected_uid = uids[idx]

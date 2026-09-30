@@ -42,7 +42,7 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
@@ -50,7 +50,7 @@ func _build_ui(parent: Node) -> void:
 	# full layout. This panel now sits at 0.3833 (moved earlier in the row
 	# so Road, right after it, stays close to true center).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3833, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
@@ -130,7 +130,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.07), Vector2i(_vp.x * 0.96, _vp.y * 0.84)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
 	# see GameController._maybe_show_tab_tutorial's own comment.
 	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
