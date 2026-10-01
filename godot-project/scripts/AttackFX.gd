@@ -55,6 +55,7 @@ func setup(size_px: float) -> void:
 	unit_size = size_px
 	top_level = true
 	_trail = Polygon2D.new()
+	_trail.material = fx_material()
 	add_child(_trail)
 	_light = PointLight2D.new()
 	_light.texture = _radial_texture()
@@ -70,6 +71,8 @@ func begin(el) -> void:
 	element = str(el) if el != null else ""
 	if not ELEMENTS.has(element):
 		element = ""
+	_trail.material = fx_material()
+	_trail.self_modulate = Color(FX_OVERBRIGHT, FX_OVERBRIGHT, FX_OVERBRIGHT) if element != "dark" else Color.WHITE
 	_prev = null
 	_windup_blade = null
 	_smear_blade = null
@@ -304,6 +307,7 @@ func _stop_blade_emitter() -> void:
 	_blade_emitter = null
 
 func _impact_particles(at: Vector2) -> void:
+	halo(at)
 	match element:
 		"heal":
 			var c := _burst(at + Vector2(0, unit_size * 0.2), 22, 0.9, Vector2.UP, 40.0, 25.0, 55.0, Vector2(0, -30), 1.0, 2.0, _ramp([Color(0.85, 1, 0.8), Color(0.4, 0.95, 0.45), Color(0.3, 0.8, 0.4, 0.0)]))
@@ -345,7 +349,13 @@ func _emitter(at: Vector2, one_shot: bool) -> CPUParticles2D:
 	c.global_position = at
 	c.one_shot = one_shot
 	c.explosiveness = 0.9 if one_shot else 0.0
-	c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Ian: "Effects shouldn't be pixel-based, but be like HD-2D games" --
+	# soft round glows, smooth filtering, additive light that blooms
+	# (GameController's WorldEnvironment glow picks up anything over 1.0).
+	c.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	c.texture = _glow_texture()
+	c.material = fx_material()
+	c.self_modulate = Color(FX_OVERBRIGHT, FX_OVERBRIGHT, FX_OVERBRIGHT) if element != "dark" else Color.WHITE
 	c.local_coords = false
 	add_child(c)
 	return c
@@ -354,7 +364,9 @@ func _fx_setup(c: CPUParticles2D, amount: int, life: float, dir: Vector2, spread
 		gravity: Vector2, smin: float, smax: float, ramp: Gradient) -> void:
 	# sizes/speeds are authored for a ~46 px unit; scale with the real one
 	var k := unit_size / 46.0
-	var ks := k * 1.4   # particles read better a little chunkier at battle scale
+	# authored as pixel sizes; the soft textures are SOFT_TEX px wide with a
+	# falloff, so they're drawn ~3x the old pixel size to read as glows
+	var ks := k * 1.4 * 3.0 / float(SOFT_TEX)
 	c.amount = amount
 	c.lifetime = life
 	c.direction = dir if dir != Vector2.ZERO else Vector2.UP
@@ -391,25 +403,64 @@ func _radial_texture() -> Texture2D:
 	_tex_cache["radial"] = lt
 	return lt
 
-func _line_texture() -> Texture2D:   # a 1x5 streak, aligned to the particle's velocity
-	if _tex_cache.has("line"):
-		return _tex_cache["line"]
-	var img := Image.create(1, 5, false, Image.FORMAT_RGBA8)
-	img.fill(Color.WHITE)
-	var t := ImageTexture.create_from_image(img)
-	_tex_cache["line"] = t
-	return t
+const SOFT_TEX := 16          # px size of the soft particle textures
+## (HDR 2D bloom darkened the whole field in testing, so glow is faked
+## with additive soft textures and impact halos instead -- no overbright.)
+const FX_OVERBRIGHT := 1.0
 
-func _star_texture() -> Texture2D:   # a 3x3 plus: a pixel sparkle
-	if _tex_cache.has("star"):
-		return _tex_cache["star"]
-	var img := Image.create(3, 3, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	for p in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1), Vector2i(1, 2)]:
-		img.set_pixelv(p, Color.WHITE)
-	var t := ImageTexture.create_from_image(img)
-	_tex_cache["star"] = t
-	return t
+## Additive light for every element but dark (dark mixes, so it can darken).
+func fx_material() -> CanvasItemMaterial:
+	var key := "mat_dark" if element == "dark" else "mat_add"
+	if _tex_cache.has(key):
+		return _tex_cache[key]
+	var m := CanvasItemMaterial.new()
+	m.blend_mode = CanvasItemMaterial.BLEND_MODE_MIX if element == "dark" else CanvasItemMaterial.BLEND_MODE_ADD
+	_tex_cache[key] = m
+	return m
+
+func _soft_image(shape: String) -> Image:
+	var n := SOFT_TEX
+	var img := Image.create(n, n * (3 if shape == "line" else 1), false, Image.FORMAT_RGBA8)
+	var w := img.get_width()
+	var h := img.get_height()
+	var c := Vector2(w - 1, h - 1) / 2.0
+	for y in h:
+		for x in w:
+			var d := Vector2(x, y) - c
+			var a := 0.0
+			match shape:
+				"glow":   # bright core, soft falloff
+					var r := d.length() / (n / 2.0)
+					a = clampf(1.0 - r, 0.0, 1.0)
+					a = a * a * (0.6 + 0.4 * a)
+				"star":   # four soft rays plus a core
+					var ax := absf(d.x) / (n / 2.0)
+					var ay := absf(d.y) / (n / 2.0)
+					var ray := maxf(clampf(1.0 - ax, 0, 1) * clampf(1.0 - ay * 4.0, 0, 1),
+						clampf(1.0 - ay, 0, 1) * clampf(1.0 - ax * 4.0, 0, 1))
+					var core := clampf(1.0 - d.length() / (n * 0.22), 0, 1)
+					a = clampf(ray * ray + core, 0.0, 1.0)
+				"line":   # a soft streak along Y
+					var ex := clampf(1.0 - absf(d.x) / (w / 2.0), 0, 1)
+					var ey := clampf(1.0 - absf(d.y) / (h / 2.0), 0, 1)
+					a = ex * ex * sqrt(ey)
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	return img
+
+func _glow_texture() -> Texture2D:
+	if not _tex_cache.has("glow"):
+		_tex_cache["glow"] = ImageTexture.create_from_image(_soft_image("glow"))
+	return _tex_cache["glow"]
+
+func _line_texture() -> Texture2D:   # a soft streak, aligned to the particle's velocity
+	if not _tex_cache.has("line"):
+		_tex_cache["line"] = ImageTexture.create_from_image(_soft_image("line"))
+	return _tex_cache["line"]
+
+func _star_texture() -> Texture2D:   # a soft four-point sparkle
+	if not _tex_cache.has("star"):
+		_tex_cache["star"] = ImageTexture.create_from_image(_soft_image("star"))
+	return _tex_cache["star"]
 
 
 # ================================================================ spells
@@ -453,6 +504,8 @@ func launch(from: Vector2, to: Vector2, duration: float) -> void:
 	var glow := Sprite2D.new()                    # soft halo
 	glow.texture = _radial_texture()
 	glow.modulate = Color(col, 0.75)
+	glow.material = fx_material()
+	glow.self_modulate = Color(FX_OVERBRIGHT, FX_OVERBRIGHT, FX_OVERBRIGHT)
 	glow.scale = Vector2.ONE * (unit_size / 64.0) * (0.5 if element != "light" else 0.35)
 	head.add_child(glow)
 	var core := Polygon2D.new()                   # a solid pixel-ish core
@@ -460,6 +513,9 @@ func launch(from: Vector2, to: Vector2, duration: float) -> void:
 	core.polygon = PackedVector2Array([Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)]) if element == "earth" \
 		else PackedVector2Array([Vector2(0, -r), Vector2(r, 0), Vector2(0, r), Vector2(-r, 0)])
 	core.color = col.lerp(Color.WHITE, 0.55) if element != "dark" else Color(0.18, 0.06, 0.28)
+	if element != "dark":
+		core.material = fx_material()
+		core.self_modulate = Color(FX_OVERBRIGHT, FX_OVERBRIGHT, FX_OVERBRIGHT)
 	head.add_child(core)
 	var beam: Line2D = null
 	if element == "light":                         # light is a beam: a line trails from the hand
@@ -467,6 +523,8 @@ func launch(from: Vector2, to: Vector2, duration: float) -> void:
 		beam.top_level = true
 		beam.width = maxf(2.0, unit_size * 0.08)
 		beam.default_color = Color(1.0, 0.97, 0.8, 0.9)
+		beam.material = fx_material()
+		beam.self_modulate = Color(FX_OVERBRIGHT, FX_OVERBRIGHT, FX_OVERBRIGHT)
 		add_child(beam)
 	_swing_dir = (to - from).normalized()
 	var trail := _emitter(from, false)
@@ -497,6 +555,23 @@ func launch(from: Vector2, to: Vector2, duration: float) -> void:
 		bt.tween_callback(beam.queue_free)
 
 ## The element's impact on the target: its light pattern and particle burst.
+## A big, faint, fading halo: the soft "bloom" flash an HD-2D hit has.
+func halo(at: Vector2, scale_mul: float = 1.0) -> void:
+	var p := profile()
+	var sp := Sprite2D.new()
+	sp.top_level = true
+	sp.texture = _radial_texture()
+	sp.material = fx_material()
+	sp.global_position = at
+	var col: Color = p["color"] if element != "dark" else Color(0.35, 0.1, 0.5)
+	sp.modulate = Color(col, 0.55)
+	sp.scale = Vector2.ONE * (unit_size / 64.0) * 1.2 * scale_mul
+	add_child(sp)
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(sp, "scale", sp.scale * 2.2, 0.35).set_ease(Tween.EASE_OUT)
+	tw.tween_property(sp, "modulate:a", 0.0, 0.35)
+	tw.chain().tween_callback(sp.queue_free)
+
 func burst(at: Vector2) -> void:
 	_light_origin = at
 	_light_t = 0.0
