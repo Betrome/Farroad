@@ -88,6 +88,8 @@ func _process(delta: float) -> void:
 		return
 	_apply_locks()
 	if active == "":
+		if holds_road() and gc.current_presenter != null and not gc.current_presenter.loop_paused:
+			gc.current_presenter.call("set_loop_paused", true)
 		_poll -= delta
 		if _poll <= 0.0:
 			_poll = 0.5
@@ -99,6 +101,11 @@ func _process(delta: float) -> void:
 		gc.current_presenter.call("set_loop_paused", true)
 	_hold_popups()
 	_run_step(delta)
+
+## The Road waits while a tutorial runs or is due to start (Ian: no hits
+## before the first one begins).
+func holds_road() -> bool:
+	return active != "" or (not g.get("tutorialSkip", false) and not _due().is_empty())
 
 func _due() -> Dictionary:
 	for t in TUTS:
@@ -120,10 +127,6 @@ func _try_start() -> void:
 	if gc.open_panel != null and is_instance_valid(gc.open_panel) and gc.open_panel.popup.visible:
 		return
 	if gc._full_layer != null and is_instance_valid(gc._full_layer) and gc._full_layer.get_child_count() > 0:
-		return
-	# the Road tour waits for the first couple of turns, so the field, turn
-	# order and log have something in them
-	if t["id"] == "road" and int(gc.current_presenter.battle.get("beat", 0)) < 2:
 		return
 	_begin(t["id"])
 
@@ -513,21 +516,25 @@ func _steps_for(id: String) -> Array:
 			return [
 				{"text": "Welcome to the Road! Your party travels it and fights on its own, wave after wave."},
 				{"text": "Your units stand on the left. Tap any unit to see its stats.", "rect": func(): return _side_rect(true)},
+				{"text": "Under each unit, the green bar is HP: at zero, the unit falls. The yellow bar is charge: it fills each time the unit acts, and when it's full the unit uses its charge action.",
+					"rect": func():
+						var v = p.unit_views_by_id.get("kesh")
+						return _controls_rect([v._hp_bg, v._charge_bg]) if v != null else Rect2()},
 				{"text": "Enemies line up on the right. Defeat them all to clear the wave.", "rect": func(): return _side_rect(false)},
 				{"text": "This bar tracks the waves to the next boss. Beat the boss to move on; if your party falls, you go back a few waves.",
 					"rect": func(): return _controls_rect([p.wave_progress_label] + p.wave_progress_circles.map(func(c): return c["panel"]))},
 				{"text": "Turn order: who acts next, and what they'll do.", "target": func(): return p.turn_order_frame},
 				{"text": "Your currencies: Aether levels up units, Marks pay for pulls, and Crystal buys from the Shop.", "target": func(): return gc.currency_row},
 				{"text": "Idle rewards: what you earn every 5 minutes, even while the game is closed. Power sums up how strong you are.", "target": func(): return gc.idle_row},
-				{"text": "Status shows every unit in the fight.", "target": func(): return p.status_icon_btn,
-					"enter": func(): _close_battle_boxes()},
-				{"text": "HP, charge, stats, and any buffs or debuffs, updated live.",
-					"enter": func(): p._on_status_pressed(),
+				{"text": "Tap Status to see every unit in the fight.", "target": func(): return p.status_icon_btn,
+					"enter": func(): _close_battle_boxes(),
+					"done": func(): return p.status_popup.visible},
+				{"text": "HP, charge, stats, and any buffs or debuffs, updated live.", "back": 8,
 					"target": func(): return p.status_popup.get_child(0) if p.status_popup.visible else null},
-				{"text": "The Log records every action.", "target": func(): return p.log_icon_btn,
-					"enter": func(): _close_battle_boxes()},
-				{"text": "Each entry shows who did what, to whom, and for how much. Tap an entry to see the damage math.",
-					"enter": func(): p._on_log_pressed(),
+				{"text": "Now tap Log.", "target": func(): return p.log_icon_btn,
+					"enter": func(): _close_battle_boxes(),
+					"done": func(): return p.log_popup.visible},
+				{"text": "The Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.", "back": 10,
 					"target": func(): return p.log_popup.get_child(0) if p.log_popup.visible else null},
 			]
 		"units":
@@ -588,12 +595,19 @@ func _steps_for(id: String) -> Array:
 					"enter": func(): _gift_lore("sear")},
 				{"text": "Tap Lore.", "target": func(): return _units_tab("lore"), "back": 0,
 					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "lore"},
-				{"text": "Select Sear.", "back": 0,
+				{"text": "Select Sear. If it isn't in one of your gambits, it's under Unequipped actions.", "back": 0,
+					"enter": func(): _clear_lore_filters(),
 					"target": func():
 						var r = _picker_row("Sear")
 						if r != null:
 							return r
-						return _btn_text(gc.units_panel.content_container, "Sear") if _popup_open(gc.units_panel) else null,
+						if not _popup_open(gc.units_panel):
+							return null
+						var b = _btn_text(gc.units_panel.content_container, "Sear")
+						if b != null:
+							return b
+						var u = gc.lore_panel.unequipped_btn
+						return u if u != null and is_instance_valid(u) and u.is_visible_in_tree() else null,
 					"done": func(): return gc.lore_panel.selected_action_id == "sear"},
 				{"text": "Buy an upgrade with your Lore: tap a + button.", "back": 0,
 					"target": func():
@@ -736,6 +750,12 @@ func _reset_top_slot() -> void:
 	if not sl.is_empty() and (sl[0]["action"] == "sear" or sl[0]["cond"] == "foe_lacks_debuff"):
 		sl[0] = {"cond": "none", "action": "strike"}
 		FarroadProgression.sync_loadout(g, "kesh")
+
+## So Sear isn't hidden by a filter left on in the Lore action picker.
+func _clear_lore_filters() -> void:
+	for f in ["action_filter_target", "action_filter_camp", "action_filter_effect"]:
+		if gc.lore_panel.get(f) != null:
+			gc.lore_panel.set(f, "any")
 
 func _gift_lore(aid: String) -> void:
 	g["tutorialLoreGift"] = true

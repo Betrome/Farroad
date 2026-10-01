@@ -197,6 +197,8 @@ func _bonus_total_summary(aid: String) -> String:
 		bits.append("%s%d gauge" % ["+" if delta > 0 else "", roundi(delta)])
 	return ", ".join(bits)
 
+var unequipped_btn: Button = null
+
 func _refresh_card() -> void:
 	for c in card_container.get_children():
 		c.queue_free()
@@ -279,6 +281,7 @@ func _refresh_card() -> void:
 		# GambitsPanel's own condition/action pickers now use.
 		var uneq_row := HBoxContainer.new()
 		var uneq_btn := Button.new()
+		unequipped_btn = uneq_btn   # the tutorial points at it
 		var cur_act = FarroadCore.ACTIONS.get(selected_action_id) if unequipped_ids.has(selected_action_id) else null
 		if cur_act != null:
 			uneq_btn.text = "%s — Lv%d" % [cur_act["name"], _action_level(selected_action_id)]

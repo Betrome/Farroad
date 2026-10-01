@@ -741,7 +741,7 @@ func _show_tutorial_complete_popup() -> void:
 	# fires from either the Close button or a backdrop tap) -- the win
 	# branch that calls this needs to hold the wave-transition animation
 	# until the player has actually read and dismissed it.
-	var o := _build_detail_overlay(Palette.GOLD_PRESSED)
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
@@ -768,6 +768,9 @@ func _show_tutorial_complete_popup() -> void:
 
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
+	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
+	# has several) couldn't be added and the Road waited on it forever
+	await get_tree().process_frame
 
 ## Post-24-item-batch balance pass: the enrage explanation that used to be
 ## part of the tutorial-complete popup, now shown on its own on the first
@@ -775,7 +778,7 @@ func _show_tutorial_complete_popup() -> void:
 ## actually enrage (the "enrage_intro" event, FarroadProgression.
 ## after_wave_cleared). Same awaited overlay shape as the popup above.
 func _show_enrage_intro_popup() -> void:
-	var o := _build_detail_overlay(Palette.BAD_RED)
+	var o := _build_detail_overlay(Palette.BAD_RED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
@@ -800,6 +803,9 @@ func _show_enrage_intro_popup() -> void:
 
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
+	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
+	# has several) couldn't be added and the Road waited on it forever
+	await get_tree().process_frame
 
 ## Ian: "add a pop-up when she joins... you save her from the enemies and
 ## she chooses to join you" -- fires whenever a milestone companion
@@ -815,7 +821,7 @@ func _show_companion_joined_popup(uid: String) -> void:
 
 	# Post-24-item-batch (Group A1/A2): same overlay migration as
 	# _show_tutorial_complete_popup above -- see its comment.
-	var o := _build_detail_overlay(Palette.GOOD_GREEN)
+	var o := _build_detail_overlay(Palette.GOOD_GREEN, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
@@ -832,6 +838,9 @@ func _show_companion_joined_popup(uid: String) -> void:
 
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
+	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
+	# has several) couldn't be added and the Road waited on it forever
+	await get_tree().process_frame
 
 ## Ian: "after wave 20, instead of a new unit, get a piece of equipment
 ## and show a pop-up about equipment and where it can be equipped" --
@@ -856,7 +865,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 
 	# Post-24-item-batch (Group A1/A2): same overlay migration as
 	# _show_tutorial_complete_popup above -- see its comment.
-	var o := _build_detail_overlay(Palette.GOLD_PRESSED)
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
 	var title := Label.new()
@@ -885,6 +894,9 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
+	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
+	# has several) couldn't be added and the Road waited on it forever
+	await get_tree().process_frame
 
 func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 	# Post-24-item-batch (Group A1/A2): same overlay migration as
@@ -910,6 +922,9 @@ func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
+	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
+	# has several) couldn't be added and the Road waited on it forever
+	await get_tree().process_frame
 
 ## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
 ## after completing or failing a quest that does the rewards you got,
@@ -1116,15 +1131,18 @@ func _overlay_host() -> Array:
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
 var _full_layer: CanvasLayer = null
-func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: bool = false) -> Dictionary:
+## `on_game`: shown on the game itself, closing any open menu first -- for
+## the between-wave milestone pop-ups the next wave waits on (nested in a
+## menu, closing the menu hid them unanswered and the Road never moved on).
+func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: bool = false, on_game: bool = false) -> Dictionary:
 	var hs := _overlay_host()
 	var host: Node = hs[0]
 	var host_size: Vector2 = hs[1]
-	if full and open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
+	if (full or on_game) and open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		# a full-size screen takes over the whole view: the menu it was
 		# opened from closes, and it hosts on the game itself
 		open_panel.popup.hide()
-	if full or host == self:
+	if full or on_game or host == self:
 		# Anything hosted on the game itself (welcome back, quest results,
 		# full-size screens) goes on its own canvas layer: battle effects
 		# (trails, halos, lights) are top-level nodes that would otherwise
@@ -2115,8 +2133,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
 		return
-	if tutorial != null and tutorial.active != "":
-		presenter.set_loop_paused(true)   # the Road waits out a running tutorial
+	if tutorial != null and tutorial.holds_road():
+		presenter.set_loop_paused(true)   # the Road waits out a running (or due) tutorial
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"], stage_enemies_offscreen, g.get("clearedWaves", {}), hide_party_until_revealed, auto_start_loop)
 	current_presenter = presenter
 
