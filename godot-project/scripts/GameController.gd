@@ -705,10 +705,51 @@ func _show_welcome_back_popup() -> void:
 	await _finish_detail_overlay(o)
 
 ## Ian: "a feedback button in the menu that lets players make suggestions
-## and report bugs" -- sent to admin@speculere.com. There's no server yet,
-## so Send opens the player's own email app with the report filled in
-## (plus the game state that helps with bugs: wave, power, party).
-const FEEDBACK_EMAIL := "admin@speculere.com"
+## and report bugs" -- submitted straight to Ian's Google Form (no email
+## app, no keys in the game; he reviews every response himself). The
+## entry ids are the form's own question ids.
+const FEEDBACK_FORM := "https://docs.google.com/forms/d/e/1FAIpQLSeAe9dcoP59Nfq_dUxY70iEHJ9NUfmjOUg9oeOX5QyoOAtfdA/formResponse"
+const FEEDBACK_FIELDS := {"type": "entry.1138442964", "text": "entry.1220989861", "wave": "entry.16782905",
+	"power": "entry.1284231246", "party": "entry.804742323", "device": "entry.145143319"}
+
+## The form's fields for a report: the player's text plus the game details.
+func _feedback_fields(kind: String, body: String) -> Dictionary:
+	var party_names: Array = (g["party"] as Array).map(func(u):
+		var d = FarroadCore.roster_by_id(u)
+		return d["name"] if d else u)
+	return {"type": kind, "text": body,
+		"wave": "%d (furthest %d)" % [int(g.get("wave", 1)), int(g.get("farthest", 1))],
+		"power": str(FarroadProgression.power_level(g)),
+		"party": ", ".join(party_names),
+		"device": _device_details()}
+
+## Device type (phone / tablet / desktop), OS and version, model, game version.
+func _device_details() -> String:
+	var kind := "Desktop"
+	if OS.has_feature("mobile"):
+		var dpi: float = maxf(1.0, float(DisplayServer.screen_get_dpi()))
+		var inches: float = Vector2(DisplayServer.screen_get_size()).length() / dpi
+		kind = "Tablet" if inches >= 7.0 else "Phone"
+	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
+	return "%s - %s %s - %s - game %s" % [kind, OS.get_name(), OS.get_version(), OS.get_model_name(),
+		ver if ver != "" else "dev"]
+
+## Posts a report to the form; calls done(ok) when Google answers.
+func _submit_feedback(fields: Dictionary, done: Callable) -> void:
+	var parts: Array = []
+	for k in FEEDBACK_FIELDS:
+		parts.append("%s=%s" % [FEEDBACK_FIELDS[k], str(fields.get(k, "")).uri_encode()])
+	var http := HTTPRequest.new()
+	http.timeout = 20.0
+	add_child(http)
+	http.request_completed.connect(func(result: int, code: int, _h, _b):
+		http.queue_free()
+		done.call(result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 400))
+	var err := http.request(FEEDBACK_FORM, ["Content-Type: application/x-www-form-urlencoded"],
+		HTTPClient.METHOD_POST, "&".join(parts))
+	if err != OK:
+		http.queue_free()
+		done.call(false)
 
 func _show_feedback_popup() -> void:
 	var o := _build_detail_overlay()
@@ -718,7 +759,7 @@ func _show_feedback_popup() -> void:
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
 	var kind := OptionButton.new()
-	for k in ["Suggestion", "Bug report"]:
+	for k in ["Suggestion", "Bug Report"]:   # the form's own choices
 		kind.add_item(k)
 	vbox.add_child(kind)
 	var text := TextEdit.new()
@@ -727,7 +768,7 @@ func _show_feedback_popup() -> void:
 	text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	vbox.add_child(text)
 	var note := Label.new()
-	note.text = "Opens your email app, addressed to %s, with your message and some game details (wave, power, party)." % FEEDBACK_EMAIL
+	note.text = "Sent with some game details (wave, power, party, device) to help with bugs."
 	note.modulate = Palette.TEXT_DIM
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD
 	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -737,15 +778,21 @@ func _show_feedback_popup() -> void:
 	send.pressed.connect(func():
 		var body: String = text.text.strip_edges()
 		if body == "":
+			note.text = "Write something first."
 			return
-		var party_names: Array = (g["party"] as Array).map(func(u):
-			var d = FarroadCore.roster_by_id(u)
-			return d["name"] if d else u)
-		var info := "\n\n---\nWave %d (furthest %d) - Power %d - Party: %s - %s" % [int(g.get("wave", 1)),
-			int(g.get("farthest", 1)), FarroadProgression.power_level(g), ", ".join(party_names), OS.get_name()]
-		var subject := "Farroad %s" % kind.get_item_text(kind.selected)
-		OS.shell_open("mailto:%s?subject=%s&body=%s" % [FEEDBACK_EMAIL, subject.uri_encode(), (body + info).uri_encode()])
-		o["backdrop"].queue_free())
+		send.disabled = true
+		send.text = "Sending..."
+		_submit_feedback(_feedback_fields(kind.get_item_text(kind.selected), body), func(ok: bool):
+			if not is_instance_valid(send):
+				return
+			if ok:
+				text.text = ""
+				note.text = "Thanks! Your feedback was sent."
+				send.text = "Sent"
+			else:
+				note.text = "Couldn't send -- check your connection and try again."
+				send.text = "Send"
+				send.disabled = false))
 	vbox.add_child(send)
 	await _finish_detail_overlay(o)
 
