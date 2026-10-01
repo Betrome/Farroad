@@ -234,7 +234,8 @@ static func archetype_for(w: int, i: int) -> String:
 const AETHER_RATE := 0.09
 const MARKS_RATE := 0.065
 const PRE_UNLOCK_MARKS_MUL := 0.45
-const MARKS_UNLOCK_WAVE := 40
+## Marks open with their tutorial (wave 8, where Mend used to drop).
+const MARKS_UNLOCK_WAVE := 8
 ## Display-only ("X pulls waiting" on the locked screen); pull_cost's own
 ## flat 100 is the real gate, this just happens to share the same number.
 const MARKS_PER_PULL := 100
@@ -334,6 +335,8 @@ static func do_pull(g: Dictionary) -> Dictionary:
 	var kind: String
 	if pity:
 		kind = "unit"
+	elif g.get("forcedPull"):
+		kind = "action"
 	elif roll < o["unit"]:
 		kind = "unit"
 	elif roll < o["unit"] + o["equip"]:
@@ -369,7 +372,9 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		# ATK_CAMP+MAG_CAMP pool -- the pool grows, the outcome branch
 		# dispatches on ACTIONS[id]["isCharge"].
 		var pool: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
-		var aid: String = weighted_action_pick(g["rng"], pool)
+		# the Marks tutorial's first pull is a guaranteed Mend
+		var aid: String = str(g["forcedPull"]) if g.get("forcedPull") else weighted_action_pick(g["rng"], pool)
+		g["forcedPull"] = null
 		g["actionCounts"][aid] = int(g["actionCounts"].get(aid, 0)) + 1
 		var is_charge: bool = bool(FarroadCore.ACTIONS.get(aid, {}).get("isCharge", false))
 		if is_charge:
@@ -550,8 +555,8 @@ const CURATED: Array = [
 	{"w": 5, "kind": "cond", "id": "foe_armoured", "why": "Barrow Knight arrives — DEF 34, physical stalls"},
 	{"w": 6, "kind": "action", "id": "bulwark", "why": "Warded ×0.60; holds the 10th-percentile at wave 9"},
 	{"w": 7, "kind": "cond", "id": "ally_lacks_buff", "why": "gates Bulwark — do not overwrite a running buff"},
-	{"w": 8, "kind": "action", "id": "mend", "why": "THE survival lesson, worth +277%"},
-	{"w": 9, "kind": "cond", "id": "self_hp_lte_50", "why": "gates Mend — the highest-value rule in the game"},
+	# (waves 8-9's Mend and Self: HP <= 50% now come from the Marks and Shop
+	# tutorials: a guaranteed first pull, then buying the gambit -- Tutorial.gd)
 	{"w": 10, "kind": "action", "id": "cripple", "why": "Slowed ×1.50 turn cost = 33% fewer enemy turns"},
 	{"w": 11, "kind": "cond", "id": "foe_fast", "why": "gates Cripple — relative, so it survives stat scaling"},
 	{"w": 12, "kind": "action", "id": "hex", "why": "Frail cuts RES on the tougher foes ahead"},
@@ -655,7 +660,9 @@ const BOSS_UNIT_ORDER: Array[String] = ["ansa", "dorrek", "vey", "mirel"]
 ## under BOSS_EVERY=20's own math ((150-20)%20=10, not 0), so Dorrek could
 ## never have been granted at all under the old is_boss_wave-gated code --
 ## see after_wave_cleared's own comment on the fix.
-const UNIT_WAVES: Array[int] = [10, 150, 500, 1500]
+## Ian: the healer (Ansa) is the 2nd unit; the 3rd is the tank (Dorrek), at
+## a fixed wave so the Expedition tutorial can follow it.
+const UNIT_WAVES: Array[int] = [10, 30, 500, 1500]
 
 static func unit_due_at(w: int) -> Variant:
 	var i := UNIT_WAVES.find(w)
@@ -2024,7 +2031,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		# popups only exist in the Godot UI) -- tab id -> true once its
 		# first-open popup has been shown, checked by GameController's own
 		# _maybe_show_tab_tutorial.
-		"seenTabTutorial": {}}
+		"seenTabTutorial": {}, "tutorials": {}, "tutorialSkip": false, "forcedPull": null}
 
 ## ===== EXPEDITIONS (Step 3h) =====
 ## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through

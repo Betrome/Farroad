@@ -50,6 +50,9 @@ static func serialize(g: Dictionary, now: int) -> Dictionary:
 	# Same Godot-only pattern as seenArch above -- see new_game()'s own
 	# comment on seenTabTutorial.
 	snap["seenTabTutorial"] = _clone(g.get("seenTabTutorial"))
+	snap["tutorials"] = _clone(g.get("tutorials"))
+	snap["tutorialSkip"] = g.get("tutorialSkip", false)
+	snap["forcedPull"] = g.get("forcedPull")
 	return snap
 
 ## @param snap parsed snapshot Dictionary (caller does the JSON parse)
@@ -137,6 +140,11 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["enrage"] = g.get("enrage") != false
 	g["seenArch"] = _clone(snap.get("seenArch")) if snap.get("seenArch") else {}
 	g["seenTabTutorial"] = _clone(snap.get("seenTabTutorial")) if snap.get("seenTabTutorial") else {}
+	# guided tutorials (Tutorial.gd); a save from before them is migrated by
+	# Tutorial.migrate (anything already passed counts as done)
+	g["tutorials"] = _clone(snap.get("tutorials")) if snap.get("tutorials") is Dictionary else null
+	g["tutorialSkip"] = bool(snap.get("tutorialSkip", false))
+	g["forcedPull"] = snap.get("forcedPull")
 
 	# v2.9 MIGRATION: pre-multi-expedition saves aren't handled here (that
 	# legacy 'expedition'/'expeditionLog' shape predates this whole feature

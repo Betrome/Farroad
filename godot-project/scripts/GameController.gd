@@ -1120,8 +1120,8 @@ const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_R
 ## (each moved to the end in turn).
 func _raise_self_hosted_overlays() -> void:
 	for ov in _self_hosted_overlays:
-		if is_instance_valid(ov):
-			move_child(ov, get_child_count() - 1)
+		if is_instance_valid(ov) and ov.get_parent() != null:
+			ov.get_parent().move_child(ov, ov.get_parent().get_child_count() - 1)
 
 func _overlay_host() -> Array:
 	if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
@@ -1141,14 +1141,15 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	var hs := _overlay_host()
 	var host: Node = hs[0]
 	var host_size: Vector2 = hs[1]
-	if full:
+	if full and open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		# a full-size screen takes over the whole view: the menu it was
 		# opened from closes, and it hosts on the game itself
-		if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
-			open_panel.popup.hide()
-		# on its own canvas layer: battle effects (sword trails, spells)
-		# are top-level nodes that would otherwise draw over it, and combat
-		# keeps running behind menus now
+		open_panel.popup.hide()
+	if full or host == self:
+		# Anything hosted on the game itself (welcome back, quest results,
+		# full-size screens) goes on its own canvas layer: battle effects
+		# (trails, halos, lights) are top-level nodes that would otherwise
+		# draw over it, and combat keeps running behind pop-ups now.
 		if _full_layer == null or not is_instance_valid(_full_layer):
 			_full_layer = CanvasLayer.new()
 			_full_layer.layer = 5
@@ -1171,7 +1172,7 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	# A self-hosted overlay (host==self -- no tab panel open to nest inside,
 	# the quest/dungeon-result popup's own case) can outlive the moment it
 	# was raised -- see _self_hosted_overlays' own comment.
-	if host == self:
+	if host == _full_layer:
 		_self_hosted_overlays.append(backdrop)
 		backdrop.tree_exiting.connect(func(): _self_hosted_overlays.erase(backdrop))
 
