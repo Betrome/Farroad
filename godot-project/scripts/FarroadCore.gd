@@ -420,7 +420,10 @@ static func snapshot() -> void:
 			var a = ACTIONS[id]
 			PRISTINE[id] = {"power": a.get("power"), "rank": a.get("rank"), "charge": a.get("charge"),
 				"defPierce": a.get("defPierce"), "critBonus": a.get("critBonus"),
-				"turns": a.get("turns"), "chargeCost": a.get("chargeCost")}
+				"turns": a.get("turns"), "chargeCost": a.get("chargeCost"),
+				# Ian: Broad/Cleansing/Deepening change these too, so they're
+				# reset with the rest -- they used to build up on every re-apply
+				"tk": a.get("tk"), "cleanse": a.get("cleanse"), "deepen": a.get("deepen")}
 
 static func pristine_of(id: String):
 	snapshot()
@@ -435,7 +438,10 @@ static func apply_bonuses(map: Dictionary) -> void:
 		var a = ACTIONS[id]
 		var p = PRISTINE[id]
 		for k in p.keys():
-			a[k] = p[k]
+			if p[k] == null and k in ["tk", "cleanse", "deepen"]:
+				a.erase(k)   # absent before any Lore: absent again
+			else:
+				a[k] = p[k]
 	for aid in map.keys():
 		var b = map[aid]
 		var a = ACTIONS.get(aid)

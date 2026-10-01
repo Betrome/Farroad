@@ -77,7 +77,7 @@ func _build_ui(parent: Node) -> void:
 
 	# Ian: PvP -- share your team as a code, fight other players' teams.
 	var pvp_btn := Button.new()
-	pvp_btn.text = "PvP Arena"
+	pvp_btn.text = "Arena"
 	pvp_btn.pressed.connect(func():
 		if _parent and _parent.has_method("_show_pvp_popup"):
 			_parent.call("_show_pvp_popup"))

@@ -1548,7 +1548,7 @@ func _show_pvp_popup() -> void:
 	var vbox: VBoxContainer = o["vbox"]
 	var rec: Dictionary = g.get("pvp", {})
 	var title := Label.new()
-	title.text = "PvP Arena"
+	title.text = "Arena"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
 	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))]))
