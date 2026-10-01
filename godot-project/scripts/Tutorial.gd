@@ -1,0 +1,672 @@
+class_name Tutorial
+extends Node
+## Ian's guided onboarding: menus unlock at fixed waves, each with a
+## hands-on tutorial. Everything outside the control the player needs is
+## darkened, the Road pauses, and the tutorial only finishes once the real
+## action is done. Each tutorial pays 1 Crystal (Marks pays 10, spent in the
+## Shop tutorial right after). Players can skip tutorials (Menu, or the
+## button on any tutorial caption); skipped tutorials still hand out their
+## rewards when their wave comes, and every menu unlocks at once.
+##
+## State lives in g["tutorials"] (id -> true when done) and g["tutorialSkip"].
+## Steps poll real game state (a menu is open, a level went up, a gambit is
+## set...), so a step can't be "faked" past and survives the player
+## wandering off: if the control a step points at disappears, the step falls
+## back to its `back` step (e.g. "open Units" again).
+
+## In order. `wave`: the wave whose clear starts it. `unlocks`: the tab (or
+## Units sub-tab) it opens.
+const TUTS := [
+	{"id": "units", "wave": 1, "unlocks": "units"},
+	{"id": "gambits", "wave": 3, "unlocks": "gambits"},
+	{"id": "quests", "wave": 5, "unlocks": "quests"},
+	{"id": "lore", "wave": 7, "unlocks": "lore"},
+	{"id": "marks", "wave": 8, "unlocks": "marks"},
+	{"id": "shop", "wave": 8, "unlocks": "shop"},
+	{"id": "party", "wave": 10, "unlocks": "party"},
+	{"id": "gear", "wave": 20, "unlocks": "equipment"},
+	{"id": "expedition", "wave": 30, "unlocks": "expedition"},
+]
+const ALWAYS_OPEN := ["settings", "summary", "aether", "catalogue"]
+
+var gc: Node          # GameController
+var g: Dictionary
+var active := ""      # tutorial id in progress
+var steps: Array = []
+var step := 0
+var _missing := 0.0
+var _poll := 0.0
+var _start_level := 0
+
+# overlay pieces (re-hosted on whichever window holds the target)
+var _layer: CanvasLayer
+var _root: Control
+var _shades: Array = []
+var _ring: Panel
+var _caption: PanelContainer
+var _caption_lbl: Label
+var _next_btn: Button
+var _skip_btn: Button
+
+func setup(controller: Node) -> void:
+	gc = controller
+	g = gc.g
+	migrate(g)
+	_layer = CanvasLayer.new()
+	_layer.layer = 20
+	add_child(_layer)
+	_build_overlay()
+
+## A save from before the tutorials: anything already passed counts as done.
+static func migrate(gd: Dictionary) -> void:
+	if gd.get("tutorials") is Dictionary:
+		return
+	gd["tutorials"] = {}
+	for t in TUTS:
+		if int(gd.get("farthest", 1)) > int(t["wave"]) + 1:
+			gd["tutorials"][t["id"]] = true
+
+static func is_done(gd: Dictionary, id: String) -> bool:
+	return bool((gd.get("tutorials", {}) as Dictionary).get(id, false))
+
+## Whether a tab ("units", "party"...) or Units sub-tab ("gambits"...) is open.
+static func unlocked(gd: Dictionary, key: String, active_id: String = "") -> bool:
+	if key in ALWAYS_OPEN or gd.get("tutorialSkip", false):
+		return true
+	for t in TUTS:
+		if t["unlocks"] == key:
+			return is_done(gd, t["id"]) or active_id == t["id"]
+	return true
+
+# ================================================================ driving
+func _process(delta: float) -> void:
+	if g.is_empty():
+		return
+	if active == "":
+		_poll -= delta
+		if _poll <= 0.0:
+			_poll = 0.5
+			_try_start()
+		_apply_locks()
+		return
+	_run_step(delta)
+
+func _due() -> Dictionary:
+	for t in TUTS:
+		if not is_done(g, t["id"]) and int(g.get("farthest", 1)) > int(t["wave"]):
+			return t
+	return {}
+
+func _try_start() -> void:
+	var t := _due()
+	if t.is_empty():
+		return
+	if g.get("tutorialSkip", false):
+		_grant(t["id"], true)
+		return
+	# wait for a quiet moment: no side battle, no menu, no pop-up
+	if g.get("sideBattle") != null or gc.current_presenter == null:
+		return
+	if gc.open_panel != null and is_instance_valid(gc.open_panel) and gc.open_panel.popup.visible:
+		return
+	if gc._full_layer != null and is_instance_valid(gc._full_layer) and gc._full_layer.get_child_count() > 0:
+		return
+	_begin(t["id"])
+
+func _begin(id: String) -> void:
+	active = id
+	steps = _steps_for(id)
+	step = 0
+	_missing = 0.0
+	gc.current_presenter.call("set_loop_paused", true)
+	_enter_step()
+
+func _enter_step() -> void:
+	_missing = 0.0
+	if step >= steps.size():
+		_finish()
+		return
+	var s: Dictionary = steps[step]
+	if s.has("enter"):
+		s["enter"].call()
+	_caption_lbl.text = s["text"]
+	_next_btn.visible = s.get("done") == null
+	_apply_locks()
+
+func _run_step(delta: float) -> void:
+	var s: Dictionary = steps[step]
+	var done = s.get("done")
+	if done != null and done.call():
+		step += 1
+		_enter_step()
+		return
+	var target: Control = s["target"].call() if s.has("target") else null
+	if s.has("target") and (target == null or not target.is_visible_in_tree()):
+		_missing += delta
+		if _missing > 1.2 and s.has("back"):
+			step = int(s["back"])
+			_enter_step()
+			return
+		_show_spot(null, s.get("quiet", false))
+		return
+	_missing = 0.0
+	_show_spot(target, s.get("quiet", false))
+
+func _on_next() -> void:
+	if active == "":
+		return
+	if step < steps.size() and steps[step].get("done") == null:
+		step += 1
+		_enter_step()
+
+func _finish() -> void:
+	var id := active
+	_grant(id, false)
+	active = ""
+	steps = []
+	_hide_overlay()
+	if gc.open_panel != null and is_instance_valid(gc.open_panel):
+		gc.open_panel.popup.hide()
+	if gc.current_presenter != null:
+		gc.current_presenter.call("set_loop_paused", false)
+	gc._refresh_hud()
+	gc._save_game()
+	var reward := "+10 Crystal -- spend it in the Shop!" if id == "marks" else "+1 Crystal"
+	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward])
+	_apply_locks()
+
+## The tutorial's rewards (also what a skipped tutorial grants on its wave).
+func _grant(id: String, skipped: bool) -> void:
+	if is_done(g, id):
+		return
+	g["tutorials"][id] = true
+	g["crystal"] = int(g.get("crystal", 0)) + (10 if id == "marks" else 1)
+	if skipped:
+		match id:
+			"marks":
+				if not g["actions"].has("mend"):
+					g["actions"].append("mend")
+	# the menu's own first-open info pop-up is covered by the tutorial
+	for t in TUTS:
+		if t["id"] == id:
+			g["seenTabTutorial"][t["unlocks"]] = true
+	gc._save_game()
+
+func skip_all() -> void:
+	g["tutorialSkip"] = true
+	if active != "":
+		var id := active
+		active = ""
+		steps = []
+		_hide_overlay()
+		_grant(id, true)
+		if gc.current_presenter != null:
+			gc.current_presenter.call("set_loop_paused", false)
+	gc._refresh_hud()
+	gc._save_game()
+	_apply_locks()
+
+# ================================================================ locks
+func _apply_locks() -> void:
+	var tabs := {"units": gc.units_panel, "party": gc.party_panel, "quests": gc.quests_panel,
+		"marks": gc.marks_panel, "shop": gc.shop_panel, "expedition": gc.expedition_panel}
+	for key in tabs:
+		var p = tabs[key]
+		if p == null or not is_instance_valid(p) or p.get("toggle_button") == null:
+			continue
+		var b: Button = p.toggle_button
+		if not is_instance_valid(b):
+			continue
+		var open := unlocked(g, key, active)
+		# during a tutorial only the menus it uses can be opened
+		if active != "" and open:
+			open = key in _needs(active)
+		b.disabled = not open
+		b.modulate = Color(1, 1, 1, 1) if open else Color(1, 1, 1, 0.35)
+	if gc.road_button != null and is_instance_valid(gc.road_button):
+		gc.road_button.disabled = active != ""
+
+func _needs(id: String) -> Array:
+	match id:
+		"units", "gambits", "lore", "gear": return ["units"]
+		"quests": return ["quests"]
+		"marks": return ["marks"]
+		"shop": return ["shop", "units"]
+		"party": return ["party"]
+		"expedition": return ["party", "expedition"]
+	return []
+
+# ================================================================ finders
+func _popup_open(panel) -> bool:
+	return panel != null and is_instance_valid(panel) and panel.popup.visible
+
+func _buttons(root: Node) -> Array:
+	if root == null or not is_instance_valid(root):
+		return []
+	return root.find_children("*", "Button", true, false).filter(func(b): return b.is_visible_in_tree())
+
+func _btn_text(root: Node, prefix: String, last := false) -> Button:
+	var hits: Array = _buttons(root).filter(func(b): return b.text.begins_with(prefix))
+	if hits.is_empty():
+		return null
+	return hits[-1] if last else hits[0]
+
+func _units_tab(key: String) -> Control:
+	if not _popup_open(gc.units_panel):
+		return null
+	return gc.units_panel.sub_tab_buttons.get(key)
+
+func _slot(i: int) -> Dictionary:
+	var sl: Array = g["loadout"].get("kesh", [])
+	return sl[i] if i < sl.size() else {}
+
+## Slot i's IF (cond) or THEN (action) button in the Gambits tab.
+func _slot_button(i: int, which: String) -> Control:
+	if not _popup_open(gc.units_panel) or gc.units_panel.current_sub_tab != "gambits":
+		return null
+	var s := _slot(i)
+	if s.is_empty():
+		return null
+	var want: String = FarroadCore.cond_label(s["cond"]) if which == "if" else FarroadCore.ACTIONS.get(s["action"], {}).get("name", s["action"])
+	var hits: Array = _buttons(gc.units_panel.content_container).filter(func(b): return b.text == want)
+	# each slot card holds one IF and one THEN button; count matches up to i
+	var k := 0
+	for b in hits:
+		if k == i or hits.size() == 1:
+			return b
+		k += 1
+	return hits[0] if not hits.is_empty() else null
+
+## A row in an open picker list (overlay inside the Units pop-up).
+func _picker_row(text_prefix: String) -> Control:
+	if not _popup_open(gc.units_panel):
+		return null
+	for c in gc.units_panel.popup.get_children():
+		if c is ColorRect:   # picker overlays sit on a backdrop
+			var b := _btn_text(c, text_prefix)
+			if b != null:
+				return b
+	return null
+
+func _party_row_button(uid: String, prefix: String) -> Control:
+	if not _popup_open(gc.party_panel):
+		return null
+	var name: String = FarroadCore.roster_by_id(uid)["name"]
+	for row in gc.party_panel.popup.find_children("*", "HBoxContainer", true, false):
+		if row.get_child_count() > 0 and row.get_child(0) is Label and row.get_child(0).text == name:
+			for b in row.get_children():
+				if b is Button and b.text.begins_with(prefix) and b.is_visible_in_tree():
+					return b
+	return null
+
+func _hide_popup() -> void:
+	if gc.open_panel != null and is_instance_valid(gc.open_panel):
+		gc.open_panel.popup.hide()
+
+# ================================================================ steps
+## Each step: text, optional target (Callable -> Control), done (Callable ->
+## bool; none = a "Next" step), back (step to return to if the target is
+## gone), enter (Callable run on entry), quiet (no dimming: e.g. a fight).
+const DONE_TEXT := {
+	"units": "You levelled up your first unit. Units is where you'll manage everyone.",
+	"gambits": "Your first gambit is set: Sear only fires when a foe isn't already burning.",
+	"quests": "Quest stage cleared. Every companion has a 5-stage quest line.",
+	"lore": "Lore makes an action stronger. Every action has its own Lore.",
+	"marks": "Mend joined your actions.",
+	"shop": "Mend now heals you whenever you drop to half health.",
+	"party": "You can now arrange your party.",
+	"gear": "Gear stays on a unit until you change it.",
+	"expedition": "Your expedition will fight on its own, even while you're away.",
+}
+
+func _steps_for(id: String) -> Array:
+	var units_icon := func(): return gc.units_panel.toggle_button
+	var units_open := func(): return _popup_open(gc.units_panel)
+	match id:
+		"units":
+			return [
+				{"text": "A new menu is open: Units. Tap it.", "target": units_icon, "done": units_open},
+				{"text": "Pick which unit to manage here.", "target": func(): return gc.units_panel.dropdown if _popup_open(gc.units_panel) else null, "back": 0},
+				{"text": "Each unit has Summary, Gambits, Aether, Lore and Gear. Most unlock as you go.", "target": func(): return gc.units_panel.sub_tab_buttons.get("summary") if _popup_open(gc.units_panel) else null, "back": 0},
+				{"text": "Tap Aether.", "target": func(): return _units_tab("aether"), "back": 0,
+					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "aether"},
+				{"text": "HP: how much damage a unit can take before falling.", "target": func(): return gc.units_panel.content_container, "back": 0},
+				{"text": "ATK powers physical actions; MAG powers magic and healing.", "target": func(): return gc.units_panel.content_container, "back": 0},
+				{"text": "DEF reduces physical damage taken; RES reduces magic damage.", "target": func(): return gc.units_panel.content_container, "back": 0},
+				{"text": "SPD: faster units take more turns.", "target": func(): return gc.units_panel.content_container, "back": 0},
+				{"text": "Crit lands bonus damage, Evade dodges hits, and Affinity makes elements hit harder or softer.", "target": func(): return gc.units_panel.content_container, "back": 0},
+				{"text": "Spend Aether to level up. Tap the level-up button.", "back": 0,
+					"enter": func(): _prepare_level_up(),
+					"target": func(): return _btn_text(gc.units_panel.content_container, "→ LV") if _popup_open(gc.units_panel) else null,
+					"done": func(): return FarroadProgression.level_of(g, "kesh") > _start_level},
+			]
+		"gambits":
+			return [
+				{"text": "Gambits are open. Tap Units.", "target": units_icon, "done": units_open},
+				{"text": "Tap Gambits.", "target": func(): return _units_tab("gambits"), "back": 0,
+					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "gambits"},
+				{"text": "Each slot is IF (a condition) THEN (an action). The top slot is checked first; if its IF isn't true, the next one is.", "target": func(): return gc.units_panel.content_container if _popup_open(gc.units_panel) else null, "back": 0},
+				{"text": "Set the top slot's THEN to Sear: tap it and pick Sear.", "back": 0,
+					"target": func():
+						var r = _picker_row("Sear")
+						return r if r != null else _slot_button(0, "then"),
+					"done": func(): return _slot(0).get("action") == "sear"},
+				{"text": "Now its IF: tap it and pick \"Foe: lacks a debuff\", so Sear never burns a foe that's already burning.", "back": 0,
+					"target": func():
+						var r = _picker_row(FarroadCore.cond_label("foe_lacks_debuff"))
+						return r if r != null else _slot_button(0, "if"),
+					"done": func(): return _slot(0).get("cond") == "foe_lacks_debuff"},
+			]
+		"quests":
+			return [
+				{"text": "Quests are open. Tap Quests.", "target": func(): return gc.quests_panel.toggle_button,
+					"done": func(): return _popup_open(gc.quests_panel)},
+				{"text": "This is your own quest line. Tap Attempt to fight its first stage.", "back": 0,
+					"target": func(): return _btn_text(gc.quests_panel.popup, "Attempt") if _popup_open(gc.quests_panel) else null,
+					"done": func(): return g.get("sideBattle") != null},
+				{"text": "Win the fight!", "quiet": true,
+					"enter": func(): gc.current_presenter.call("set_loop_paused", true),
+					"done": func():
+						if int(g["quests"].get("kesh", {}).get("stage", 0)) >= 1:
+							return true
+						if g.get("sideBattle") == null:   # lost or gave up: try again
+							step = 0
+						return false},
+			]
+		"lore":
+			return [
+				{"text": "Lore is open, and here's a Lore point for Sear. Tap Units.", "target": units_icon, "done": units_open,
+					"enter": func(): _gift_lore("sear")},
+				{"text": "Tap Lore.", "target": func(): return _units_tab("lore"), "back": 0,
+					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "lore"},
+				{"text": "Select Sear.", "back": 0,
+					"target": func():
+						var r = _picker_row("Sear")
+						if r != null:
+							return r
+						return _btn_text(gc.units_panel.content_container, "Sear") if _popup_open(gc.units_panel) else null,
+					"done": func(): return gc.lore_panel.selected_action_id == "sear"},
+				{"text": "Buy an upgrade with your Lore: tap a + button.", "back": 0,
+					"target": func():
+						if not _popup_open(gc.units_panel):
+							return null
+						for b in _buttons(gc.units_panel.content_container):
+							if b.text.begins_with("+ ") and not b.disabled:
+								return b
+						return null,
+					"done": func(): return FarroadCore.bonus_spend({"sear": g["bonuses"].get("sear", {})}) > 0},
+			]
+		"marks":
+			return [
+				{"text": "Marks are open, and you have enough for a pull. Tap Marks.", "target": func(): return gc.marks_panel.toggle_button,
+					"enter": func():
+						g["marks"] = maxf(float(g.get("marks", 0.0)), 100.0)
+						g["forcedPull"] = "mend"
+						gc._refresh_hud(),
+					"done": func(): return _popup_open(gc.marks_panel)},
+				{"text": "Tap Pull.", "back": 0,
+					"target": func(): return _btn_text(gc.marks_panel.popup, "PULL —") if _popup_open(gc.marks_panel) else null,
+					"done": func(): return g["actions"].has("mend")},
+				{"text": "You pulled Mend, a heal! Pulls can give units, actions, gambits or gear.",
+					"target": func(): return gc.marks_panel.popup.get_child(0) if _popup_open(gc.marks_panel) else null},
+			]
+		"shop":
+			return [
+				{"text": "The Shop is open. Crystal buys exactly what you want. Tap Shop.", "target": func(): return gc.shop_panel.toggle_button,
+					"enter": func(): _hide_popup(),
+					"done": func(): return _popup_open(gc.shop_panel)},
+				{"text": "Tap Gambits.", "back": 0,
+					"target": func(): return gc.shop_panel.tab_buttons.get("gambits") if _popup_open(gc.shop_panel) else null,
+					"done": func(): return _popup_open(gc.shop_panel) and gc.shop_panel.current_tab == "gambits"},
+				{"text": "Buy \"%s\": it lets Mend heal you only when you need it." % FarroadCore.cond_label("self_hp_lte_50"), "back": 0,
+					"target": func(): return _shop_row_buy(FarroadCore.cond_label("self_hp_lte_50")),
+					"done": func(): return g["conditions"].has("self_hp_lte_50")},
+				{"text": "Now put it to use. Tap Units.", "target": units_icon, "done": units_open,
+					"enter": func(): _hide_popup()},
+				{"text": "Tap Gambits.", "target": func(): return _units_tab("gambits"), "back": 3,
+					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "gambits"},
+				{"text": "Set the second slot's THEN to Mend.", "back": 3,
+					"target": func():
+						var r = _picker_row("Mend")
+						return r if r != null else _slot_button(1, "then"),
+					"done": func(): return _slot(1).get("action") == "mend" or _slot(0).get("action") == "mend"},
+				{"text": "Set its IF to \"%s\"." % FarroadCore.cond_label("self_hp_lte_50"), "back": 3,
+					"target": func():
+						var r = _picker_row(FarroadCore.cond_label("self_hp_lte_50"))
+						return r if r != null else _slot_button(1, "if"),
+					"done": func(): return _has_slot("mend", "self_hp_lte_50")},
+				{"text": "Healing comes first: tap ▲ to move it to the top.", "back": 3,
+					"target": func(): return _move_up_button(),
+					"done": func(): return _slot(0).get("action") == "mend"},
+			]
+		"party":
+			return [
+				{"text": "Ansa joined you, and Party is open. Tap Party.", "target": func(): return gc.party_panel.toggle_button,
+					"done": func(): return _popup_open(gc.party_panel)},
+				{"text": "Front row hits harder but takes more physical damage; the back row is safer. Tap Ansa's row button.", "back": 0,
+					"enter": func(): _row_start = FarroadCore.roster_by_id("ansa").get("row", "back"),
+					"target": func(): return _party_row_button("ansa", FarroadCore.roster_by_id("ansa").get("row", "back").capitalize()),
+					"done": func(): return FarroadCore.roster_by_id("ansa").get("row") != _row_start},
+				{"text": "Tap Bench to take Ansa out of the party.", "back": 0,
+					"target": func(): return _party_row_button("ansa", "Bench"),
+					"done": func(): return not (g["party"] as Array).has("ansa")},
+				{"text": "Tap Field to bring her back.", "back": 0,
+					"target": func(): return _party_row_button("ansa", "Field"),
+					"done": func(): return (g["party"] as Array).has("ansa")},
+			]
+		"gear":
+			return [
+				{"text": "Gear is open. Tap Units.", "target": units_icon, "done": units_open},
+				{"text": "Tap Gear.", "target": func(): return _units_tab("equipment"), "back": 0,
+					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "equipment"},
+				{"text": "Tap a slot and equip your new piece of gear.", "back": 0,
+					"target": func():
+						if not _popup_open(gc.units_panel):
+							return null
+						for o in gc.units_panel.content_container.find_children("*", "OptionButton", true, false):
+							if o.is_visible_in_tree() and o.item_count > 1:
+								return o
+						return null,
+					"done": func(): return _any_gear_equipped()},
+			]
+		"expedition":
+			return [
+				{"text": "Dorrek joined you, and Expeditions are open. Benched units can explore on their own. First, tap Party.", "target": func(): return gc.party_panel.toggle_button,
+					"done": func(): return _popup_open(gc.party_panel) or not FarroadProgression.available_for_party(g).is_empty()},
+				{"text": "Bench one unit to send it out.", "back": 0,
+					"target": func():
+						for uid in g["party"]:
+							if uid != "kesh":
+								var b = _party_row_button(uid, "Bench")
+								if b != null:
+									return b
+						return null,
+					"done": func(): return not FarroadProgression.available_for_party(g).is_empty()},
+				{"text": "Tap Exped.", "target": func(): return gc.expedition_panel.toggle_button,
+					"enter": func(): _hide_popup(),
+					"done": func(): return _popup_open(gc.expedition_panel)},
+				{"text": "Pick the benched unit.", "back": 2,
+					"target": func():
+						var av: Array = FarroadProgression.available_for_party(g)
+						if av.is_empty() or not _popup_open(gc.expedition_panel):
+							return null
+						return _btn_text(gc.expedition_panel.popup, FarroadCore.roster_by_id(av[0])["name"]),
+					"done": func(): return not gc.expedition_panel.selected_uids.is_empty()},
+				{"text": "Send them West: tap W on the map.", "back": 2,
+					"target": func():
+						if not _popup_open(gc.expedition_panel):
+							return null
+						for m in gc.expedition_panel.popup.find_children("*", "ExpeditionMap", true, false):
+							return m._direction_buttons.get("west")
+						return null,
+					"done": func(): return gc.expedition_panel.selected_direction == "west"},
+				{"text": "Tap Send.", "back": 2,
+					"target": func(): return _btn_text(gc.expedition_panel.popup, "Send expedition") if _popup_open(gc.expedition_panel) else null,
+					"done": func(): return (g["expeditions"] as Array).any(func(e): return e["direction"] == "west")},
+			]
+	return []
+
+var _row_start := ""
+
+func _prepare_level_up() -> void:
+	_start_level = FarroadProgression.level_of(g, "kesh")
+	# make sure the first level-up is affordable
+	var need: float = FarroadProgression.cost_to_next(g, "kesh") if FarroadProgression.has_method("cost_to_next") else 0.0
+	if need > float(g.get("aether", 0.0)):
+		g["aether"] = need
+		gc._refresh_hud()
+
+func _gift_lore(aid: String) -> void:
+	if not g["actions"].has(aid):
+		aid = g["actions"][0]
+	FarroadProgression._credit_lore(g, aid)
+
+func _has_slot(action: String, cond: String) -> bool:
+	for s in g["loadout"].get("kesh", []):
+		if s["action"] == action and s["cond"] == cond:
+			return true
+	return false
+
+func _move_up_button() -> Control:
+	if not _popup_open(gc.units_panel) or gc.units_panel.current_sub_tab != "gambits":
+		return null
+	var ups: Array = _buttons(gc.units_panel.content_container).filter(func(b): return b.text == "▲" and not b.disabled)
+	var sl: Array = g["loadout"].get("kesh", [])
+	for i in sl.size():
+		if sl[i]["action"] == "mend" and i > 0 and i - 1 < ups.size():
+			return ups[i - 1]
+	return ups[0] if not ups.is_empty() else null
+
+func _shop_row_buy(label: String) -> Control:
+	if not _popup_open(gc.shop_panel):
+		return null
+	for row in gc.shop_panel.popup.find_children("*", "HBoxContainer", true, false):
+		if row.get_child_count() > 0 and row.get_child(0) is RichTextLabel and row.get_child(0).text == label:
+			var last: Button = null
+			for b in row.get_children():
+				if b is Button:
+					last = b
+			return last
+	return null
+
+func _any_gear_equipped() -> bool:
+	for uid in (g.get("equipped", {}) as Dictionary).keys():
+		for slot in (g["equipped"][uid] as Dictionary).keys():
+			if g["equipped"][uid][slot]:
+				return true
+	return false
+
+# ================================================================ overlay
+func _build_overlay() -> void:
+	_root = Control.new()
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.visible = false
+	for i in 4:
+		var r := ColorRect.new()
+		r.color = Color(0, 0, 0, 0.6)
+		r.mouse_filter = Control.MOUSE_FILTER_STOP
+		_root.add_child(r)
+		_shades.append(r)
+	_ring = Panel.new()
+	var rs := StyleBoxFlat.new()
+	rs.bg_color = Color(0, 0, 0, 0)
+	rs.border_color = Palette.GOLD_LIGHT
+	rs.set_border_width_all(3)
+	rs.set_corner_radius_all(8)
+	_ring.add_theme_stylebox_override("panel", rs)
+	_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_ring)
+	_caption = PanelContainer.new()
+	var cs := StyleBoxFlat.new()
+	cs.bg_color = Palette.BG_PARCHMENT
+	cs.border_color = Palette.PARTY_BLUE
+	cs.set_border_width_all(2)
+	cs.set_corner_radius_all(6)
+	cs.set_content_margin_all(10)
+	_caption.add_theme_stylebox_override("panel", cs)
+	_root.add_child(_caption)
+	var v := VBoxContainer.new()
+	_caption.add_child(v)
+	_caption_lbl = Label.new()
+	_caption_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(_caption_lbl)
+	var row := HBoxContainer.new()
+	v.add_child(row)
+	_skip_btn = Button.new()
+	_skip_btn.text = "Skip tutorials"
+	_skip_btn.flat = true
+	_skip_btn.add_theme_font_size_override("font_size", 12)
+	_skip_btn.pressed.connect(skip_all)
+	row.add_child(_skip_btn)
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(spacer)
+	_next_btn = Button.new()
+	_next_btn.text = "Next"
+	_next_btn.pressed.connect(_on_next)
+	row.add_child(_next_btn)
+	_layer.add_child(_root)
+
+func _hide_overlay() -> void:
+	_root.visible = false
+	if _root.get_parent() != _layer:
+		_root.get_parent().remove_child(_root)
+		_layer.add_child(_root)
+
+## Dims everything but `target` (in whatever window holds it) and places the
+## caption beside it. With no target the screen dims fully, caption centred.
+func _show_spot(target: Control, quiet: bool) -> void:
+	var host: Node = _layer
+	var host_size: Vector2 = gc._vp
+	var win: Window = target.get_window() if target != null else null
+	if win != null and win != get_tree().root:
+		host = win
+		host_size = Vector2(win.size)
+	if _root.get_parent() != host:
+		_root.get_parent().remove_child(_root)
+		host.add_child(_root)
+		_root.top_level = host != _layer
+	host.move_child(_root, host.get_child_count() - 1)
+	_root.visible = true
+	_root.position = Vector2.ZERO
+	_root.size = host_size
+	var hole := Rect2(Vector2.ZERO, Vector2.ZERO)
+	if target != null:
+		hole = target.get_global_rect().grow(4)
+	var a := 0.0 if quiet else 0.6
+	for r in _shades:
+		r.color = Color(0, 0, 0, a)
+		r.mouse_filter = Control.MOUSE_FILTER_IGNORE if quiet else Control.MOUSE_FILTER_STOP
+	if target == null:
+		_shades[0].position = Vector2.ZERO
+		_shades[0].size = host_size
+		for i in range(1, 4):
+			_shades[i].size = Vector2.ZERO
+		_ring.visible = false
+	else:
+		_shades[0].position = Vector2.ZERO
+		_shades[0].size = Vector2(host_size.x, hole.position.y)
+		_shades[1].position = Vector2(0, hole.end.y)
+		_shades[1].size = Vector2(host_size.x, maxf(0.0, host_size.y - hole.end.y))
+		_shades[2].position = Vector2(0, hole.position.y)
+		_shades[2].size = Vector2(hole.position.x, hole.size.y)
+		_shades[3].position = Vector2(hole.end.x, hole.position.y)
+		_shades[3].size = Vector2(maxf(0.0, host_size.x - hole.end.x), hole.size.y)
+		_ring.visible = not quiet
+		_ring.position = hole.position
+		_ring.size = hole.size
+		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() / 200.0)
+		_ring.modulate = Color(1, 1, 1, pulse)
+	# caption above the hole if it's in the lower half, else below
+	var cw: float = minf(host_size.x - 20.0, gc._vp.x * 0.86)
+	_caption.custom_minimum_size = Vector2(cw, 0)
+	_caption.size = Vector2(cw, 0)
+	var ch: float = _caption.get_combined_minimum_size().y
+	var cy: float
+	if target == null:
+		cy = (host_size.y - ch) / 2.0
+	elif hole.get_center().y > host_size.y * 0.5:
+		cy = maxf(8.0, hole.position.y - ch - 12.0)
+	else:
+		cy = minf(host_size.y - ch - 8.0, hole.end.y + 12.0)
+	_caption.position = Vector2((host_size.x - cw) / 2.0, cy)
