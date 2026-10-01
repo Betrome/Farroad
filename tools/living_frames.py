@@ -52,7 +52,16 @@ def layers(img, parts, with_torso=True):
     arms |= {p for p in _dilate(arms, 1, W, H) if p in upper and part.get(p) == 0}
     torso = (upper - arms) if with_torso else set()
     legs = opaque - head - arms - torso
-    return {"head": head, "arms": arms, "torso": torso, "legs": legs}
+    # Ian: "small bounce in the legs" -- the thighs (upper part of the legs)
+    # ride with the hips while the shins and feet stay planted, so the knees
+    # flex as the body dips.
+    thighs = set()
+    if with_torso and legs:
+        ys = [p[1] for p in legs]
+        knee = min(ys) + (max(ys) - min(ys)) * 0.5
+        thighs = {p for p in legs if p[1] < knee}
+        legs = legs - thighs
+    return {"head": head, "arms": arms, "torso": torso, "thighs": thighs, "legs": legs}
 
 
 def compose(img, parts, lay, off):
@@ -63,7 +72,7 @@ def compose(img, parts, lay, off):
     pout = Image.new("L", img.size, 0)
     src, ps = img.load(), parts.load()
     o, po = out.load(), pout.load()
-    parent = {"legs": None, "torso": "legs", "arms": "torso", "head": "torso"}
+    parent = {"legs": None, "thighs": "legs", "torso": "thighs", "arms": "torso", "head": "torso"}
 
     def draw(name, dx, dy):
         for (x, y) in lay[name]:
@@ -72,7 +81,9 @@ def compose(img, parts, lay, off):
                 o[q] = src[x, y]
                 po[q] = ps[x, y]
 
-    for name in ("legs", "torso", "arms", "head"):
+    for name in ("legs", "thighs", "torso", "arms", "head"):
+        if name not in lay:
+            continue
         dx, dy = off.get(name, (0, 0))
         par = parent[name]
         pdx, pdy = off.get(par, (0, 0)) if par else (dx, dy)
@@ -117,16 +128,17 @@ def with_sword(img, parts, grip, angle, layer, ground=None):
 
 
 # ---- the breathing idle: 6 distinct frames, something moves every step
-IDLE_TORSO = [0, 0, 1, 1, 1, 0]
-IDLE_HEAD = [0, 0, 0, 1, 1, 1]          # follows the torso one frame later
+IDLE_TORSO = [0, 1, 2, 2, 1, 0]         # a 2 px dip: the knees flex (thighs ride along)
+IDLE_THIGH = [0, 1, 1, 1, 1, 0]         # thighs dip less than the torso
+IDLE_HEAD = [0, 0, 1, 2, 2, 1]          # follows the torso one frame later
 IDLE_SWORD = [0, -2, -4, -3, -1, 1]     # degrees
 
 
 def idle_frames(img, parts, grip, angle, layer="front"):
     lay = layers(img, parts)
     out = []
-    for dt, dh, da in zip(IDLE_TORSO, IDLE_HEAD, IDLE_SWORD):
-        f, p = compose(img, parts, lay, {"torso": (0, dt), "arms": (0, dt), "head": (0, dh)})
+    for dt, dth, dh, da in zip(IDLE_TORSO, IDLE_THIGH, IDLE_HEAD, IDLE_SWORD):
+        f, p = compose(img, parts, lay, {"thighs": (0, dth), "torso": (0, dt), "arms": (0, dt), "head": (0, dh)})
         g = (grip[0], grip[1] + dt) if grip else None
         out.append(with_sword(f, p, g, angle + da, layer))
     return out
