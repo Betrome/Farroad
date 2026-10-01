@@ -91,6 +91,14 @@ func _build_ui(parent: Node) -> void:
 	catalogue_btn.pressed.connect(_on_catalogue_pressed)
 	vbox.add_child(catalogue_btn)
 
+	# Ian: a feedback button for suggestions and bug reports.
+	var feedback_btn := Button.new()
+	feedback_btn.text = "Send Feedback"
+	feedback_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_feedback_popup"):
+			_parent.call("_show_feedback_popup"))
+	vbox.add_child(feedback_btn)
+
 	var reset_btn := Button.new()
 	reset_btn.text = "Reset Game"
 	reset_btn.pressed.connect(_on_reset_pressed)

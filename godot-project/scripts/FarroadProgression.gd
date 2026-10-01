@@ -194,6 +194,9 @@ static func count_strength(n: int) -> float:
 static func band_roll(rng: FarroadCore.RNG) -> float:
 	return 0.85 + rng.next() * 0.35
 
+const HARD_ATK_EXP := 0.7
+const HARD_DEF_EXP := 0.35
+
 static func hard_mul(w: float) -> float:
 	if w <= HARD_FROM:
 		return 1.0
@@ -1638,7 +1641,13 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		# how dmg_mul below already applies to atk/mag on both regardless of
 		# boss status, not a new one-off HP-only constant.
 		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w)) * tutorial_atk_mag_mul(w)
-		var hard_atk_mul: float = hard_mul(w) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
+		# Ian: past wave 100 the hard multiplier went entirely into ATK/MAG
+		# (x20 by wave 800) while DEF/RES grew only with the wave and SPD not
+		# at all. Now it's spread: ATK/MAG take hard^0.7, DEF/RES/SPD hard^0.35,
+		# and SPD also grows with the wave (sqrt of the wave scale).
+		var hard: float = hard_mul(w)
+		var hard_atk_mul: float = pow(hard, HARD_ATK_EXP) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
+		var hard_def_mul: float = pow(hard, HARD_DEF_EXP)
 		var atk_mul: float = (1.10 if boss else 1.0) * DIFFICULTY * v_mul * hard_atk_mul
 		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * tutorial_atk_mag_mul(w)
 		out.append(FarroadCore.make_unit({
@@ -1650,8 +1659,8 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 				"hp": maxf(8, round(hp_base)),
 				"atk": maxf(1, round(a["atk"] * s * atk_mul * dmg_mul)),
 				"mag": round(a.get("mag", 8) * s * DIFFICULTY * hard_atk_mul * dmg_mul),
-				"def": round(a["def"] * s), "res": round(a["res"] * s),
-				"spd": round(a["spd"] * boss_spd_mul(w)) if boss else a["spd"],
+				"def": round(a["def"] * s * hard_def_mul), "res": round(a["res"] * s * hard_def_mul),
+				"spd": round(a["spd"] * sqrt(s) * hard_def_mul * (boss_spd_mul(w) if boss else 1.0)),
 				"atkCrit": minf(FarroadCore.CAP_CRIT, a["atkCrit"] * sqrt(s)),
 				"magCrit": minf(FarroadCore.CAP_CRIT, a.get("magCrit", 0.04) * sqrt(s)),
 				"chargeRate": 1.15 if boss else 1.0, "evade": a["evade"]},

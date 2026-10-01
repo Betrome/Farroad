@@ -655,6 +655,51 @@ func _show_welcome_back_popup() -> void:
 
 	await _finish_detail_overlay(o)
 
+## Ian: "a feedback button in the menu that lets players make suggestions
+## and report bugs" -- sent to admin@speculere.com. There's no server yet,
+## so Send opens the player's own email app with the report filled in
+## (plus the game state that helps with bugs: wave, power, party).
+const FEEDBACK_EMAIL := "admin@speculere.com"
+
+func _show_feedback_popup() -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Send Feedback"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var kind := OptionButton.new()
+	for k in ["Suggestion", "Bug report"]:
+		kind.add_item(k)
+	vbox.add_child(kind)
+	var text := TextEdit.new()
+	text.placeholder_text = "What would you like to tell us? For bugs, what happened and what you expected."
+	text.custom_minimum_size = Vector2(0, _vp.y * 0.22)
+	text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	vbox.add_child(text)
+	var note := Label.new()
+	note.text = "Opens your email app, addressed to %s, with your message and some game details (wave, power, party)." % FEEDBACK_EMAIL
+	note.modulate = Palette.TEXT_DIM
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(note)
+	var send := Button.new()
+	send.text = "Send"
+	send.pressed.connect(func():
+		var body: String = text.text.strip_edges()
+		if body == "":
+			return
+		var party_names: Array = (g["party"] as Array).map(func(u):
+			var d = FarroadCore.roster_by_id(u)
+			return d["name"] if d else u)
+		var info := "\n\n---\nWave %d (furthest %d) - Power %d - Party: %s - %s" % [int(g.get("wave", 1)),
+			int(g.get("farthest", 1)), FarroadProgression.power_level(g), ", ".join(party_names), OS.get_name()]
+		var subject := "Farroad %s" % kind.get_item_text(kind.selected)
+		OS.shell_open("mailto:%s?subject=%s&body=%s" % [FEEDBACK_EMAIL, subject.uri_encode(), (body + info).uri_encode()])
+		o["backdrop"].queue_free())
+	vbox.add_child(send)
+	await _finish_detail_overlay(o)
+
 ## Ian: a one-time popup shown exactly when enrage first turns on (clearing
 ## the wave-20 boss -- see the "tutorial_complete" event, FarroadProgression.
 ## after_wave_cleared) -- congratulates the player on finishing the
