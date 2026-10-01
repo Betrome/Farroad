@@ -236,7 +236,12 @@ static func load_real_content(path: String = "res://data/content.json") -> bool:
 		if ACTIONS[aid].get("player", false):
 			PLAYER_ACTIONS.append(aid)
 	register_bonus_eligible(equippable() + CHARGE_ACTIONS)
+	CLEAN_ACTIONS = ACTIONS.duplicate(true)
 	return true
+
+## Every action exactly as loaded, before any Lore (PvP builds an
+## opponent's Lore'd actions from these, never from the player's).
+static var CLEAN_ACTIONS: Dictionary = {}
 
 ## Finds a ROSTER entry by id -- mirrors the small inline
 ## `C.ROSTER.forEach(function(r){if(r.id===uid)def=r;})` lookup pattern used
@@ -1376,7 +1381,8 @@ static func step(b: Dictionary) -> Variant:
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
 	if b["enrage"] and b["beat"] >= ENRAGE_AFTER:
 		b["enrageN"] = b.get("enrageN", 0) + 1
-	if b["enrage"] and not u["isParty"] and u["hp"] > 0:
+	# enrageAll (PvP): both sides enrage, so neither team gets the edge
+	if b["enrage"] and (not u["isParty"] or b.get("enrageAll", false)) and u["hp"] > 0:
 		var pending: int = int(b.get("enrageN", 0)) - int(u.get("enrageApplied", 0))
 		if pending > 0:
 			# Ian: "enraged damage scaling seems to be compounding, not

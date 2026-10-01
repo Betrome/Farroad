@@ -56,7 +56,10 @@ static func sprite_set(g: Dictionary, uid: String) -> String:
 
 ## A ShaderMaterial for this unit's look, or null if nothing is recoloured.
 static func material_for(g: Dictionary, uid: String, part_ref: Array) -> ShaderMaterial:
-	var colors: Dictionary = look(g, uid)["colors"] if not g.is_empty() else {}
+	return material_for_colors(look(g, uid)["colors"] if not g.is_empty() else {}, part_ref)
+
+## The same from a colours dict (a PvP rival's look, from their share code).
+static func material_for_colors(colors: Dictionary, part_ref: Array) -> ShaderMaterial:
 	if part_ref.is_empty():
 		return null
 	var mat := ShaderMaterial.new()
@@ -65,6 +68,8 @@ static func material_for(g: Dictionary, uid: String, part_ref: Array) -> ShaderM
 	for i in 7:
 		pc.append(Vector4(0, 0, 0, 0))
 	for part in colors:
+		if not PART_ID.has(part) or not Color.html_is_valid(str(colors[part])):
+			continue
 		var c := Color(str(colors[part]))
 		pc[PART_ID[part]] = Vector4(c.r, c.g, c.b, 1.0)
 	mat.set_shader_parameter("part_color", pc)

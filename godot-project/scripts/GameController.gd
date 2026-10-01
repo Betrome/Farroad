@@ -1539,6 +1539,139 @@ func _show_action_detail_popup(action_id: String) -> void:
 ## think worth tracking." Everything is derived live from existing save
 ## state except enemies defeated (g["enemiesDefeated"], a real counter
 ## bumped by every win path -- Road, quests, dungeons, expeditions).
+## Ian: PvP (first version) -- share your fielded team as a code; paste a
+## friend's code to fight their team (the game's AI runs both sides, the
+## fight plays out like a quest). Bragging rights only: a W/L record and a
+## result to copy back, which carries your own code so they can answer.
+func _show_pvp_popup() -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var rec: Dictionary = g.get("pvp", {})
+	var title := Label.new()
+	title.text = "PvP Arena"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))]))
+
+	# --- your team
+	vbox.add_child(_section_label("Your team"))
+	var my_code := PvP.export_code(g)
+	var me = PvP.import_code(my_code)
+	vbox.add_child(_wrap_label(PvP.describe(me["team"]) if me.has("team") else ""))
+	vbox.add_child(_wrap_label("Others fight your fielded party as it is now. Send them this code:", true))
+	var code_box := TextEdit.new()
+	code_box.text = my_code
+	code_box.editable = false
+	code_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	code_box.custom_minimum_size = Vector2(0, _vp.y * 0.09)
+	vbox.add_child(code_box)
+	var copy_btn := Button.new()
+	copy_btn.text = "Copy my team code"
+	copy_btn.pressed.connect(func():
+		DisplayServer.clipboard_set(my_code)
+		copy_btn.text = "Copied!")
+	vbox.add_child(copy_btn)
+
+	# --- a rival's team
+	vbox.add_child(_section_label("Fight a team"))
+	var paste_box := TextEdit.new()
+	paste_box.placeholder_text = "Paste a team code here"
+	paste_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	paste_box.custom_minimum_size = Vector2(0, _vp.y * 0.09)
+	vbox.add_child(paste_box)
+	var preview := _wrap_label("", true)
+	var row := HBoxContainer.new()
+	var paste_btn := Button.new()
+	paste_btn.text = "Paste"
+	paste_btn.pressed.connect(func(): paste_box.text = DisplayServer.clipboard_get())
+	row.add_child(paste_btn)
+	var fight_btn := Button.new()
+	fight_btn.text = "Fight!"
+	fight_btn.disabled = true
+	fight_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(fight_btn)
+	vbox.add_child(row)
+	vbox.add_child(preview)
+	var parsed := {}
+	paste_box.text_changed.connect(func():
+		var r := PvP.import_code(paste_box.text)
+		parsed.clear()
+		if paste_box.text.strip_edges() == "":
+			preview.text = ""
+		elif r.has("error"):
+			preview.text = r["error"]
+		else:
+			parsed.merge(r)
+			preview.text = PvP.describe(r["team"])
+		fight_btn.disabled = parsed.is_empty() or g.get("sideBattle") != null)
+	fight_btn.pressed.connect(func():
+		if parsed.is_empty():
+			return
+		var team: Dictionary = parsed["team"]
+		o["backdrop"].queue_free()
+		_start_pvp(team))
+
+	# --- recent fights
+	var hist: Array = rec.get("history", [])
+	if not hist.is_empty():
+		vbox.add_child(_section_label("Recent fights"))
+		for h in hist.slice(0, 10):
+			vbox.add_child(_wrap_label("%s vs %s's team (Power %d) in %d turns" % [
+				"Won" if h.get("won") else "Lost", h.get("owner", "?"), int(h.get("power", 0)), int(h.get("turns", 0))], true))
+	await _finish_detail_overlay(o)
+
+func _wrap_label(text: String, dim: bool = false) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if dim:
+		l.modulate = Palette.TEXT_DIM
+	return l
+
+func _section_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 16)
+	return l
+
+## Starts a PvP fight: the player's fielded party at full HP against the
+## rival team, run like a quest fight (Road paused and hidden meanwhile).
+func _start_pvp(team: Dictionary) -> void:
+	if g.get("sideBattle") != null:
+		return
+	if open_panel != null and is_instance_valid(open_panel):
+		open_panel.popup.hide()
+	var enemies := PvP.build_opponent(g, team)
+	_enter_side_battle(enemies, int(g.get("wave", 1)), {"kind": "pvp", "owner": str(team.get("owner", "?")),
+		"power": int(team.get("power", 0))})
+
+## The result, with a brag to copy that carries the player's own code so the
+## rival can fight back.
+func _show_pvp_result_popup(event: Dictionary) -> void:
+	var won: bool = event["kind"] == "pvp_won"
+	var o := _build_detail_overlay(Palette.GOOD_GREEN if won else Palette.BAD_RED, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Victory!" if won else "Defeat"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var verb := "beat" if won else "lost to"
+	vbox.add_child(_wrap_label("You %s %s's team (Power %d) in %d turns." % [verb, event["owner"], int(event["power"]), int(event["turns"])]))
+	var rec: Dictionary = g.get("pvp", {})
+	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))], true))
+	var me = FarroadCore.roster_by_id("kesh")
+	var brag := "%s %s %s's team (Power %d) with a Power %d team in %d turns in Farroad! Think you can beat mine? %s" % [
+		me["name"] if me else "I", "beat" if won else "lost to", event["owner"], int(event["power"]),
+		FarroadProgression.party_power(g), int(event["turns"]), PvP.export_code(g)]
+	var copy_btn := Button.new()
+	copy_btn.text = "Copy result to share" if won else "Copy result and my team code"
+	copy_btn.pressed.connect(func():
+		DisplayServer.clipboard_set(brag)
+		copy_btn.text = "Copied!")
+	vbox.add_child(copy_btn)
+	await _finish_detail_overlay(o)
+
 func _show_stats_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
@@ -2576,6 +2709,8 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 ## battle is active -- the Road's own presenter/label are never touched,
 ## so nothing needs restoring once the side battle resolves.
 func _side_battle_label_text(meta: Dictionary) -> String:
+	if meta["kind"] == "pvp":
+		return "PvP — vs %s's team" % meta["owner"]
 	if meta["kind"] == "quest":
 		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
 	return "%s — Wave %d/%d" % [meta["name"], int(meta["waveIndex"]) + 1, int(meta["totalWaves"])]
@@ -2644,7 +2779,10 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		# but skipped rebuilding a new one, deferring that to right here --
 		# now that g["sideBattle"] is clear again, it's finally safe to.
 		_begin_next_fight()
-	quests_panel.call("_show_result", event)
-	_show_quest_result_popup(event)
+	if str(event["kind"]).begins_with("pvp"):
+		_show_pvp_result_popup(event)
+	else:
+		quests_panel.call("_show_result", event)
+		_show_quest_result_popup(event)
 	_refresh_hud()
 	_save_game()

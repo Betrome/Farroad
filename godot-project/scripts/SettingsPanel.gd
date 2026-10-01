@@ -75,6 +75,14 @@ func _build_ui(parent: Node) -> void:
 			_parent.call("_show_stats_popup"))
 	vbox.add_child(stats_btn)
 
+	# Ian: PvP -- share your team as a code, fight other players' teams.
+	var pvp_btn := Button.new()
+	pvp_btn.text = "PvP Arena"
+	pvp_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_pvp_popup"):
+			_parent.call("_show_pvp_popup"))
+	vbox.add_child(pvp_btn)
+
 	# (Ian: the name now lives in the Customize screen.)
 	# Ian: male/female main character, changeable any time.
 	var body_btn := Button.new()

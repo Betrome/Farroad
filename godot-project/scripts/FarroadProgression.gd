@@ -2028,7 +2028,8 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"seenArch": {},
 		# seenTabTutorial: the retired first-open menu pop-ups (kept so old
 		# saves round-trip; nothing reads it now).
-		"seenTabTutorial": {}, "tutorials": {}, "tutorialSkip": false, "forcedPull": null}
+		"seenTabTutorial": {}, "tutorials": {}, "tutorialSkip": false, "forcedPull": null,
+		"pvp": {"wins": 0, "losses": 0, "history": []}}
 
 ## ===== EXPEDITIONS (Step 3h) =====
 ## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through
@@ -2785,6 +2786,9 @@ static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Di
 	FarroadCore.set_wave(wave)
 	var party := build_expedition_party(g, g["party"], 1)
 	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+	if meta.get("kind") == "pvp":   # both teams enrage, so long fights still end evenly
+		g["battle"]["enrage"] = true
+		g["battle"]["enrageAll"] = true
 	g["sideBattle"] = {"savedWave": saved_wave, "wave": wave, "meta": meta}
 	return true
 
@@ -2810,7 +2814,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	# Stats page: counted here, before g["battle"] is swapped back to the
 	# Road -- covers every dungeon wave (each one resolves through this
 	# function) and a quest stage's single fight alike.
-	if result == "party" and not gave_up:
+	if result == "party" and not gave_up and meta["kind"] != "pvp":
 		var foes: int = 0
 		for u in g["battle"]["units"]:
 			if not u["isParty"]:
@@ -2830,11 +2834,18 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			{"rng": g["rng"], "enrage": g.get("enrage", true)})
 		return {"kind": "dungeon_wave_advance", "waveIndex": meta["waveIndex"], "totalWaves": meta["totalWaves"]}
 
+	var turns: int = int(g["battle"].get("beat", 0))
 	FarroadCore.set_wave(sb["savedWave"])
 	g["battle"] = g["roadBattle"]
 	g["roadBattle"] = null
 	g["sideBattle"] = null
 
+	if meta["kind"] == "pvp":
+		PvP.clear_actions()
+		var won: bool = result == "party" and not gave_up
+		PvP.record(g, won, meta["owner"], int(meta["power"]), turns, int(now))
+		return {"kind": "pvp_won" if won else "pvp_lost", "owner": meta["owner"], "power": meta["power"],
+			"turns": turns, "gaveUp": gave_up}
 	if meta["kind"] == "quest":
 		var q: Dictionary = g["quests"][meta["uid"]]
 		if result == "party":

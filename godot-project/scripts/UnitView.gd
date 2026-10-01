@@ -216,6 +216,8 @@ static func body_preview(body: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
 
 static func _sprite_frames_path_for(u: Dictionary) -> String:
+	if u.get("pvp", false):   # a PvP rival: their own MC/companion look
+		return "res://sprites/units/%s.tres" % Appearance.SPRITES.get(str((u.get("look", {}) as Dictionary).get("body", "male")), "kesh")
 	if u["isParty"]:
 		# every party unit is, for now, a variation of the male or female
 		# main character (Ian) -- see Appearance
@@ -324,7 +326,9 @@ func _build(unit_size: float) -> void:
 				anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if ps >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 				anim.offset = frame_tex.get_size() / 2.0 - anchor + Vector2(0, half / ps)
 				_art_body_size = (frames.get_meta("body_size", frame_tex.get_size()) as Vector2) * ps
-				if frames.has_meta("part_ref") and unit["isParty"]:
+				if frames.has_meta("part_ref") and unit.get("pvp", false):
+					anim.material = Appearance.material_for_colors((unit.get("look", {}) as Dictionary).get("colors", {}), frames.get_meta("part_ref"))
+				elif frames.has_meta("part_ref") and unit["isParty"]:
 					anim.material = Appearance.material_for(game_state, unit["id"], frames.get_meta("part_ref"))
 				_weapon_meta = frames.get_meta("weapon", {})
 				_impact_meta = frames.get_meta("impact", {})
@@ -338,6 +342,8 @@ func _build(unit_size: float) -> void:
 				var s: float = size / largest if largest > 0.0 else 1.0
 				anim.scale = Vector2(s, s)
 		shape = anim
+		if unit.get("pvp", false):   # the character art faces right; rivals face left
+			anim.scale.x = -anim.scale.x
 		shape.light_mask = 1 | UNIT_LIGHT_LAYER
 		add_child(shape)
 	else:
