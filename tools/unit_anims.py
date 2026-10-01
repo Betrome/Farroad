@@ -58,17 +58,18 @@ ANIMS = {   # (key, hold, sword layer, align[, role]) -- role "swing" = first fr
     # Key names follow the keyframe brief; adjust once the keys land.
     "run": {"fps": 12, "optional": True, "steps": [
         ("run_contact", 1, "front", "feet"), ("run_down", 1, "front", "feet"),
-        ("run_pass", 1, "front", "feet"), ("run_up", 1, "front", "air")]},
+        ("run_pass", 1, "front", "feet"), ("run_up", 1, "front", "feet")]},
     "evade": {"fps": 14, "optional": True, "steps": [
         ("evade_crouch", 1, "front", "feet"), ("evade_lean", 3, "front", "feet"),
         ("evade_recover", 2, "front", "feet")]},
     "revive": {"fps": 10, "optional": True, "steps": [
-        ("revive_down", 2, "front", "feet"), ("revive_sit", 2, "front", "feet"),
-        ("revive_kneel", 3, "front", "feet"), ("revive_rise", 2, "front", "feet")]},
+        # (revive_sit left out: Qwen drew it larger than the other keys)
+        ("revive_down", 2, "front", "feet"), ("revive_push", 2, "front", "feet"), ("revive_kneel", 3, "front", "feet"),
+        ("revive_rise", 2, "front", "feet")]},
     "charge": {"fps": 14, "optional": True, "steps": [
-        ("charge_ready", 4, "front", "feet"), ("charge_leap", 2, "front", "air"),
-        ("charge_slash", 1, "front", "feet", "swing"), ("charge_impact", 4, "front", "feet", "impact"),
-        ("charge_recover", 2, "front", "feet")]},
+        ("charge_ready", 3, "front", "feet"), ("charge_spring", 1, "front", "feet"),
+        ("charge_leap", 2, "front", "air", "swing"), ("charge_slash", 3, "front", "feet", "impact"),
+        ("charge_impact", 2, "front", "feet"), ("charge_recover", 2, "front", "feet")]},
     # the wounded idle breathes in layers like the normal idle (one key)
     "idle_low": {"fps": 8, "optional": True, "living": True, "steps": [("lowhp_idle", 1, "front", "feet")]},
 }
