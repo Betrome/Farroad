@@ -119,10 +119,14 @@ func _begin(id: String) -> void:
 	step = 0
 	_missing = 0.0
 	gc.current_presenter.call("set_loop_paused", true)
+	# the menus' own first-open info pop-ups would cover the tutorial
+	for key in _needs(id):
+		g["seenTabTutorial"][key] = true
 	_enter_step()
 
 func _enter_step() -> void:
 	_missing = 0.0
+	_root.visible = false   # one frame for the caption to lay out
 	if step >= steps.size():
 		_finish()
 		return
@@ -150,6 +154,12 @@ func _run_step(delta: float) -> void:
 		_show_spot(null, s.get("quiet", false))
 		return
 	_missing = 0.0
+	# a target scrolled out of view gets scrolled to
+	var p: Node = target.get_parent() if target != null else null
+	while p != null and not (p is ScrollContainer):
+		p = p.get_parent()
+	if p is ScrollContainer and not p.get_global_rect().encloses(target.get_global_rect()):
+		(p as ScrollContainer).ensure_control_visible(target)
 	_show_spot(target, s.get("quiet", false))
 
 func _on_next() -> void:
@@ -260,22 +270,25 @@ func _slot(i: int) -> Dictionary:
 	var sl: Array = g["loadout"].get("kesh", [])
 	return sl[i] if i < sl.size() else {}
 
-## Slot i's IF (cond) or THEN (action) button in the Gambits tab.
+## Slot i's IF (cond) or THEN (action) button in the Gambits tab: each slot
+## card is "IF" label, condition button, "THEN" label, then a row whose
+## first child is the action button -- walked in order, so identical
+## buttons on different slots can't be confused.
 func _slot_button(i: int, which: String) -> Control:
 	if not _popup_open(gc.units_panel) or gc.units_panel.current_sub_tab != "gambits":
 		return null
-	var s := _slot(i)
-	if s.is_empty():
+	var marks: Array = gc.units_panel.content_container.find_children("*", "Label", true, false).filter(
+		func(l): return l.text == ("IF" if which == "if" else "THEN") and l.is_visible_in_tree())
+	if i >= marks.size():
 		return null
-	var want: String = FarroadCore.cond_label(s["cond"]) if which == "if" else FarroadCore.ACTIONS.get(s["action"], {}).get("name", s["action"])
-	var hits: Array = _buttons(gc.units_panel.content_container).filter(func(b): return b.text == want)
-	# each slot card holds one IF and one THEN button; count matches up to i
-	var k := 0
-	for b in hits:
-		if k == i or hits.size() == 1:
-			return b
-		k += 1
-	return hits[0] if not hits.is_empty() else null
+	var lbl: Label = marks[i]
+	var parent := lbl.get_parent()
+	var nxt: Node = parent.get_child(lbl.get_index() + 1) if lbl.get_index() + 1 < parent.get_child_count() else null
+	if nxt is Button:
+		return nxt
+	if nxt != null and nxt.get_child_count() > 0 and nxt.get_child(0) is Button:
+		return nxt.get_child(0)
+	return null
 
 ## A row in an open picker list (overlay inside the Units pop-up).
 func _picker_row(text_prefix: String) -> Control:
@@ -511,7 +524,7 @@ var _row_start := ""
 func _prepare_level_up() -> void:
 	_start_level = FarroadProgression.level_of(g, "kesh")
 	# make sure the first level-up is affordable
-	var need: float = FarroadProgression.cost_to_next(g, "kesh") if FarroadProgression.has_method("cost_to_next") else 0.0
+	var need: float = maxf(0.0, ceilf(FarroadProgression.cost_next(g, "kesh") - FarroadProgression.exp_of(g, "kesh")))
 	if need > float(g.get("aether", 0.0)):
 		g["aether"] = need
 		gc._refresh_hud()
@@ -627,6 +640,7 @@ func _show_spot(target: Control, quiet: bool) -> void:
 		host.add_child(_root)
 		_root.top_level = host != _layer
 	host.move_child(_root, host.get_child_count() - 1)
+	var first_frame := not _root.visible
 	_root.visible = true
 	_root.position = Vector2.ZERO
 	_root.size = host_size
@@ -659,8 +673,10 @@ func _show_spot(target: Control, quiet: bool) -> void:
 		_ring.modulate = Color(1, 1, 1, pulse)
 	# caption above the hole if it's in the lower half, else below
 	var cw: float = minf(host_size.x - 20.0, gc._vp.x * 0.86)
+	_caption_lbl.custom_minimum_size = Vector2(cw - 24.0, 0)   # wrap width known up front
 	_caption.custom_minimum_size = Vector2(cw, 0)
 	_caption.size = Vector2(cw, 0)
+	_caption.reset_size()
 	var ch: float = _caption.get_combined_minimum_size().y
 	var cy: float
 	if target == null:
@@ -670,3 +686,4 @@ func _show_spot(target: Control, quiet: bool) -> void:
 	else:
 		cy = minf(host_size.y - ch - 8.0, hole.end.y + 12.0)
 	_caption.position = Vector2((host_size.x - cw) / 2.0, cy)
+	_caption.modulate.a = 0.0 if first_frame else 1.0

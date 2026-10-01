@@ -91,6 +91,16 @@ func _build_ui(parent: Node) -> void:
 	catalogue_btn.pressed.connect(_on_catalogue_pressed)
 	vbox.add_child(catalogue_btn)
 
+	# Ian: "allow players to skip tutorials" -- unlocks every menu now.
+	var skip_btn := Button.new()
+	skip_btn.text = "Skip tutorials"
+	skip_btn.disabled = bool(g.get("tutorialSkip", false))
+	skip_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_skip_tutorials"):
+			_parent.call("_skip_tutorials")
+		skip_btn.disabled = true)
+	vbox.add_child(skip_btn)
+
 	# Ian: a feedback button for suggestions and bug reports.
 	var feedback_btn := Button.new()
 	feedback_btn.text = "Send Feedback"

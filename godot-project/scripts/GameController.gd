@@ -52,6 +52,7 @@ var quests_panel: Node
 var shop_panel: Node
 var mc_panel: Node
 var road_button: Button
+var tutorial: Tutorial = null
 ## Tracks whichever panel's own popup is currently open -- see
 ## _panel_opening()'s own comment for why this exists.
 var open_panel: Node = null
@@ -191,7 +192,19 @@ func _start_game() -> void:
 	expedition_timer.timeout.connect(_on_expedition_tick)
 	add_child(expedition_timer)
 	get_viewport().size_changed.connect(_on_viewport_resized)
+	# Ian: guided onboarding (Tutorial.gd) -- unlocks menus at fixed waves
+	tutorial = Tutorial.new()
+	add_child(tutorial)
+	tutorial.setup(self)
 	_begin_next_fight()
+
+## Whether a tab or Units sub-tab is unlocked yet (Tutorial.unlocked).
+func _tab_unlocked(key: String) -> bool:
+	return tutorial == null or Tutorial.unlocked(g, key, tutorial.active)
+
+func _skip_tutorials() -> void:
+	if tutorial != null:
+		tutorial.skip_all()
 
 ## The live equivalent of the offline catch-up below -- while the game
 ## keeps running, an active expedition still needs a chance to resolve
@@ -318,12 +331,15 @@ var _backgrounded_at: float = -1.0
 func _notification(what: int) -> void:
 	if g.is_empty() or g.get("mc") == null:
 		return
+	# Only a real mobile pause/resume counts as a break -- a desktop window
+	# losing focus (alt-tab) just saves, it never reloads the game.
 	match what:
-		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
+		NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
 			_save_game()
-			if what != NOTIFICATION_WM_CLOSE_REQUEST:
-				_backgrounded_at = Time.get_unix_time_from_system()
-		NOTIFICATION_APPLICATION_RESUMED, NOTIFICATION_APPLICATION_FOCUS_IN:
+		NOTIFICATION_APPLICATION_PAUSED:
+			_save_game()
+			_backgrounded_at = Time.get_unix_time_from_system()
+		NOTIFICATION_APPLICATION_RESUMED:
 			if _backgrounded_at > 0.0 and Time.get_unix_time_from_system() - _backgrounded_at >= RESUME_RELOAD_SEC:
 				_backgrounded_at = -1.0
 				get_tree().reload_current_scene()

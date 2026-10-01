@@ -209,7 +209,10 @@ func _on_sub_tab_pressed(tab: String) -> void:
 
 func _refresh_sub_tab_styles() -> void:
 	for key in sub_tab_buttons.keys():
-		sub_tab_buttons[key].disabled = (key == current_sub_tab)
+		# Gambits, Lore and Gear unlock with their tutorials (Tutorial.gd)
+		var open: bool = not (_parent and _parent.has_method("_tab_unlocked")) or _parent.call("_tab_unlocked", key)
+		sub_tab_buttons[key].disabled = (key == current_sub_tab) or not open
+		sub_tab_buttons[key].modulate = Color(1, 1, 1, 1) if open else Color(1, 1, 1, 0.35)
 
 func _refresh_content() -> void:
 	for c in content_container.get_children():
