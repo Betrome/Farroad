@@ -132,9 +132,10 @@ func _on_node_added(n: Node) -> void:
 
 ## INTERNAL_MODE_BACK keeps the helper out of get_children(), so nothing
 ## that walks a container's own children ever sees it.
-func _attach_touch_scroll(sc: ScrollContainer) -> void:
-	if not is_instance_valid(sc) or not sc.is_inside_tree():
+func _attach_touch_scroll(node) -> void:   # untyped: it may be freed by the time this runs
+	if not is_instance_valid(node) or not (node is ScrollContainer) or not node.is_inside_tree():
 		return
+	var sc: ScrollContainer = node
 	for c in sc.get_children(true):
 		if c is TouchScroll:
 			return
@@ -196,7 +197,39 @@ func _start_game() -> void:
 	tutorial = Tutorial.new()
 	add_child(tutorial)
 	tutorial.setup(self)
+	for p in [units_panel, party_panel, quests_panel, marks_panel, shop_panel, expedition_panel,
+			settings_panel, catalogue_panel]:
+		p.popup.popup_hide.connect(_reset_menu.bind(p))
 	_begin_next_fight()
+
+## Ian: "have menus reset to their default when closed" -- a closed menu
+## drops any info/picker box left open inside it and goes back to its
+## first tab with no filters or selections, so it always reopens the same
+## way (a leftover info box hid the Lore tutorial's target).
+const _MENU_DEFAULTS := {"current_tab": "", "current_sub_tab": "summary", "selected_action_id": "", "selected_uids": [],
+	"selected_direction": "", "action_filter_target": "any", "action_filter_camp": "any",
+	"action_filter_effect": "any", "cond_filter_group": "any", "gambit_filter_group": "any"}
+const _FIRST_TAB := {"shop": "gambits", "catalogue": "units"}
+
+func _reset_menu(panel: Node) -> void:
+	for c in panel.popup.get_children():
+		if c.has_meta("menu_overlay"):
+			c.queue_free()
+	var subs: Array = [panel]
+	if panel == units_panel:
+		subs += [gambits_panel, aether_panel, lore_panel, equipment_panel]
+	for p in subs:
+		if p == null or not is_instance_valid(p):
+			continue
+		for key in _MENU_DEFAULTS:
+			if p.get(key) == null:
+				continue
+			var v = _MENU_DEFAULTS[key]
+			if key == "current_tab":
+				v = _FIRST_TAB.get("shop" if p == shop_panel else "catalogue" if p == catalogue_panel else "", "")
+				if v == "":
+					continue
+			p.set(key, v.duplicate() if v is Array else v)
 
 ## Whether a tab or Units sub-tab is unlocked yet (Tutorial.unlocked).
 func _tab_unlocked(key: String) -> bool:
@@ -1155,6 +1188,7 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		host_size = _vp
 
 	var backdrop := ColorRect.new()
+	backdrop.set_meta("menu_overlay", true)   # cleared when its menu closes
 	backdrop.color = Color(0, 0, 0, 0.55)
 	backdrop.size = host_size
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
