@@ -706,7 +706,13 @@ static var GROWTH := {
 	"garrow": {"hp": 35.0, "atk": 1.6, "mag": 0.6, "def": 2.5, "res": 1.8, "spd": 0.9},
 	"wren": {"hp": 14.7, "atk": 2.0, "mag": 0.7, "def": 0.9, "res": 0.9, "spd": 1.6},
 	"lumen": {"hp": 17.5, "atk": 0.8, "mag": 2.5, "def": 1.2, "res": 2.0, "spd": 1.2},
-	"vesh": {"hp": 16.8, "atk": 2.3, "mag": 1.0, "def": 1.2, "res": 1.2, "spd": 1.7}}
+	"vesh": {"hp": 16.8, "atk": 2.3, "mag": 1.0, "def": 1.2, "res": 1.2, "spd": 1.7},
+	# Legendary round (Ian): one unit excelling in each of ATK/MAG/SPD/DEF/RES.
+	"kaldor": {"hp": 24.0, "atk": 3.0, "mag": 0.8, "def": 1.5, "res": 1.0, "spd": 1.4},
+	"seraphine": {"hp": 15.0, "atk": 0.7, "mag": 3.0, "def": 0.9, "res": 1.8, "spd": 1.3},
+	"zephyra": {"hp": 16.0, "atk": 2.1, "mag": 0.8, "def": 1.0, "res": 1.0, "spd": 2.4},
+	"bastian": {"hp": 38.0, "atk": 1.4, "mag": 0.8, "def": 3.0, "res": 2.0, "spd": 0.8},
+	"morwen": {"hp": 20.0, "atk": 0.7, "mag": 2.0, "def": 1.3, "res": 3.0, "spd": 1.1}}
 
 static func exp_for(l: int) -> int:
 	return int(round(0.8 * pow(l, 2.8)))

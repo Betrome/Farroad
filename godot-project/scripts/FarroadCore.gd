@@ -153,7 +153,8 @@ const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowof
 	"atk_reckless", "mag_lance", "def_slam", "res_strike", "spd_flurry",
 	"atk_cry", "mag_font", "def_bulwark", "res_ward", "spd_fleet",
 	"colossusslam", "reapersharvest",
-	"pyreblade", "tidebloom", "landslide", "skyfall", "dawnbreak", "nightfall"]
+	"pyreblade", "tidebloom", "landslide", "skyfall", "dawnbreak", "nightfall",
+	"worldsplitter", "starfall", "thousandcuts", "unbreakable", "nullwave"]
 
 ## Every action units can equip: the CSV rows of kind "equippable"
 ## (content.json's `player` flag), in file order; falls back to the old

@@ -168,3 +168,8 @@ resurrect,Resurrect,equippable,mag,,,0,,1.60,0.625,deadAlly,1,,,0,0,,,,0.60,,,33
 aegis,Aegis,equippable,mag,,,0,,0.90,1.111,ally,1,warded,3,0,0,,,,,,,28,,rare,"swift,lasting,surge,broad",Longer Bulwark.,
 mirage,Mirage,equippable,mag,,,0,,0.90,1.111,ally,1,blurred,4,0,0,,,,,,,28,,rare,"swift,lasting,surge,broad",Longer Blur.,
 haste,Haste,equippable,mag,,,0,,1.40,0.714,ally,1,hasted,4,0,0,,,,,,,28,,rare,"swift,lasting,surge,broad",Longer Quicken.,
+worldsplitter,Worldsplitter,charge,atk,fire,,5.40,,1.80,0.556,foe,1,,,0.30,0.30,,,,,,,,100,legendary,"swift,potent,piercing,keen,broad,thrifty","CHARGE - Kaldor (legendary). The biggest single blow in the game: armor-piercing, crit-heavy.",
+starfall,Starfall,charge,mag,light,,2.70,,1.80,0.556,allFoes,1,blinded,2,0,0,,,,,,,,100,legendary,"swift,potent,lasting,deepening,keen,thrifty",CHARGE - Seraphine (legendary). Light on every foe; blinds them.,
+thousandcuts,Thousand Cuts,charge,atk,air,spd,0.70,,1.50,0.667,foe,8,,,0,0.10,,,,,,,,100,legendary,"swift,potent,piercing,keen,broad,thrifty",CHARGE - Zephyra (legendary). Eight SPD-scaled air cuts.,
+unbreakable,Unbreakable,charge,mag,,,0,,1.40,0.714,allAllies,1,warded,3,0,0,,,,,,3,,100,legendary,"swift,lasting,thrifty",CHARGE - Bastian (legendary). Wards the whole party and taunts every foe.,
+nullwave,Null Wave,charge,mag,dark,res,1.80,,1.70,0.588,allFoes,1,dulled,3,0,0,,,,,,,,100,legendary,"swift,potent,lasting,deepening,keen,thrifty",CHARGE - Morwen (legendary). RES-scaled dark wave that dulls every foe.,
