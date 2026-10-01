@@ -1739,6 +1739,9 @@ func _status_description(status_id: String) -> String:
 		"regen": return "Heals %.0f%% max HP per turn" % (mag * 100.0)
 		"taunted": return "Forces enemies to target this unit"
 		"blinded": return "Attacks are 30% more likely to be evaded"
+		"poisoned": return "Loses %.1f%% max HP every time any unit acts" % (mag * 100.0)
+		"confused": return "%d%% chance its single-target actions land on a random unit" % roundi(FarroadCore.CONFUSE_CHANCE * 100.0)
+		"exposed": return "Evade %+.0f%%" % (mag * 100.0)
 		_: return "%+.0f%%" % (mag * 100.0) if mag != 0.0 else ""
 
 ## Post-Milestone-3 APK feedback (round 3): "change enemies and equipment

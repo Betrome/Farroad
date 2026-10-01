@@ -542,12 +542,12 @@ const STATUS_NAMES := {
 	"dulled": "Dulled", "slowed": "Slowed", "blinded": "Blinded",
 	"burning": "Burning", "hasted": "Hasted", "warded": "Warded",
 	"taunted": "Taunted", "surging": "Surging", "bracing": "Bracing",
-	"regen": "Regen", "blurred": "Blurred"}
+	"regen": "Regen", "blurred": "Blurred", "poisoned": "Poisoned", "confused": "Confused", "exposed": "Exposed"}
 const STATUS_GLYPH := {
 	"sundered": "🛡", "frail": "🛡", "enfeebled": "💪", "dulled": "🔮",
 	"slowed": "🐌", "blinded": "👁", "burning": "🔥", "hasted": "💨",
 	"warded": "🛡", "taunted": "⚠", "surging": "⚡", "bracing": "🛡",
-	"regen": "✚", "blurred": "💨"}
+	"regen": "✚", "blurred": "💨", "poisoned": "☠", "confused": "❓", "exposed": "🎯"}
 
 ## Flavor text for a non-party unit's row tag -- mirrors PREF_TEXT
 ## (farroad-core.js:531-533), which this port only kept as numeric weights
@@ -879,6 +879,12 @@ func _status_effect_text(u: Dictionary, id: String) -> String:
 			return "+%.0f%% max HP/turn" % pct
 		"blinded":
 			return "attacks 30% more likely to miss"
+		"poisoned":
+			return "-%.1f%% max HP whenever anyone acts" % pct
+		"confused":
+			return "%d%% chance its attacks hit a random unit" % roundi(FarroadCore.CONFUSE_CHANCE * 100.0)
+		"exposed":
+			return "%+.0f%% evade" % pct
 		"taunted":
 			return "draws enemy focus"
 		_:
@@ -1902,6 +1908,15 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var an: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = an + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), Color(1.0, 0.45, 0.15), an)
+	# poison ticks on everyone poisoned, every action (green numbers)
+	for pz in e.get("poison", []):
+		var pv: UnitView = unit_views_by_name.get(pz["targetName"])
+		if pv == null:
+			continue
+		pv.update_hp()
+		var pn: int = stagger.get(pz["targetName"], 0)
+		stagger[pz["targetName"]] = pn + 1
+		DamageNumber.spawn(self, pv.damage_spawn_position(), str(pz["amount"]), Color(0.55, 0.85, 0.2), pn)
 	_apply_status_notes(e, stagger)
 
 ## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/

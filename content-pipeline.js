@@ -162,6 +162,11 @@ function compileActions(rows) {
     // into anything player-facing.
     if (r.kind === 'charge' || r.kind === 'enemy_charge') e.isCharge = true;
     if (r.kind === 'inert') e.inert = true;
+    // Actions units can equip in gambit slots (Godot builds its pool from
+    // this flag, so new rows join automatically).
+    if (r.kind === 'equippable') e.player = true;
+    // Charge taken from each target hit (Ian: actions that steal charge).
+    if (r.steal_charge) e.stealCharge = num(r.steal_charge);
     if (r.design_note) e.note = r.design_note;
     e.rarity = compileRarity(r);
     actions[r.id] = e;

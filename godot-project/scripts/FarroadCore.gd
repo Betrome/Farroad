@@ -83,15 +83,20 @@ const ENRAGE_PCT := 0.025
 const TICK_K := 10000.0
 const GAIN_RATIO := 12.5
 const K_BASE := 25.0
+## Ian's new effects: poisoned (hurts every time ANY unit acts, not just
+## on the victim's own turns), confused (its single-target actions may land
+## on a random unit, friend or foe), exposed (lower evade).
 const ST: Array[String] = ["sundered", "frail", "enfeebled", "dulled", "slowed",
 	"blinded", "burning", "hasted", "warded", "taunted", "surging", "bracing",
-	"regen", "blurred"]
+	"regen", "blurred", "poisoned", "confused", "exposed"]
 const DEBUFFS: Array[String] = ["sundered", "frail", "enfeebled", "dulled",
-	"slowed", "blinded", "burning"]
+	"slowed", "blinded", "burning", "poisoned", "confused", "exposed"]
+const POISON_PCT := 0.006        # of max HP, every time anyone acts
+const CONFUSE_CHANCE := 0.5      # chance a confused unit's single-target action goes astray
 const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"sundered": -0.25, "frail": -0.25, "blurred": 0.20, "warded": -0.40,
 	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "burning": BURN_PCT,
-	"regen": REGEN_PCT}
+	"regen": REGEN_PCT, "poisoned": POISON_PCT, "exposed": -0.20}
 ## Ian: Magibolt (Spirit) replaces Ember as the default magic action.
 const STARTER_ACTIONS: Array[String] = ["strike", "magibolt"]
 
@@ -150,8 +155,13 @@ const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowof
 	"colossusslam", "reapersharvest",
 	"pyreblade", "tidebloom", "landslide", "skyfall", "dawnbreak", "nightfall"]
 
+## Every action units can equip: the CSV rows of kind "equippable"
+## (content.json's `player` flag), in file order; falls back to the old
+## hardcoded lists for content exported before the flag existed.
+static var PLAYER_ACTIONS: Array = []
+
 static func equippable() -> Array:
-	return ATK_CAMP + MAG_CAMP
+	return PLAYER_ACTIONS if not PLAYER_ACTIONS.is_empty() else ATK_CAMP + MAG_CAMP
 
 ## Mirrors ACTION_DYNAMIC (farroad-core.js:284-292). powerFn/critFn are
 ## closures in JS; GDScript can't hold those in a plain-data Dictionary the
@@ -220,6 +230,10 @@ static func load_real_content(path: String = "res://data/content.json") -> bool:
 	EQUIPMENT = parsed.get("EQUIPMENT", {})
 	DIRECTION_CONFIG = parsed.get("DIRECTION_CONFIG", {})
 	QUEST_LINES = parsed.get("QUEST_LINES", {})
+	PLAYER_ACTIONS = []
+	for aid in ACTIONS.keys():
+		if ACTIONS[aid].get("player", false):
+			PLAYER_ACTIONS.append(aid)
 	register_bonus_eligible(equippable() + CHARGE_ACTIONS)
 	return true
 
@@ -541,7 +555,8 @@ static func eff_def(u: Dictionary) -> float:
 static func eff_res(u: Dictionary) -> float:
 	return u["base"]["res"] * (1 + (mag_of(u, "frail") if has(u, "frail") else 0.0))
 static func eff_evade(u: Dictionary) -> float:
-	return u["base"]["evade"] + (mag_of(u, "blurred") if has(u, "blurred") else 0.0)
+	return maxf(0.0, u["base"]["evade"] + (mag_of(u, "blurred") if has(u, "blurred") else 0.0)
+		+ (mag_of(u, "exposed") if has(u, "exposed") else 0.0))
 static func eff_charge_rate(u: Dictionary) -> float:
 	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0))
 
@@ -1173,7 +1188,7 @@ static func step(b: Dictionary) -> Variant:
 	# defaults here are what make that safe to read afterward.
 	var e := {"beat": b["beat"], "t": b["t"], "ms": ms, "actorId": u["id"], "actorName": u["name"],
 		"isParty": u["isParty"], "chargeBefore": u["charge"], "hits": [], "heals": [],
-		"totalDamage": 0, "notes": [], "dot": 0, "regen": 0, "thorns": 0,
+		"totalDamage": 0, "notes": [], "dot": 0, "regen": 0, "thorns": 0, "poison": [],
 		"actionId": null, "actionName": null, "via": null, "isCharge": false,
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
@@ -1249,6 +1264,13 @@ static func step(b: Dictionary) -> Variant:
 	e["isCharge"] = bool(act.get("isCharge", false)); e["rank"] = act["rank"]
 	e["tickCost"] = tc_of(u, act["rank"])
 	var primary = resolve_target(act, ch["target"], u, b)
+	if primary != null and has(u, "confused") and (act.get("tk") == "foe" or act.get("tk") == "ally"):
+		var roll: float = 0.0 if b["det"] else b["rng"].next()
+		if roll < CONFUSE_CHANCE:
+			var pool: Array = b["units"].filter(func(x): return x["hp"] > 0)
+			if not pool.is_empty():
+				primary = pool[0 if b["det"] else b["rng"].next_int(pool.size())]
+				e["notes"].append("confused -> " + primary["name"])
 	e["targetName"] = primary["name"] if primary != null else null
 	if primary == null and act.get("tk") != "self":
 		e["notes"].append("no legal target")
@@ -1296,6 +1318,11 @@ static func step(b: Dictionary) -> Variant:
 					hit_attempted[tg["id"]] = true
 					if not r["evaded"]:
 						hit_landed[tg["id"]] = true
+						if act.get("stealCharge") and tg.get("charge", 0.0) > 0.0:
+							var took: float = minf(float(tg["charge"]), float(act["stealCharge"]))
+							tg["charge"] = float(tg["charge"]) - took
+							u["charge"] = float(u["charge"]) + took
+							e["notes"].append("stole %d charge from %s" % [roundi(took), tg["name"]])
 					if act.get("lifesteal") and r["damage"] > 0:
 						var hb = u["hp"]
 						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"])))
@@ -1332,6 +1359,13 @@ static func step(b: Dictionary) -> Variant:
 		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
 		u["hp"] = max(0, u["hp"] - dot)
 		e["dot"] = dot
+	# poison: every poisoned unit loses a little each time anyone acts
+	e["poison"] = []
+	for pu in b["units"]:
+		if pu["hp"] > 0 and has(pu, "poisoned"):
+			var pd: int = max(1, ceili(mag_of(pu, "poisoned") * pu["maxHp"]))
+			pu["hp"] = max(0, pu["hp"] - pd)
+			e["poison"].append({"targetName": pu["name"], "amount": pd})
 	if act.get("isCharge"):
 		u["charge"] -= cost_of_charge(act)
 	else:
