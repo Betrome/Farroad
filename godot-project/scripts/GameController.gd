@@ -533,8 +533,8 @@ func _reset_game() -> void:
 ## full 8-slot layout.
 ## Ian: "Move 'Road' button to be a screen wide rectangular button just
 ## above the other menu buttons."
-const ROAD_BAR_Y := 0.875
-const ROAD_BAR_H := 0.042
+const ROAD_BAR_Y := 0.893   # just below the turn-order frame (ends 0.89)
+const ROAD_BAR_H := 0.034   # ends above the tab icons (0.93)
 
 func _build_road_button() -> void:
 	road_button = Button.new()
