@@ -2026,11 +2026,8 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {},
 		"directions": new_directions(),
 		"seenArch": {},
-		# Ian: "add tutorial pop-ups the first time each page/tab is opened."
-		# Godot-only, same as seenArch above (no real-JS equivalent -- these
-		# popups only exist in the Godot UI) -- tab id -> true once its
-		# first-open popup has been shown, checked by GameController's own
-		# _maybe_show_tab_tutorial.
+		# seenTabTutorial: the retired first-open menu pop-ups (kept so old
+		# saves round-trip; nothing reads it now).
 		"seenTabTutorial": {}, "tutorials": {}, "tutorialSkip": false, "forcedPull": null}
 
 ## ===== EXPEDITIONS (Step 3h) =====
@@ -2669,7 +2666,10 @@ const QUEST_DIFFICULTY_MUL := 0.5
 
 static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
 	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
-	return maxi(1, roundi(frac * QUEST_DIFFICULTY_MUL * power_level(g)))
+	# never past the last wave the player has actually cleared -- early on
+	# Power runs well ahead of the Road (wave 13 quest fights at wave 5)
+	var cap: int = maxi(1, int(g.get("farthest", 1)) - 1)
+	return clampi(roundi(frac * QUEST_DIFFICULTY_MUL * power_level(g)), 1, cap)
 
 ## Ian: "Have quests/dungeons show their power level (the recommended power
 ## level players should be to complete them)." The fight's enemy stats

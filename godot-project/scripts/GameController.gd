@@ -886,43 +886,6 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	await _finish_detail_overlay(o)
 	await o["backdrop"].tree_exiting
 
-## Ian: "add tutorial pop-ups the first time each page/tab is opened to
-## provide information and context for players." One shared, reusable
-## popup + a single content lookup table, rather than a bespoke builder
-## duplicated into all 7 panels -- each panel's own _on_toggle_pressed
-## just calls `await _parent.call("_maybe_show_tab_tutorial", "<id>")`
-## once it's actually open (same dynamic-dispatch convention this project
-## already uses for _panel_opening/_set_battle_paused), and this file
-## owns both the "have we shown this before" state (persisted via
-## g["seenTabTutorial"], Godot-only -- see new_game()'s own comment) and
-## the actual content. Scoped to the 7 icon-row tabs (Units/Party/Marks/
-## Expedition/Quests/Catalogue/Settings) -- Road isn't a content tab (it
-## just closes whatever's open), and the 4 panels folded under Units
-## (Gambits/Aether/Lore/Equipment) render their content INTO Units' own
-## popup via build_into() rather than owning a popup/toggle of their own,
-## so "the Units tab" is the natural single unit here; those 4 could get
-## their own first-open tutorials as a follow-up if wanted.
-const TAB_TUTORIALS: Dictionary = {
-	"units": {"title": "Units", "body": "Pick any owned unit here to manage them: set their Gambits (the AI rules deciding what they do in a fight), spend Aether to level them up, buy Lore upgrades for their actions, and equip gear -- all from one screen, one unit at a time."},
-	"party": {"title": "Party", "body": "Choose who's actually fighting. Field or bench units (up to 5 fielded at once), and set each unit's row -- front row deals and takes more physical damage, back row is safer but hits softer."},
-	"marks": {"title": "Marks", "body": "Spend Marks here to pull for a random unit, action, gambit condition, or piece of gear. A duplicate pull still pays off: units and conditions convert to Aether, actions convert to Lore, gear just stacks. Pulls unlock once you're far enough down the Road."},
-	"expedition": {"title": "Expedition", "body": "Send benched units out on an expedition down one of 8 directions. They fight on their own and keep progressing even while you're away -- recall them anytime, or leave them to push further out for a bigger haul."},
-	"quests": {"title": "Quests", "body": "Two things live here: each companion's own 5-stage quest line, and direction dungeons that unlock as your expeditions explore further. Both are fought live, right on this screen, same as any Road battle."},
-	"catalogue": {"title": "Catalogue", "body": "A running record of everything you've found -- units, actions, gambit conditions, gear, and enemies. Anything you haven't encountered yet shows up as a mystery entry until you do."},
-	"settings": {"title": "Settings", "body": "Game-wide settings live here, including a full Reset Game option if you ever want to start completely fresh."},
-	"shop": {"title": "Shop", "body": "Spend Crystal (earned from dungeons and companion quests) on a specific gambit condition, action, unit, or piece of gear of your choosing -- a guaranteed pick, priced by rarity, instead of Marks' random pulls."}
-}
-
-func _maybe_show_tab_tutorial(tab_id: String) -> void:
-	if g["seenTabTutorial"].get(tab_id, false):
-		return
-	g["seenTabTutorial"][tab_id] = true
-	_save_game()
-	var info: Dictionary = TAB_TUTORIALS.get(tab_id, {})
-	if info.is_empty():
-		return
-	await _show_tab_tutorial_popup(info["title"], info["body"])
-
 func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 	# Post-24-item-batch (Group A1/A2): same overlay migration as
 	# _show_tutorial_complete_popup above -- this one's the exact bug Ian
@@ -2152,6 +2115,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	if g.get("sideBattle") != null:
 		presenter.queue_free()
 		return
+	if tutorial != null and tutorial.active != "":
+		presenter.set_loop_paused(true)   # the Road waits out a running tutorial
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"], stage_enemies_offscreen, g.get("clearedWaves", {}), hide_party_until_revealed, auto_start_loop)
 	current_presenter = presenter
 

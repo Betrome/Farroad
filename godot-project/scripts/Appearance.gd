@@ -28,7 +28,7 @@ static func look(g: Dictionary, uid: String) -> Dictionary:
 	if uid == "kesh":
 		body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
 	else:
-		body = str(stored.get("body", _default_body(uid)))
+		body = BODY[uid] if BODY.has(uid) else str(stored.get("body", _default_body(uid)))
 	var colors: Dictionary = stored.get("colors", {} if uid == "kesh" else _default_colors(uid))
 	return {"body": body, "colors": colors}
 
@@ -74,7 +74,13 @@ static func material_for(g: Dictionary, uid: String, part_ref: Array) -> ShaderM
 static func _hash(uid: String, salt: String) -> int:
 	return absi(hash(uid + ":" + salt))
 
+## Companions whose body is set (Ian: Ansa and Mirel are women); the rest
+## are picked from their id.
+const BODY := {"ansa": "female", "mirel": "female"}
+
 static func _default_body(uid: String) -> String:
+	if BODY.has(uid):
+		return BODY[uid]
 	return "female" if _hash(uid, "body") % 2 == 1 else "male"
 
 ## How many presets (from the start of each list) are everyday choices --

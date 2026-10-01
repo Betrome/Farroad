@@ -4,9 +4,10 @@ extends Node
 ## hands-on tutorial. Everything outside the control the player needs is
 ## darkened, the Road pauses, and the tutorial only finishes once the real
 ## action is done. Each tutorial pays 1 Crystal (Marks pays 10, spent in the
-## Shop tutorial right after). Players can skip tutorials (Menu, or the
-## button on any tutorial caption); skipped tutorials still hand out their
-## rewards when their wave comes, and every menu unlocks at once.
+## Shop tutorial right after). The caption's Skip ends just that tutorial
+## (its menu unlocks and it still pays); Menu > Skip all tutorials ends
+## them all -- skipped ones still hand out their rewards when their wave
+## comes, and every menu unlocks at once.
 ##
 ## State lives in g["tutorials"] (id -> true when done) and g["tutorialSkip"].
 ## Steps poll real game state (a menu is open, a level went up, a gambit is
@@ -17,6 +18,7 @@ extends Node
 ## In order. `wave`: the wave whose clear starts it. `unlocks`: the tab (or
 ## Units sub-tab) it opens.
 const TUTS := [
+	{"id": "road", "wave": 0, "unlocks": ""},   # right after character creation
 	{"id": "units", "wave": 1, "unlocks": "units"},
 	{"id": "gambits", "wave": 3, "unlocks": "gambits"},
 	{"id": "quests", "wave": 5, "unlocks": "quests"},
@@ -47,6 +49,7 @@ var _caption: PanelContainer
 var _caption_lbl: Label
 var _next_btn: Button
 var _skip_btn: Button
+var _blocker: Control
 
 func setup(controller: Node) -> void:
 	gc = controller
@@ -82,13 +85,17 @@ static func unlocked(gd: Dictionary, key: String, active_id: String = "") -> boo
 func _process(delta: float) -> void:
 	if g.is_empty():
 		return
+	_apply_locks()
 	if active == "":
 		_poll -= delta
 		if _poll <= 0.0:
 			_poll = 0.5
 			_try_start()
-		_apply_locks()
 		return
+	# the Road stays paused for the whole tutorial, including a wave that
+	# started after it began (each wave gets a fresh presenter)
+	if gc.current_presenter != null and not gc.current_presenter.loop_paused:
+		gc.current_presenter.call("set_loop_paused", true)
 	_run_step(delta)
 
 func _due() -> Dictionary:
@@ -111,6 +118,10 @@ func _try_start() -> void:
 		return
 	if gc._full_layer != null and is_instance_valid(gc._full_layer) and gc._full_layer.get_child_count() > 0:
 		return
+	# the Road tour waits for the first couple of turns, so the field, turn
+	# order and log have something in them
+	if t["id"] == "road" and int(gc.current_presenter.battle.get("beat", 0)) < 2:
+		return
 	_begin(t["id"])
 
 func _begin(id: String) -> void:
@@ -119,9 +130,6 @@ func _begin(id: String) -> void:
 	step = 0
 	_missing = 0.0
 	gc.current_presenter.call("set_loop_paused", true)
-	# the menus' own first-open info pop-ups would cover the tutorial
-	for key in _needs(id):
-		g["seenTabTutorial"][key] = true
 	_enter_step()
 
 func _enter_step() -> void:
@@ -143,6 +151,9 @@ func _run_step(delta: float) -> void:
 	if done != null and done.call():
 		step += 1
 		_enter_step()
+		return
+	if s.has("rect"):
+		_show_spot(null, false, s["rect"].call())
 		return
 	var target: Control = s["target"].call() if s.has("target") else null
 	if s.has("target") and (target == null or not target.is_visible_in_tree()):
@@ -171,19 +182,30 @@ func _on_next() -> void:
 
 func _finish() -> void:
 	var id := active
-	_grant(id, false)
+	_end(false)
+	var reward := "+10 Crystal -- spend it in the Shop!" if id == "marks" else "+1 Crystal"
+	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward])
+
+## Closes the running tutorial (done or skipped): rewards, overlay, any
+## menu or Status/Log box it opened, and the Road starts again.
+func _end(skipped: bool) -> void:
+	var id := active
+	_grant(id, skipped)
 	active = ""
 	steps = []
 	_hide_overlay()
-	if gc.open_panel != null and is_instance_valid(gc.open_panel):
-		gc.open_panel.popup.hide()
+	_hide_popup()
+	_close_battle_boxes()
 	if gc.current_presenter != null:
 		gc.current_presenter.call("set_loop_paused", false)
 	gc._refresh_hud()
 	gc._save_game()
-	var reward := "+10 Crystal -- spend it in the Shop!" if id == "marks" else "+1 Crystal"
-	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward])
 	_apply_locks()
+
+## The caption's Skip: just this tutorial.
+func skip_current() -> void:
+	if active != "":
+		_end(true)
 
 ## The tutorial's rewards (also what a skipped tutorial grants on its wave).
 func _grant(id: String, skipped: bool) -> void:
@@ -196,22 +218,12 @@ func _grant(id: String, skipped: bool) -> void:
 			"marks":
 				if not g["actions"].has("mend"):
 					g["actions"].append("mend")
-	# the menu's own first-open info pop-up is covered by the tutorial
-	for t in TUTS:
-		if t["id"] == id:
-			g["seenTabTutorial"][t["unlocks"]] = true
 	gc._save_game()
 
 func skip_all() -> void:
 	g["tutorialSkip"] = true
 	if active != "":
-		var id := active
-		active = ""
-		steps = []
-		_hide_overlay()
-		_grant(id, true)
-		if gc.current_presenter != null:
-			gc.current_presenter.call("set_loop_paused", false)
+		_end(true)
 	gc._refresh_hud()
 	gc._save_game()
 	_apply_locks()
@@ -219,7 +231,8 @@ func skip_all() -> void:
 # ================================================================ locks
 func _apply_locks() -> void:
 	var tabs := {"units": gc.units_panel, "party": gc.party_panel, "quests": gc.quests_panel,
-		"marks": gc.marks_panel, "shop": gc.shop_panel, "expedition": gc.expedition_panel}
+		"marks": gc.marks_panel, "shop": gc.shop_panel, "expedition": gc.expedition_panel,
+		"settings": gc.settings_panel}
 	for key in tabs:
 		var p = tabs[key]
 		if p == null or not is_instance_valid(p) or p.get("toggle_button") == null:
@@ -231,10 +244,77 @@ func _apply_locks() -> void:
 		# during a tutorial only the menus it uses can be opened
 		if active != "" and open:
 			open = key in _needs(active)
-		b.disabled = not open
-		b.modulate = Color(1, 1, 1, 1) if open else Color(1, 1, 1, 0.35)
-	if gc.road_button != null and is_instance_valid(gc.road_button):
-		gc.road_button.disabled = active != ""
+		# Ian: locked icons are darkened (not greyed out) and a tap on one
+		# says when it opens -- a clear button over the icon takes the tap
+		b.disabled = false
+		var catcher: Button = b.get_node_or_null("LockCatch")
+		if open and catcher != null:
+			catcher.queue_free()
+		elif not open and catcher == null:
+			catcher = Button.new()
+			catcher.name = "LockCatch"
+			catcher.flat = true
+			catcher.focus_mode = Control.FOCUS_NONE
+			catcher.set_anchors_preset(Control.PRESET_FULL_RECT)
+			for st in ["normal", "hover", "pressed", "focus"]:
+				catcher.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+			catcher.pressed.connect(locked_tap.bind(key, b))
+			b.add_child(catcher)
+		b.modulate = Color(1, 1, 1, 1) if open else LOCKED_TINT
+	for b in [gc.road_button, gc.speed_toggle_btn]:
+		if b != null and is_instance_valid(b):
+			b.disabled = active != ""
+
+const LOCKED_TINT := Color(0.35, 0.35, 0.38, 1)
+
+## The wave whose clear opens a menu or Units sub-tab (-1: always open).
+static func unlock_wave(key: String) -> int:
+	for t in TUTS:
+		if t["unlocks"] == key:
+			return int(t["wave"])
+	return -1
+
+## A tap on a locked menu or sub-tab: say when it opens.
+func locked_tap(key: String, near: Control) -> void:
+	var w := unlock_wave(key)
+	if active != "" and (w < 0 or unlocked(g, key, active)):
+		show_toast("Finish this tutorial first.", near)
+	else:
+		show_toast("Unlocks after wave %d." % w, near)
+
+var _toast: PanelContainer
+
+## A short note beside `near`, fading after a couple of seconds.
+func show_toast(text: String, near: Control) -> void:
+	if _toast != null and is_instance_valid(_toast):
+		_toast.queue_free()
+	_toast = PanelContainer.new()
+	var st := StyleBoxFlat.new()
+	st.bg_color = Palette.BG_PARCHMENT
+	st.border_color = Palette.PARTY_BLUE
+	st.set_border_width_all(2)
+	st.set_corner_radius_all(6)
+	st.set_content_margin_all(8)
+	_toast.add_theme_stylebox_override("panel", st)
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lbl := Label.new()
+	lbl.text = text
+	_toast.add_child(lbl)
+	var win: Window = near.get_window() if near != null else null
+	var host: Node = win if win != null and win != get_tree().root else _layer
+	host.add_child(_toast)
+	_toast.top_level = host != _layer
+	var host_size: Vector2 = Vector2(win.size) if host != _layer else gc._vp
+	var sz := _toast.get_combined_minimum_size()
+	var r: Rect2 = near.get_global_rect() if near != null else Rect2(host_size / 2.0, Vector2.ZERO)
+	var y: float = r.position.y - sz.y - 6.0 if r.get_center().y > host_size.y * 0.5 else r.end.y + 6.0
+	var x: float = clampf(r.get_center().x - sz.x / 2.0, 6.0, host_size.x - sz.x - 6.0)
+	_toast.position = Vector2(x, y)
+	var t := _toast
+	var tw := t.create_tween()
+	tw.tween_interval(1.6)
+	tw.tween_property(t, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(t.queue_free)
 
 func _needs(id: String) -> Array:
 	match id:
@@ -316,11 +396,45 @@ func _hide_popup() -> void:
 	if gc.open_panel != null and is_instance_valid(gc.open_panel):
 		gc.open_panel.popup.hide()
 
+## The Road's Status and Log boxes (opened by the Road tour).
+func _close_battle_boxes() -> void:
+	var p = gc.current_presenter
+	if p == null or not is_instance_valid(p):
+		return
+	for box in [p.status_popup, p.log_popup]:
+		if box != null and box.visible:
+			box.hide()
+
+## Screen rect around every living unit on one side of the field.
+func _side_rect(party: bool) -> Rect2:
+	var p = gc.current_presenter
+	var r := Rect2()
+	if p == null:
+		return r
+	for v in p.unit_views_by_id.values():
+		if not is_instance_valid(v) or not v.visible or bool(v.unit.get("isParty", false)) != party:
+			continue
+		var sz: float = v.size
+		var vr := Rect2(v.global_position + Vector2(-sz * 0.75, -sz * 0.9), Vector2(sz * 1.5, sz * 2.0))
+		r = vr if r.size == Vector2.ZERO else r.merge(vr)
+	return r
+
+## Screen rect around a few Controls.
+func _controls_rect(list: Array) -> Rect2:
+	var r := Rect2()
+	for c in list:
+		if c == null or not is_instance_valid(c) or not c.is_visible_in_tree():
+			continue
+		var cr: Rect2 = c.get_global_rect()
+		r = cr if r.size == Vector2.ZERO else r.merge(cr)
+	return r
+
 # ================================================================ steps
 ## Each step: text, optional target (Callable -> Control), done (Callable ->
 ## bool; none = a "Next" step), back (step to return to if the target is
 ## gone), enter (Callable run on entry), quiet (no dimming: e.g. a fight).
 const DONE_TEXT := {
+	"road": "That's the Road. New menus open as you travel further.",
 	"units": "You levelled up your first unit. Units is where you'll manage everyone.",
 	"gambits": "Your first gambit is set: Sear only fires when a foe isn't already burning.",
 	"quests": "Quest stage cleared. Every companion has a 5-stage quest line.",
@@ -336,9 +450,32 @@ func _steps_for(id: String) -> Array:
 	var units_icon := func(): return gc.units_panel.toggle_button
 	var units_open := func(): return _popup_open(gc.units_panel)
 	match id:
+		"road":
+			var p = gc.current_presenter
+			return [
+				{"text": "Welcome to the Road! Your party travels it and fights on its own, wave after wave."},
+				{"text": "Your units stand on the left. Tap any unit to see its stats.", "rect": func(): return _side_rect(true)},
+				{"text": "Enemies line up on the right. Defeat them all to clear the wave.", "rect": func(): return _side_rect(false)},
+				{"text": "This bar tracks the waves to the next boss. Beat the boss to move on; if your party falls, you go back a few waves.",
+					"rect": func(): return _controls_rect([p.wave_progress_label] + p.wave_progress_circles.map(func(c): return c["panel"]))},
+				{"text": "Turn order: who acts next, and what they'll do.", "target": func(): return p.turn_order_frame},
+				{"text": "Your currencies: Aether levels up units, Marks pay for pulls, and Crystal buys from the Shop.", "target": func(): return gc.currency_row},
+				{"text": "Idle rewards: what you earn every 5 minutes, even while the game is closed. Power sums up how strong you are.", "target": func(): return gc.idle_row},
+				{"text": "Status shows every unit in the fight.", "target": func(): return p.status_icon_btn,
+					"enter": func(): _close_battle_boxes()},
+				{"text": "HP, charge, stats, and any buffs or debuffs, updated live.",
+					"enter": func(): p._on_status_pressed(),
+					"target": func(): return p.status_popup.get_child(0) if p.status_popup.visible else null},
+				{"text": "The Log records every action.", "target": func(): return p.log_icon_btn,
+					"enter": func(): _close_battle_boxes()},
+				{"text": "Each entry shows who did what, to whom, and for how much. Tap an entry to see the damage math.",
+					"enter": func(): p._on_log_pressed(),
+					"target": func(): return p.log_popup.get_child(0) if p.log_popup.visible else null},
+			]
 		"units":
 			return [
-				{"text": "A new menu is open: Units. Tap it.", "target": units_icon, "done": units_open},
+				{"text": "A new menu is open: Units. Tap it.", "target": units_icon, "done": units_open,
+					"enter": func(): _prepare_level_up()},
 				{"text": "Pick which unit to manage here.", "target": func(): return gc.units_panel.dropdown if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Each unit has Summary, Gambits, Aether, Lore and Gear. Most unlock as you go.", "target": func(): return gc.units_panel.sub_tab_buttons.get("summary") if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Tap Aether.", "target": func(): return _units_tab("aether"), "back": 0,
@@ -355,7 +492,8 @@ func _steps_for(id: String) -> Array:
 			]
 		"gambits":
 			return [
-				{"text": "Gambits are open. Tap Units.", "target": units_icon, "done": units_open},
+				{"text": "Gambits are open. Tap Units.", "target": units_icon, "done": units_open,
+					"enter": func(): _reset_top_slot()},
 				{"text": "Tap Gambits.", "target": func(): return _units_tab("gambits"), "back": 0,
 					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "gambits"},
 				{"text": "Each slot is IF (a condition) THEN (an action). The top slot is checked first; if its IF isn't true, the next one is.", "target": func(): return gc.units_panel.content_container if _popup_open(gc.units_panel) else null, "back": 0},
@@ -528,6 +666,18 @@ func _prepare_level_up() -> void:
 	if need > float(g.get("aether", 0.0)):
 		g["aether"] = need
 		gc._refresh_hud()
+	# the Aether page was drawn before the top-up: redraw it so the
+	# level-up button isn't left greyed out
+	if _popup_open(gc.units_panel):
+		gc.units_panel._refresh_content()
+
+## The Gambits tutorial has the player set Sear up themselves: if the top
+## slot already holds it (an auto-equip), start it back at plain Strike.
+func _reset_top_slot() -> void:
+	var sl: Array = g["loadout"].get("kesh", [])
+	if not sl.is_empty() and (sl[0]["action"] == "sear" or sl[0]["cond"] == "foe_lacks_debuff"):
+		sl[0] = {"cond": "none", "action": "strike"}
+		FarroadProgression.sync_loadout(g, "kesh")
 
 func _gift_lore(aid: String) -> void:
 	if not g["actions"].has(aid):
@@ -580,6 +730,11 @@ func _build_overlay() -> void:
 		r.mouse_filter = Control.MOUSE_FILTER_STOP
 		_root.add_child(r)
 		_shades.append(r)
+	# over the hole on "look" steps (a Next step), so the highlighted
+	# part can't be tapped (e.g. buying an affinity mid-explanation)
+	_blocker = Control.new()
+	_blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+	_root.add_child(_blocker)
 	_ring = Panel.new()
 	var rs := StyleBoxFlat.new()
 	rs.bg_color = Color(0, 0, 0, 0)
@@ -606,10 +761,10 @@ func _build_overlay() -> void:
 	var row := HBoxContainer.new()
 	v.add_child(row)
 	_skip_btn = Button.new()
-	_skip_btn.text = "Skip tutorials"
+	_skip_btn.text = "Skip tutorial"
 	_skip_btn.flat = true
 	_skip_btn.add_theme_font_size_override("font_size", 12)
-	_skip_btn.pressed.connect(skip_all)
+	_skip_btn.pressed.connect(skip_current)
 	row.add_child(_skip_btn)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -628,7 +783,7 @@ func _hide_overlay() -> void:
 
 ## Dims everything but `target` (in whatever window holds it) and places the
 ## caption beside it. With no target the screen dims fully, caption centred.
-func _show_spot(target: Control, quiet: bool) -> void:
+func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	var host: Node = _layer
 	var host_size: Vector2 = gc._vp
 	var win: Window = target.get_window() if target != null else null
@@ -647,11 +802,13 @@ func _show_spot(target: Control, quiet: bool) -> void:
 	var hole := Rect2(Vector2.ZERO, Vector2.ZERO)
 	if target != null:
 		hole = target.get_global_rect().grow(4)
+	elif area.size != Vector2.ZERO:
+		hole = area.grow(4)
 	var a := 0.0 if quiet else 0.6
 	for r in _shades:
 		r.color = Color(0, 0, 0, a)
 		r.mouse_filter = Control.MOUSE_FILTER_IGNORE if quiet else Control.MOUSE_FILTER_STOP
-	if target == null:
+	if hole.size == Vector2.ZERO:
 		_shades[0].position = Vector2.ZERO
 		_shades[0].size = host_size
 		for i in range(1, 4):
@@ -671,6 +828,10 @@ func _show_spot(target: Control, quiet: bool) -> void:
 		_ring.size = hole.size
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() / 200.0)
 		_ring.modulate = Color(1, 1, 1, pulse)
+	var look_only: bool = active != "" and step < steps.size() and steps[step].get("done") == null
+	_blocker.visible = look_only and hole.size != Vector2.ZERO
+	_blocker.position = hole.position
+	_blocker.size = hole.size
 	# caption above the hole if it's in the lower half, else below
 	var cw: float = minf(host_size.x - 20.0, gc._vp.x * 0.86)
 	_caption_lbl.custom_minimum_size = Vector2(cw - 24.0, 0)   # wrap width known up front
@@ -679,8 +840,10 @@ func _show_spot(target: Control, quiet: bool) -> void:
 	_caption.reset_size()
 	var ch: float = _caption.get_combined_minimum_size().y
 	var cy: float
-	if target == null:
+	if hole.size == Vector2.ZERO:
 		cy = (host_size.y - ch) / 2.0
+	elif hole.size.y > host_size.y * 0.6:   # a whole box: along its bottom
+		cy = host_size.y - ch - 12.0
 	elif hole.get_center().y > host_size.y * 0.5:
 		cy = maxf(8.0, hole.position.y - ch - 12.0)
 	else:

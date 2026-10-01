@@ -153,14 +153,6 @@ func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
-	# Ian: "add tutorial pop-ups the first time each page/tab is opened" --
-	# shown over the tab's own already-visible content (matching every
-	# other popup's own "over the live game, not a blank screen"
-	# convention), only the very first time this tab is ever opened
-	# (GameController owns the seen-state + content, see its own
-	# _maybe_show_tab_tutorial comment).
-	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
-		await _parent.call("_maybe_show_tab_tutorial", "units")
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):
@@ -203,6 +195,11 @@ func _on_dropdown_selected(idx: int) -> void:
 	_refresh_content()
 
 func _on_sub_tab_pressed(tab: String) -> void:
+	# a locked sub-tab says when it opens (Tutorial.gd)
+	if _parent and _parent.has_method("_tab_unlocked") and not _parent.call("_tab_unlocked", tab):
+		if _parent.get("tutorial") != null:
+			_parent.tutorial.locked_tap(tab, sub_tab_buttons[tab])
+		return
 	current_sub_tab = tab
 	_refresh_sub_tab_styles()
 	_refresh_content()
@@ -211,8 +208,8 @@ func _refresh_sub_tab_styles() -> void:
 	for key in sub_tab_buttons.keys():
 		# Gambits, Lore and Gear unlock with their tutorials (Tutorial.gd)
 		var open: bool = not (_parent and _parent.has_method("_tab_unlocked")) or _parent.call("_tab_unlocked", key)
-		sub_tab_buttons[key].disabled = (key == current_sub_tab) or not open
-		sub_tab_buttons[key].modulate = Color(1, 1, 1, 1) if open else Color(1, 1, 1, 0.35)
+		sub_tab_buttons[key].disabled = key == current_sub_tab
+		sub_tab_buttons[key].modulate = Color(1, 1, 1, 1) if open else Tutorial.LOCKED_TINT
 
 func _refresh_content() -> void:
 	for c in content_container.get_children():

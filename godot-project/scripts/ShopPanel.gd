@@ -119,8 +119,6 @@ func _on_toggle_pressed() -> void:
 	_refresh()
 	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
 	_notify_battle_paused(true)
-	if _parent and _parent.has_method("_maybe_show_tab_tutorial"):
-		await _parent.call("_maybe_show_tab_tutorial", "shop")
 
 func _notify_battle_paused(paused: bool) -> void:
 	if _parent and _parent.has_method("_set_battle_paused"):
