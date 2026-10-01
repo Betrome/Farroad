@@ -50,6 +50,7 @@ var _caption_lbl: Label
 var _next_btn: Button
 var _skip_btn: Button
 var _blocker: Control
+var _outer: ColorRect   # the screen around a menu the spotlight is in
 
 func setup(controller: Node) -> void:
 	gc = controller
@@ -96,6 +97,7 @@ func _process(delta: float) -> void:
 	# started after it began (each wave gets a fresh presenter)
 	if gc.current_presenter != null and not gc.current_presenter.loop_paused:
 		gc.current_presenter.call("set_loop_paused", true)
+	_hold_popups()
 	_run_step(delta)
 
 func _due() -> Dictionary:
@@ -110,6 +112,7 @@ func _try_start() -> void:
 		return
 	if g.get("tutorialSkip", false):
 		_grant(t["id"], true)
+		show_toast("Tutorial reward: " + reward_text(t["id"], true).replace("\n", ", "), gc.currency_row)
 		return
 	# wait for a quiet moment: no side battle, no menu, no pop-up
 	if g.get("sideBattle") != null or gc.current_presenter == null:
@@ -183,8 +186,7 @@ func _on_next() -> void:
 func _finish() -> void:
 	var id := active
 	_end(false)
-	var reward := "+10 Crystal -- spend it in the Shop!" if id == "marks" else "+1 Crystal"
-	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward])
+	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward_text(id, false)])
 
 ## Closes the running tutorial (done or skipped): rewards, overlay, any
 ## menu or Status/Log box it opened, and the Road starts again.
@@ -194,6 +196,7 @@ func _end(skipped: bool) -> void:
 	active = ""
 	steps = []
 	_hide_overlay()
+	_release_popups()
 	_hide_popup()
 	_close_battle_boxes()
 	if gc.current_presenter != null:
@@ -205,7 +208,9 @@ func _end(skipped: bool) -> void:
 ## The caption's Skip: just this tutorial.
 func skip_current() -> void:
 	if active != "":
+		var id := active
 		_end(true)
+		gc._show_tab_tutorial_popup("Tutorial skipped", reward_text(id, true))
 
 ## The tutorial's rewards (also what a skipped tutorial grants on its wave).
 func _grant(id: String, skipped: bool) -> void:
@@ -214,11 +219,31 @@ func _grant(id: String, skipped: bool) -> void:
 	g["tutorials"][id] = true
 	g["crystal"] = int(g.get("crystal", 0)) + (10 if id == "marks" else 1)
 	if skipped:
+		# Ian: a skipped tutorial still gives what playing it would have
 		match id:
+			"lore":
+				if not bool(g.get("tutorialLoreGift", false)):
+					_gift_lore("sear")
 			"marks":
 				if not g["actions"].has("mend"):
 					g["actions"].append("mend")
+				if g.get("forcedPull") == "mend":
+					g["forcedPull"] = null
+			"shop":   # the gambit the Shop tutorial has you buy
+				if not g["conditions"].has("self_hp_lte_50"):
+					g["conditions"].append("self_hp_lte_50")
+	g.erase("tutorialLoreGift")
 	gc._save_game()
+
+## What a tutorial pays, for the "complete" / "skipped" pop-ups.
+func reward_text(id: String, skipped: bool) -> String:
+	var parts: Array = ["+10 Crystal -- spend it in the Shop!" if id == "marks" else "+1 Crystal"]
+	if skipped:
+		match id:
+			"lore": parts.append("+1 Lore for Sear")
+			"marks": parts.append("Mend joined your actions")
+			"shop": parts.append("Gambit: %s" % FarroadCore.cond_label("self_hp_lte_50"))
+	return "\n".join(parts)
 
 func skip_all() -> void:
 	g["tutorialSkip"] = true
@@ -230,6 +255,7 @@ func skip_all() -> void:
 
 # ================================================================ locks
 func _apply_locks() -> void:
+	var cur: Control = _current_target()
 	var tabs := {"units": gc.units_panel, "party": gc.party_panel, "quests": gc.quests_panel,
 		"marks": gc.marks_panel, "shop": gc.shop_panel, "expedition": gc.expedition_panel,
 		"settings": gc.settings_panel}
@@ -241,9 +267,10 @@ func _apply_locks() -> void:
 		if not is_instance_valid(b):
 			continue
 		var open := unlocked(g, key, active)
-		# during a tutorial only the menus it uses can be opened
+		# during a tutorial only the button the current step points at
+		# can be tapped (Ian: tapping another menu mid-step broke it)
 		if active != "" and open:
-			open = key in _needs(active)
+			open = cur == b
 		# Ian: locked icons are darkened (not greyed out) and a tap on one
 		# says when it opens -- a clear button over the icon takes the tap
 		b.disabled = false
@@ -266,6 +293,37 @@ func _apply_locks() -> void:
 			b.disabled = active != ""
 
 const LOCKED_TINT := Color(0.35, 0.35, 0.38, 1)
+
+func _current_target() -> Control:
+	if active == "" or step >= steps.size() or not steps[step].has("target"):
+		return null
+	var t = steps[step]["target"].call()
+	return t if t is Control and is_instance_valid(t) else null
+
+## Menus and the Status/Log boxes don't close on a tap outside them while a
+## tutorial runs (a stray tap used to close a menu mid-step).
+var _held: Array = []
+
+func _hold_popups() -> void:
+	var list: Array = []
+	for p in [gc.units_panel, gc.party_panel, gc.quests_panel, gc.marks_panel, gc.shop_panel,
+			gc.expedition_panel, gc.settings_panel]:
+		if p != null and is_instance_valid(p) and p.get("popup") != null:
+			list.append(p.popup)
+	var pr = gc.current_presenter
+	if pr != null and is_instance_valid(pr):
+		list.append(pr.status_popup)
+		list.append(pr.log_popup)
+	for w in list:
+		if w != null and is_instance_valid(w) and w.visible and w.popup_window:
+			w.popup_window = false
+			_held.append(w)
+
+func _release_popups() -> void:
+	for w in _held:
+		if is_instance_valid(w):
+			w.popup_window = true
+	_held.clear()
 
 ## The wave whose clear opens a menu or Units sub-tab (-1: always open).
 static func unlock_wave(key: String) -> int:
@@ -680,6 +738,7 @@ func _reset_top_slot() -> void:
 		FarroadProgression.sync_loadout(g, "kesh")
 
 func _gift_lore(aid: String) -> void:
+	g["tutorialLoreGift"] = true
 	if not g["actions"].has(aid):
 		aid = g["actions"][0]
 	FarroadProgression._credit_lore(g, aid)
@@ -774,8 +833,14 @@ func _build_overlay() -> void:
 	_next_btn.pressed.connect(_on_next)
 	row.add_child(_next_btn)
 	_layer.add_child(_root)
+	_outer = ColorRect.new()
+	_outer.color = Color(0, 0, 0, 0.6)
+	_outer.mouse_filter = Control.MOUSE_FILTER_STOP
+	_outer.visible = false
+	_layer.add_child(_outer)
 
 func _hide_overlay() -> void:
+	_outer.visible = false
 	_root.visible = false
 	if _root.get_parent() != _layer:
 		_root.get_parent().remove_child(_root)
@@ -795,6 +860,10 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 		host.add_child(_root)
 		_root.top_level = host != _layer
 	host.move_child(_root, host.get_child_count() - 1)
+	_outer.visible = host != _layer
+	_outer.position = Vector2.ZERO
+	_outer.size = gc._vp
+	_outer.color = Color(0, 0, 0, 0.0 if quiet else 0.6)
 	var first_frame := not _root.visible
 	_root.visible = true
 	_root.position = Vector2.ZERO
