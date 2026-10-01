@@ -1635,6 +1635,11 @@ func _section_label(text: String) -> Label:
 	l.add_theme_font_size_override("font_size", 16)
 	return l
 
+## Whether a PvP fight is on (menus that change units are locked meanwhile).
+func _pvp_running() -> bool:
+	var sb = g.get("sideBattle")
+	return sb != null and str((sb as Dictionary).get("meta", {}).get("kind", "")) == "pvp"
+
 ## Starts a PvP fight: the player's fielded party at full HP against the
 ## rival team, run like a quest fight (Road paused and hidden meanwhile).
 func _start_pvp(team: Dictionary) -> void:

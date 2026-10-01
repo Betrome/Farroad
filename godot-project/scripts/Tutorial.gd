@@ -274,6 +274,10 @@ func _apply_locks() -> void:
 		# can be tapped (Ian: tapping another menu mid-step broke it)
 		if active != "" and open:
 			open = cur == b
+		# Ian: units can't be upgraded or edited during a PvP fight (Units,
+		# Party, and Marks/Shop, which can add a unit or action mid-fight)
+		if open and key in PVP_LOCKED and gc._pvp_running():
+			open = false
 		# Ian: locked icons are darkened (not greyed out) and a tap on one
 		# says when it opens -- a clear button over the icon takes the tap
 		b.disabled = false
@@ -335,8 +339,13 @@ static func unlock_wave(key: String) -> int:
 			return int(t["wave"])
 	return -1
 
+const PVP_LOCKED := ["units", "party", "marks", "shop"]
+
 ## A tap on a locked menu or sub-tab: say when it opens.
 func locked_tap(key: String, near: Control) -> void:
+	if key in PVP_LOCKED and gc._pvp_running():
+		show_toast("Not during a PvP fight.", near)
+		return
 	var w := unlock_wave(key)
 	if active != "" and (w < 0 or unlocked(g, key, active)):
 		show_toast("Finish this tutorial first.", near)
