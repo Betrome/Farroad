@@ -98,3 +98,10 @@ Score three stages: reference->rig, rig->Qwen male, rig->Qwen female (DWPose on 
 - Hit flinch, wounded idle, collapse to the knees: first time, 6/6.
 - Lying down works without rig changes: widen the `bounds` on `rot.y` (±100) and `hips.z` (-1.8), set rot.y -85 and hips.z -1.35, and say "lying flat on the back, collapsed, eyes closed" (12/12).
 - New spec options: `free_feet` (foot.R.z / foot.L.z), `lift`, `bounds`. New round options: `air_px`, `keep_place` (keeps Qwen's placement, centred horizontally), `guide_scale(_by_body)`, `master_scale_by_body`.
+
+### Left-handed female and the run/evade/revive/charge batch (t151-t206)
+- The female MC is LEFT-handed. Use `blender_rig.set_sword_hand("L")` (pose_fit `--sword-hand L`; pose_practice does this from `SWORD_HAND`). The sword parents to hand.L and the keypoint sword runs from the L wrist. pose_fit swaps the target's arm labels, so authored skeletons keep "R" = sword arm. pose_practice swaps `hand.*`/`elbow.*` keys in shared specs, and swaps left/right words in the female prompt ("the hand farther from the viewer, the sword still clearly visible").
+- Far-hand sword: the fit's hidden-hand penalty already targets hand.L, so the sword hand stays in front of the torso outline. Only fit with --sword-hand L. Re-using right-handed female fits gives right-handed sprites.
+- Running with the sword back: lock aim yaw 180 / pitch -30. Lock `rot.z` 0 on the push-off key, or the body turns to the camera and the blade crosses the legs.
+- Revive sit: an authored skeleton with one leg stretched and the arm propped behind made Qwen draw TWO characters (the long spread figure reads as two people). The compact knees-up sit worked.
+- Keyframe write-ups from bash heredocs: `"\b"` inside an un-raw string becomes a backspace character. Write regex code through a file or the Edit tool and check with `od -c`.

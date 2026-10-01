@@ -65,8 +65,13 @@ def round_dir(cfg):
 
 
 def body_spec(cfg, body):
-    """cfg["spec"] with cfg["spec_by_body"][body] merged in (set/prior/weights update, lock unions)."""
-    spec = json.loads(json.dumps(cfg.get("spec", {})))
+    """cfg["spec"] with cfg["spec_by_body"][body] merged in (set/prior/weights update, lock unions).
+    For a left-handed body, hand/elbow parameters in the shared spec swap sides."""
+    raw = json.dumps(cfg.get("spec", {}))
+    if SWORD_HAND.get(body) == "L":
+        import re
+        raw = re.sub(r"\b(hand|elbow)\.([RL])\b", lambda m: m.group(1) + "." + ("L" if m.group(2) == "R" else "R"), raw)
+    spec = json.loads(raw)
     for k, v in cfg.get("spec_by_body", {}).get(body, {}).items():
         if k == "lock":
             spec["lock"] = sorted(set(spec.get("lock", [])) | set(v))
@@ -78,6 +83,22 @@ def body_spec(cfg, body):
 
 
 BODIES = ("male", "female")   # each master gets a guide fitted on its own body profile
+SWORD_HAND = {"male": "R", "female": "L"}   # the female MC is left-handed (sword in the far hand)
+
+
+def swap_lr(text):
+    """Swap left/right words (a left-handed body's prompt and specs)."""
+    import re
+    return re.sub(r"\b(left|right|Left|Right)\b",
+                  lambda m: {"left": "right", "right": "left", "Left": "Right", "Right": "Left"}[m.group(1)], text)
+
+
+def hand_prompt(prompt, body):
+    """The prompt for a body: left-handed bodies get left/right swapped and the far-hand note."""
+    if SWORD_HAND.get(body) != "L":
+        return prompt
+    p = swap_lr(prompt)
+    return p.replace("(the hand nearer the viewer)", "(the hand farther from the viewer, the sword still clearly visible)")
 
 
 def fit_cmd(cfg, out, body):
@@ -89,7 +110,7 @@ def fit_cmd(cfg, out, body):
     with open(spec_path, "w") as fh:
         json.dump(body_spec(cfg, body), fh, indent=1)
     cmd = [BLENDER, "-b", "--factory-startup", "-P", os.path.join(ROOT, "tools", "pose_fit.py"), "--",
-           target, bdir, "--body", body, "--spec", spec_path, "--evals", str(cfg.get("evals", 60000)),
+           target, bdir, "--body", body, "--sword-hand", SWORD_HAND.get(body, "R"), "--spec", spec_path, "--evals", str(cfg.get("evals", 60000)),
            "--seed", str(cfg.get("fit_seed", 1)), "--fit-azimuth", str(cfg.get("fit_azimuth", -45))]
     ib = cfg.get("init_by_body", {}).get(body)
     if ib or cfg.get("init"):   # a previous round's folder (its <body>/pose.json) or a pose.json
@@ -101,9 +122,9 @@ def fit_cmd(cfg, out, body):
 
 
 def fit(cfg, out):
-    """Fit both bodies (two Blender processes in parallel)."""
+    """Fit both bodies (two Blender processes in parallel); cfg "bodies" limits which."""
     procs = {b: subprocess.Popen(fit_cmd(cfg, out, b), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-             for b in BODIES}
+             for b in BODIES if not cfg.get("bodies") or b in cfg["bodies"]}
     for b, pr in procs.items():
         so, se = pr.communicate(timeout=1800)
         log = "\n".join(line for line in so.splitlines() if line.startswith(("fit:", "score:", "Error", "Trace")))
@@ -570,7 +591,8 @@ def cmd_run_multi(path):
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "round.json"), "w") as fh:
         json.dump(cfg, fh, indent=1)
-    if not (cfg.get("reuse_fit") and all(os.path.exists(os.path.join(out, b, "pose.json")) for b in BODIES)):
+    bodies = [b for b in BODIES if not cfg.get("bodies") or b in cfg["bodies"]]
+    if not (cfg.get("reuse_fit") and all(os.path.exists(os.path.join(out, b, "pose.json")) for b in bodies)):
         fit(cfg, out)
     kind = cfg.get("guide", "openpose_body_hilt")
     prompt = cfg.get("prompt") or PROMPT.format(intent=cfg["intent"])
@@ -578,6 +600,8 @@ def cmd_run_multi(path):
         prompt += PROMPT3
     wait_for_server()
     for who, master in MASTERS.items():
+        if cfg.get("bodies") and who not in cfg["bodies"]:
+            continue
         guide = guide_image(os.path.join(out, who), kind)
         gs = cfg.get("guide_scale_by_body", {}).get(who, cfg.get("guide_scale"))
         if gs:   # shrink the skeleton about its bottom centre (Qwen enlarges compact poses)
@@ -605,7 +629,7 @@ def cmd_run_multi(path):
                                    "pp_img3_%s.png" % who))
         for seed in cfg.get("seeds", [1, 2, 3]):
             tag = "%s_s%d" % (who, seed)
-            q = qwen_one(names, prompt, seed, os.path.join(out, tag + "_qwen.png"))
+            q = qwen_one(names, hand_prompt(prompt, who), seed, os.path.join(out, tag + "_qwen.png"))
             pixel(out, tag, q, cfg.get("bg_tol", 40), cfg.get("steel", True), master=who, block=ms or 16,
                   keep_place=cfg.get("keep_place", False), air_px=cfg.get("air_px", 0))
             if cfg.get("second_prompt"):
@@ -625,10 +649,13 @@ def multi_sheet(out, rec, T=176):
     """reference | male rig | female rig | male seeds | female seeds, plus the notes."""
     cfg = json.load(open(os.path.join(out, "round.json")))
     seeds = cfg.get("seeds", [1, 2, 3])
-    tiles = [("reference", skeleton_tile(ps.load(os.path.join(out, "male", "target_right.json")), T))]
-    for b in BODIES:
+    bodies = [b for b in BODIES if os.path.exists(os.path.join(out, b, "shaded.png"))]
+    tiles = [("reference", skeleton_tile(ps.load(os.path.join(out, bodies[0], "target_right.json")), T))]
+    for b in bodies:
         tiles.append(("%s rig" % b, rig_overlay(out, b, T)))
     for who in MASTERS:
+        if not os.path.exists(os.path.join(out, "%s_s%d_px.png" % (who, seeds[0]))):
+            continue
         for sd in seeds:
             sp = Image.open(os.path.join(out, "%s_s%d_px.png" % (who, sd))).convert("RGBA").resize((T, T), Image.NEAREST)
             bg = Image.new("RGBA", (T, T), (236, 236, 228, 255))

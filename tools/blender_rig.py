@@ -70,6 +70,15 @@ CAM_TARGET = Vector((0.2, 0, 2.05))
 CAM_DIST = 12
 
 
+SWORD_HAND = "R"     # which hand holds the sword ("L" = left-handed; the far hand when facing right)
+
+
+def set_sword_hand(side="R"):
+    """Put the sword in hand.R (default) or hand.L. Call before build()."""
+    global SWORD_HAND
+    SWORD_HAND = side
+
+
 def set_body(name="male"):
     """Set the module-level proportions (used by build() and the rest) to a body profile."""
     global BODY_NAME, BODY, HEAD_R, NECK_Z, HEAD_C, SHOULDER_Z, SHOULDER_X, HIP_Z, KNEE_Z, HIP_X
@@ -191,9 +200,10 @@ def build(scene):
 
     # sword in the right hand, blade pointing out of the fist along the hand bone
     hz = WRIST_Z - 0.08
-    part("grip", "hand.R", (0.0, -SHOULDER_X, hz), (0.05, 0.05, 0.16), "cyl")
-    part("guard", "hand.R", (0.0, -SHOULDER_X, hz - 0.2), (0.04, 0.22, 0.04), "cube")
-    part("blade", "hand.R", (0.0, -SHOULDER_X, hz - 0.22 - SWORD_LEN / 2), (0.02, SWORD_W, SWORD_LEN / 2), "cube")
+    sh, sx = "hand." + SWORD_HAND, (-SHOULDER_X if SWORD_HAND == "R" else SHOULDER_X)
+    part("grip", sh, (0.0, sx, hz), (0.05, 0.05, 0.16), "cyl")
+    part("guard", sh, (0.0, sx, hz - 0.2), (0.04, 0.22, 0.04), "cube")
+    part("blade", sh, (0.0, sx, hz - 0.22 - SWORD_LEN / 2), (0.02, SWORD_W, SWORD_LEN / 2), "cube")
 
     # ---- controls ----
     coll = bpy.data.collections.new("controls")
@@ -419,7 +429,7 @@ def project_keypoints(scene, size=512, update=True):
         kp += px(pts[i]) + [1.0]
     bm = bpy.data.objects["blade"].matrix_world
     ends = [bm @ Vector((0, 0, SWORD_LEN / 2)), bm @ Vector((0, 0, -SWORD_LEN / 2))]
-    hand = mw @ pb["hand.R"].tail
+    hand = mw @ pb["hand." + SWORD_HAND].tail
     tip = max(ends, key=lambda e: (e - hand).length)
     return kp, [px(hand), px(tip)]
 

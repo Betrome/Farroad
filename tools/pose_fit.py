@@ -2,7 +2,7 @@
 Fit the Farroad rig to a 2D target pose (runs inside Blender).
 
   blender -b --factory-startup -P tools/pose_fit.py -- TARGET.json OUT_DIR
-      [--body male|female] [--init POSE.json] [--evals 60000] [--seed 1]
+      [--body male|female] [--sword-hand R|L] [--init POSE.json] [--evals 60000] [--seed 1]
       [--fit-azimuth -45] [--no-render]
 
 --body picks the rig's body profile (blender_rig.set_body; default male, or the
@@ -216,9 +216,10 @@ class Rig:
             br.ctrl_obj("knee." + side).location = pole(hp, f, g("knee." + side), Vector((1, 0, 0)))
         yaw, pitch = math.radians(g("aim.yaw")), math.radians(g("aim.pitch"))
         d = Vector((math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), math.sin(pitch)))
-        br.ctrl_obj("aim.R").location = hands["R"] + d * 3.0
-        shl = self.world("upper_arm.L")
-        br.ctrl_obj("aim.L").location = hands["L"] + (hands["L"] - shl).normalized() * 1.5
+        sw, off = br.SWORD_HAND, ("L" if br.SWORD_HAND == "R" else "R")
+        br.ctrl_obj("aim." + sw).location = hands[sw] + d * 3.0
+        sho = self.world("upper_arm." + off)
+        br.ctrl_obj("aim." + off).location = hands[off] + (hands[off] - sho).normalized() * 1.5
         bpy.context.view_layer.update()
 
     def keypoints(self):
@@ -252,12 +253,13 @@ def seg_dist(p, a, b):
 def blade_on_face(norm, sword, clear=None):
     """How far (torso lengths) the sword line cuts into a circle around the head in 2D.
     A blade drawn across the face makes Qwen hide it behind the head, cut off from the hands."""
-    if not sword or 4 not in norm or 16 not in norm or 17 not in norm:
+    w = 4 if br.SWORD_HAND == "R" else 7
+    if not sword or w not in norm or 16 not in norm or 17 not in norm:
         return 0.0
     if clear is None:           # head radius + a margin, in torso lengths
         clear = (max(br.HEAD_R[0], br.HEAD_R[2]) + 0.1) / TORSO
     head = ((norm[16][0] + norm[17][0]) / 2, (norm[16][1] + norm[17][1]) / 2)
-    hilt = norm[4]
+    hilt = norm[w]
     tip = (hilt[0] + sword[0], hilt[1] + sword[1])
     return max(0.0, clear - seg_dist(head, hilt, tip))
 
@@ -267,9 +269,10 @@ def blade_on_body(norm, sword, samples=12, half_width=0.35):
     being the neck -> mid-hip segment thickened to `half_width` torso lengths (a side
     view's shoulder/hip quad is too thin to catch it). Qwen splits a blade laid over the
     torso into two swords or reads it as the character being run through."""
-    if not sword or 4 not in norm or 1 not in norm or -1 not in norm:
+    w = 4 if br.SWORD_HAND == "R" else 7
+    if not sword or w not in norm or 1 not in norm or -1 not in norm:
         return 0.0
-    hx, hy = norm[4]
+    hx, hy = norm[w]
     hits = 0
     for k in range(samples):
         t = 0.15 + 0.85 * k / (samples - 1)
@@ -594,6 +597,14 @@ def main():
             else:            # scalars: proportions, sword_full, face_margin, multistart
                 spec[k] = val
     configure(opt("--body") or tj.get("body", "male"))
+    if opt("--sword-hand", "R") == "L":
+        # left-handed: the target's "R" arm is the sword arm, so it becomes the rig's L arm
+        br.set_sword_hand("L")
+        target = ps.swapped(target, ps.ARM_SWAP)
+        if target.sword and target.ok(7):   # hang the target sword from the new sword wrist
+            (hx, hy), (tx, ty) = target.sword
+            wx, wy = target.xy(7)
+            target.sword = [(wx, wy), (wx + tx - hx, wy + ty - hy)]
     global LIFT
     LIFT = float(spec.get("lift", 0.0))
     for name, (lo, hi) in spec.get("bounds", {}).items():   # widen/narrow a parameter's range
