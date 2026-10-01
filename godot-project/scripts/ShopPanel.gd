@@ -12,7 +12,7 @@ extends Node
 var g: Dictionary
 var _vp: Vector2
 var _parent: Node
-var current_tab: String = "gambits"
+var current_tab: String = "marks"
 
 var toggle_button: Button
 var popup: PopupPanel
@@ -20,7 +20,7 @@ var tab_buttons: Dictionary = {}
 var list_container: VBoxContainer
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
-const TABS := [["gambits", "Gambits"], ["actions", "Actions"], ["units", "Units"], ["equipment", "Gear"]]
+const TABS := [["marks", "Marks"], ["gambits", "Gambits"], ["actions", "Actions"], ["units", "Units"], ["equipment", "Gear"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	g = new_g
@@ -134,7 +134,11 @@ func _refresh() -> void:
 		tab_buttons[key].disabled = (key == current_tab)
 	for c in list_container.get_children():
 		c.queue_free()
+	crystal_label.visible = current_tab != "marks"
 	match current_tab:
+		"marks":   # Ian: Marks pulls live in the Shop now
+			if _parent and _parent.get("marks_panel") != null:
+				_parent.marks_panel.build_into(list_container)
 		"gambits": _refresh_gambits()
 		"actions": _refresh_actions()
 		"units": _refresh_units()

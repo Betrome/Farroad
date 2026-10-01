@@ -187,6 +187,7 @@ func _start_game() -> void:
 	shop_panel = load("res://scripts/ShopPanel.gd").new()
 	add_child(shop_panel)
 	shop_panel.setup(g, _vp, self)
+	_build_arena_button()
 	expedition_timer = Timer.new()
 	expedition_timer.wait_time = EXPEDITION_POLL_SEC
 	expedition_timer.autostart = true
@@ -197,7 +198,7 @@ func _start_game() -> void:
 	tutorial = Tutorial.new()
 	add_child(tutorial)
 	tutorial.setup(self)
-	for p in [units_panel, party_panel, quests_panel, marks_panel, shop_panel, expedition_panel,
+	for p in [units_panel, party_panel, quests_panel, shop_panel, expedition_panel,
 			settings_panel, catalogue_panel]:
 		p.popup.popup_hide.connect(_reset_menu.bind(p))
 	_begin_next_fight()
@@ -209,7 +210,7 @@ func _start_game() -> void:
 const _MENU_DEFAULTS := {"current_tab": "", "current_sub_tab": "summary", "selected_action_id": "", "selected_uids": [],
 	"selected_direction": "", "action_filter_target": "any", "action_filter_camp": "any",
 	"action_filter_effect": "any", "cond_filter_group": "any", "gambit_filter_group": "any"}
-const _FIRST_TAB := {"shop": "gambits", "catalogue": "units"}
+const _FIRST_TAB := {"shop": "marks", "catalogue": "units"}
 
 func _reset_menu(panel: Node) -> void:
 	for c in panel.popup.get_children():
@@ -297,6 +298,7 @@ func _on_viewport_resized() -> void:
 	lore_panel.reflow(_vp)
 	equipment_panel.reflow(_vp)
 	marks_panel.reflow(_vp)
+	_build_arena_button()
 	expedition_panel.reflow(_vp)
 	quests_panel.reflow(_vp)
 	shop_panel.reflow(_vp)
@@ -1133,6 +1135,7 @@ func _set_battle_paused(_paused: bool) -> void:
 ## old popup's own dismiss handling), means the new popup still opens on
 ## the SAME tap that closed the old one.
 func _panel_opening(panel: Node) -> void:
+	_close_arena()
 	if open_panel != null and open_panel != panel and is_instance_valid(open_panel):
 		open_panel.popup.hide()
 	open_panel = panel
@@ -1544,7 +1547,9 @@ func _show_action_detail_popup(action_id: String) -> void:
 ## fight plays out like a quest). Bragging rights only: a W/L record and a
 ## result to copy back, which carries your own code so they can answer.
 func _show_pvp_popup() -> void:
+	_close_arena()
 	var o := _build_detail_overlay(Palette.PARTY_BLUE, true)
+	o["backdrop"].set_meta("arena", true)
 	var vbox: VBoxContainer = o["vbox"]
 	var rec: Dictionary = g.get("pvp", {})
 	var title := Label.new()
@@ -1619,6 +1624,22 @@ func _show_pvp_popup() -> void:
 			vbox.add_child(_wrap_label("%s vs %s's team (Power %d) in %d turns" % [
 				"Won" if h.get("won") else "Lost", h.get("owner", "?"), int(h.get("power", 0)), int(h.get("turns", 0))], true))
 	await _finish_detail_overlay(o)
+
+## Ian: Arena is its own bottom-row button (where Marks was).
+var arena_button: Button
+
+func _build_arena_button() -> void:
+	if arena_button != null and is_instance_valid(arena_button):
+		arena_button.queue_free()
+	arena_button = shop_panel._build_icon_tab(self, Vector2(_vp.x * 0.5838, _vp.y * 0.93), _vp.x * 0.11, "Arena", _show_pvp_popup)
+
+## Closes the Arena screen (another menu or the Road was tapped).
+func _close_arena() -> void:
+	if _full_layer == null or not is_instance_valid(_full_layer):
+		return
+	for c in _full_layer.get_children():
+		if c.has_meta("arena"):
+			c.queue_free()
 
 func _wrap_label(text: String, dim: bool = false) -> Label:
 	var l := Label.new()
@@ -2305,6 +2326,7 @@ func _build_unit_subpanel_content(panel_key: String, container: Container, uid: 
 ## open -- the Road view is already always rendered behind every popup, so
 ## "returning to it" is just closing whatever's currently open.
 func _on_road_pressed() -> void:
+	_close_arena()
 	if open_panel != null and is_instance_valid(open_panel):
 		open_panel.popup.hide()
 		open_panel = null

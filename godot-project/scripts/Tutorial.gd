@@ -23,13 +23,16 @@ const TUTS := [
 	{"id": "gambits", "wave": 3, "unlocks": "gambits"},
 	{"id": "quests", "wave": 5, "unlocks": "quests"},
 	{"id": "lore", "wave": 7, "unlocks": "lore"},
-	{"id": "marks", "wave": 8, "unlocks": "marks"},
+	{"id": "marks", "wave": 8, "unlocks": "shop"},   # Marks is the Shop's first tab
 	{"id": "shop", "wave": 8, "unlocks": "shop"},
 	{"id": "party", "wave": 10, "unlocks": "party"},
 	{"id": "gear", "wave": 20, "unlocks": "equipment"},
 	{"id": "expedition", "wave": 30, "unlocks": "expedition"},
 ]
 const ALWAYS_OPEN := ["settings", "summary", "aether", "catalogue"]
+## Ian: the PvP Arena opens once wave 50 is cleared (not a tutorial, so
+## skipping tutorials doesn't open it early).
+const ARENA_WAVE := 50
 
 var gc: Node          # GameController
 var g: Dictionary
@@ -75,6 +78,8 @@ static func is_done(gd: Dictionary, id: String) -> bool:
 
 ## Whether a tab ("units", "party"...) or Units sub-tab ("gambits"...) is open.
 static func unlocked(gd: Dictionary, key: String, active_id: String = "") -> bool:
+	if key == "arena":
+		return int(gd.get("farthest", 1)) > ARENA_WAVE
 	if key in ALWAYS_OPEN or gd.get("tutorialSkip", false):
 		return true
 	for t in TUTS:
@@ -260,14 +265,17 @@ func skip_all() -> void:
 func _apply_locks() -> void:
 	var cur: Control = _current_target()
 	var tabs := {"units": gc.units_panel, "party": gc.party_panel, "quests": gc.quests_panel,
-		"marks": gc.marks_panel, "shop": gc.shop_panel, "expedition": gc.expedition_panel,
+		"shop": gc.shop_panel, "expedition": gc.expedition_panel,
 		"settings": gc.settings_panel}
+	var icons := {}
 	for key in tabs:
 		var p = tabs[key]
-		if p == null or not is_instance_valid(p) or p.get("toggle_button") == null:
-			continue
-		var b: Button = p.toggle_button
-		if not is_instance_valid(b):
+		if p != null and is_instance_valid(p) and p.get("toggle_button") != null:
+			icons[key] = p.toggle_button
+	icons["arena"] = gc.arena_button
+	for key in icons:
+		var b: Button = icons[key]
+		if b == null or not is_instance_valid(b):
 			continue
 		var open := unlocked(g, key, active)
 		# during a tutorial only the button the current step points at
@@ -313,7 +321,7 @@ var _held: Array = []
 
 func _hold_popups() -> void:
 	var list: Array = []
-	for p in [gc.units_panel, gc.party_panel, gc.quests_panel, gc.marks_panel, gc.shop_panel,
+	for p in [gc.units_panel, gc.party_panel, gc.quests_panel, gc.shop_panel,
 			gc.expedition_panel, gc.settings_panel]:
 		if p != null and is_instance_valid(p) and p.get("popup") != null:
 			list.append(p.popup)
@@ -334,12 +342,14 @@ func _release_popups() -> void:
 
 ## The wave whose clear opens a menu or Units sub-tab (-1: always open).
 static func unlock_wave(key: String) -> int:
+	if key == "arena":
+		return ARENA_WAVE
 	for t in TUTS:
 		if t["unlocks"] == key:
 			return int(t["wave"])
 	return -1
 
-const PVP_LOCKED := ["units", "party", "marks", "shop"]
+const PVP_LOCKED := ["units", "party", "shop"]
 
 ## A tap on a locked menu or sub-tab: say when it opens.
 func locked_tap(key: String, near: Control) -> void:
@@ -390,7 +400,7 @@ func _needs(id: String) -> Array:
 	match id:
 		"units", "gambits", "lore", "gear": return ["units"]
 		"quests": return ["quests"]
-		"marks": return ["marks"]
+		"marks": return ["shop"]
 		"shop": return ["shop", "units"]
 		"party": return ["party"]
 		"expedition": return ["party", "expedition"]
@@ -630,17 +640,20 @@ func _steps_for(id: String) -> Array:
 			]
 		"marks":
 			return [
-				{"text": "Marks are open, and you have enough for a pull. Tap Marks.", "target": func(): return gc.marks_panel.toggle_button,
+				{"text": "The Shop is open, and you have enough Marks for a pull. Tap Shop.", "target": func(): return gc.shop_panel.toggle_button,
 					"enter": func():
 						g["marks"] = maxf(float(g.get("marks", 0.0)), 100.0)
 						g["forcedPull"] = "mend"
 						gc._refresh_hud(),
-					"done": func(): return _popup_open(gc.marks_panel)},
+					"done": func(): return _popup_open(gc.shop_panel)},
+				{"text": "Tap Marks.", "back": 0,
+					"target": func(): return gc.shop_panel.tab_buttons.get("marks") if _popup_open(gc.shop_panel) else null,
+					"done": func(): return _popup_open(gc.shop_panel) and gc.shop_panel.current_tab == "marks"},
 				{"text": "Tap Pull.", "back": 0,
-					"target": func(): return _btn_text(gc.marks_panel.popup, "PULL —") if _popup_open(gc.marks_panel) else null,
+					"target": func(): return _btn_text(gc.shop_panel.popup, "PULL —") if _popup_open(gc.shop_panel) else null,
 					"done": func(): return g["actions"].has("mend")},
 				{"text": "You pulled Mend, a heal! Pulls can give units, actions, gambits or gear.",
-					"target": func(): return gc.marks_panel.popup.get_child(0) if _popup_open(gc.marks_panel) else null},
+					"target": func(): return gc.marks_panel.card_container if _popup_open(gc.shop_panel) else null},
 			]
 		"shop":
 			return [

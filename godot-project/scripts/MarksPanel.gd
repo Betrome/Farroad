@@ -35,48 +35,20 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	_parent = parent
 	_build_ui(parent)
 
-## Same reasoning/limitation as every sibling panel's own reflow() -- see
-## GambitsPanel.reflow's comment.
+## Ian: Marks moved into the Shop (its bottom-row slot went to Arena) --
+## this now only draws the pull screen into the Shop's Marks tab.
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
-	if toggle_button:
-		toggle_button.queue_free()
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
 
-func _build_ui(parent: Node) -> void:
-	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
-	# bottom row: Units 0.0133, Party 0.1367, this one 0.2600, Expedition
-	# 0.3833, Road (GameController's own button, moved next to Expedition
-	# to stay near true center) 0.5067, Quests 0.6300, Settings 0.7533,
-	# Shop 0.8767 -- same 0.11*vp.x icon size/0.93*vp.y row as before, just
-	# recomputed.
-	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.5838, _vp.y * 0.93), icon_size, "Marks", _on_toggle_pressed)
+func _build_ui(_parent_node: Node) -> void:
+	pass
 
-	popup = PopupPanel.new()
-	_style_popup(popup)
-	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
-
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
-	popup.add_child(scroll)
-
-	var root_vbox := VBoxContainer.new()
-	root_vbox.custom_minimum_size = Vector2(popup_size.x - 40, 0)
-	root_vbox.add_theme_constant_override("separation", 14)
-	scroll.add_child(root_vbox)
-
-	var title := Label.new()
-	title.text = "MARKS"
-	title.add_theme_font_size_override("font_size", 20)
-	root_vbox.add_child(title)
-
+## Draws the pull screen into `container` (the Shop's list).
+func build_into(container: Container) -> void:
 	card_container = VBoxContainer.new()
 	card_container.add_theme_constant_override("separation", 10)
-	root_vbox.add_child(card_container)
+	container.add_child(card_container)
+	_refresh_card()
 
 ## Same opaque-panel convention every sibling panel already established --
 ## the default theme's PopupPanel background isn't fully opaque.
