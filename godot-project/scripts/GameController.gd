@@ -849,7 +849,8 @@ func _show_tutorial_complete_popup() -> void:
 	vbox.add_child(heads_up)
 
 	await _finish_detail_overlay(o)
-	await o["backdrop"].tree_exiting
+	if is_instance_valid(o["backdrop"]) and o["backdrop"].is_inside_tree():
+		await o["backdrop"].tree_exiting
 	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
@@ -884,7 +885,8 @@ func _show_enrage_intro_popup() -> void:
 	vbox.add_child(enrage_pointer)
 
 	await _finish_detail_overlay(o)
-	await o["backdrop"].tree_exiting
+	if is_instance_valid(o["backdrop"]) and o["backdrop"].is_inside_tree():
+		await o["backdrop"].tree_exiting
 	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
@@ -919,7 +921,8 @@ func _show_companion_joined_popup(uid: String) -> void:
 	vbox.add_child(body)
 
 	await _finish_detail_overlay(o)
-	await o["backdrop"].tree_exiting
+	if is_instance_valid(o["backdrop"]) and o["backdrop"].is_inside_tree():
+		await o["backdrop"].tree_exiting
 	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
@@ -975,7 +978,8 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	vbox.add_child(body)
 
 	await _finish_detail_overlay(o)
-	await o["backdrop"].tree_exiting
+	if is_instance_valid(o["backdrop"]) and o["backdrop"].is_inside_tree():
+		await o["backdrop"].tree_exiting
 	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
@@ -1003,7 +1007,8 @@ func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 	vbox.add_child(body)
 
 	await _finish_detail_overlay(o)
-	await o["backdrop"].tree_exiting
+	if is_instance_valid(o["backdrop"]) and o["backdrop"].is_inside_tree():
+		await o["backdrop"].tree_exiting
 	# resume a frame later: mid-removal, the next pop-up in a row (Wave 20
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
@@ -1339,6 +1344,8 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	var close_btn := _make_close_x(func(): backdrop.queue_free())
 	backdrop.add_child(close_btn)
 	await get_tree().process_frame
+	if not is_instance_valid(backdrop) or not is_instance_valid(o["box"]):
+		return   # closed before it was laid out
 	var box: PanelContainer = o["box"]
 	# Ian: "in general, pop-ups aren't centered." Root cause, confirmed by
 	# direct measurement: when `host` is a STYLED PopupPanel (any tab
@@ -1682,7 +1689,20 @@ func _show_tutorials_popup() -> void:
 			status = "Ready -- up next"
 		else:
 			status = "After wave %d" % int(t["wave"]) if int(t["wave"]) > 0 else "At the start"
-		vbox.add_child(_wrap_label("%s: %s" % [TUTORIAL_NAMES.get(id, id), status], Tutorial.is_done(g, id)))
+		var row := HBoxContainer.new()
+		row.add_child(_wrap_label("%s: %s" % [TUTORIAL_NAMES.get(id, id), status], Tutorial.is_done(g, id)))
+		if Tutorial.is_done(g, id):   # Ian: repeatable from here, no rewards
+			var again := Button.new()
+			again.text = "Replay"
+			again.pressed.connect(func():
+				o["backdrop"].queue_free()
+				if open_panel != null and is_instance_valid(open_panel):
+					open_panel.popup.hide()
+				await get_tree().process_frame
+				if not tutorial.start_replay(id):
+					tutorial.show_toast("Can't replay during a fight.", road_button))
+			row.add_child(again)
+		vbox.add_child(row)
 	if g.get("tutorialSkip", false):
 		vbox.add_child(_wrap_label("Tutorials are skipped; their rewards arrive at their waves.", true))
 	await _finish_detail_overlay(o)

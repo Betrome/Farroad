@@ -15,7 +15,13 @@ const MAX_UNITS := 5
 const MAX_STAT := 10000000.0
 const HISTORY_CAP := 20
 const ID_PREFIX := "pvp:"
-const HEAL_MUL := 0.5   # Ian: PvP healing (heals, regen, lifesteal) at 50%   # opponent units, and their Lore'd action copies
+## Ian: healing (heals, regen, lifesteal) shrinks with enrage instead of a
+## flat cut -- 5% less each turn, matching enrage, gone by turn 20.
+const HEAL_DECAY := "linear"
+## Ian: PvP fights should last no more than a minute -- both teams enrage
+## from the first turn, 5% per turn (normal fights: 2.5% from turn 20).
+const ENRAGE_AFTER := 0
+const ENRAGE_PCT := 0.05   # opponent units, and their Lore'd action copies
 
 ## The fielded team as a share code.
 static func export_code(g: Dictionary) -> String:

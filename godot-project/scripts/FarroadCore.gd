@@ -1142,9 +1142,21 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["damage"] = max(1, floori(d))
 	return o
 
+## Healing multiplier for a battle (heals, regen, lifesteal). PvP: healing
+## shrinks as enrage rises (Ian: "add it into the enrage mechanic, so it
+## steadily is reduced") -- healDecay "inverse": 1/(1+pct*stacks);
+## "linear": 1-pct*stacks, down to nothing.
+static func heal_mul(b: Dictionary) -> float:
+	var m := float(b.get("healMul", 1.0))
+	var mode := str(b.get("healDecay", ""))
+	if mode != "":
+		var x: float = float(b.get("enragePct", ENRAGE_PCT)) * float(b.get("enrageN", 0))
+		m *= (1.0 / (1.0 + x)) if mode == "inverse" else maxf(0.0, 1.0 - x)
+	return m
+
 static func heal_for(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Dictionary, pv: float) -> Dictionary:
 	var v: float = pv * (stat_by_key(src, act["scaleStat"]) if act.get("scaleStat") else eff_mag(src)) * aff_boost(src["affinity"]["spirit"], tgt["affinity"]["spirit"])
-	v *= float(b.get("healMul", 1.0))   # PvP halves healing
+	v *= heal_mul(b)   # PvP halves healing
 	var amt: int = max(1, floori(v))
 	var before: float = tgt["hp"]
 	tgt["hp"] = min(tgt["maxHp"], tgt["hp"] + amt)
@@ -1206,7 +1218,7 @@ static func step(b: Dictionary) -> Variant:
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
 	if has(u, "regen") and u["hp"] > 0:
-		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * float(b.get("healMul", 1.0))))
+		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * heal_mul(b)))
 		var bf = u["hp"]
 		u["hp"] = min(u["maxHp"], u["hp"] + rg)
 		e["regen"] = u["hp"] - bf
@@ -1338,7 +1350,7 @@ static func step(b: Dictionary) -> Variant:
 							e["notes"].append("stole %d charge from %s" % [roundi(took), tg["name"]])
 					if act.get("lifesteal") and r["damage"] > 0:
 						var hb = u["hp"]
-						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"]) * float(b.get("healMul", 1.0))))
+						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"]) * heal_mul(b)))
 						if u["hp"] > hb:
 							e["heals"].append({"heal": true, "targetName": u["name"], "amount": u["hp"] - hb})
 			if act.get("tk") == "allFoes":

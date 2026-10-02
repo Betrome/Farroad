@@ -37,6 +37,7 @@ const ARENA_WAVE := 50
 var gc: Node          # GameController
 var g: Dictionary
 var active := ""      # tutorial id in progress
+var replay := false   # a finished tutorial run again from Menu > Tutorials
 var steps: Array = []
 var step := 0
 var _missing := 0.0
@@ -191,8 +192,39 @@ func _on_next() -> void:
 		step += 1
 		_enter_step()
 
+## Menu > Tutorials: run a finished tutorial again. No rewards: its free
+## Aether/Marks/Lore are left out, and steps that would change the game
+## (fighting, buying, pulling, setting gambits, benching, sending) only
+## point at the control, with Next, instead of waiting for it.
+func start_replay(id: String) -> bool:
+	if active != "" or not is_done(g, id) or g.get("sideBattle") != null or gc.current_presenter == null:
+		return false
+	var list: Array = []
+	for s in _steps_for(id):
+		if s.get("quiet", false):
+			continue   # the quest fight
+		var c: Dictionary = (s as Dictionary).duplicate()
+		if c.get("gift", false):
+			c.erase("enter")
+		if c.get("act", false):
+			c.erase("done")
+			c.erase("back")
+		list.append(c)
+	active = id
+	replay = true
+	steps = list
+	step = 0
+	_missing = 0.0
+	gc.current_presenter.call("set_loop_paused", true)
+	_enter_step()
+	return true
+
 func _finish() -> void:
 	var id := active
+	if replay:
+		_end(false)
+		gc._show_tab_tutorial_popup("Tutorial replayed", DONE_TEXT.get(id, ""))
+		return
 	_end(false)
 	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward_text(id, false)])
 
@@ -200,7 +232,9 @@ func _finish() -> void:
 ## menu or Status/Log box it opened, and the Road starts again.
 func _end(skipped: bool) -> void:
 	var id := active
-	_grant(id, skipped)
+	if not replay:
+		_grant(id, skipped)
+	replay = false
 	active = ""
 	steps = []
 	_hide_overlay()
@@ -217,8 +251,10 @@ func _end(skipped: bool) -> void:
 func skip_current() -> void:
 	if active != "":
 		var id := active
+		var was_replay := replay
 		_end(true)
-		gc._show_tab_tutorial_popup("Tutorial skipped", reward_text(id, true))
+		if not was_replay:
+			gc._show_tab_tutorial_popup("Tutorial skipped", reward_text(id, true))
 
 ## The tutorial's rewards (also what a skipped tutorial grants on its wave).
 func _grant(id: String, skipped: bool) -> void:
@@ -559,7 +595,7 @@ func _steps_for(id: String) -> Array:
 		"units":
 			return [
 				{"text": "A new menu is open: Units. Tap it.", "target": units_icon, "done": units_open,
-					"enter": func(): _prepare_level_up()},
+					"gift": true, "enter": func(): _prepare_level_up()},
 				{"text": "Pick which unit to manage here.", "target": func(): return gc.units_panel.dropdown if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Each unit has Summary, Gambits, Aether, Lore and Gear. Most unlock as you go.", "target": func(): return gc.units_panel.sub_tab_buttons.get("summary") if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Tap Aether.", "target": func(): return _units_tab("aether"), "back": 0,
@@ -570,14 +606,14 @@ func _steps_for(id: String) -> Array:
 				{"text": "SPD: faster units take more turns.", "target": func(): return gc.units_panel.content_container, "back": 0},
 				{"text": "Crit lands bonus damage, Evade dodges hits, and Affinity makes elements hit harder or softer.", "target": func(): return gc.units_panel.content_container, "back": 0},
 				{"text": "Spend Aether to level up. Tap the level-up button.", "back": 0,
-					"enter": func(): _prepare_level_up(),
+					"gift": true, "enter": func(): _prepare_level_up(),
 					"target": func(): return _btn_text(gc.units_panel.content_container, "→ LV") if _popup_open(gc.units_panel) else null,
-					"done": func(): return FarroadProgression.level_of(g, "kesh") > _start_level},
+					"act": true, "done": func(): return FarroadProgression.level_of(g, "kesh") > _start_level},
 			]
 		"gambits":
 			return [
 				{"text": "Gambits are open. Tap Units.", "target": units_icon, "done": units_open,
-					"enter": func(): _reset_top_slot()},
+					"gift": true, "enter": func(): _reset_top_slot()},
 				{"text": "Tap Gambits.", "target": func(): return _units_tab("gambits"), "back": 0,
 					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "gambits"},
 				{"text": "Each slot is IF (a condition) THEN (an action). The top slot is checked first; if its IF isn't true, the next one is.", "target": func(): return gc.units_panel.content_container if _popup_open(gc.units_panel) else null, "back": 0},
@@ -585,12 +621,12 @@ func _steps_for(id: String) -> Array:
 					"target": func():
 						var r = _picker_row("Sear")
 						return r if r != null else _slot_button(0, "then"),
-					"done": func(): return _slot(0).get("action") == "sear"},
+					"act": true, "done": func(): return _slot(0).get("action") == "sear"},
 				{"text": "Now its IF: tap it and pick \"Foe: lacks a debuff\", so Sear never burns a foe that's already burning.", "back": 0,
 					"target": func():
 						var r = _picker_row(FarroadCore.cond_label("foe_lacks_debuff"))
 						return r if r != null else _slot_button(0, "if"),
-					"done": func(): return _slot(0).get("cond") == "foe_lacks_debuff"},
+					"act": true, "done": func(): return _slot(0).get("cond") == "foe_lacks_debuff"},
 			]
 		"quests":
 			return [
@@ -598,7 +634,7 @@ func _steps_for(id: String) -> Array:
 					"done": func(): return _popup_open(gc.quests_panel)},
 				{"text": "This is your own quest line. Tap Attempt to fight its first stage.", "back": 0,
 					"target": func(): return _btn_text(gc.quests_panel.popup, "Attempt") if _popup_open(gc.quests_panel) else null,
-					"done": func(): return g.get("sideBattle") != null},
+					"act": true, "done": func(): return g.get("sideBattle") != null},
 				{"text": "Win the fight!", "quiet": true,
 					"enter": func(): gc.current_presenter.call("set_loop_paused", true),
 					"done": func():
@@ -611,7 +647,7 @@ func _steps_for(id: String) -> Array:
 		"lore":
 			return [
 				{"text": "Lore is open, and here's a Lore point for Sear. Tap Units.", "target": units_icon, "done": units_open,
-					"enter": func(): _gift_lore("sear")},
+					"gift": true, "enter": func(): _gift_lore("sear")},
 				{"text": "Tap Lore.", "target": func(): return _units_tab("lore"), "back": 0,
 					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "lore"},
 				{"text": "Select Sear. If it isn't in one of your gambits, it's under Unequipped actions.", "back": 0,
@@ -636,12 +672,12 @@ func _steps_for(id: String) -> Array:
 							if b.text.begins_with("+ ") and not b.disabled:
 								return b
 						return null,
-					"done": func(): return FarroadCore.bonus_spend({"sear": g["bonuses"].get("sear", {})}) > 0},
+					"act": true, "done": func(): return FarroadCore.bonus_spend({"sear": g["bonuses"].get("sear", {})}) > 0},
 			]
 		"marks":
 			return [
 				{"text": "The Shop is open, and you have enough Marks for a pull. Tap Shop.", "target": func(): return gc.shop_panel.toggle_button,
-					"enter": func():
+					"gift": true, "enter": func():
 						g["marks"] = maxf(float(g.get("marks", 0.0)), 100.0)
 						g["forcedPull"] = "mend"
 						gc._refresh_hud(),
@@ -651,7 +687,7 @@ func _steps_for(id: String) -> Array:
 					"done": func(): return _popup_open(gc.shop_panel) and gc.shop_panel.current_tab == "marks"},
 				{"text": "Tap Pull.", "back": 0,
 					"target": func(): return _btn_text(gc.shop_panel.popup, "PULL —") if _popup_open(gc.shop_panel) else null,
-					"done": func(): return g["actions"].has("mend")},
+					"act": true, "done": func(): return g["actions"].has("mend")},
 				{"text": "You pulled Mend, a heal! Pulls can give units, actions, gambits or gear.",
 					"target": func(): return gc.marks_panel.card_container if _popup_open(gc.shop_panel) else null},
 			]
@@ -665,7 +701,7 @@ func _steps_for(id: String) -> Array:
 					"done": func(): return _popup_open(gc.shop_panel) and gc.shop_panel.current_tab == "gambits"},
 				{"text": "Buy \"%s\": it lets Mend heal you only when you need it." % FarroadCore.cond_label("self_hp_lte_50"), "back": 0,
 					"target": func(): return _shop_row_buy(FarroadCore.cond_label("self_hp_lte_50")),
-					"done": func(): return g["conditions"].has("self_hp_lte_50")},
+					"act": true, "done": func(): return g["conditions"].has("self_hp_lte_50")},
 				{"text": "Now put it to use. Tap Units.", "target": units_icon, "done": units_open,
 					"enter": func(): _hide_popup()},
 				{"text": "Tap Gambits.", "target": func(): return _units_tab("gambits"), "back": 3,
@@ -674,15 +710,15 @@ func _steps_for(id: String) -> Array:
 					"target": func():
 						var r = _picker_row("Mend")
 						return r if r != null else _slot_button(1, "then"),
-					"done": func(): return _slot(1).get("action") == "mend" or _slot(0).get("action") == "mend"},
+					"act": true, "done": func(): return _slot(1).get("action") == "mend" or _slot(0).get("action") == "mend"},
 				{"text": "Set its IF to \"%s\"." % FarroadCore.cond_label("self_hp_lte_50"), "back": 3,
 					"target": func():
 						var r = _picker_row(FarroadCore.cond_label("self_hp_lte_50"))
 						return r if r != null else _slot_button(1, "if"),
-					"done": func(): return _has_slot("mend", "self_hp_lte_50")},
+					"act": true, "done": func(): return _has_slot("mend", "self_hp_lte_50")},
 				{"text": "Healing comes first: tap ▲ to move it to the top.", "back": 3,
 					"target": func(): return _move_up_button(),
-					"done": func(): return _slot(0).get("action") == "mend"},
+					"act": true, "done": func(): return _slot(0).get("action") == "mend"},
 			]
 		"party":
 			return [
@@ -691,13 +727,13 @@ func _steps_for(id: String) -> Array:
 				{"text": "Front row hits harder but takes more physical damage; the back row is safer. Tap Ansa's row button.", "back": 0,
 					"enter": func(): _row_start = FarroadCore.roster_by_id("ansa").get("row", "back"),
 					"target": func(): return _party_row_button("ansa", FarroadCore.roster_by_id("ansa").get("row", "back").capitalize()),
-					"done": func(): return FarroadCore.roster_by_id("ansa").get("row") != _row_start},
+					"act": true, "done": func(): return FarroadCore.roster_by_id("ansa").get("row") != _row_start},
 				{"text": "Tap Bench to take Ansa out of the party.", "back": 0,
 					"target": func(): return _party_row_button("ansa", "Bench"),
-					"done": func(): return not (g["party"] as Array).has("ansa")},
+					"act": true, "done": func(): return not (g["party"] as Array).has("ansa")},
 				{"text": "Tap Field to bring her back.", "back": 0,
 					"target": func(): return _party_row_button("ansa", "Field"),
-					"done": func(): return (g["party"] as Array).has("ansa")},
+					"act": true, "done": func(): return (g["party"] as Array).has("ansa")},
 			]
 		"gear":
 			return [
@@ -712,7 +748,7 @@ func _steps_for(id: String) -> Array:
 							if o.is_visible_in_tree() and o.item_count > 1:
 								return o
 						return null,
-					"done": func(): return _any_gear_equipped()},
+					"act": true, "done": func(): return _any_gear_equipped()},
 			]
 		"expedition":
 			return [
@@ -726,7 +762,7 @@ func _steps_for(id: String) -> Array:
 								if b != null:
 									return b
 						return null,
-					"done": func(): return not FarroadProgression.available_for_party(g).is_empty()},
+					"act": true, "done": func(): return not FarroadProgression.available_for_party(g).is_empty()},
 				{"text": "Tap Exped.", "target": func(): return gc.expedition_panel.toggle_button,
 					"enter": func(): _hide_popup(),
 					"done": func(): return _popup_open(gc.expedition_panel)},
@@ -736,7 +772,7 @@ func _steps_for(id: String) -> Array:
 						if av.is_empty() or not _popup_open(gc.expedition_panel):
 							return null
 						return _btn_text(gc.expedition_panel.popup, FarroadCore.roster_by_id(av[0])["name"]),
-					"done": func(): return not gc.expedition_panel.selected_uids.is_empty()},
+					"act": true, "done": func(): return not gc.expedition_panel.selected_uids.is_empty()},
 				{"text": "Send them West: tap W on the map.", "back": 2,
 					"target": func():
 						if not _popup_open(gc.expedition_panel):
@@ -744,10 +780,10 @@ func _steps_for(id: String) -> Array:
 						for m in gc.expedition_panel.popup.find_children("*", "ExpeditionMap", true, false):
 							return m._direction_buttons.get("west")
 						return null,
-					"done": func(): return gc.expedition_panel.selected_direction == "west"},
+					"act": true, "done": func(): return gc.expedition_panel.selected_direction == "west"},
 				{"text": "Tap Send.", "back": 2,
 					"target": func(): return _btn_text(gc.expedition_panel.popup, "Send expedition") if _popup_open(gc.expedition_panel) else null,
-					"done": func(): return (g["expeditions"] as Array).any(func(e): return e["direction"] == "west")},
+					"act": true, "done": func(): return (g["expeditions"] as Array).any(func(e): return e["direction"] == "west")},
 			]
 	return []
 

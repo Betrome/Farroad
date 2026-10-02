@@ -821,9 +821,9 @@ func _build_status_card(u: Dictionary) -> Control:
 		var enrage_text: String
 		if stacks > 0:
 			enrage_text = "⏱ ENRAGED ×%d — +%d%% damage/speed, rising every turn" % [
-				stacks, roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)]
+				stacks, roundi(_enrage_pct() * stacks * 100.0)]
 		else:
-			enrage_text = "⏱ calm — enrages at turn %d" % FarroadCore.ENRAGE_AFTER
+			enrage_text = "⏱ calm — enrages at turn %d" % _enrage_after()
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
 
 	return card
@@ -1188,8 +1188,8 @@ func _refresh_enrage() -> void:
 			if FarroadCore.current_wave < FarroadProgression.ENRAGE_FROM_WAVE else "Enrage off"
 		return
 	var beat: int = battle["beat"]
-	var gate: int = FarroadCore.ENRAGE_AFTER
-	var frac: float = clamp(float(beat) / float(gate), 0.0, 1.0)
+	var gate: int = _enrage_after()
+	var frac: float = 1.0 if gate <= 0 else clamp(float(beat) / float(gate), 0.0, 1.0)
 	enrage_fg.size = Vector2(enrage_bg.size.x * frac, enrage_bg.size.y)
 	# Ian: "enrage should start at 20 turns, not 21" -- gate is now
 	# beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER), matching step()'s own
@@ -1201,8 +1201,10 @@ func _refresh_enrage() -> void:
 		# Ian: enrage now scales LINEARLY (1+ENRAGE_PCT*N), not compounding --
 		# mirrors the JS display formula exactly (farroad-ui.js's own
 		# enrageStacks-driven label).
-		var pct := roundi(FarroadCore.ENRAGE_PCT * stacks * 100.0)
+		var pct := roundi(_enrage_pct() * stacks * 100.0)
 		enrage_label.text = ("ENRAGED +%d%% dmg/spd" % pct) if stacks > 0 else "ENRAGED"
+		if stacks > 0 and str(battle.get("healDecay", "")) != "":   # PvP
+			enrage_label.text += ", healing %d%%" % roundi(FarroadCore.heal_mul(battle) * 100.0)
 	else:
 		var turns_left: int = gate - beat
 		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]
@@ -1213,12 +1215,19 @@ func _refresh_enrage() -> void:
 ## matches the "after 25%" wording literally, not a gradual ramp from 0.
 ## MIN_BEAT_FLOOR keeps a long fight's pacing from ever collapsing to an
 ## unreadable blur.
+## A battle can set its own enrage start/strength (PvP does).
+func _enrage_pct() -> float:
+	return float(battle.get("enragePct", FarroadCore.ENRAGE_PCT))
+
+func _enrage_after() -> int:
+	return int(battle.get("enrageAfter", FarroadCore.ENRAGE_AFTER))
+
 const ENRAGE_SPEEDUP_STEP := 0.05
 const MIN_BEAT_FLOOR := 0.2
 func _enrage_speed_cut() -> float:
 	if not battle.get("enrage", true):
 		return 0.0
-	var pct: float = FarroadCore.ENRAGE_PCT * float(battle.get("enrageN", 0)) * 100.0
+	var pct: float = _enrage_pct() * float(battle.get("enrageN", 0)) * 100.0
 	if pct < 25.0:
 		return 0.0
 	return floor(pct / 25.0) * ENRAGE_SPEEDUP_STEP
