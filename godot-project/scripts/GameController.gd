@@ -91,7 +91,31 @@ var background_layer: Node2D
 ## show the welcome-back popup (Group J, post-Milestone-3 batch).
 var _offline_summary: Dictionary = {}
 
+## Symbols and emoji (✕ ⏩ ⓘ ⚡ 🔥 ...) come from bundled Noto fonts (SIL
+## OFL, fonts/OFL.txt) as fallbacks to the default font: a browser has no
+## system fonts to borrow them from, and this keeps them the same on every
+## device.
+const SYMBOL_FONTS := ["res://fonts/NotoSansSymbols2-Regular.ttf", "res://fonts/NotoSansSymbols.ttf", "res://fonts/NotoEmoji.ttf"]
+
+static func _add_symbol_fonts() -> void:
+	var base: Font = ThemeDB.fallback_font
+	if base == null or not base.fallbacks.is_empty():
+		return
+	var list: Array[Font] = []
+	for path in SYMBOL_FONTS:
+		var f = load(path)
+		if f is FontFile:
+			# Labels space lines by the tallest font in the fallback list:
+			# give the symbol fonts the main font's height at every size so
+			# plain text isn't spread out
+			for size in range(6, 97):
+				f.set_cache_ascent(0, size, base.get_ascent(size))
+				f.set_cache_descent(0, size, base.get_descent(size))
+			list.append(f)
+	base.fallbacks = list
+
 func _ready() -> void:
+	_add_symbol_fonts()
 	# Ian: "can we add a 2x speed button?" Engine.time_scale is a global
 	# engine property, NOT reset by a scene reload alone (e.g. Settings'
 	# own "Reset Game" button) -- defensively reset here so every fresh
