@@ -1623,6 +1623,7 @@ func set_loop_paused(p: bool) -> void:
 var _loop_started := false
 ## Where this fight is, for the gameplay stats (road/quest/dungeon/pvp).
 var analytics_ctx := "road"
+var _fight_actions := {}   # party action id -> uses this fight (stats)
 
 func _run_battle_loop() -> void:
 	if _loop_started:
@@ -1637,6 +1638,8 @@ func _run_battle_loop() -> void:
 		if e == null:
 			break
 		Analytics.battle_event(e, analytics_ctx)
+		if e.get("isParty", false) and e.get("actionId") != null and e["actionId"] != "none":
+			_fight_actions[e["actionId"]] = int(_fight_actions.get(e["actionId"], 0)) + 1
 		_append_log(e)
 		active_unit_id = e["actorId"]
 		if status_popup.visible:
@@ -1660,6 +1663,11 @@ func _run_battle_loop() -> void:
 	if battle["over"] == null:
 		battle["over"] = "draw"
 	_release_chained("")
+	var fought: Array = []
+	for u in battle["units"]:
+		if u["isParty"]:
+			fought.append(str(u["id"]))
+	Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought)
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])

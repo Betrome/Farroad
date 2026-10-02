@@ -857,7 +857,7 @@ static func spend_affinity(g: Dictionary, uid: String, axis: String) -> bool:
 	if not g["affinities"].has(uid):
 		g["affinities"][uid] = {}
 	g["affinities"][uid][axis] = g["affinities"][uid].get(axis, 0) + 1
-	Analytics.add("spend", "aether:affinity", c)
+	Analytics.add("spend", "aether:affinity:" + axis, c)
 	Analytics.add("affinityBuys", axis)
 	Analytics.add("aetherByUnit", uid, c)
 	return true
@@ -870,7 +870,7 @@ static func spend_pct_stat(g: Dictionary, uid: String, stat: String) -> bool:
 	if not g["statInvest"].has(uid):
 		g["statInvest"][uid] = {}
 	g["statInvest"][uid][stat] = g["statInvest"][uid].get(stat, 0) + 1
-	Analytics.add("spend", "aether:" + stat, c)
+	Analytics.add("spend", "aether:stat:" + stat, c)
 	Analytics.add("aetherByUnit", uid, c)
 	return true
 
@@ -1447,6 +1447,7 @@ static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
 static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
 	Analytics.add("loreBonus", bid)
 	Analytics.add("loreAction", aid)
+	Analytics.add("loreBuys", aid + ":" + bid)
 	if not g["bonuses"].has(aid):
 		g["bonuses"][aid] = {}
 	g["bonuses"][aid][bid] = int(g["bonuses"][aid].get(bid, 0)) + 1

@@ -125,6 +125,22 @@ static func battle_event(e: Dictionary, ctx: String) -> void:
 	add("unitTurns", e.get("actorId", "?"))
 	add("damageByAction", aid, float(e.get("totalDamage", 0)))
 
+## A finished fight: who fought and which actions they used, tagged win or
+## loss and by where it happened -- what the dashboard's win-contribution
+## tables are built from. `actions` is action id -> times used this fight.
+static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array) -> void:
+	_ensure()
+	if not state["enabled"]:
+		return
+	var res := "win" if won else "loss"
+	add("fights", ctx + ":" + res)
+	for aid in actions.keys():
+		add("fightActions_" + res, aid)
+		add("fightActions_%s_%s" % [ctx, res], aid)
+	for uid in units:
+		add("fightUnits_" + res, uid)
+		add("fightUnits_%s_%s" % [ctx, res], uid)
+
 ## ---- reporting ----
 
 static func _platform() -> String:
