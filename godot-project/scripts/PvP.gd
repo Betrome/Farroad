@@ -15,9 +15,10 @@ const MAX_UNITS := 5
 const MAX_STAT := 10000000.0
 const HISTORY_CAP := 20
 const ID_PREFIX := "pvp:"
-## Ian: healing (heals, regen, lifesteal) shrinks with enrage instead of a
-## flat cut -- 5% less each turn, matching enrage, gone by turn 20.
-const HEAL_DECAY := "linear"
+## Ian: in PvP only, healing (heals, regen, lifesteal) shrinks gradually
+## as enrage rises -- 1/(1 + enrage), so half at +100% enrage, but never
+## zero, so healers stay useful.
+const HEAL_DECAY := "inverse"
 ## Ian: PvP fights should last no more than a minute -- both teams enrage
 ## from the first turn, 5% per turn (normal fights: 2.5% from turn 20).
 const ENRAGE_AFTER := 0
