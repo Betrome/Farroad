@@ -30,6 +30,45 @@ static func scale_label(act: Dictionary) -> String:
 		"lowAtkMag": return "the lower of ATK/MAG ×%.1f" % FarroadCore.HYBRID_MUL
 		var k: return String(k).to_upper()
 
+## Who an action hits, in plain words.
+static func target_label(act: Dictionary) -> String:
+	return {"foe": "one foe", "allFoes": "all foes", "ally": "one ally", "allAllies": "the whole party",
+		"self": "self", "deadAlly": "a fallen ally"}.get(str(act.get("tk", "foe")), "one foe")
+
+## Player-facing lines for what an action does beyond its damage/heal and
+## status, built from its real numbers (Ian: the CSV design notes were
+## internal and are no longer shown).
+static func effect_lines(act: Dictionary) -> Array:
+	var out: Array = []
+	var hits := int(act.get("hits", 1)) if act.get("hits") else 1
+	if hits > 1:
+		out.append("Hits %d times." % hits)
+	var pierce := float(act.get("defPierce", 0.0)) if act.get("defPierce") else 0.0
+	var guard := "RES" if act.get("camp") == "mag" else "DEF"
+	if pierce >= 0.999:
+		out.append("True damage: ignores the target's %s." % guard)
+	elif pierce > 0.0:
+		out.append("Ignores %d%% of the target's %s." % [roundi(pierce * 100.0), guard])
+	var crit := float(act.get("critBonus", 0.0)) if act.get("critBonus") else 0.0
+	if crit > 0.0:
+		out.append("+%d%% crit chance." % roundi(crit * 100.0))
+	var ls := float(act.get("lifesteal", 0.0)) if act.get("lifesteal") else 0.0
+	if ls > 0.0:
+		out.append("Heals the user for %d%% of the damage dealt." % roundi(ls * 100.0))
+	var rv := float(act.get("revive", 0.0)) if act.get("revive") else 0.0
+	if rv > 0.0:
+		out.append("Revives a fallen ally with %d%% HP." % roundi(rv * 100.0))
+	var cl := int(act.get("cleanse", 0)) if act.get("cleanse") else 0
+	if cl > 0:
+		out.append("Removes %d debuff%s from each target." % [cl, "" if cl == 1 else "s"])
+	var tt := int(act.get("selfTaunt", 0)) if act.get("selfTaunt") else 0
+	if tt > 0:
+		out.append("Taunts: draws foes' attacks for %d turns." % tt)
+	var sc := float(act.get("stealCharge", 0.0)) if act.get("stealCharge") else 0.0
+	if sc > 0.0:
+		out.append("Steals %d charge from each target hit." % roundi(sc))
+	return out
+
 static func passes(act: Dictionary, target: String, stat: String, effect: String) -> bool:
 	if target != "any" and act.get("tk", "foe") != target:
 		return false

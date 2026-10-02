@@ -240,20 +240,21 @@ func _build_charges_block(parent: VBoxContainer) -> void:
 ## this 3-item picker never needs.
 func _describe_starter_charge(id: String) -> String:
 	var a: Dictionary = FarroadCore.ACTIONS[id]
-	var shape: String = {"allFoes": "all foes", "allAllies": "whole party", "ally": "one ally",
-		"self": "self", "deadAlly": "a fallen ally"}.get(a.get("tk"), "one foe")
-	var bits := ["%s · hits %s" % [("physical" if a.get("camp") == "atk" else "magic"), shape]]
+	var bits := ["%s · %s %s" % [("physical" if a.get("camp") == "atk" else "magic"), ("heals" if a.get("heal") else "hits"), ActionFilter.target_label(a)],
+		"scales with %s" % ActionFilter.scale_label(a)]
 	if a.get("power"):
 		bits.append("power ×%s" % a["power"])
-	if a.get("heal"):
-		bits.append("HEALS")
 	var body := " · ".join(bits)
+	var lines: Array = ActionFilter.effect_lines(a)
+	if a.get("applies"):
+		var turns := " for %d turns" % int(a["turns"]) if a.get("turns") else ""
+		lines.append("Applies %s%s." % [str(a["applies"]).capitalize(), turns])
 	var applies_count := 0
 	for bid in FarroadCore.BONUSES.keys():
 		if FarroadCore.bonus_applies(a, bid):
 			applies_count += 1
-	return "⚡ %s\n%s\n%s\n%d of %d Lore upgrades apply to this action" % \
-		[a["name"], body, a.get("note", ""), applies_count, FarroadCore.BONUSES.size()]
+	return "⚡ %s\n%s\n%s%d of %d Lore upgrades apply to this action" % \
+		[a["name"], body, ("\n".join(lines) + "\n") if not lines.is_empty() else "", applies_count, FarroadCore.BONUSES.size()]
 
 func _refresh_charges() -> void:
 	for id in FarroadProgression.MC_STARTER_CHARGES:

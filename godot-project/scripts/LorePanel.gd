@@ -331,12 +331,11 @@ func _refresh_card() -> void:
 	cost_lbl.modulate = Palette.TEXT_DIM
 	box.add_child(cost_lbl)
 
-	if act.get("note"):
-		var note_lbl := Label.new()
-		note_lbl.text = str(act["note"])
-		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		note_lbl.modulate = Palette.TEXT_DIM
-		box.add_child(note_lbl)
+	for line in ActionFilter.effect_lines(act):
+		var fx_lbl := Label.new()
+		fx_lbl.text = line
+		fx_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(fx_lbl)
 
 	var scales_text := "scales with %s" % ActionFilter.scale_label(act)
 	if act.get("power"):

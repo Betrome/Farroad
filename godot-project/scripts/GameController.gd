@@ -1489,7 +1489,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	vbox.add_child(title)
 
 	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
-	var target_txt: String = str(act.get("tk", "foe"))
+	var target_txt: String = ActionFilter.target_label(act)
 	# Ian: "actions say rank x0.87, not the stat(s) they scale with and the
 	# multiplier." Same "scales with X · power ×N" phrasing LorePanel's own
 	# action-detail card already uses, so both surfaces read consistently.
@@ -1541,13 +1541,12 @@ func _show_action_detail_popup(action_id: String) -> void:
 		applies_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(applies_lbl)
 
-	if act.get("note"):
-		var note_lbl := Label.new()
-		note_lbl.text = str(act["note"])
-		note_lbl.modulate = Palette.TEXT_DIM
-		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-		note_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		vbox.add_child(note_lbl)
+	for line in ActionFilter.effect_lines(act):
+		var fx_lbl := Label.new()
+		fx_lbl.text = line
+		fx_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		fx_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(fx_lbl)
 
 	# 24-item batch, Group D1: "move the (Used by x) text on actions into
 	# the detailed inspection of them... keep them unselectable." A plain
@@ -2201,13 +2200,6 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 				bits.append("%s +%s" % [str(ax).capitalize(), str(affinity[ax])])
 			aff_lbl.text = "Affinity (raw): %s" % ", ".join(bits)
 		vbox.add_child(aff_lbl)
-
-	if item.get("note"):
-		var note_lbl := Label.new()
-		note_lbl.text = str(item["note"])
-		note_lbl.modulate = Palette.TEXT_DIM
-		note_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-		vbox.add_child(note_lbl)
 
 	await _finish_detail_overlay(o)
 
