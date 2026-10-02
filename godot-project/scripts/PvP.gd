@@ -24,6 +24,83 @@ const HEAL_DECAY := "inverse"
 const ENRAGE_AFTER := 0
 const ENRAGE_PCT := 0.05   # opponent units, and their Lore'd action copies
 
+## Ian: ready-made rival teams in the Arena, at varying power and styles,
+## for anyone to fight without a code. Each is built like a shared team:
+## roster units at a level (stats from the same growth table), their own
+## charge actions, gambits from the player pool (no action twice in a team)
+## and some Lore. `wave` sets the Power shown, as a player's farthest does.
+const RIVALS := [
+	{"id": "rookies", "name": "Roadside Rookies", "level": 8, "wave": 30,
+		"blurb": "A fresh crew off the road: straightforward hitters and one healer.",
+		"units": [
+			{"id": "tovan", "slots": [["foe_lowest_hp", "cinderstrike"], ["none", "strike"]]},
+			{"id": "wren", "slots": [["foe_hp_lte_30", "quickslash"], ["none", "strike"]]},
+			{"id": "ilse", "slots": [["ally_hp_lte_50", "mend"], ["none", "waterjet"]]}],
+		"lore": {}},
+	{"id": "ironwall", "name": "The Iron Wall", "level": 15, "wave": 50,
+		"blurb": "Tanks behind shields and a healer: slow, but very hard to break.",
+		"units": [
+			{"id": "dorrek", "slots": [["self_hp_lte_50", "ironwall"], ["foe_lacks_debuff", "guardbreak"], ["none", "shieldbash"]]},
+			{"id": "garrow", "slots": [["self_first_turn", "brace"], ["foe_lacks_debuff", "bulwarkslam"], ["none", "rockfist"]]},
+			{"id": "ansa", "slots": [["ally_hp_lte_50", "greatermend"], ["ally_lacks_buff", "bulwark"], ["none", "lightbolt"]]}],
+		"lore": {"shieldbash": {"potent": 2}, "greatermend": {"potent": 2}}},
+	{"id": "glasscannons", "name": "Glass Cannons", "level": 22, "wave": 80,
+		"blurb": "All-out magic from the back row: devastating if left alone, fragile once reached.",
+		"units": [
+			{"id": "mirel", "slots": [["foe_2plus", "tempest"], ["foe_lacks_debuff", "sear"], ["none", "firebrand"]]},
+			{"id": "sael", "slots": [["foe_2plus", "gale"], ["foe_lowest_hp", "zephyrbolt"], ["none", "windbolt"]]},
+			{"id": "lumen", "slots": [["ally_hp_lte_50", "massmend"], ["foe_lowest_hp", "sunlance"], ["none", "lightbolt"]]}],
+		"lore": {"tempest": {"potent": 3}, "firebrand": {"potent": 2}, "sunlance": {"potent": 2}}},
+	{"id": "venomcourt", "name": "The Venom Court", "level": 30, "wave": 110,
+		"blurb": "Poison, curses and confusion: wins slowly by wearing you down.",
+		"units": [
+			{"id": "vesh", "slots": [["foe_lacks_debuff", "viperfang"], ["foe_hp_lte_30", "execute"], ["none", "shadecut"]]},
+			{"id": "vey", "slots": [["foe_lacks_debuff", "venomstrike"], ["foe_fast", "pindown"], ["none", "strike"]]},
+			{"id": "nyra", "slots": [["foe_lacks_debuff", "curse"], ["foe_most_dangerous", "bewilder"], ["none", "umbralbolt"]]},
+			{"id": "ilse", "slots": [["foe_lacks_debuff", "smother"], ["ally_lacks_buff", "rejuvenate"], ["none", "waterjet"]]}],
+		"lore": {"viperfang": {"lasting": 2}, "curse": {"deepening": 2}, "venomstrike": {"lasting": 1}}},
+	{"id": "stormriders", "name": "Storm Riders", "level": 45, "wave": 160,
+		"blurb": "Speed above all: hasted, relentless, striking before you can move.",
+		"units": [
+			{"id": "zephyra", "slots": [["foe_lowest_hp", "blitz"], ["foe_hp_lte_50", "lightningstep"], ["none", "quickslash"]]},
+			{"id": "skarn", "slots": [["self_first_turn", "rally"], ["foe_hp_lte_30", "execute"], ["none", "gustslash"]]},
+			{"id": "wren", "slots": [["foe_lacks_debuff", "hamstring"], ["foe_lowest_hp", "tempestedge"], ["none", "squallstrike"]]},
+			{"id": "sael", "slots": [["ally_lacks_buff", "haste"], ["foe_2plus", "stormfront"], ["none", "windbolt"]]}],
+		"lore": {"blitz": {"swift": 3, "potent": 2}, "tempestedge": {"potent": 2}, "haste": {"lasting": 2}}},
+	{"id": "legends", "name": "The Legends", "level": 60, "wave": 230,
+		"blurb": "Five legendary heroes at the top of their game. The ultimate test.",
+		"units": [
+			{"id": "kaldor", "slots": [["foe_hp_lte_30", "execute"], ["foe_lacks_debuff", "crushingblow"], ["none", "infernocleaver"]]},
+			{"id": "bastian", "slots": [["self_hp_lte_50", "ironwall"], ["foe_most_dangerous", "fortresscrush"], ["none", "shieldbash"]]},
+			{"id": "sorin", "slots": [["foe_lowest_hp", "shadowrend"], ["foe_weak_light", "dawnblade"], ["none", "stoneshatter"]]},
+			{"id": "seraphine", "slots": [["foe_2plus", "stormfront"], ["foe_lowest_hp", "solarflare"], ["none", "abyssalruin"]]},
+			{"id": "morwen", "slots": [["ally_hp_lte_50", "radiantmend"], ["foe_lacks_debuff", "curse"], ["none", "sanctumray"]]}],
+		"lore": {"infernocleaver": {"potent": 5, "piercing": 2}, "solarflare": {"potent": 5},
+			"radiantmend": {"potent": 3, "cleansing": 2}, "shadowrend": {"potent": 3}}},
+]
+
+static func rival(id: String) -> Dictionary:
+	for r in RIVALS:
+		if r["id"] == id:
+			return r
+	return {}
+
+## A rival as a team, the same shape a share code imports to.
+static func rival_team(r: Dictionary) -> Dictionary:
+	var units: Array = []
+	var total := 0.0
+	for spec in r["units"]:
+		var def = FarroadCore.roster_by_id(spec["id"])
+		var st := FarroadProgression.stats_at(spec["id"], def["stats"], def["hp"], int(r["level"]))
+		total += float(st["hp"] + st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"])
+		units.append({"id": spec["id"], "name": def["name"], "level": int(r["level"]), "stats": st,
+			"maxHp": float(st["hp"]), "affinity": def.get("affinity", {}),
+			"slots": (spec["slots"] as Array).map(func(s): return {"cond": s[0], "action": s[1]}),
+			"chargeAction": def.get("chargeAction"), "row": def.get("row"), "look": Appearance.look({}, spec["id"])})
+	var power := maxi(1, roundi(total / FarroadProgression.POWER_STAT_DIVISOR + FarroadCore.level_curve(int(r["wave"]))))
+	return {"v": 1, "owner": r["name"], "team": r["name"], "rival": r["id"], "power": power,
+		"units": units, "bonuses": (r["lore"] as Dictionary).duplicate(true)}
+
 ## The fielded team as a share code.
 static func export_code(g: Dictionary) -> String:
 	var units: Array = []
@@ -187,12 +264,12 @@ static func clear_actions() -> void:
 			FarroadCore.ACTIONS.erase(aid)
 
 ## Win/loss record (g["pvp"]).
-static func record(g: Dictionary, won: bool, team_owner: String, their_power: int, turns: int, now: int) -> void:
+static func record(g: Dictionary, won: bool, team_owner: String, their_power: int, turns: int, now: int, rival_id: String = "") -> void:
 	if not (g.get("pvp") is Dictionary):
 		g["pvp"] = {"wins": 0, "losses": 0, "history": []}
 	var r: Dictionary = g["pvp"]
 	r["wins" if won else "losses"] = int(r.get("wins" if won else "losses", 0)) + 1
 	var h: Array = r.get("history", [])
-	h.push_front({"owner": team_owner, "won": won, "power": their_power,
+	h.push_front({"owner": team_owner, "won": won, "power": their_power, "rival": rival_id,
 		"myPower": FarroadProgression.party_power(g), "turns": turns, "at": now})
 	r["history"] = h.slice(0, HISTORY_CAP)

@@ -1629,6 +1629,30 @@ func _show_pvp_popup() -> void:
 		copy_btn.text = "Copied!")
 	vbox.add_child(copy_btn)
 
+	# --- ready-made rival teams (Ian)
+	vbox.add_child(_section_label("Rival teams"))
+	var beaten: Dictionary = rec.get("rivals", {})
+	var rival_teams: Array = PvP.RIVALS.map(func(r): return [r, PvP.rival_team(r)])
+	rival_teams.sort_custom(func(a, b): return int(a[1]["power"]) < int(b[1]["power"]))   # weakest first
+	for pair in rival_teams:
+		var r: Dictionary = pair[0]
+		var team: Dictionary = pair[1]
+		var card := VBoxContainer.new()
+		var head := HBoxContainer.new()
+		var name_lbl := _wrap_label("%s%s  ·  Power %d" % [r["name"], "  ✓" if beaten.has(r["id"]) else "", int(team["power"])])
+		head.add_child(name_lbl)
+		var go := Button.new()
+		go.text = "Fight"
+		go.disabled = g.get("sideBattle") != null
+		go.pressed.connect(func():
+			o["backdrop"].queue_free()
+			_start_pvp(team))
+		head.add_child(go)
+		card.add_child(head)
+		var names: Array = (team["units"] as Array).map(func(u): return str(u["name"]))
+		card.add_child(_wrap_label("%s %s" % [r["blurb"], "(" + ", ".join(names) + ")"], true))
+		vbox.add_child(card)
+
 	# --- a rival's team
 	vbox.add_child(_section_label("Fight a team"))
 	var paste_box := TextEdit.new()
@@ -1673,8 +1697,11 @@ func _show_pvp_popup() -> void:
 	if not hist.is_empty():
 		vbox.add_child(_section_label("Recent fights"))
 		for h in hist.slice(0, 10):
-			vbox.add_child(_wrap_label("%s vs %s's team (Power %d) in %d turns" % [
-				"Won" if h.get("won") else "Lost", h.get("owner", "?"), int(h.get("power", 0)), int(h.get("turns", 0))], true))
+			var who: String = str(h.get("owner", "?"))
+			if PvP.rival(str(h.get("rival", ""))).is_empty():
+				who += "'s team"
+			vbox.add_child(_wrap_label("%s vs %s (Power %d) in %d turns" % [
+				"Won" if h.get("won") else "Lost", who, int(h.get("power", 0)), int(h.get("turns", 0))], true))
 	await _finish_detail_overlay(o)
 
 ## Ian: Arena is its own bottom-row button (where Marks was).
@@ -1766,7 +1793,7 @@ func _start_pvp(team: Dictionary) -> void:
 		open_panel.popup.hide()
 	var enemies := PvP.build_opponent(g, team)
 	_enter_side_battle(enemies, int(g.get("wave", 1)), {"kind": "pvp", "owner": str(team.get("owner", "?")),
-		"power": int(team.get("power", 0))})
+		"power": int(team.get("power", 0)), "team": str(team.get("team", "")), "rival": str(team.get("rival", ""))})
 	if pvp_skip_btn != null and is_instance_valid(pvp_skip_btn):
 		pvp_skip_btn.queue_free()
 	pvp_skip_btn = Button.new()
@@ -1806,12 +1833,13 @@ func _show_pvp_result_popup(event: Dictionary) -> void:
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
 	var verb := "beat" if won else "lost to"
-	vbox.add_child(_wrap_label("You %s %s's team (Power %d) in %d turns." % [verb, event["owner"], int(event["power"]), int(event["turns"])]))
+	var foe_name: String = event["team"] if str(event.get("team", "")) != "" else event["owner"] + "'s team"
+	vbox.add_child(_wrap_label("You %s %s (Power %d) in %d turns." % [verb, foe_name, int(event["power"]), int(event["turns"])]))
 	var rec: Dictionary = g.get("pvp", {})
 	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))], true))
 	var me = FarroadCore.roster_by_id("kesh")
-	var brag := "%s %s %s's team (Power %d) with a Power %d team in %d turns in Farroad! Think you can beat mine? %s" % [
-		me["name"] if me else "I", "beat" if won else "lost to", event["owner"], int(event["power"]),
+	var brag := "%s %s %s (Power %d) with a Power %d team in %d turns in Farroad! Think you can beat mine? %s" % [
+		me["name"] if me else "I", "beat" if won else "lost to", foe_name, int(event["power"]),
 		FarroadProgression.party_power(g), int(event["turns"]), PvP.export_code(g)]
 	var copy_btn := Button.new()
 	copy_btn.text = "Copy result to share" if won else "Copy result and my team code"
@@ -2853,7 +2881,7 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 ## so nothing needs restoring once the side battle resolves.
 func _side_battle_label_text(meta: Dictionary) -> String:
 	if meta["kind"] == "pvp":
-		return "PvP — vs %s's team" % meta["owner"]
+		return "PvP — vs %s" % (meta["team"] if str(meta.get("team", "")) != "" else meta["owner"] + "'s team")
 	if meta["kind"] == "quest":
 		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
 	return "%s — Wave %d/%d" % [meta["name"], int(meta["waveIndex"]) + 1, int(meta["totalWaves"])]

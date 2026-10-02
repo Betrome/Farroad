@@ -2846,9 +2846,11 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	if meta["kind"] == "pvp":
 		PvP.clear_actions()
 		var won: bool = result == "party" and not gave_up
-		PvP.record(g, won, meta["owner"], int(meta["power"]), turns, int(now))
+		PvP.record(g, won, meta["owner"], int(meta["power"]), turns, int(now), str(meta.get("rival", "")))
+		if won and str(meta.get("rival", "")) != "":
+			(g["pvp"] as Dictionary).get_or_add("rivals", {})[meta["rival"]] = true
 		return {"kind": "pvp_won" if won else "pvp_lost", "owner": meta["owner"], "power": meta["power"],
-			"turns": turns, "gaveUp": gave_up}
+			"turns": turns, "gaveUp": gave_up, "team": meta.get("team", "")}
 	if meta["kind"] == "quest":
 		var q: Dictionary = g["quests"][meta["uid"]]
 		if result == "party":
