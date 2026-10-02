@@ -117,6 +117,13 @@ func _build_ui(parent: Node) -> void:
 			_parent.call("_show_feedback_popup"))
 	vbox.add_child(feedback_btn)
 
+	# Ian: anonymous gameplay stats, on by default with an off switch.
+	var share_btn := CheckButton.new()
+	share_btn.text = "Share anonymous gameplay stats"
+	share_btn.button_pressed = Analytics.enabled()
+	share_btn.toggled.connect(func(on: bool): Analytics.set_enabled(on))
+	vbox.add_child(share_btn)
+
 	var reset_btn := Button.new()
 	reset_btn.text = "Reset Game"
 	reset_btn.pressed.connect(_on_reset_pressed)

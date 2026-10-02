@@ -1108,7 +1108,7 @@ static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dict
 			continue
 		var r := resolve_condition(s[i]["cond"], u, b, act)
 		if r["ok"]:
-			return {"actionId": s[i]["action"], "target": r["target"],
+			return {"actionId": s[i]["action"], "target": r["target"], "condId": s[i]["cond"],
 				"via": "slot %d [%s] ✓" % [i + 1, cond_label(s[i]["cond"])]}
 	return {"actionId": "strike", "target": null, "via": "all false -> implicit Strike"}
 
@@ -1300,6 +1300,7 @@ static func step(b: Dictionary) -> Variant:
 		ch = choose(u, b)
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))
 	e["actionId"] = act["id"]; e["actionName"] = act["name"]; e["via"] = ch["via"]
+	e["condId"] = ch.get("condId")
 	e["isCharge"] = bool(act.get("isCharge", false)); e["rank"] = act["rank"]
 	e["tickCost"] = tc_of(u, act["rank"])
 	var primary = resolve_target(act, ch["target"], u, b)

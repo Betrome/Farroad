@@ -319,6 +319,14 @@ const PULL_PITY_AT := 30
 ## that is out of this step's scope. Pure g-mutation only, no live-sync
 ## side effects -- see MarksPanel.gd for why that stays the caller's job.
 static func do_pull(g: Dictionary) -> Dictionary:
+	var r := _do_pull(g)
+	if not r.is_empty():
+		Analytics.add("pulls", r["kind"] + ("_dup" if r.get("duplicate", false) else ""))
+		Analytics.add("pulledIds", "%s:%s" % [r["kind"], r.get("id", "")])
+		Analytics.add("spend", "marks:pull", pull_cost(g.get("wave", 1)))
+	return r
+
+static func _do_pull(g: Dictionary) -> Dictionary:
 	var cost := pull_cost(g.get("wave", 1))
 	if not pulls_unlocked(g):
 		return {}
@@ -435,6 +443,8 @@ static func buy_shop_gambit(g: Dictionary, cond_id: String) -> bool:
 		return false
 	g["crystal"] = int(g["crystal"]) - SHOP_GAMBIT_PRICE
 	g["conditions"].append(cond_id)
+	Analytics.add("shop", "gambit:" + cond_id)
+	Analytics.add("spend", "crystal:gambit", SHOP_GAMBIT_PRICE)
 	return true
 
 ## A charge action buys into g["mc"]["acquiredCharges"] (mirrors do_pull's
@@ -482,6 +492,8 @@ static func buy_shop_action(g: Dictionary, action_id: String) -> bool:
 	if int(g.get("crystal", 0)) < price:
 		return false
 	g["crystal"] = int(g["crystal"]) - price
+	Analytics.add("shop", "action:" + action_id)
+	Analytics.add("spend", "crystal:action", price)
 	if shop_action_owned(g, action_id):
 		_credit_lore(g, action_id)
 	elif is_charge:
@@ -502,6 +514,8 @@ static func buy_shop_unit(g: Dictionary, uid: String) -> bool:
 		return false
 	g["crystal"] = int(g["crystal"]) - price
 	join_companion(g, uid)
+	Analytics.add("shop", "unit:" + uid)
+	Analytics.add("spend", "crystal:unit", price)
 	return true
 
 ## Equipment is always purchasable, even if already owned -- extra copies
@@ -517,6 +531,8 @@ static func buy_shop_equipment(g: Dictionary, item_id: String) -> bool:
 		return false
 	g["crystal"] = int(g["crystal"]) - price
 	g["equipInv"][item_id] = int(g["equipInv"].get(item_id, 0)) + 1
+	Analytics.add("shop", "equip:" + item_id)
+	Analytics.add("spend", "crystal:equipment", price)
 	return true
 
 static func travel_sec(w: float) -> float:
@@ -819,6 +835,8 @@ static func spend_feed(g: Dictionary, uid: String, amount: int) -> bool:
 		return false
 	g["aether"] -= amount
 	feed_unit(g, uid, amount)
+	Analytics.add("spend", "aether:level", amount)
+	Analytics.add("aetherByUnit", uid, amount)
 	return true
 
 static func spend_recovery(g: Dictionary, uid: String) -> bool:
@@ -827,6 +845,8 @@ static func spend_recovery(g: Dictionary, uid: String) -> bool:
 		return false
 	g["aether"] -= c
 	g["recovery"][uid] = g["recovery"].get(uid, 0) + 1
+	Analytics.add("spend", "aether:recovery", c)
+	Analytics.add("aetherByUnit", uid, c)
 	return true
 
 static func spend_affinity(g: Dictionary, uid: String, axis: String) -> bool:
@@ -837,6 +857,9 @@ static func spend_affinity(g: Dictionary, uid: String, axis: String) -> bool:
 	if not g["affinities"].has(uid):
 		g["affinities"][uid] = {}
 	g["affinities"][uid][axis] = g["affinities"][uid].get(axis, 0) + 1
+	Analytics.add("spend", "aether:affinity", c)
+	Analytics.add("affinityBuys", axis)
+	Analytics.add("aetherByUnit", uid, c)
 	return true
 
 static func spend_pct_stat(g: Dictionary, uid: String, stat: String) -> bool:
@@ -847,6 +870,8 @@ static func spend_pct_stat(g: Dictionary, uid: String, stat: String) -> bool:
 	if not g["statInvest"].has(uid):
 		g["statInvest"][uid] = {}
 	g["statInvest"][uid][stat] = g["statInvest"][uid].get(stat, 0) + 1
+	Analytics.add("spend", "aether:" + stat, c)
+	Analytics.add("aetherByUnit", uid, c)
 	return true
 
 ## ===== elemental affinity (baseline + purchased points + equipped gear) =====
@@ -1103,6 +1128,7 @@ static func sync_loadout(g: Dictionary, uid: String) -> void:
 ## slot has no condition gate). Overwrites every slot -- an explicit,
 ## all-at-once rebuild, not a partial fill.
 static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
+	Analytics.add("features", "autoGambits")
 	var slots: Array = ensure_loadout(g, uid)
 	var probe := build_party_unit(g, uid, 0)
 	var dominant_camp: String = "mag" if float(probe["base"]["mag"]) > float(probe["base"]["atk"]) else "atk"
@@ -1218,6 +1244,7 @@ static func available_for_party(g: Dictionary) -> Array:
 const PARTY_PRESET_CAP := 10
 
 static func save_party_preset(g: Dictionary, preset_name: String) -> bool:
+	Analytics.add("features", "savePreset")
 	var trimmed: String = preset_name.strip_edges()
 	if trimmed == "" or (g["party"] as Array).is_empty():
 		return false
@@ -1244,6 +1271,7 @@ static func preset_members_available(g: Dictionary, index: int) -> Array:
 	return out
 
 static func load_party_preset(g: Dictionary, index: int) -> bool:
+	Analytics.add("features", "loadPreset")
 	var members := preset_members_available(g, index)
 	if members.is_empty():
 		return false
@@ -1406,6 +1434,7 @@ static func unused_lore_refund(g: Dictionary) -> Dictionary:
 ## bonus_spend drops. No re-validation inside (the real JS doesn't either -- the button
 ## itself only exists when unused_lore_refund(g)["ids"] is non-empty).
 static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
+	Analytics.add("features", "loreRefund")
 	for aid in ids:
 		g["bonuses"].erase(aid)
 	FarroadCore.apply_bonuses(g["bonuses"])
@@ -1416,6 +1445,8 @@ static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
 ## layer's responsibility, same discipline as GAMBITS' own mutation
 ## functions above).
 static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
+	Analytics.add("loreBonus", bid)
+	Analytics.add("loreAction", aid)
 	if not g["bonuses"].has(aid):
 		g["bonuses"][aid] = {}
 	g["bonuses"][aid][bid] = int(g["bonuses"][aid].get(bid, 0)) + 1
@@ -2182,6 +2213,10 @@ static func send_expedition(g: Dictionary, party_ids: Array, direction: String, 
 		"ew": 1, "hpFrac": 1.0, "bank": {"aether": 0.0, "marks": 0.0},
 		"homeAt": null, "arrivedAt": null, "log": []}
 	g["expeditions"].append(exp)
+	Analytics.add("expedition", "sent:" + direction)
+	Analytics.add("expedition", "size:%d" % party_ids.size())
+	for uid in party_ids:
+		Analytics.add("expeditionUnits", uid)
 	var names := _expedition_names(party_ids)
 	push_expedition_log(exp, "%s set out to explore %s." % [names, direction_label(direction)], now)
 	return true
@@ -2397,6 +2432,7 @@ static func recall_expedition(g: Dictionary, id: String, now) -> bool:
 	resolve_expedition(g, exp, now)
 	if g["expeditions"].has(exp) and exp.get("homeAt") == null:
 		begin_return_trip(exp, now, "recalled.", now)
+		Analytics.add("expedition", "recalled")
 	return true
 
 ## Mirrors collectExpedition (farroad-ui.js:1046-1056) -- only reachable
@@ -2411,6 +2447,10 @@ static func collect_expedition(g: Dictionary, id: String) -> bool:
 		return false
 	g["aether"] = float(g["aether"]) + float(exp["bank"]["aether"])
 	g["marks"] = float(g["marks"]) + float(exp["bank"]["marks"])
+	Analytics.add("expedition", "collected")
+	Analytics.add("expedition", "aetherCollected", float(exp["bank"]["aether"]))
+	Analytics.add("expedition", "marksCollected", float(exp["bank"]["marks"]))
+	Analytics.add("expeditionDepths", str(int(exp.get("ew", 0)) / 10 * 10))
 	g["expeditions"] = g["expeditions"].filter(func(e2): return e2["id"] != exp["id"])
 	return true
 

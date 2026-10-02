@@ -260,6 +260,7 @@ func skip_current() -> void:
 func _grant(id: String, skipped: bool) -> void:
 	if is_done(g, id):
 		return
+	Analytics.add("tutorials", id + (":skipped" if skipped else ":done"))
 	g["tutorials"][id] = true
 	g["crystal"] = int(g.get("crystal", 0)) + (10 if id == "marks" else 1)
 	if skipped:

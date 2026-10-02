@@ -234,6 +234,7 @@ func _start_game() -> void:
 	add_child(shop_panel)
 	shop_panel.setup(g, _vp, self)
 	_build_arena_button()
+	_start_analytics()
 	expedition_timer = Timer.new()
 	expedition_timer.wait_time = EXPEDITION_POLL_SEC
 	expedition_timer.autostart = true
@@ -382,6 +383,10 @@ func _try_resume_save() -> bool:
 	FarroadProgression.start_wave(g, resume_wave, true)
 	var now := Time.get_unix_time_from_system()
 	_offline_summary = FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
+	if not _offline_summary.is_empty():
+		Analytics.add("offline", "seconds", float(_offline_summary.get("elapsed_sec", 0.0)))
+		Analytics.add("offline", "returns")
+		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
 	FarroadProgression.resolve_all_expeditions(g, now)
 	# Ian: the time away must be accurate next launch even after a very
 	# short session -- stamp the save now that this gap has been counted.
@@ -427,6 +432,71 @@ func _notification(what: int) -> void:
 			else:
 				_backgrounded_at = -1.0
 
+## ===== Gameplay stats (Analytics.gd) =====
+## Counted locally while playing and sent about once a day; see Analytics.gd.
+const ANALYTICS_TICK_SEC := 60.0
+var _road_wave_started_ms: int = 0
+var _side_started_ms: int = 0
+var _analytics_ticks: int = 0
+
+func _start_analytics() -> void:
+	Analytics.add("session", "starts")
+	var t := Timer.new()
+	t.wait_time = ANALYTICS_TICK_SEC
+	t.ignore_time_scale = true   # real minutes played, at 1x or 2x
+	t.autostart = true
+	t.timeout.connect(_on_analytics_tick)
+	add_child(t)
+	if not Analytics.notice_shown() and (tutorial == null or not tutorial.holds_road()):
+		_show_analytics_notice.call_deferred()
+	# A report that's due goes out a little after launch, not mid-boot.
+	get_tree().create_timer(20.0).timeout.connect(func(): Analytics.maybe_send(g, self))
+
+func _on_analytics_tick() -> void:
+	Analytics.add("session", "minutes")
+	if Engine.time_scale > 1.0:
+		Analytics.add("session", "minutesFast")
+	_analytics_ticks += 1
+	if _analytics_ticks % 10 == 0:
+		Analytics.save()
+		Analytics.maybe_send(g, self)
+
+## Time on a Road wave, from its fight being built to its end (quest,
+## dungeon and Arena fights in between don't count), plus who fought it.
+func _record_road_wave(cleared: bool) -> void:
+	if _road_wave_started_ms <= 0:
+		return
+	var secs := (Time.get_ticks_msec() - _road_wave_started_ms) / 1000.0
+	_road_wave_started_ms = 0
+	Analytics.wave(int(g.get("wave", 1)), secs, cleared)
+	if cleared:
+		for uid in g.get("party", []):
+			Analytics.add("partyWaves", uid)
+
+func _record_side_battle(meta: Dictionary, kind: String) -> void:
+	var secs := (Time.get_ticks_msec() - _side_started_ms) / 1000.0
+	if _road_wave_started_ms > 0:
+		_road_wave_started_ms += int(secs * 1000.0)   # the Road was paused meanwhile
+	var key := kind
+	match str(meta.get("kind", "")):
+		"quest": key += ":%s#%d" % [meta.get("uid", "?"), int(meta.get("stage", 0)) + 1]
+		"dungeon": key += ":%s#t%d" % [meta.get("direction", "?"), int(meta.get("tier", 0))]
+		"pvp": key += ":" + (str(meta.get("rival", "")) if str(meta.get("rival", "")) != "" else "code")
+	Analytics.add("sideBattles", key)
+	Analytics.add("sideBattleSeconds", str(meta.get("kind", "?")), secs)
+
+func _show_analytics_notice() -> void:
+	Analytics.mark_notice_shown()
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Helping balance Farroad"
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
+	vbox.add_child(title)
+	vbox.add_child(_wrap_label("Farroad sends anonymous gameplay stats about once a day: which units, actions and gambits get used, what Aether and Lore go on, how waves, quests and expeditions go. No personal details are included."))
+	vbox.add_child(_wrap_label("You can turn this off any time in Menu > Settings.", true))
+	await _finish_detail_overlay(o)
+
 func _save_game() -> void:
 	var snap := FarroadSave.serialize(g, int(Time.get_unix_time_from_system()))
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -434,6 +504,7 @@ func _save_game() -> void:
 		push_error("GameController: failed to open %s for writing" % SAVE_PATH)
 		return
 	f.store_string(JSON.stringify(snap))
+	Analytics.save()
 	f.close()
 
 ## Ian (batch): "I want to eventually replace the blank background with
@@ -1812,6 +1883,7 @@ var pvp_skip_btn: Button
 func _skip_pvp() -> void:
 	if not _pvp_running():
 		return
+	Analytics.add("features", "pvpSkip")
 	if side_presenter != null and is_instance_valid(side_presenter):
 		side_presenter.battle_finished.disconnect(_on_side_battle_finished)
 		side_presenter.queue_free()
@@ -2525,6 +2597,7 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		presenter.set_loop_paused(true)   # the Road waits out a running (or due) tutorial
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"], stage_enemies_offscreen, g.get("clearedWaves", {}), hide_party_until_revealed, auto_start_loop)
 	current_presenter = presenter
+	_road_wave_started_ms = Time.get_ticks_msec()
 
 const WAVE_RUN_TIME := 1.0
 ## Piece G: "have them move back over .25 seconds" -- the party's own
@@ -2617,6 +2690,7 @@ func _on_battle_finished(outcome: String, from: Node = null) -> void:
 	# finishing would advance the wave a second time.
 	if from != null and from != current_presenter:
 		return
+	_record_road_wave(outcome == "party")
 	if outcome == "party":
 		# Captured BEFORE after_wave_cleared/start_wave advance g["wave"] --
 		# this is the wave that just got cleared, not the upcoming one, so
@@ -2859,6 +2933,7 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 	if not FarroadProgression.start_side_battle(g, enemies, wave, meta):
 		return
+	_side_started_ms = Time.get_ticks_msec()
 	if current_presenter != null:
 		current_presenter.call("set_loop_paused", true)
 		current_presenter.hide()
@@ -2878,6 +2953,7 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	var sp = side_presenter
+	sp.analytics_ctx = str(g["sideBattle"]["meta"].get("kind", "quest"))
 	sp.start_battle(g["battle"], g["battle"]["units"], true, {}, reveal_party, false)
 	sp.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
 	if reveal_party:
@@ -2933,7 +3009,10 @@ func _give_up_quest() -> void:
 	_resolve_side_battle("enemy", true)
 
 func _resolve_side_battle(result: String, gave_up: bool) -> void:
+	var side_meta: Dictionary = (g["sideBattle"]["meta"] as Dictionary).duplicate() if g.get("sideBattle") != null else {}
 	var event := FarroadProgression.finish_side_battle(g, result, gave_up, Time.get_unix_time_from_system())
+	if event["kind"] != "dungeon_wave_advance":
+		_record_side_battle(side_meta, str(event["kind"]))
 	if event["kind"] == "dungeon_wave_advance":
 		# Ian: "Quests/Dungeons: Same movement between waves as with the
 		# Road." The party runs on, settles, the next wave runs in, then

@@ -1621,6 +1621,8 @@ func set_loop_paused(p: bool) -> void:
 ## a second start (e.g. begin_combat after start_battle already auto-started)
 ## can't step the same battle twice and finish it twice.
 var _loop_started := false
+## Where this fight is, for the gameplay stats (road/quest/dungeon/pvp).
+var analytics_ctx := "road"
 
 func _run_battle_loop() -> void:
 	if _loop_started:
@@ -1634,6 +1636,7 @@ func _run_battle_loop() -> void:
 		var e = FarroadCore.step(battle)
 		if e == null:
 			break
+		Analytics.battle_event(e, analytics_ctx)
 		_append_log(e)
 		active_unit_id = e["actorId"]
 		if status_popup.visible:

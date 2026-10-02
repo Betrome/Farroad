@@ -8,3 +8,8 @@ art_src/third_party/otsoga_godot/
 tools/__pycache__/
 *.blend1
 art_src/mc/v2/region_masks/_raw/
+
+# Gameplay stats: private read key, downloaded reports and the built dashboard
+tools/analytics/.env
+tools/analytics/data/
+tools/analytics/report.html
