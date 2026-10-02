@@ -114,8 +114,30 @@ static func _add_symbol_fonts() -> void:
 			list.append(f)
 	base.fallbacks = list
 
+## Ian: "for now, I want the desktop version to be similar dimensions as
+## the phone version." On a PC the window opens phone-shaped (the game's
+## 412:915 proportions) at 90% of the screen's usable height, centred --
+## sized to the actual screen, so it reads the same on 1080p, 1440p or a
+## scaled display. Once per run (not again on a scene reload).
+static var _window_sized := false
+
+static func _size_desktop_window() -> void:
+	if _window_sized or OS.has_feature("web") or not OS.has_feature("pc") or DisplayServer.get_name() == "headless":
+		return
+	_window_sized = true
+	if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
+		return
+	var usable: Rect2i = DisplayServer.screen_get_usable_rect()
+	var base := Vector2(float(ProjectSettings.get_setting("display/window/size/viewport_width", 412)),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height", 915)))
+	var h := int(usable.size.y * 0.9)
+	var size := Vector2i(int(h * base.x / base.y), h)
+	DisplayServer.window_set_size(size)
+	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
+
 func _ready() -> void:
 	_add_symbol_fonts()
+	_size_desktop_window()
 	# Ian: "can we add a 2x speed button?" Engine.time_scale is a global
 	# engine property, NOT reset by a scene reload alone (e.g. Settings'
 	# own "Reset Game" button) -- defensively reset here so every fresh
