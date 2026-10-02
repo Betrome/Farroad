@@ -2511,7 +2511,7 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	if g.get("sideBattle") != null:
 		return
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
-	presenter.battle_finished.connect(_on_battle_finished)
+	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	add_child(presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
@@ -2609,7 +2609,11 @@ func _animate_wave_retreat(old_presenter: Node) -> void:
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the
 ## checkpoint wave internally (it calls start_wave itself), so only a WIN
 ## needs a separate start_wave(wave+1) call here.
-func _on_battle_finished(outcome: String) -> void:
+func _on_battle_finished(outcome: String, from: Node = null) -> void:
+	# Only the Road's current presenter may advance the Road; a stray one
+	# finishing would advance the wave a second time.
+	if from != null and from != current_presenter:
+		return
 	if outcome == "party":
 		# Captured BEFORE after_wave_cleared/start_wave advance g["wave"] --
 		# this is the wave that just got cleared, not the upcoming one, so
@@ -2689,12 +2693,17 @@ func _on_battle_finished(outcome: String) -> void:
 		# now, so this is purely for the chrome fade-in polish, not to dodge
 		# an overlap), auto_start_loop=false (combat waits for step 5 below).
 		await _begin_next_fight(true, true, false)
-		if current_presenter != null:
-			current_presenter.call("reveal_party", CHROME_FADE_TIME)
-			current_presenter.call("run_enemies_entering")
+		# A quest/dungeon/Arena fight started during the run: the next Road
+		# fight is built (and started) when that fight ends instead, so this
+		# sequence stops here rather than also starting it.
+		var next = current_presenter
+		if next == null:
+			return
+		next.call("reveal_party", CHROME_FADE_TIME)
+		next.call("run_enemies_entering")
 		await get_tree().create_timer(ENEMY_RUN_IN_TIME).timeout
-		if current_presenter != null:
-			current_presenter.call("begin_combat")
+		if is_instance_valid(next) and next == current_presenter:
+			next.call("begin_combat")
 	else:
 		FarroadProgression.on_wipe(g)
 		_refresh_hud()

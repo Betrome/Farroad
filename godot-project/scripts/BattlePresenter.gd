@@ -1617,7 +1617,15 @@ var loop_paused: bool = false
 func set_loop_paused(p: bool) -> void:
 	loop_paused = p
 
+## Set once the loop has started -- a presenter only ever runs one loop, so
+## a second start (e.g. begin_combat after start_battle already auto-started)
+## can't step the same battle twice and finish it twice.
+var _loop_started := false
+
 func _run_battle_loop() -> void:
+	if _loop_started:
+		return
+	_loop_started = true
 	var guard := 0
 	while battle["over"] == null and guard < 300:
 		while loop_paused:
