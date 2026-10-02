@@ -50,7 +50,11 @@ theme/custom="res://theme/default_theme.tres"
 window/size/viewport_width=412
 window/size/viewport_height=915
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+; Ian: the exe/web build was unplayable fullscreen on a wide monitor --
+; "expand" widened the canvas to the window. keep_width keeps the phone
+; width: taller screens still get extra height, wider ones (monitors,
+; landscape phones) show the game centred with bars at the sides.
+window/stretch/aspect="keep_width"
 ; handheld/orientation is an enum project setting (int index into
 ; landscape/portrait/reverse_landscape/reverse_portrait/sensor_landscape/
 ; sensor_portrait/sensor) -- 1 = portrait. A quoted string like "portrait"
