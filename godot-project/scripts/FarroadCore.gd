@@ -1350,7 +1350,9 @@ static func step(b: Dictionary) -> Variant:
 				for tg in tl:
 					if tg == null or tg["hp"] <= 0:
 						continue
-					var r := resolve_hit(u, tg, act, b, pv)
+					# Ian: target-HP actions hit by Broad scale off each foe's own HP.
+					var hit_pv: float = eval_power_fn(act, u, tg) if act.get("powerFnId") in ["execute", "reckoning"] else pv
+					var r := resolve_hit(u, tg, act, b, hit_pv)
 					e["hits"].append(r)
 					e["totalDamage"] += r["damage"]
 					tg["hp"] = max(0, tg["hp"] - r["damage"])
