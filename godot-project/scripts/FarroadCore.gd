@@ -1142,8 +1142,9 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["damage"] = max(1, floori(d))
 	return o
 
-static func heal_for(src: Dictionary, tgt: Dictionary, act: Dictionary, _b: Dictionary, pv: float) -> Dictionary:
+static func heal_for(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Dictionary, pv: float) -> Dictionary:
 	var v: float = pv * (stat_by_key(src, act["scaleStat"]) if act.get("scaleStat") else eff_mag(src)) * aff_boost(src["affinity"]["spirit"], tgt["affinity"]["spirit"])
+	v *= float(b.get("healMul", 1.0))   # PvP halves healing
 	var amt: int = max(1, floori(v))
 	var before: float = tgt["hp"]
 	tgt["hp"] = min(tgt["maxHp"], tgt["hp"] + amt)
@@ -1205,7 +1206,7 @@ static func step(b: Dictionary) -> Variant:
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
 	if has(u, "regen") and u["hp"] > 0:
-		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"]))
+		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * float(b.get("healMul", 1.0))))
 		var bf = u["hp"]
 		u["hp"] = min(u["maxHp"], u["hp"] + rg)
 		e["regen"] = u["hp"] - bf
@@ -1337,7 +1338,7 @@ static func step(b: Dictionary) -> Variant:
 							e["notes"].append("stole %d charge from %s" % [roundi(took), tg["name"]])
 					if act.get("lifesteal") and r["damage"] > 0:
 						var hb = u["hp"]
-						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"])))
+						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"]) * float(b.get("healMul", 1.0))))
 						if u["hp"] > hb:
 							e["heals"].append({"heal": true, "targetName": u["name"], "amount": u["hp"] - hb})
 			if act.get("tk") == "allFoes":
@@ -1385,7 +1386,7 @@ static func step(b: Dictionary) -> Variant:
 	e["chargeAfter"] = u["charge"]
 	u["turnsTaken"] += 1
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
-	if b["enrage"] and b["beat"] >= ENRAGE_AFTER:
+	if b["enrage"] and b["beat"] >= int(b.get("enrageAfter", ENRAGE_AFTER)):
 		b["enrageN"] = b.get("enrageN", 0) + 1
 	# enrageAll (PvP): both sides enrage, so neither team gets the edge
 	if b["enrage"] and (not u["isParty"] or b.get("enrageAll", false)) and u["hp"] > 0:
@@ -1405,7 +1406,8 @@ static func step(b: Dictionary) -> Variant:
 			# lands it exactly on (original * (1+PCT*target_n)).
 			var applied_n: int = int(u.get("enrageApplied", 0))
 			var target_n: int = int(b.get("enrageN", 0))
-			var mul: float = (1.0 + ENRAGE_PCT * target_n) / (1.0 + ENRAGE_PCT * applied_n)
+			var pct: float = float(b.get("enragePct", ENRAGE_PCT))   # a battle may override (PvP tuning)
+			var mul: float = (1.0 + pct * target_n) / (1.0 + pct * applied_n)
 			u["base"]["atk"] *= mul
 			u["base"]["mag"] *= mul
 			# Ian: "have enrage increase speed as well." Same linear
@@ -1416,7 +1418,7 @@ static func step(b: Dictionary) -> Variant:
 			u["base"]["spd"] *= mul
 			u["enrageApplied"] = target_n
 			e["enrageStacks"] = target_n
-			e["notes"].append("enraged ×%d (+%d%% damage/speed)" % [e["enrageStacks"], round(ENRAGE_PCT * target_n * 100)])
+			e["notes"].append("enraged ×%d (+%d%% damage/speed)" % [e["enrageStacks"], round(pct * target_n * 100)])
 	b["log"].append(e)
 	check_end(b)
 	return e

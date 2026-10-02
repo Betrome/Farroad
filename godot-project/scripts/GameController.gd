@@ -1656,6 +1656,37 @@ func _section_label(text: String) -> Label:
 	l.add_theme_font_size_override("font_size", 16)
 	return l
 
+## Ian: "I don't know if there's a tutorial or not" -- Menu > Tutorials
+## lists each one: done, waiting to start, or the wave that opens it.
+const TUTORIAL_NAMES := {"road": "The Road", "units": "Units", "gambits": "Gambits", "quests": "Quests",
+	"lore": "Lore", "marks": "Marks", "shop": "Shop", "party": "Party", "gear": "Gear", "expedition": "Expedition"}
+
+func _show_tutorials_popup() -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Tutorials"
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var due: Dictionary = tutorial._due() if tutorial != null else {}
+	for t in Tutorial.TUTS:
+		var id: String = t["id"]
+		var status: String
+		if Tutorial.is_done(g, id):
+			status = "Done"
+		elif tutorial != null and tutorial.active == id:
+			status = "In progress"
+		elif not due.is_empty() and due["id"] == id:
+			status = "Ready -- starts when you close the menus"
+		elif int(g.get("farthest", 1)) > int(t["wave"]):
+			status = "Ready -- up next"
+		else:
+			status = "After wave %d" % int(t["wave"]) if int(t["wave"]) > 0 else "At the start"
+		vbox.add_child(_wrap_label("%s: %s" % [TUTORIAL_NAMES.get(id, id), status], Tutorial.is_done(g, id)))
+	if g.get("tutorialSkip", false):
+		vbox.add_child(_wrap_label("Tutorials are skipped; their rewards arrive at their waves.", true))
+	await _finish_detail_overlay(o)
+
 ## Whether a PvP fight is on (menus that change units are locked meanwhile).
 func _pvp_running() -> bool:
 	var sb = g.get("sideBattle")
@@ -1671,6 +1702,33 @@ func _start_pvp(team: Dictionary) -> void:
 	var enemies := PvP.build_opponent(g, team)
 	_enter_side_battle(enemies, int(g.get("wave", 1)), {"kind": "pvp", "owner": str(team.get("owner", "?")),
 		"power": int(team.get("power", 0))})
+	if pvp_skip_btn != null and is_instance_valid(pvp_skip_btn):
+		pvp_skip_btn.queue_free()
+	pvp_skip_btn = Button.new()
+	pvp_skip_btn.text = "Skip fight ⏭"
+	pvp_skip_btn.position = Vector2(_vp.x * 0.56, _vp.y * 0.015)
+	pvp_skip_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	pvp_skip_btn.pressed.connect(_skip_pvp)
+	add_child(pvp_skip_btn)
+
+## Ian: PvP fights can be skipped -- the rest of the fight is worked out at
+## once (same engine, same rules) and the result shown.
+var pvp_skip_btn: Button
+
+func _skip_pvp() -> void:
+	if not _pvp_running():
+		return
+	if side_presenter != null and is_instance_valid(side_presenter):
+		side_presenter.battle_finished.disconnect(_on_side_battle_finished)
+		side_presenter.queue_free()
+		side_presenter = null
+	var b: Dictionary = g["battle"]
+	var n := 0
+	while b["over"] == null and n < 20000:
+		if FarroadCore.step(b) == null:
+			break
+		n += 1
+	_resolve_side_battle("party" if b["over"] == "party" else "enemy", false)
 
 ## The result, with a brag to copy that carries the player's own code so the
 ## rival can fight back.
@@ -2807,6 +2865,8 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		# now that g["sideBattle"] is clear again, it's finally safe to.
 		_begin_next_fight()
 	if str(event["kind"]).begins_with("pvp"):
+		if pvp_skip_btn != null and is_instance_valid(pvp_skip_btn):
+			pvp_skip_btn.queue_free()
 		_show_pvp_result_popup(event)
 	else:
 		quests_panel.call("_show_result", event)

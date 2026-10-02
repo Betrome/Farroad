@@ -91,6 +91,13 @@ func _build_ui(parent: Node) -> void:
 	catalogue_btn.pressed.connect(_on_catalogue_pressed)
 	vbox.add_child(catalogue_btn)
 
+	var tuts_btn := Button.new()
+	tuts_btn.text = "Tutorials"
+	tuts_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_tutorials_popup"):
+			_parent.call("_show_tutorials_popup"))
+	vbox.add_child(tuts_btn)
+
 	# Ian: "allow players to skip tutorials" -- unlocks every menu now (a
 	# tutorial's own caption has a Skip for just that one).
 	var skip_btn := Button.new()

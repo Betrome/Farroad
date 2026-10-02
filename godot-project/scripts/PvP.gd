@@ -14,7 +14,8 @@ const PREFIX := "FARROAD-PVP1."
 const MAX_UNITS := 5
 const MAX_STAT := 10000000.0
 const HISTORY_CAP := 20
-const ID_PREFIX := "pvp:"   # opponent units, and their Lore'd action copies
+const ID_PREFIX := "pvp:"
+const HEAL_MUL := 0.5   # Ian: PvP healing (heals, regen, lifesteal) at 50%   # opponent units, and their Lore'd action copies
 
 ## The fielded team as a share code.
 static func export_code(g: Dictionary) -> String:

@@ -2789,6 +2789,7 @@ static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Di
 	if meta.get("kind") == "pvp":   # both teams enrage, so long fights still end evenly
 		g["battle"]["enrage"] = true
 		g["battle"]["enrageAll"] = true
+		g["battle"]["healMul"] = PvP.HEAL_MUL   # Ian: healing at 50% in PvP
 	g["sideBattle"] = {"savedWave": saved_wave, "wave": wave, "meta": meta}
 	return true
 
