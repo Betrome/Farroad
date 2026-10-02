@@ -185,11 +185,17 @@ func _refresh_actions() -> void:
 	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh_actions()))
 	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh_actions()))
 	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh_actions()))
+	filter_row.add_child(ActionFilter.sort_dropdown(_refresh_actions))
 	list_container.add_child(filter_row)
 
 	var known: Array = FarroadProgression.lore_action_ids(g)
 	var filters_active: bool = action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any"
-	for aid in FarroadCore.ACTIONS.keys():
+	var order: Array = FarroadCore.ACTIONS.keys()
+	if ActionFilter.sort_mode != "default":
+		# Sorted actions you know first; undiscovered ones stay at the end in
+		# their usual order (sorting them by name would give names away).
+		order = ActionFilter.sort_ids(g, order.filter(func(a): return known.has(a))) + order.filter(func(a): return not known.has(a))
+	for aid in order:
 		var act: Dictionary = FarroadCore.ACTIONS[aid]
 		var is_known: bool = known.has(aid)
 		if filters_active and (not is_known or not _action_passes_filter(act)):

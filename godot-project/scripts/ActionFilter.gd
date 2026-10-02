@@ -19,6 +19,34 @@ const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", 
 const GEAR_SLOT_OPTIONS := [["any", "Any slot"], ["head", "Head"], ["body", "Body"], ["legs", "Legs"], ["hand", "Hand"]]
 const RARITY_OPTIONS := [["any", "Any rarity"], ["common", "Common"], ["rare", "Rare"], ["legendary", "Legendary"]]
 
+## Ian: action lists can be sorted A-Z or by level. One choice shared by
+## every action list (Gambits, Lore, Catalogue, Shop) for the session.
+const SORT_OPTIONS := [["default", "Default order"], ["alpha", "Sort: A–Z"], ["level", "Sort: Level"]]
+static var sort_mode: String = "default"
+
+static func sort_dropdown(on_change: Callable) -> OptionButton:
+	return dropdown(SORT_OPTIONS, sort_mode, func(v):
+		sort_mode = v
+		on_change.call())
+
+## `ids` in the chosen order (a new array). Level is the action's Lore
+## level, highest first; ties fall back to A-Z.
+static func sort_ids(g: Dictionary, ids: Array) -> Array:
+	var out := ids.duplicate()
+	if sort_mode == "default":
+		return out
+	var name_of := func(aid) -> String:
+		var a = FarroadCore.ACTIONS.get(aid)
+		return str(a["name"]).to_lower() if a else str(aid)
+	out.sort_custom(func(x, y):
+		if sort_mode == "level":
+			var lx := FarroadProgression.action_level(g, x)
+			var ly := FarroadProgression.action_level(g, y)
+			if lx != ly:
+				return lx > ly
+		return name_of.call(x) < name_of.call(y))
+	return out
+
 static func scale_stat(act: Dictionary) -> String:
 	var s = act.get("scaleStat")
 	if s == "avgAtkMag":

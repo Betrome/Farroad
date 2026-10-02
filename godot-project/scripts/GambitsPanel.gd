@@ -388,9 +388,11 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
 		action_filter_effect = v
 		_populate_action_picker(list_container, backdrop, i, current_action)))
+	filter_row.add_child(ActionFilter.sort_dropdown(func():
+		_populate_action_picker(list_container, backdrop, i, current_action)))
 	list_container.add_child(filter_row)
 
-	var action_ids: Array = g["actions"]
+	var action_ids: Array = ActionFilter.sort_ids(g, g["actions"])
 	var filters_active: bool = action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any"
 	for aid in action_ids:
 		var act = FarroadCore.ACTIONS.get(aid)
@@ -449,8 +451,10 @@ func _populate_charge_picker(list_container: Container, backdrop: Node, acquired
 	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
 		action_filter_effect = v
 		_populate_charge_picker(list_container, backdrop, acquired, current)))
+	filter_row.add_child(ActionFilter.sort_dropdown(func():
+		_populate_charge_picker(list_container, backdrop, acquired, current)))
 	list_container.add_child(filter_row)
-	for aid in acquired:
+	for aid in ActionFilter.sort_ids(g, acquired):
 		var act = FarroadCore.ACTIONS.get(aid)
 		if aid != current and (act == null or not _action_passes_filter(act)):
 			continue

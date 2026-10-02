@@ -436,11 +436,13 @@ func _populate_unequipped_picker(list_container: Container, backdrop: Node, cand
 	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v):
 		action_filter_effect = v
 		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
+	filter_row.add_child(ActionFilter.sort_dropdown(func():
+		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
 	list_container.add_child(filter_row)
 
-	var filtered_ids: Array = candidate_ids
+	var filtered_ids: Array = ActionFilter.sort_ids(g, candidate_ids)
 	if action_filter_target != "any" or action_filter_camp != "any" or action_filter_effect != "any":
-		filtered_ids = candidate_ids.filter(func(aid): return _action_passes_filter(FarroadCore.ACTIONS[aid]))
+		filtered_ids = filtered_ids.filter(func(aid): return _action_passes_filter(FarroadCore.ACTIONS[aid]))
 	for aid in filtered_ids:
 		var act = FarroadCore.ACTIONS[aid]
 		var row_btn := Button.new()

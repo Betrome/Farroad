@@ -247,7 +247,9 @@ func _refresh_actions() -> void:
 		ActionFilter.dropdown(ActionFilter.TARGET_OPTIONS, f_target, func(v): f_target = v; _refresh()),
 		ActionFilter.dropdown(ActionFilter.STAT_OPTIONS, f_stat, func(v): f_stat = v; _refresh()),
 		ActionFilter.dropdown(ActionFilter.EFFECT_OPTIONS, f_effect, func(v): f_effect = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh())])
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh()),
+		ActionFilter.sort_dropdown(_refresh)])
+	all_ids = ActionFilter.sort_ids(g, all_ids)
 	all_ids = all_ids.filter(func(a):
 		var ad: Dictionary = FarroadCore.ACTIONS.get(a, {})
 		return ActionFilter.passes(ad, f_target, f_stat, f_effect) and (f_rarity == "any" or ad.get("rarity", "common") == f_rarity))
