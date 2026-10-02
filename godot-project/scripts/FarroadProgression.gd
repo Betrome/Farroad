@@ -2686,8 +2686,13 @@ static func snapshot_power(snaps: Array, wave: int) -> int:
 ## The fielded party's power on the same scale (what a quest or dungeon
 ## fight is actually up against).
 static func party_power(g: Dictionary) -> int:
+	return party_power_of(g, g["party"])
+
+## The same Power for any group of units (a saved party, an expedition
+## pick), so parties can be compared before they're fielded or sent.
+static func party_power_of(g: Dictionary, uids: Array) -> int:
 	var total := 0.0
-	for uid in g["party"]:
+	for uid in uids:
 		var def = FarroadCore.roster_by_id(uid)
 		if def == null:
 			continue

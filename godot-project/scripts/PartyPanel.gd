@@ -270,7 +270,7 @@ func _build_presets_section() -> void:
 		for uid in p["party"]:
 			var def = FarroadCore.roster_by_id(uid)
 			names.append(def["name"] if def else uid)
-		lbl.text = "%s -- %s" % [p["name"], ", ".join(names)]
+		lbl.text = "%s (Power %d) -- %s" % [p["name"], FarroadProgression.party_power_of(g, p["party"]), ", ".join(names)]
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(lbl)

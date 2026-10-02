@@ -303,7 +303,10 @@ func _refresh_send_picker() -> void:
 		preset_opt.add_item("Choose a saved party...", 0)
 		for i in range(presets.size()):
 			var sendable := _preset_sendable(presets[i], avail)
-			preset_opt.add_item("%s (%d sendable)" % [presets[i]["name"], sendable.size()], i + 1)
+			# Power of the members that would actually go, so presets can be
+			# compared before sending.
+			preset_opt.add_item("%s — Power %d (%d sendable)" % [presets[i]["name"],
+				FarroadProgression.party_power_of(g, sendable), sendable.size()], i + 1)
 			if sendable.is_empty():
 				preset_opt.set_item_disabled(i + 1, true)
 		preset_opt.select(0)
@@ -343,6 +346,8 @@ func _refresh_send_picker() -> void:
 
 	var send_btn := Button.new()
 	send_btn.text = "Send expedition (%d/%d)" % [selected_uids.size(), FarroadProgression.PARTY_CAP]
+	if not selected_uids.is_empty():
+		send_btn.text += " — Power %d" % FarroadProgression.party_power_of(g, selected_uids)
 	send_btn.custom_minimum_size = btn_min_size
 	send_btn.disabled = selected_uids.is_empty() or selected_direction == ""
 	send_btn.pressed.connect(_on_send_pressed)

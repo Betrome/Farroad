@@ -243,7 +243,7 @@ func _describe_starter_charge(id: String) -> String:
 	var bits := ["%s · %s %s" % [("physical" if a.get("camp") == "atk" else "magic"), ("heals" if a.get("heal") else "hits"), ActionFilter.target_label(a)],
 		"scales with %s" % ActionFilter.scale_label(a)]
 	if a.get("power"):
-		bits.append("power ×%s" % a["power"])
+		bits.append(ActionFilter.power_text(a))
 	var body := " · ".join(bits)
 	var lines: Array = ActionFilter.effect_lines(a)
 	if a.get("applies"):

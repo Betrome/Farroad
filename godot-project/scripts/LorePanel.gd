@@ -339,7 +339,7 @@ func _refresh_card() -> void:
 
 	var scales_text := "scales with %s" % ActionFilter.scale_label(act)
 	if act.get("power"):
-		scales_text += "  ·  power ×%.2f" % float(act["power"])
+		scales_text += "  ·  " + ActionFilter.power_text(act)
 	var scales_lbl := Label.new()
 	scales_lbl.text = scales_text
 	scales_lbl.modulate = Palette.TEXT_DIM

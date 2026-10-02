@@ -1151,7 +1151,9 @@ func _refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
 	crystal_cell.text = "Crystal %d" % int(g.get("crystal", 0))
-	power_level_cell.text = "Power %d" % FarroadProgression.power_level(g)
+	# Ian: the HUD's Power is the fielded party's, on the same scale the
+	# quest/dungeon/Arena recommendations use.
+	power_level_cell.text = "Power %d" % FarroadProgression.party_power(g)
 	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
 	# Ian: "idle rewards: show per 5 minutes, not per hour" -- matches the
@@ -1519,7 +1521,7 @@ func _show_action_detail_popup(action_id: String) -> void:
 	var power_lbl := Label.new()
 	power_lbl.text = "%s -- target: %s -- scales with %s" % [camp_txt, target_txt, scale_txt]
 	if act.get("power"):
-		power_lbl.text += "  ·  power ×%.2f" % float(act["power"])
+		power_lbl.text += "  ·  " + ActionFilter.power_text(act)
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	power_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(power_lbl)
@@ -2481,6 +2483,7 @@ func _on_road_pressed() -> void:
 ## FarroadProgression.refresh_live_party's own comment) rather than waiting
 ## for the next wave's build_party().
 func _sync_party_change() -> void:
+	_refresh_hud()   # the HUD's Power is the fielded party's
 	if current_presenter == null:
 		return
 	var result: Dictionary = FarroadProgression.refresh_live_party(g)
