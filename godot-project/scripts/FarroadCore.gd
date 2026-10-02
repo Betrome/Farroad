@@ -171,10 +171,13 @@ static func equippable() -> Array:
 ## plain flag -- no marker needed, register_actions()/a_defaults() pass it
 ## through as-is.
 static func merge_action_dynamic() -> void:
-	if ACTIONS.has("execute"): ACTIONS["execute"]["critFnId"] = "execute"
-	if ACTIONS.has("vengeance"): ACTIONS["vengeance"]["powerFnId"] = "vengeance"
-	if ACTIONS.has("onslaught"): ACTIONS["onslaught"]["powerFnId"] = "onslaught"
-	if ACTIONS.has("reckoning"): ACTIONS["reckoning"]["powerFnId"] = "reckoning"
+	# Ian: Execute's payoff is power against a low-HP target, not crit.
+	for id in ["execute", "vengeance", "onslaught", "reckoning"]:
+		if ACTIONS.has(id):
+			ACTIONS[id]["powerFnId"] = id
+			# The un-upgraded power, so Potent (which raises "power") can
+			# scale the formula's whole range -- see eval_power_fn.
+			ACTIONS[id]["powerBase"] = ACTIONS[id].get("power")
 	if ACTIONS.has("ninefold"): ACTIONS["ninefold"]["randomPerHit"] = true
 
 ## Mirrors ACTION_DYNAMIC.vengeance/onslaught/reckoning's powerFn closures.
@@ -182,17 +185,28 @@ static func merge_action_dynamic() -> void:
 ## wave 20, decaying to 1x by wave 100) is REMOVED -- they're flat static
 ## CSV-power actions now (1.0x DEF AoE / 1.5x RES single-target, both still
 ## true damage via defPierce=1.0 on the CSV row), no powerFnId needed.
-static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
-	match action.get("powerFnId"):
-		"vengeance": return 0.55 + 1.55 * (1 - float(src["hp"]) / float(src["maxHp"]))
-		"onslaught": return 2.20 if src["turnsTaken"] == 0 else 0.65
-		"reckoning": return (3.1 + 6.975 * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else 3.1
-	return action["power"]
+## Execute: its power at full target HP, times (1 + this x the share of HP
+## the target has lost) -- 0.65 at full HP up to ~1.79 near 0.
+const EXECUTE_RAMP := 1.75
 
-## Mirrors ACTION_DYNAMIC.execute's critFn closure.
-static func eval_crit_fn(action: Dictionary, tgt) -> float:
-	if action.get("critFnId") == "execute":
-		return 0.65 if (tgt != null and float(tgt["hp"]) / float(tgt["maxHp"]) <= 0.30) else -1.0
+static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
+	var raw: float = action["power"]
+	match action.get("powerFnId"):
+		"vengeance": raw = 0.55 + 1.55 * (1 - float(src["hp"]) / float(src["maxHp"]))
+		"onslaught": raw = 2.20 if src["turnsTaken"] == 0 else 0.65
+		"reckoning": raw = (3.1 + 6.975 * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else 3.1
+		"execute":
+			var base: float = float(action.get("powerBase", action["power"]))
+			raw = base * (1.0 + EXECUTE_RAMP * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else base
+		_: return action["power"]
+	# Ian: Potent affects these too -- it scales the whole range by the same
+	# factor it applied to "power".
+	var pb := float(action.get("powerBase", 0.0)) if action.get("powerBase") else 0.0
+	if pb > 0.0:
+		raw *= float(action["power"]) / pb
+	return raw
+
+static func eval_crit_fn(_action: Dictionary, _tgt) -> float:
 	return 0.0
 
 ## Real ROSTER/ARCH/EQUIPMENT storage -- core.js itself only passes these

@@ -57,7 +57,7 @@ static func _power_range(act: Dictionary) -> Array:
 			var later := FarroadCore.eval_power_fn(act, {"turnsTaken": 1}, null)
 			var first := FarroadCore.eval_power_fn(act, {"turnsTaken": 0}, null)
 			return [minf(first, later), maxf(first, later)]
-		"reckoning":
+		"reckoning", "execute":
 			return [FarroadCore.eval_power_fn(act, {}, {"hp": 1.0, "maxHp": 1.0}),
 				FarroadCore.eval_power_fn(act, {}, {"hp": 0.0, "maxHp": 1.0})]
 	return []
@@ -72,11 +72,8 @@ static func _scaling_lines(act: Dictionary) -> Array:
 			var first := FarroadCore.eval_power_fn(act, {"turnsTaken": 0}, null)
 			var later := FarroadCore.eval_power_fn(act, {"turnsTaken": 1}, null)
 			return ["Power ×%.2f on the user's first turn of a fight, ×%.2f on every turn after." % [first, later]]
-		"reckoning":
+		"reckoning", "execute":
 			return ["Stronger the less HP the target has left: power ×%.2f against a full-HP target, rising evenly to ×%.2f near 0 HP." % [r[0], r[1]]]
-	if act.get("critFnId") == "execute":
-		var low := FarroadCore.eval_crit_fn(act, {"hp": 0.3, "maxHp": 1.0})
-		return ["Against a target at 30%% HP or less: +%d%% crit chance. Above 30%% HP it can't crit." % roundi(low * 100.0)]
 	return []
 
 static func effect_lines(act: Dictionary) -> Array:
