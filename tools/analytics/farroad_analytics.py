@@ -304,7 +304,7 @@ nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}nav a{color:var(--ink)
 table{width:100%;border-collapse:collapse}td,th{padding:3px 6px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
 th{color:var(--dim);font-weight:600;font-size:12px}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bar{height:10px;background:var(--bar);border-radius:3px;min-width:2px}td.bc{width:34%}
-.good{color:var(--good)}.bad{color:var(--bad)}.note{color:var(--dim);font-size:12px;margin-top:6px}
+details.all{margin-top:8px}details.all>summary{cursor:pointer;color:var(--bar);font-weight:600;font-size:13px}details.all .card{border:0;padding:6px 0 0;background:none}.good{color:var(--good)}.bad{color:var(--bad)}.note{color:var(--dim);font-size:12px;margin-top:6px}
 details.x{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:6px 0}
 details.x>summary{cursor:pointer;padding:8px 12px;display:grid;grid-template-columns:minmax(140px,1.4fr) repeat(4,minmax(70px,1fr)) 120px;gap:8px;align-items:center;list-style:none}
 details.x>summary::-webkit-details-marker{display:none}details.x>summary:hover{background:color-mix(in srgb,var(--bar) 10%,transparent)}
@@ -413,15 +413,30 @@ def win_rank_tables(a, kind, ctx, label):
     rows, base, total = (a["win_actions"] if kind == "Actions" else a["win_units"])[ctx]
     title = f"{CTX_NAMES.get(ctx, 'All fights')}: {kind.lower()} and wins"
     good = [(k, v) for k, v in rows.items() if v[2] >= MIN_FIGHTS]
+    few = sorted(((k, v) for k, v in rows.items() if v[2] < MIN_FIGHTS), key=lambda kv: -kv[1][2])
     if not good:
         return bar_table(title, [], note=f"Needs {MIN_FIGHTS}+ fights per {kind[:-1].lower()} before ranking.")
     good.sort(key=lambda kv: -kv[1][4])
+    cols = (kind[:-1], "Fights", "Win rate", "vs average")
+
+    def table_rows(sub, ranked_=True):
+        return [(label(k), v[2], pct(v[3]), pct(v[4], True) if ranked_ else "<span class='note'>few fights</span>")
+                for k, v in sub]
+
     def tbl(sub, name):
-        r = [(label(k), v[2], pct(v[3]), pct(v[4], True)) for k, v in sub]
-        return bar_table(name, r, (kind[:-1], "Fights", "Win rate", "vs average"), raw=True, limit=10)
+        card = bar_table(name, table_rows(sub[:10]), cols, raw=True, limit=10)
+        if len(sub) > 10 or few:
+            # Ian: the full ranking, expandable under the top 10.
+            full = table_rows(sub) + table_rows(few, False)
+            more = (f"<details class='all'><summary>Show all {len(full)}</summary>"
+                    f"{bar_table('', full, cols, raw=True, limit=len(full)).replace('<h3></h3>', '')}</details>")
+            card = card[:-len("</div>")] + more + "</div>"
+        return card
+
     note = (f"Average win rate {pct(base)} over {fmt(total)} fights. 'vs average' is how much more or less often fights "
-            f"with it are won. It shows association, not cause: players further along use different things.")
-    return (tbl(good[:10], f"{title} — most") + tbl(list(reversed(good))[:10], f"{title} — least") +
+            f"with it are won. It shows association, not cause: players further along use different things. "
+            f"Anything with fewer than {MIN_FIGHTS} fights isn't ranked (listed last under Show all).")
+    return (tbl(good, f"{title} — most") + tbl(list(reversed(good)), f"{title} — least") +
             f"<div class='card note'>{esc(note)}</div>")
 
 
