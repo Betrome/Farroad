@@ -130,6 +130,17 @@ func _build_ui(parent: Node) -> void:
 	reset_btn.pressed.connect(_on_reset_pressed)
 	vbox.add_child(reset_btn)
 
+	# Ian: the player ID on the Menu for easy reference (deletion requests,
+	# bug reports). Tap to copy.
+	var id_btn := Button.new()
+	id_btn.text = "ID: " + Analytics.display_id()
+	id_btn.flat = true
+	id_btn.tooltip_text = "Your player ID -- tap to copy"
+	id_btn.pressed.connect(func():
+		DisplayServer.clipboard_set(Analytics.display_id())
+		id_btn.text = "ID: %s  (copied)" % Analytics.display_id())
+	vbox.add_child(id_btn)
+
 	confirm_dialog = ConfirmationDialog.new()
 	confirm_dialog.dialog_text = "Erase all progress and start a brand new game? This cannot be undone."
 	confirm_dialog.confirmed.connect(_on_reset_confirmed)

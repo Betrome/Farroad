@@ -40,9 +40,9 @@ static func _ensure() -> void:
 			var parsed = JSON.parse_string(f.get_as_text())
 			if parsed is Dictionary:
 				state = parsed
-	if not state.has("id"):
-		var bytes := Crypto.new().generate_random_bytes(8)
-		state["id"] = bytes.hex_encode()
+	if not valid_id(str(state.get("id", ""))):
+		state["id"] = new_id()
+		_dirty = true
 	for k in [["lastSent", 0.0], ["c", {}]]:
 		if not state.has(k[0]):
 			state[k[0]] = k[1]
@@ -84,6 +84,32 @@ static func install_id() -> String:
 	_ensure()
 	return str(state["id"])
 
+## Player IDs (Ian: standardized, shown in the Menu as "ID: XXX-XXX-XXX"):
+## 9 characters from an alphabet without look-alikes (no 0/O, 1/I/L, U),
+## stored without dashes, shown in three groups. 30^9 ~ 2e13 possible IDs.
+const ID_ALPHABET := "23456789ABCDEFGHJKMNPQRSTVWXYZ"
+const ID_LEN := 9
+
+static func new_id() -> String:
+	var bytes := Crypto.new().generate_random_bytes(ID_LEN)
+	var out := ""
+	for i in ID_LEN:
+		out += ID_ALPHABET[bytes[i] % ID_ALPHABET.length()]
+	return out
+
+static func valid_id(id: String) -> bool:
+	if id.length() != ID_LEN:
+		return false
+	for ch in id:
+		if not ID_ALPHABET.contains(ch):
+			return false
+	return true
+
+## "K7Q-M2X-9PD"
+static func display_id() -> String:
+	var id := install_id()
+	return "%s-%s-%s" % [id.substr(0, 3), id.substr(3, 3), id.substr(6, 3)]
+
 ## DRAFT for Ian to review -- not legal advice; worth a check before release.
 static func terms_bbcode() -> String:
 	return """[b]Farroad Terms of Service[/b]
@@ -98,10 +124,10 @@ To balance the game, plan new content, fix problems and keep the Arena fair (inc
 • what you spend Aether, Lore, Marks and Crystal on
 • your progress, play time, game version and the kind of device (Android, Windows or web)
 
-It's linked to a random ID made on this device, not to your name, email or any account. It's sent about once a day to the developer's Google Sheet. Like any web request, Google receives your device's IP address when a report arrives. The data is used only to run and improve Farroad; it isn't sold or shared for advertising.
+It's linked to a random player ID made on this device (shown in the Menu), not to your name, email or any account, and sent to the developer about once a day. Like any internet connection, your device's IP address is seen when a report arrives, but it's never saved. The data is used only to run and improve Farroad; it isn't sold or shared for advertising.
 
 [b]3. Your data[/b]
-To ask for your data to be deleted, use Menu > Send Feedback and include your ID: [b]%s[/b]
+To ask for your data to be deleted, use Menu > Send Feedback and include your player ID: [b]%s[/b]
 Uninstalling the game (or clearing a browser's site data) stops any further reports.
 
 [b]4. Fair play[/b]
@@ -110,7 +136,7 @@ Don't use cheats, modified game files or tools that give an unfair advantage, es
 [b]5. Changes[/b]
 If these terms change, you'll be asked to agree again before playing.
 
-By tapping Agree and continue, you agree to these terms.""" % [TERMS_VERSION, install_id()]
+By tapping Agree and continue, you agree to these terms.""" % [TERMS_VERSION, display_id()]
 
 ## ---- counting ----
 

@@ -861,8 +861,8 @@ func _device_details() -> String:
 		var inches: float = Vector2(DisplayServer.screen_get_size()).length() / dpi
 		kind = "Tablet" if inches >= 7.0 else "Phone"
 	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
-	return "%s - %s %s - %s - game %s" % [kind, OS.get_name(), OS.get_version(), OS.get_model_name(),
-		ver if ver != "" else "dev"]
+	return "%s - %s %s - %s - game %s - ID %s" % [kind, OS.get_name(), OS.get_version(), OS.get_model_name(),
+		ver if ver != "" else "dev", Analytics.display_id()]
 
 ## Posts a report to the form; calls done(ok) when Google answers.
 func _submit_feedback(fields: Dictionary, done: Callable) -> void:
@@ -898,7 +898,7 @@ func _show_feedback_popup() -> void:
 	text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	vbox.add_child(text)
 	var note := Label.new()
-	note.text = "Sent with some game details (wave, power, party, device) to help with bugs."
+	note.text = "Sent with some game details (wave, power, party, device and your player ID) to help with bugs."
 	note.modulate = Palette.TEXT_DIM
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD
 	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
