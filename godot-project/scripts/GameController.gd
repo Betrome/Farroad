@@ -246,6 +246,9 @@ func _start_game() -> void:
 	shop_panel.setup(g, _vp, self)
 	_build_arena_button()
 	_start_analytics()
+	notifier = Notifier.new()
+	add_child(notifier)
+	notifier.setup(g)
 	expedition_timer = Timer.new()
 	expedition_timer.wait_time = EXPEDITION_POLL_SEC
 	expedition_timer.autostart = true
@@ -305,8 +308,18 @@ func _skip_tutorials() -> void:
 ## node is the natural equivalent (nothing like this existed anywhere in
 ## this port before this step). Only refreshes expedition_panel's own
 ## popup if it's actually open -- no point rebuilding UI nobody can see.
+var notifier: Notifier = null
+
 func _on_expedition_tick() -> void:
+	var out_ids: Array = []
+	for e in g.get("expeditions", []):
+		if e.get("arrivedAt") == null:
+			out_ids.append(e["id"])
 	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system())
+	if notifier != null:
+		for e in g.get("expeditions", []):
+			if e.get("arrivedAt") != null and out_ids.has(e["id"]):
+				notifier.on_expedition_arrived(e)   # Windows, when not focused
 	if expedition_panel.popup.visible:
 		expedition_panel.call("_refresh")
 	# resolve_all_expeditions can unlock a new dungeon (Step 3i,
@@ -433,10 +446,16 @@ func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
 			_save_game()
+			if what == NOTIFICATION_WM_CLOSE_REQUEST and notifier != null:
+				notifier.schedule_away()
 		NOTIFICATION_APPLICATION_PAUSED:
 			_save_game()
 			_backgrounded_at = Time.get_unix_time_from_system()
+			if notifier != null:
+				notifier.schedule_away()   # Android: idle-full / party-home alerts
 		NOTIFICATION_APPLICATION_RESUMED:
+			if notifier != null:
+				notifier.cancel_scheduled()
 			if _backgrounded_at > 0.0 and Time.get_unix_time_from_system() - _backgrounded_at >= RESUME_RELOAD_SEC:
 				_backgrounded_at = -1.0
 				get_tree().reload_current_scene()

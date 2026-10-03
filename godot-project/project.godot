@@ -74,3 +74,7 @@ textures/vram_compression/import_etc2_astc=true
 ; Godot's own engine default (confirmed directly: 0.3, 0.3, 0.3) -- 30%
 ; lighter (x1.3) is 0.39.
 environment/defaults/default_clear_color=Color(0.39, 0.39, 0.39, 1)
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/NotificationSchedulerPlugin/plugin.cfg")

@@ -117,6 +117,13 @@ func _build_ui(parent: Node) -> void:
 			_parent.call("_show_feedback_popup"))
 	vbox.add_child(feedback_btn)
 
+	# Ian: notifications for idle rewards full / an expedition back.
+	var notify_btn := CheckButton.new()
+	notify_btn.text = "Notifications"
+	notify_btn.button_pressed = Notifier.enabled()
+	notify_btn.toggled.connect(func(on: bool): Notifier.set_enabled(on))
+	vbox.add_child(notify_btn)
+
 	# Ian: the terms every player agreed to (they cover the gameplay data).
 	var terms_btn := Button.new()
 	terms_btn.text = "Terms of Service"

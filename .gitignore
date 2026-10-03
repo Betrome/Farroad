@@ -13,3 +13,7 @@ art_src/mc/v2/region_masks/_raw/
 tools/analytics/.env
 tools/analytics/data/
 tools/analytics/report.html
+
+# Android build template (installed from Godot's export templates; ~1 GB with build outputs).
+# Local tweak: android/build/gradle.properties has org.gradle.daemon=false so exports exit.
+godot-project/android/
