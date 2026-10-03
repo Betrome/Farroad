@@ -2244,6 +2244,9 @@ func _sanitize_mc_name(raw: String) -> String:
 ## engine itself defines it) -- their text is hand-written to match.
 func _status_description(status_id: String, potency: float = 1.0) -> String:
 	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0) * potency
+	if FarroadCore.STATUS_MAG_CAP.has(status_id):
+		var cap: float = FarroadCore.STATUS_MAG_CAP[status_id]
+		mag = maxf(mag, cap) if cap < 0.0 else minf(mag, cap)
 	match status_id:
 		"enfeebled": return "ATK %+.0f%%" % (mag * 100.0)
 		"dulled": return "MAG %+.0f%%" % (mag * 100.0)
