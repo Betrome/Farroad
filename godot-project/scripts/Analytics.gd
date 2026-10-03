@@ -128,10 +128,11 @@ static func battle_event(e: Dictionary, ctx: String) -> void:
 ## A finished fight: who fought and which actions they used, tagged win or
 ## loss and by where it happened -- what the dashboard's win-contribution
 ## tables are built from. `actions` is action id -> times used this fight.
-static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array) -> void:
+static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array, info: Dictionary = {}) -> void:
 	_ensure()
 	if not state["enabled"]:
 		return
+	_log_fight(ctx, won, actions, units, info)
 	var res := "win" if won else "loss"
 	add("fights", ctx + ":" + res)
 	for aid in actions.keys():
@@ -140,6 +141,38 @@ static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array)
 	for uid in units:
 		add("fightUnits_" + res, uid)
 		add("fightUnits_%s_%s" % [ctx, res], uid)
+
+## Per-fight records (Ian: to relate actions/units/combinations to clear
+## time, specific waves and enemy types). Each is a short array:
+##   [ctx, key, won 1/0, turns, seconds, fast 1/0, [units], {action: uses},
+##    [enemy archetypes], [fallen units]]
+## `key` is the Road wave, "uid#stage" for a quest, "dir#tN#wN" for a
+## dungeon wave, the rival id (or "code") for the Arena.
+## Every quest/dungeon/Arena fight, Road wipe and Road boss wave goes in
+## the "key" pool; ordinary Road clears go in a random sample. Both are
+## capped (reservoir sampling), with how many were seen, so a report stays
+## small however much someone plays.
+const KEY_FIGHTS_CAP := 100
+const ROAD_SAMPLE_CAP := 60
+
+static func _log_fight(ctx: String, won: bool, actions: Dictionary, units: Array, info: Dictionary) -> void:
+	var rec := [ctx, str(info.get("key", "")), 1 if won else 0, int(info.get("turns", 0)),
+		snappedf(float(info.get("secs", 0.0)), 0.1), 1 if info.get("fast", false) else 0,
+		units, actions, info.get("enemies", []), info.get("fallen", [])]
+	var important: bool = ctx != "road" or not won or bool(info.get("boss", false))
+	var pool := "fightsKey" if important else "fightsRoad"
+	var cap := KEY_FIGHTS_CAP if important else ROAD_SAMPLE_CAP
+	var c: Dictionary = state["c"]
+	var seen: Dictionary = c.get_or_add("fightsSeen", {})
+	seen[pool] = int(seen.get(pool, 0)) + 1
+	var log: Array = c.get_or_add(pool, [])
+	if log.size() < cap:
+		log.append(rec)
+	else:
+		var j := randi() % int(seen[pool])
+		if j < cap:
+			log[j] = rec
+	_dirty = true
 
 ## ---- reporting ----
 
@@ -217,6 +250,12 @@ static func maybe_send(g: Dictionary, host: Node) -> void:
 		(report["counters"] as Dictionary).erase("waves")
 		(report["snapshot"] as Dictionary).erase("bonuses")
 		body = JSON.stringify(report)
+		# then halve the fight records until it fits
+		for pool in ["fightsRoad", "fightsKey"]:
+			while body.length() > MAX_REPORT_CHARS and (report["counters"].get(pool, []) as Array).size() > 10:
+				var arr: Array = report["counters"][pool]
+				report["counters"][pool] = arr.slice(0, arr.size() / 2)
+				body = JSON.stringify(report)
 	_sending = true
 	var sent_until := float(report["to"])
 	var http := HTTPRequest.new()

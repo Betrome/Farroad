@@ -111,8 +111,8 @@ def merge_counters(reports):
     total = defaultdict(Counter)
     for r in reports:
         for group, vals in r.get("counters", {}).items():
-            if group == "waves":
-                continue
+            if not isinstance(vals, dict) or group in ("waves", "fightsSeen"):
+                continue   # fight records / wave rows are read separately
             for k, v in vals.items():
                 total[group][k] += v
     return total
@@ -286,7 +286,143 @@ def analyse(reports):
             row[2] += wipes
             row[3].add(r["id"])
     a["waves"] = waves
+    a["fx"] = analyse_fights(reports)
     return a
+
+
+MIN_FIGHT_RECORDS = 10   # recorded fights needed before a row is ranked
+
+
+def fight_records(reports):
+    """Per-fight records with a weight: each pool is a sample of what the
+    player fought, so a record counts for seen/kept fights."""
+    out = []
+    for r in reports:
+        c = r.get("counters", {})
+        seen = c.get("fightsSeen", {})
+        for pool in ("fightsKey", "fightsRoad"):
+            recs = c.get(pool) or []
+            if not recs:
+                continue
+            w = max(1.0, seen.get(pool, len(recs)) / len(recs))
+            for x in recs:
+                if len(x) < 10:
+                    continue
+                ctx, key, won, turns, secs, fast, units, acts, enemies, fallen = x[:10]
+                out.append({"ctx": ctx, "key": str(key), "won": bool(won), "turns": turns, "secs": secs,
+                            "fast": bool(fast), "units": list(units), "acts": dict(acts), "enemies": list(enemies),
+                            "fallen": list(fallen), "w": w, "player": r["id"]})
+    return out
+
+
+def bucket_of(f):
+    try:
+        w = int(f["key"])
+    except ValueError:
+        return None
+    return (w - 1) // 10 * 10 + 1
+
+
+class WL:
+    """Weighted wins/losses plus the raw number of records behind them."""
+    __slots__ = ("w", "l", "n")
+
+    def __init__(self):
+        self.w = self.l = 0.0
+        self.n = 0
+
+    def add(self, won, wt):
+        self.n += 1
+        if won:
+            self.w += wt
+        else:
+            self.l += wt
+
+    @property
+    def rate(self):
+        t = self.w + self.l
+        return self.w / t if t else 0.0
+
+
+def analyse_fights(reports):
+    fs = fight_records(reports)
+    fx = {"n": len(fs)}
+    if not fs:
+        return fx
+    base = {}
+    for ctx in ("road", "quest", "dungeon", "pvp"):
+        t = WL()
+        for f in fs:
+            if f["ctx"] == ctx:
+                t.add(f["won"], f["w"])
+        base[ctx] = t
+    fx["base"] = base
+
+    # Clear speed: a Road win's turns against the median for wins in its
+    # 10-wave band (turns, so 2x speed doesn't matter). <1 = quicker.
+    band_turns = defaultdict(list)
+    for f in fs:
+        if f["ctx"] == "road" and f["won"] and bucket_of(f):
+            band_turns[bucket_of(f)].append(f["turns"])
+    band_med = {b: statistics.median(v) for b, v in band_turns.items()}
+    for f in fs:
+        b = bucket_of(f) if f["ctx"] == "road" else None
+        f["speed"] = (f["turns"] / band_med[b]) if (f["won"] and b in band_med and band_med[b]) else None
+
+    pairs_u, pairs_a = defaultdict(lambda: defaultdict(WL)), defaultdict(lambda: defaultdict(WL))
+    enemy = defaultdict(lambda: defaultdict(WL))
+    enemy_turns = defaultdict(list)
+    enemy_fallen = defaultdict(Counter)
+    unit_fall = defaultdict(lambda: [0.0, 0.0])            # uid -> [fell, fought]
+    act_speed, unit_speed = defaultdict(list), defaultdict(list)
+    act_enemy = defaultdict(lambda: defaultdict(WL))       # action -> enemy -> WL
+    unit_partner = defaultdict(lambda: defaultdict(WL))    # uid -> partner -> WL
+    stages = defaultdict(WL)
+    stage_turns = defaultdict(list)
+    stage_party = defaultdict(Counter)
+    bands = defaultdict(WL)
+    band_acts = defaultdict(Counter)
+    for f in fs:
+        ctx, won, wt = f["ctx"], f["won"], f["w"]
+        us = sorted(set(f["units"]))
+        acts = sorted(f["acts"])
+        for i in range(len(us)):
+            for j in range(i + 1, len(us)):
+                pairs_u[ctx][(us[i], us[j])].add(won, wt)
+                unit_partner[us[i]][us[j]].add(won, wt)
+                unit_partner[us[j]][us[i]].add(won, wt)
+        for i in range(len(acts)):
+            for j in range(i + 1, len(acts)):
+                pairs_a[ctx][(acts[i], acts[j])].add(won, wt)
+        for e in set(f["enemies"]):
+            name = e.rstrip("*")
+            enemy[ctx][name].add(won, wt)
+            enemy_turns[name].append(f["turns"])
+            enemy_fallen[name].update(f["fallen"])
+            for a_ in acts:
+                act_enemy[a_][name].add(won, wt)
+        for u in us:
+            unit_fall[u][1] += wt
+            if u in f["fallen"]:
+                unit_fall[u][0] += wt
+        if f["speed"] is not None:
+            for a_ in acts:
+                act_speed[a_].append(f["speed"])
+            for u in us:
+                unit_speed[u].append(f["speed"])
+        if ctx in ("quest", "dungeon"):
+            stages[(ctx, f["key"])].add(won, wt)
+            stage_turns[(ctx, f["key"])].append(f["turns"])
+            stage_party[(ctx, f["key"])][" + ".join(us)] += 1
+        if ctx == "road" and bucket_of(f):
+            bands[bucket_of(f)].add(won, wt)
+            if won:
+                band_acts[bucket_of(f)].update(f["acts"].keys())
+    fx.update(pairs_u=pairs_u, pairs_a=pairs_a, enemy=enemy, enemy_turns=enemy_turns, enemy_fallen=enemy_fallen,
+              unit_fall=unit_fall, act_speed=act_speed, unit_speed=unit_speed, act_enemy=act_enemy,
+              unit_partner=unit_partner, stages=stages, stage_turns=stage_turns, stage_party=stage_party,
+              bands=bands, band_acts=band_acts, band_med=band_med)
+    return fx
 
 
 # ---------- report page ----------
@@ -440,6 +576,41 @@ def win_rank_tables(a, kind, ctx, label):
             f"<div class='card note'>{esc(note)}</div>")
 
 
+def wl_rank_card(title, table, base_rate, label, col, note="", min_n=MIN_FIGHT_RECORDS):
+    """Ranks WL entries by win rate vs base_rate: top 10 most and least,
+    each with a Show all."""
+    good = sorted(((k, v) for k, v in table.items() if v.n >= min_n), key=lambda kv: -(kv[1].rate))
+    few = sorted(((k, v) for k, v in table.items() if v.n < min_n), key=lambda kv: -kv[1].n)
+    cols = (col, "Fights", "Win rate", "vs average")
+
+    def rows_of(sub, ok=True):
+        return [(label(k), v.n, pct(v.rate), pct(v.rate - base_rate, True) if ok else "<span class='note'>few fights</span>")
+                for k, v in sub]
+    if not good:
+        return bar_table(title, [], note=f"Needs {min_n}+ recorded fights per row before ranking.")
+    out = ""
+    for name, sub in ((f"{title} — most", good), (f"{title} — least", list(reversed(good)))):
+        card = bar_table(name, rows_of(sub[:10]), cols, raw=True, limit=10)
+        full = rows_of(sub) + rows_of(few, False)
+        if len(full) > 10:
+            more = (f"<details class='all'><summary>Show all {len(full)}</summary>"
+                    f"{bar_table('', full, cols, raw=True, limit=len(full)).replace('<h3></h3>', '')}</details>")
+            card = card[:-len("</div>")] + more + "</div>"
+        out += card
+    if note:
+        out += f"<div class='card note'>{esc(note)}</div>"
+    return out
+
+
+def speed_text(vals):
+    if not vals:
+        return "–"
+    r = statistics.mean(vals) - 1
+    cls = "good" if r < -0.02 else ("bad" if r > 0.02 else "")
+    word = "fewer" if r < 0 else "more"
+    return f"<span class='{cls}'>{abs(100 * r):.0f}% {word} turns</span>"
+
+
 def explorer(a, kind, keys, label):
     """Click-to-expand rows (native <details>, no script needed)."""
     wins = a["win_actions" if kind == "action" else "win_units"]
@@ -500,6 +671,15 @@ def explorer_body(a, kind, k, label):
         ctx_rows = [(CTX_NAMES[c_], a["c"].get(f"actionUse_{c_}", Counter()).get(k, 0)) for c_ in CTX_NAMES]
         P.append(bar_table("Uses by kind of fight", [r for r in ctx_rows if r[1]], ("Where", "Uses"),
                            note=f"{fmt(dmg / max(1, uses))} damage per use on average."))
+        fx = a["fx"]
+        if fx["n"]:
+            sp = fx["act_speed"].get(k, [])
+            P.append(bar_table("Road clear speed", [("Turns vs the usual for that wave", len(sp), speed_text(sp))],
+                               ("", "Clears", ""), raw=True,
+                               note="Recorded Road wins: fewer turns than other clears in the same 10-wave band means it clears faster."))
+            ae = fx["act_enemy"].get(k, {})
+            rows = sorted(ae.items(), key=lambda kv: -kv[1].n)[:12]
+            P.append(bar_table("Win rate against enemy types", [(e, v.n, pct(v.rate)) for e, v in rows], ("Enemy", "Fights", "Win rate"), raw=True))
         P.append(bar_table("Units that have it equipped", ranked(a["action_units"].get(k, Counter()), unit), ("Unit", "Players"), limit=10))
         P.append(bar_table("Gambit conditions it's paired with", ranked(a["action_conds"].get(k, Counter()), cond), ("Condition", "Players"), limit=10))
         if len(days) > 1:
@@ -519,9 +699,67 @@ def explorer_body(a, kind, k, label):
         P.append(bar_table("Actions in its loadout", ranked(a["unit_actions"][k], act), ("Action", "Players"), limit=10))
         P.append(bar_table("Gambit conditions in its loadout", ranked(a["unit_conds"][k], cond), ("Condition", "Players"), limit=10))
         P.append(bar_table("Gear worn", ranked(a["unit_gear"][k]), ("Item", "Players"), limit=10))
+        fx = a["fx"]
+        if fx["n"]:
+            fell, fought = fx["unit_fall"].get(k, [0, 0])
+            sp = fx["unit_speed"].get(k, [])
+            P.append(bar_table("In recorded fights", [("Fights (weighted)", fought, f"falls in {100 * fell / max(1, fought):.0f}%"),
+                                ("Road clears", len(sp), speed_text(sp))], ("", "Fights", ""), raw=True))
+            ptab = fx["unit_partner"].get(k, {})
+            ranked_p = [(unit(p), v.n, pct(v.rate)) for p, v in sorted(ptab.items(), key=lambda kv: -kv[1].rate) if v.n >= MIN_FIGHT_RECORDS]
+            if not ranked_p:
+                ranked_p = [(unit(p), v.n, pct(v.rate)) for p, v in sorted(ptab.items(), key=lambda kv: -kv[1].n)]
+            P.append(bar_table("Win rate with each partner", ranked_p, ("Partner", "Fights", "Win rate"), raw=True, limit=12))
         if len(days) > 1:
             P.append(line_chart("Share of wave clears it fought in, per day", days,
                                 [(unit(k), share_series(a, "partyWaves", [k])[0])]))
+    return "".join(P)
+
+
+def fights_section(a, act, unit):
+    fx = a["fx"]
+    head = "<h2 id='fights'>Fights in detail</h2>"
+    if not fx["n"]:
+        return head + "<div class='card note'>No per-fight records yet.</div>"
+    P = [head, f"<div class='note'>From {fmt(fx['n'])} recorded fights: every quest, dungeon and Arena fight, Road wipe and boss "
+               f"wave, plus a sample of ordinary Road clears (weighted back up to how many were fought).</div><div class='grid'>"]
+    for ctx in ("road", "quest", "dungeon", "pvp"):
+        b = fx["base"][ctx]
+        if not b.n:
+            continue
+        P.append(wl_rank_card(f"{CTX_NAMES[ctx]}: unit pairs", fx["pairs_u"][ctx], b.rate,
+                              lambda k: f"{unit(k[0])} + {unit(k[1])}", "Pair"))
+        P.append(wl_rank_card(f"{CTX_NAMES[ctx]}: action pairs", fx["pairs_a"][ctx], b.rate,
+                              lambda k: f"{act(k[0])} + {act(k[1])}", "Pair"))
+    for ctx in ("road", "quest", "dungeon"):
+        if not fx["base"][ctx].n:
+            continue
+        rows = []
+        for e, v in sorted(fx["enemy"][ctx].items(), key=lambda kv: kv[1].rate):
+            top_fall = fx["enemy_fallen"][e].most_common(1)
+            rows.append((e, v.n, pct(v.rate), f"{statistics.median(fx['enemy_turns'][e]):.0f}",
+                         unit(top_fall[0][0]) if top_fall else "–"))
+        P.append(bar_table(f"{CTX_NAMES[ctx]}: enemy types (hardest first)", rows,
+                           ("Enemy", "Fights", "Win rate", "Median turns", "Falls most"), raw=True, limit=30))
+    uf = sorted(((u, f / n) for u, (f, n) in fx["unit_fall"].items() if n), key=lambda x: -x[1])
+    P.append(bar_table("Units that fall most often", [(unit(u), r * 100) for u, r in uf], ("Unit", "% of fights"), limit=30))
+    sp = sorted(((k, v) for k, v in fx["act_speed"].items() if len(v) >= MIN_FIGHT_RECORDS), key=lambda kv: statistics.mean(kv[1]))
+    P.append(bar_table("Actions in the quickest Road clears", [(act(k), len(v), speed_text(v)) for k, v in sp],
+                       ("Action", "Clears", "Turns vs usual"), raw=True, limit=40,
+                       note="Turns to clear compared with other clears in the same 10-wave band."))
+    rows = []
+    for (ctx, key), v in sorted(fx["stages"].items(), key=lambda kv: kv[1].rate):
+        name = unit(key.split("#")[0]) + " " + "#".join(key.split("#")[1:])
+        party = fx["stage_party"][(ctx, key)].most_common(1)[0][0]
+        rows.append((f"{CTX_NAMES[ctx][:-1]}: {name}", v.n, pct(v.rate), f"{statistics.median(fx['stage_turns'][(ctx, key)]):.0f}",
+                     " + ".join(unit(u) for u in party.split(" + "))))
+    P.append(bar_table("Quest stages and dungeon waves (hardest first)", rows,
+                       ("Where", "Fights", "Win rate", "Median turns", "Usual party"), raw=True, limit=60))
+    rows = [(f"{b_}-{b_ + 9}", v.n, pct(v.rate), f"{fx['band_med'].get(b_, 0):.0f}",
+             ", ".join(act(x) for x, _ in fx["band_acts"][b_].most_common(3))) for b_, v in sorted(fx["bands"].items())]
+    P.append(bar_table("Road by 10 waves", rows, ("Waves", "Fights", "Win rate", "Turns to clear", "Top actions in wins"),
+                       raw=True, limit=200))
+    P.append("</div>")
     return "".join(P)
 
 
@@ -539,7 +777,7 @@ def build_html(a):
     P.append("<nav>" + "".join(f"<a href='#{i}'>{t}</a>" for i, t in [
         ("players", "Players"), ("trends", "Trends"), ("wins", "Wins"), ("actions", "Actions"), ("units", "Units"),
         ("gambits", "Gambits"), ("spending", "Spending"), ("quests", "Quests & dungeons"), ("arena", "Arena"),
-        ("expeditions", "Expeditions"), ("waves", "Waves"), ("tutorials", "Tutorials")]) + "</nav>")
+        ("expeditions", "Expeditions"), ("fights", "Fights"), ("waves", "Waves"), ("tutorials", "Tutorials")]) + "</nav>")
     hours = a["minutes"] / 60
     P.append("<div class='kpis'>" + "".join(f"<div class='kpi'><b>{v}</b><span>{esc(k)}</span></div>" for k, v in [
         ("players", a["n_players"]), ("hours played", fmt(hours)), ("sessions", fmt(a["sessions"])),
@@ -644,6 +882,7 @@ def build_html(a):
     P.append(bar_table("Units sent most", ranked(c["expeditionUnits"], unit), ("Unit", "Times")))
     P.append("</div>")
 
+    P.append(fights_section(a, act, unit))
     P.append("<h2 id='waves'>Waves</h2><div class='grid'>")
     rows = []
     for w in sorted(a["waves"]):

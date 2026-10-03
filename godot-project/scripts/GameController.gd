@@ -2595,6 +2595,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		return
 	if tutorial != null and tutorial.holds_road():
 		presenter.set_loop_paused(true)   # the Road waits out a running (or due) tutorial
+	presenter.analytics_key = str(int(g.get("wave", 1)))
+	presenter.analytics_boss = FarroadProgression.is_boss_wave(int(g.get("wave", 1)))
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"], stage_enemies_offscreen, g.get("clearedWaves", {}), hide_party_until_revealed, auto_start_loop)
 	current_presenter = presenter
 	_road_wave_started_ms = Time.get_ticks_msec()
@@ -2953,7 +2955,12 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	var sp = side_presenter
-	sp.analytics_ctx = str(g["sideBattle"]["meta"].get("kind", "quest"))
+	var sm: Dictionary = g["sideBattle"]["meta"]
+	sp.analytics_ctx = str(sm.get("kind", "quest"))
+	match sp.analytics_ctx:
+		"quest": sp.analytics_key = "%s#%d" % [sm.get("uid", "?"), int(sm.get("stage", 0)) + 1]
+		"dungeon": sp.analytics_key = "%s#t%d#w%d" % [sm.get("direction", "?"), int(sm.get("tier", 0)), int(sm.get("waveIndex", 0)) + 1]
+		"pvp": sp.analytics_key = str(sm.get("rival", "")) if str(sm.get("rival", "")) != "" else "code"
 	sp.start_battle(g["battle"], g["battle"]["units"], true, {}, reveal_party, false)
 	sp.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
 	if reveal_party:

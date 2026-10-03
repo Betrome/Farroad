@@ -1624,15 +1624,24 @@ var _loop_started := false
 ## Where this fight is, for the gameplay stats (road/quest/dungeon/pvp).
 var analytics_ctx := "road"
 var _fight_actions := {}   # party action id -> uses this fight (stats)
+## Set by GameController: the Road wave / quest stage / dungeon wave /
+## rival this fight is, and whether it's a boss wave (stats).
+var analytics_key := ""
+var analytics_boss := false
+var _fight_ms := 0
+var _paused_ms := 0
 
 func _run_battle_loop() -> void:
 	if _loop_started:
 		return
 	_loop_started = true
+	_fight_ms = Time.get_ticks_msec()
 	var guard := 0
 	while battle["over"] == null and guard < 300:
 		while loop_paused:
+			var p0 := Time.get_ticks_msec()
 			await get_tree().create_timer(0.1).timeout
+			_paused_ms += Time.get_ticks_msec() - p0
 		guard += 1
 		var e = FarroadCore.step(battle)
 		if e == null:
@@ -1664,10 +1673,19 @@ func _run_battle_loop() -> void:
 		battle["over"] = "draw"
 	_release_chained("")
 	var fought: Array = []
+	var fallen: Array = []
+	var enemies: Array = []
 	for u in battle["units"]:
 		if u["isParty"]:
 			fought.append(str(u["id"]))
-	Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought)
+			if u["hp"] <= 0:
+				fallen.append(str(u["id"]))
+		else:
+			enemies.append(str(u.get("arch", u["name"])) + ("*" if u.get("isBoss", false) else ""))
+	Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought, {
+		"key": analytics_key, "boss": analytics_boss, "turns": int(battle.get("beat", 0)),
+		"secs": (Time.get_ticks_msec() - _fight_ms - _paused_ms) / 1000.0, "fast": Engine.time_scale > 1.0,
+		"enemies": enemies, "fallen": fallen})
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])
