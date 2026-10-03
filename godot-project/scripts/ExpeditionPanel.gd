@@ -221,10 +221,22 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	btn_row.add_child(log_btn)
 
 	var arrived: bool = exp.get("arrivedAt") != null
+	var returning: bool = exp.get("homeAt") != null and not arrived
 	var btn := Button.new()
-	btn.text = "Collect" if arrived else "Recall party"
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.pressed.connect(_on_collect_pressed.bind(exp["id"]) if arrived else _on_recall_pressed.bind(exp["id"]))
+	if arrived:
+		btn.text = "Collect"
+		btn.pressed.connect(_on_collect_pressed.bind(exp["id"]))
+	elif returning and exp.get("recalled", false):
+		# Ian: a recalled party can be sent back out.
+		btn.text = "Explore"
+		btn.pressed.connect(_on_explore_pressed.bind(exp["id"]))
+	elif returning:
+		btn.text = "Returning"   # turned back from injuries
+		btn.disabled = true
+	else:
+		btn.text = "Recall party"
+		btn.pressed.connect(_on_recall_pressed.bind(exp["id"]))
 	btn_row.add_child(btn)
 	vbox.add_child(btn_row)
 
@@ -254,6 +266,10 @@ func _on_log_pressed(exp: Dictionary) -> void:
 
 func _on_recall_pressed(id: String) -> void:
 	FarroadProgression.recall_expedition(g, id, _now())
+	_refresh()
+
+func _on_explore_pressed(id: String) -> void:
+	FarroadProgression.resume_expedition(g, id, _now())
 	_refresh()
 
 func _on_collect_pressed(id: String) -> void:

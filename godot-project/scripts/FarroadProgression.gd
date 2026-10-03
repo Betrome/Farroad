@@ -2381,7 +2381,11 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			turned_back = true
 			break
 	FarroadCore.set_wave(saved_wave)
-	exp["lastResolvedAt"] = now
+	# Ian: parties sat at wave 2 for 30 minutes. A step costs ~28s but the
+	# game checks every 15s; this used to set lastResolvedAt = now, throwing
+	# away the part-step each time, so nothing ever advanced while playing.
+	# Keep the unspent time (time past the 12h cap is still dropped).
+	exp["lastResolvedAt"] = float(now) - remaining
 	if turned_back:
 		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
 
@@ -2483,8 +2487,22 @@ static func recall_expedition(g: Dictionary, id: String, now) -> bool:
 	resolve_expedition(g, exp, now)
 	if g["expeditions"].has(exp) and exp.get("homeAt") == null:
 		begin_return_trip(exp, now, "recalled.", now)
+		exp["recalled"] = true
 		Analytics.add("expedition", "recalled")
 	return true
+
+## Ian: a recalled party heading home can be sent back out ("Explore"):
+## it turns around and carries on from the wave it had reached.
+static func resume_expedition(g: Dictionary, id: String, now) -> bool:
+	for exp in g["expeditions"]:
+		if exp["id"] == id and exp.get("homeAt") != null and exp.get("arrivedAt") == null and exp.get("recalled", false):
+			exp["homeAt"] = null
+			exp["recalled"] = false
+			exp["lastResolvedAt"] = float(now)
+			push_expedition_log(exp, "%s turned around and headed back out." % _expedition_names(exp["partyIds"]), now)
+			Analytics.add("expedition", "resumed")
+			return true
+	return false
 
 ## Mirrors collectExpedition (farroad-ui.js:1046-1056) -- only reachable
 ## once arrivedAt is set; grants bank into the real economy and removes
