@@ -586,7 +586,8 @@ static func eff_evade(u: Dictionary) -> float:
 static func eff_charge_rate(u: Dictionary) -> float:
 	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0))
 
-const HYBRID_MUL := 1.6
+## Ian: x1.5 on the earlier 1.6 so the hybrid starters keep up.
+const HYBRID_MUL := 2.4
 static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "mag": return eff_mag(u)
 	if key == "def": return eff_def(u)
