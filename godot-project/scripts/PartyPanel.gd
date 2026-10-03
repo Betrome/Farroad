@@ -151,6 +151,14 @@ func _refresh_roster() -> void:
 	for c in roster_container.get_children():
 		c.queue_free()
 
+	# Ian: what each row offers, at the top of the Party tab.
+	for line in FarroadCore.row_summary():
+		var row_lbl := Label.new()
+		row_lbl.text = line
+		row_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		roster_container.add_child(row_lbl)
+
 	_build_presets_section()
 
 	var party_header := Label.new()

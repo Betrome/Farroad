@@ -637,10 +637,51 @@ static func tc_raw(spd: float, rank: float) -> int:
 static func row_spd_mul(u: Dictionary) -> float:
 	return (1 + ROW_SPD) if u.get("row") == "front" else 1.0
 
+## Row rules apply to the player's party and to an Arena rival's team
+## (built as enemies, so they used to skip them entirely).
+static func uses_rows(u: Dictionary) -> bool:
+	return u["isParty"] or u.get("pvp", false)
+
+## Row effects (static vars so balance tests can try values).
+## Front: ROW_FRONT_DMG more damage dealt (physical and magic) on top of
+## ROW_SPD speed. Back: physical damage dealt x ROW_BACK_PHYS_OUT, damage
+## taken x ROW_BACK_PHYS_IN (physical) / ROW_BACK_MAG_IN (magic).
+## Ian's row balance (tested: mages now gain from the back row, physical
+## attackers from the front; was front-row-for-everyone before).
+static var ROW_FRONT_DMG := 0.10
+static var ROW_BACK_PHYS_OUT := 0.85
+static var ROW_BACK_PHYS_IN := 0.75
+static var ROW_BACK_MAG_IN := 0.75
+
+## The row effects in words, from the values above (Party tab).
+static func row_summary() -> Array:
+	var pct := func(x: float) -> String: return "%d%%" % roundi(absf(x) * 100.0)
+	var front := "Front: +%s speed." % pct.call(ROW_SPD)
+	if ROW_FRONT_DMG != 0.0:
+		front += " +%s damage dealt." % pct.call(ROW_FRONT_DMG)
+	var back := "Back:"
+	if is_equal_approx(ROW_BACK_PHYS_IN, ROW_BACK_MAG_IN):
+		if ROW_BACK_PHYS_IN != 1.0:
+			back += " -%s damage taken." % pct.call(1.0 - ROW_BACK_PHYS_IN)
+	else:
+		if ROW_BACK_PHYS_IN != 1.0:
+			back += " -%s physical damage taken." % pct.call(1.0 - ROW_BACK_PHYS_IN)
+		if ROW_BACK_MAG_IN != 1.0:
+			back += " -%s magic damage taken." % pct.call(1.0 - ROW_BACK_MAG_IN)
+	if ROW_BACK_PHYS_OUT != 1.0:
+		back += " -%s physical damage dealt." % pct.call(1.0 - ROW_BACK_PHYS_OUT)
+	return [front, back]
+
 static func row_out(u: Dictionary, p: bool) -> float:
-	return ROW_PHYS if (u["isParty"] and p and u.get("row") == "back") else 1.0
+	if not uses_rows(u):
+		return 1.0
+	if u.get("row") == "front":
+		return 1.0 + ROW_FRONT_DMG
+	return ROW_BACK_PHYS_OUT if (p and u.get("row") == "back") else 1.0
 static func row_in(u: Dictionary, p: bool) -> float:
-	return ROW_PHYS if (u["isParty"] and p and u.get("row") == "back") else 1.0
+	if not uses_rows(u) or u.get("row") != "back":
+		return 1.0
+	return ROW_BACK_PHYS_IN if p else ROW_BACK_MAG_IN
 
 static func tc_of(u: Dictionary, rank: float) -> int:
 	var hasted_mul: float = (1 + mag_of(u, "hasted")) if has(u, "hasted") else 1.0

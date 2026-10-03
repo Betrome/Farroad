@@ -3005,7 +3005,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 ## draws between this file and its own *Panel.gd.
 
 const MC_STAT_RANGE := {
-	"atk": [8.0, 28.0], "mag": [7.0, 30.0], "def": [8.0, 45.0],
+	"atk": [8.0, 30.0], "mag": [7.0, 30.0], "def": [8.0, 45.0],   # Ian: ATK tops out like MAG
 	"res": [8.0, 40.0], "spd": [11.0, 26.0], "hp": [180.0, 840.0]}
 ## hp/spd bounds carry the same reduction the roster's own GROWTH table
 ## gets above (x0.7 hp, x0.5 spd growth, written in directly -- see its
@@ -3015,7 +3015,7 @@ const MC_STAT_RANGE := {
 ## calibrated to match GROWTH's own min/max spread, so a custom MC's
 ## own point-bought growth stays consistent with the rest of the roster.
 const MC_GROWTH_RANGE := {
-	"atk": [0.6, 2.1], "mag": [0.5, 2.7], "def": [0.8, 2.4],
+	"atk": [0.6, 2.7], "mag": [0.5, 2.7], "def": [0.8, 2.4],
 	"res": [0.8, 1.7], "spd": [0.7, 1.6], "hp": [12.6, 33.6]}
 const MC_STAT_KEYS: Array[String] = ["atk", "mag", "def", "res", "spd", "hp"]
 const MC_POINT_MIN := 0
