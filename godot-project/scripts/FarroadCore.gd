@@ -557,7 +557,19 @@ static func mag_of(u: Dictionary, id: String) -> float:
 		return st_mag[id]
 	return STATUS_BASE_MAG.get(id, 0.0)
 
-static func apply_status(u: Dictionary, id: String, t: int, caster_spirit) -> void:
+## How strong an action's status is, on top of the status's base strength:
+## Ian -- rarer actions apply stronger statuses (the same 1.25x / 1.55x
+## their damage already gets; a rare buff used to be its common twin with
+## one more turn), and the Deepening Lore upgrade (debuffs only, +25% a
+## level) now actually does what it says -- it was never read before.
+static func status_potency(act: Dictionary) -> float:
+	var p: float = RARITY_POWER_MUL.get(act.get("rarity", "common"), 1.0)
+	var deep = act.get("deepen")
+	if deep:
+		p *= 1.0 + float(deep)
+	return p
+
+static func apply_status(u: Dictionary, id: String, t: int, caster_spirit, potency: float = 1.0) -> void:
 	u["st"][id] = t
 	if not STATUS_BASE_MAG.has(id):
 		return
@@ -570,7 +582,7 @@ static func apply_status(u: Dictionary, id: String, t: int, caster_spirit) -> vo
 		mul = aff_boost_resist(caster_spirit_f, u["affinity"]["spirit"])
 	if not u.has("stMag") or u["stMag"] == null:
 		u["stMag"] = {}
-	u["stMag"][id] = base * mul
+	u["stMag"][id] = base * mul * potency
 
 static func eff_atk(u: Dictionary) -> float:
 	return u["base"]["atk"] * (1 + (mag_of(u, "enfeebled") if has(u, "enfeebled") else 0.0))
@@ -1386,7 +1398,7 @@ static func step(b: Dictionary) -> Variant:
 					if hit_attempted.has(t["id"]) and not hit_landed.has(t["id"]):
 						continue
 					var already := has(t, act["applies"])
-					apply_status(t, act["applies"], act["turns"], u["affinity"]["spirit"])
+					apply_status(t, act["applies"], act["turns"], u["affinity"]["spirit"], status_potency(act))
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
 		if act.get("selfTaunt"):
 			apply_status(u, "taunted", act["selfTaunt"], u["affinity"]["spirit"])

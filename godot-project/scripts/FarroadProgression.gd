@@ -150,14 +150,23 @@ const TUTORIAL_POST_DIP := 0.30
 ## First Road wave whose fights can enrage (see start_wave).
 const ENRAGE_FROM_WAVE := 31
 const TUTORIAL_RAMP_END_WAVE := 120
+## Ian: "a spike in difficulty after wave 100 -- extend and smooth out the
+## early game help so it reaches wave 200." Waves up to 100 keep exactly
+## the easing they had; from 100 it carries on, fading out by wave 200
+## (HELP_END_WAVE) instead of 120, alongside the eased-in hard multiplier
+## and enemy-count blend below. From 200 on nothing changes.
+const HELP_KNEE_WAVE := 100
+const HELP_END_WAVE := 200
 
 static func tutorial_atk_mag_mul(w: int) -> float:
 	if w <= 20:
 		return TUTORIAL_ATK_MAG_MUL
-	if w >= TUTORIAL_RAMP_END_WAVE:
+	if w >= HELP_END_WAVE:
 		return 1.0
-	var t: float = float(w - 20) / float(TUTORIAL_RAMP_END_WAVE - 20)
-	return lerpf(TUTORIAL_POST_DIP, 1.0, t)
+	var knee: float = lerpf(TUTORIAL_POST_DIP, 1.0, float(HELP_KNEE_WAVE - 20) / float(TUTORIAL_RAMP_END_WAVE - 20))
+	if w <= HELP_KNEE_WAVE:
+		return lerpf(TUTORIAL_POST_DIP, 1.0, float(w - 20) / float(TUTORIAL_RAMP_END_WAVE - 20))
+	return lerpf(knee, 1.0, float(w - HELP_KNEE_WAVE) / float(HELP_END_WAVE - HELP_KNEE_WAVE))
 
 const BOSS_SPD_FROM := 20.0
 const BOSS_SPD_REF := 800.0
@@ -174,7 +183,7 @@ static func enemy_count(w: int) -> int:
 	return party_size_at(w)
 
 static func roll_count(rng: FarroadCore.RNG, w: int) -> int:
-	var table: Array = COUNT_WEIGHTS_HARD if w > HARD_FROM else COUNT_WEIGHTS
+	var table: Array = count_table(w)
 	var r := rng.next()
 	var acc := 0.0
 	for row in table:
@@ -182,6 +191,28 @@ static func roll_count(rng: FarroadCore.RNG, w: int) -> int:
 		if r <= acc:
 			return row[0]
 	return table[table.size() - 1][0]
+
+## Ian (smoothing the wave-100 spike): the bigger hard-mode groups used to
+## arrive all at once at wave 101; now the odds blend from the normal table
+## to the hard one across waves 100-200.
+static func count_table(w: int) -> Array:
+	if w <= HARD_FROM:
+		return COUNT_WEIGHTS
+	if w >= HELP_END_WAVE:
+		return COUNT_WEIGHTS_HARD
+	var t: float = float(w - HARD_FROM) / float(HELP_END_WAVE - HARD_FROM)
+	var out: Array = []
+	for n in range(1, ENEMY_CAP + 1):
+		var a: float = 0.0
+		var b: float = 0.0
+		for row in COUNT_WEIGHTS:
+			if row[0] == n:
+				a = row[1]
+		for row in COUNT_WEIGHTS_HARD:
+			if row[0] == n:
+				b = row[1]
+		out.append([n, lerpf(a, b, t)])
+	return out
 
 static func count_strength(n: int) -> float:
 	match n:
@@ -197,11 +228,30 @@ static func band_roll(rng: FarroadCore.RNG) -> float:
 const HARD_ATK_EXP := 0.7
 const HARD_DEF_EXP := 0.35
 
-static func hard_mul(w: float) -> float:
+static func _hard_mul_raw(w: float) -> float:
 	if w <= HARD_FROM:
 		return 1.0
 	var t: float = minf(1.0, sqrt((w - HARD_FROM) / (HARD_REF - HARD_FROM)))
 	return 1.0 + (HARD_MAX - 1.0) * t
+
+## The raw curve is a square root -- steepest right at wave 101, the spike
+## Ian hit. Between 100 and HELP_END_WAVE it's now an ease-in curve (flat at
+## 100) that meets the raw curve, and its slope, exactly at 200; past 200
+## it's unchanged.
+static func hard_mul(w: float) -> float:
+	if w <= HARD_FROM:
+		return 1.0
+	var w1: float = float(HELP_END_WAVE)
+	if w >= w1:
+		return _hard_mul_raw(w)
+	var span: float = w1 - HARD_FROM
+	var t: float = (w - HARD_FROM) / span
+	var p1: float = _hard_mul_raw(w1)
+	var m1: float = (_hard_mul_raw(w1 + 0.5) - _hard_mul_raw(w1 - 0.5)) * span   # slope at 200, per unit t
+	# cubic Hermite: value 1 & slope 0 at t=0, value p1 & slope m1 at t=1
+	var t2 := t * t
+	var t3 := t2 * t
+	return (2 * t3 - 3 * t2 + 1) * 1.0 + (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * m1
 
 static func boss_spd_mul(w: float) -> float:
 	var t: float = minf(1.0, sqrt(maxf(0.0, w - BOSS_SPD_FROM) / (BOSS_SPD_REF - BOSS_SPD_FROM)))

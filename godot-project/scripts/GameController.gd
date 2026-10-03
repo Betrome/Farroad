@@ -1641,7 +1641,8 @@ func _show_action_detail_popup(action_id: String) -> void:
 		var status_id: String = str(act["applies"])
 		var applies_lbl := Label.new()
 		var turns_txt: String = " for %d turns" % int(act["turns"]) if act.get("turns") else ""
-		applies_lbl.text = "Applies %s%s: %s" % [status_id.capitalize(), turns_txt, _status_description(status_id)]
+		# the status as this action applies it (rarity and Deepening included)
+		applies_lbl.text = "Applies %s%s: %s" % [status_id.capitalize(), turns_txt, _status_description(status_id, FarroadCore.status_potency(act))]
 		applies_lbl.modulate = Palette.PARTY_BLUE if FarroadCore.is_buff_status(status_id) else Palette.NOTE_PURPLE
 		applies_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		applies_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2241,8 +2242,8 @@ func _sanitize_mc_name(raw: String) -> String:
 ## read (taunted is a pure behavioral flag; blinded's +30% evade-chance
 ## bonus is a literal inline constant in resolve_hit, matching how the
 ## engine itself defines it) -- their text is hand-written to match.
-func _status_description(status_id: String) -> String:
-	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0)
+func _status_description(status_id: String, potency: float = 1.0) -> String:
+	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0) * potency
 	match status_id:
 		"enfeebled": return "ATK %+.0f%%" % (mag * 100.0)
 		"dulled": return "MAG %+.0f%%" % (mag * 100.0)
