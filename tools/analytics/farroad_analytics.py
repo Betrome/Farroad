@@ -83,8 +83,8 @@ def load_reports(path):
                 rep = json.loads(rep)
             except json.JSONDecodeError:
                 continue
-        if isinstance(rep, dict) and rep.get("schema") == 1:
-            out.append(rep)
+        if isinstance(rep, dict) and rep.get("schema") == 1 and not str(rep.get("id", "")).startswith("test"):
+            out.append(rep)   # ids starting "test" are setup checks, not players
     return out
 
 

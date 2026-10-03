@@ -13,7 +13,7 @@ extends RefCounted
 
 ## The Apps Script web app's /exec URL. Empty: stats are still counted but
 ## never sent.
-const ENDPOINT := ""
+const ENDPOINT := "https://script.google.com/macros/s/AKfycbxFolLGYINZayvEHLZfRekGPSyDZYBnkBAQZPDZmuorv8l_8bu9T_i5HseN2-lmqj4m/exec"
 ## Where reports go (ENDPOINT; a test can point it elsewhere).
 static var endpoint: String = ENDPOINT
 const FILE := "user://analytics.json"
@@ -260,11 +260,18 @@ static func maybe_send(g: Dictionary, host: Node) -> void:
 	var sent_until := float(report["to"])
 	var http := HTTPRequest.new()
 	http.timeout = 30.0
+	# Apps Script answers a POST with a 302 once the row is stored; following
+	# it would re-send the report as another POST. (Browsers follow it as a
+	# GET on their own, which is fine.)
+	http.max_redirects = 0
 	host.add_child(http)
 	http.request_completed.connect(func(result: int, code: int, _h, _b):
 		http.queue_free()
 		_sending = false
-		if result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 400:
+		# The 302 (not followed, see below) comes back as "redirect limit
+		# reached" -- it still means the report was stored.
+		var ok_result := result == HTTPRequest.RESULT_SUCCESS or result == HTTPRequest.RESULT_REDIRECT_LIMIT_REACHED
+		if ok_result and code >= 200 and code < 400:
 			state["c"] = {}
 			state["lastSent"] = sent_until
 			state["periodStart"] = sent_until
