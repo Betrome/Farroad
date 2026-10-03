@@ -650,8 +650,8 @@ static func uses_rows(u: Dictionary) -> bool:
 ## attackers from the front; was front-row-for-everyone before).
 static var ROW_FRONT_DMG := 0.10
 static var ROW_BACK_PHYS_OUT := 0.85
-static var ROW_BACK_PHYS_IN := 0.75
-static var ROW_BACK_MAG_IN := 0.75
+static var ROW_BACK_PHYS_IN := 0.70
+static var ROW_BACK_MAG_IN := 0.70
 
 ## The row effects in words, from the values above (Party tab).
 static func row_summary() -> Array:
