@@ -157,6 +157,17 @@ func _ready() -> void:
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
 		return
+	# Ian: playing means agreeing to the terms (they cover the gameplay
+	# data Analytics.gd sends) -- asked before anything else, every launch
+	# until agreed, and again when the terms change.
+	if Analytics.terms_accepted():
+		_boot_after_terms()
+	else:
+		var terms = load("res://scripts/TermsPanel.gd").new()
+		add_child(terms)
+		terms.setup(_vp, self, _boot_after_terms)
+
+func _boot_after_terms() -> void:
 	if _try_resume_save():
 		_start_game()
 	else:
@@ -447,8 +458,6 @@ func _start_analytics() -> void:
 	t.autostart = true
 	t.timeout.connect(_on_analytics_tick)
 	add_child(t)
-	if not Analytics.notice_shown() and (tutorial == null or not tutorial.holds_road()):
-		_show_analytics_notice.call_deferred()
 	# A report that's due goes out a little after launch, not mid-boot.
 	get_tree().create_timer(20.0).timeout.connect(func(): Analytics.maybe_send(g, self))
 
@@ -485,16 +494,18 @@ func _record_side_battle(meta: Dictionary, kind: String) -> void:
 	Analytics.add("sideBattles", key)
 	Analytics.add("sideBattleSeconds", str(meta.get("kind", "?")), secs)
 
-func _show_analytics_notice() -> void:
-	Analytics.mark_notice_shown()
+## The terms, to read again from Settings.
+func _show_terms_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
 	var vbox: VBoxContainer = o["vbox"]
-	var title := Label.new()
-	title.text = "Helping balance Farroad"
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
-	vbox.add_child(title)
-	vbox.add_child(_wrap_label("Farroad sends anonymous gameplay stats about once a day: which units, actions and gambits get used, what Aether and Lore go on, how waves, quests and expeditions go. No personal details are included."))
-	vbox.add_child(_wrap_label("You can turn this off any time in Menu > Settings.", true))
+	var text := RichTextLabel.new()
+	text.bbcode_enabled = true
+	text.fit_content = true
+	text.scroll_active = false
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_color_override("default_color", Palette.TEXT_INK)
+	text.text = Analytics.terms_bbcode().replace("By tapping Agree and continue, you agree to these terms.", "You agreed to these terms when you started playing.")
+	vbox.add_child(text)
 	await _finish_detail_overlay(o)
 
 func _save_game() -> void:

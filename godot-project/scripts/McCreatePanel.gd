@@ -82,14 +82,6 @@ func _build_ui(parent: Node) -> void:
 	confirm_btn.pressed.connect(_on_confirm_pressed)
 	root_vbox.add_child(confirm_btn)
 
-	# The gameplay-stats notice for a new player (Analytics.gd).
-	var stats_note := Label.new()
-	stats_note.text = "Farroad sends anonymous gameplay stats about once a day to help balance the game. You can turn this off in Menu > Settings."
-	stats_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	stats_note.add_theme_font_size_override("font_size", 12)
-	stats_note.modulate = Palette.TEXT_DIM
-	root_vbox.add_child(stats_note)
-
 	_refresh_stats()
 	_refresh_charges()
 
@@ -296,7 +288,6 @@ func _on_confirm_pressed() -> void:
 	var name := _sanitize_name(name_edit.text)
 	if name == "" or FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_charge_choice == "":
 		return
-	Analytics.mark_notice_shown()
 	var built: Dictionary = FarroadProgression.mc_build_stats(mc_points)
 	var mc := {"name": name, "stats": built["stats"], "hp": built["hp"], "growth": built["growth"],
 		"chargeAction": mc_charge_choice, "acquiredCharges": [mc_charge_choice], "body": mc_body}

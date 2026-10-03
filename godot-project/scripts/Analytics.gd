@@ -8,8 +8,11 @@ extends RefCounted
 ## posted to Ian's Google Sheet (an Apps Script web app); the in-house
 ## parser in tools/analytics/ turns the rows into a dashboard.
 ##
-## Reports carry no personal data: a random install id, game version,
-## platform and gameplay numbers only. Players can turn it off in Menu.
+## Reports carry no personal details: a random install id, game version,
+## platform and gameplay numbers only. Ian: required, not optional -- it's
+## part of the terms every player agrees to before playing (TermsPanel).
+## A player can ask for their data to be deleted via Send Feedback, quoting
+## the install id the terms screen shows.
 
 ## The Apps Script web app's /exec URL. Empty: stats are still counted but
 ## never sent.
@@ -40,9 +43,10 @@ static func _ensure() -> void:
 	if not state.has("id"):
 		var bytes := Crypto.new().generate_random_bytes(8)
 		state["id"] = bytes.hex_encode()
-	for k in [["enabled", true], ["noticeShown", false], ["lastSent", 0.0], ["c", {}]]:
+	for k in [["lastSent", 0.0], ["c", {}]]:
 		if not state.has(k[0]):
 			state[k[0]] = k[1]
+	state["enabled"] = true   # part of the terms; no opt-out
 	if not state.has("periodStart"):
 		state["periodStart"] = Time.get_unix_time_from_system()
 		# A first install doesn't wait a whole day for its first report.
@@ -60,23 +64,53 @@ static func enabled() -> bool:
 	_ensure()
 	return bool(state["enabled"])
 
-static func set_enabled(on: bool) -> void:
+## ---- terms ----
+## Bump TERMS_VERSION whenever the text below changes in a way players
+## should see; everyone is asked to agree again on their next launch.
+const TERMS_VERSION := 1
+
+static func terms_accepted() -> bool:
 	_ensure()
-	state["enabled"] = on
-	if not on:
-		state["c"] = {}   # nothing kept for a player who opted out
+	return int(state.get("terms", 0)) >= TERMS_VERSION
+
+static func accept_terms() -> void:
+	_ensure()
+	state["terms"] = TERMS_VERSION
+	state["termsAt"] = int(Time.get_unix_time_from_system())
 	_dirty = true
 	save()
 
-static func notice_shown() -> bool:
+static func install_id() -> String:
 	_ensure()
-	return bool(state["noticeShown"])
+	return str(state["id"])
 
-static func mark_notice_shown() -> void:
-	_ensure()
-	state["noticeShown"] = true
-	_dirty = true
-	save()
+## DRAFT for Ian to review -- not legal advice; worth a check before release.
+static func terms_bbcode() -> String:
+	return """[b]Farroad Terms of Service[/b]
+[i]Version %d[/i]
+
+[b]1. Playing Farroad[/b]
+Farroad is provided as is, and may change over time as it's updated.
+
+[b]2. Game data[/b]
+To balance the game, plan new content, fix problems and keep the Arena fair (including spotting cheating), Farroad collects data about how the game is played. This includes:
+• which units, actions, gambits and gear you use, and how fights, waves, quests, dungeons, expeditions and Arena matches go
+• what you spend Aether, Lore, Marks and Crystal on
+• your progress, play time, game version and the kind of device (Android, Windows or web)
+
+It's linked to a random ID made on this device, not to your name, email or any account. It's sent about once a day to the developer's Google Sheet. Like any web request, Google receives your device's IP address when a report arrives. The data is used only to run and improve Farroad; it isn't sold or shared for advertising.
+
+[b]3. Your data[/b]
+To ask for your data to be deleted, use Menu > Send Feedback and include your ID: [b]%s[/b]
+Uninstalling the game (or clearing a browser's site data) stops any further reports.
+
+[b]4. Fair play[/b]
+Don't use cheats, modified game files or tools that give an unfair advantage, especially in the Arena. Arena results that look tampered with may be ignored or removed.
+
+[b]5. Changes[/b]
+If these terms change, you'll be asked to agree again before playing.
+
+By tapping Agree and continue, you agree to these terms.""" % [TERMS_VERSION, install_id()]
 
 ## ---- counting ----
 
