@@ -34,6 +34,45 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	_vp = vp
 	_parent = parent
 	_build_ui(parent)
+	# Ian: the away/heading-home times count in real time while the panel
+	# is open (and the party keeps advancing), not just on reopen.
+	var t := Timer.new()
+	t.wait_time = 1.0
+	t.ignore_time_scale = true
+	t.autostart = true
+	t.timeout.connect(_tick_live)
+	add_child(t)
+
+## [state label, bank label, expedition, state key] per card on screen.
+var _live: Array = []
+
+func _state_key(exp: Dictionary) -> String:
+	return "arrived" if exp.get("arrivedAt") != null else ("home" if exp.get("homeAt") != null else "away")
+
+func _bank_text(exp: Dictionary) -> String:
+	return "Banked %d Aether, %d Marks so far — reached wave %d." % [
+		roundi(exp["bank"]["aether"]), floori(exp["bank"]["marks"]), int(exp["ew"])]
+
+func _tick_live() -> void:
+	if popup == null or not popup.visible or _live.is_empty():
+		return
+	var now := _now()
+	var changed := false
+	for row in _live:
+		var exp: Dictionary = row[2]
+		if not g["expeditions"].has(exp):
+			changed = true
+			continue
+		FarroadProgression.resolve_expedition(g, exp, now)   # advances / notices arrival
+		if _state_key(exp) != row[3]:
+			changed = true   # new state needs a different button
+			continue
+		if is_instance_valid(row[0]):
+			row[0].text = _state_text(exp, now)
+		if is_instance_valid(row[1]):
+			row[1].text = _bank_text(exp)
+	if changed:
+		_refresh_active()
 
 ## Same reasoning/limitation as every sibling panel's own reflow() -- see
 ## GambitsPanel.reflow's comment.
@@ -147,6 +186,7 @@ func _refresh() -> void:
 ## line mirroring the real 3 states (away/heading home/arrived), a
 ## running banked total, a short log, and a Recall/Collect button.
 func _refresh_active() -> void:
+	_live.clear()
 	for c in active_container.get_children():
 		c.queue_free()
 	if g["expeditions"].is_empty():
@@ -194,8 +234,8 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	vbox.add_child(state_lbl)
 
 	var bank_lbl := Label.new()
-	bank_lbl.text = "Banked %d Aether, %d Marks so far — reached wave %d." % [
-		roundi(exp["bank"]["aether"]), floori(exp["bank"]["marks"]), int(exp["ew"])]
+	bank_lbl.text = _bank_text(exp)
+	_live.append([state_lbl, bank_lbl, exp, _state_key(exp)])
 	bank_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bank_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bank_lbl)
