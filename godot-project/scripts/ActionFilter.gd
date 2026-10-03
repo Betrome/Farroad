@@ -55,7 +55,7 @@ static func scale_stat(act: Dictionary) -> String:
 
 static func scale_label(act: Dictionary) -> String:
 	match scale_stat(act):
-		"lowAtkMag": return "the lower of ATK/MAG ×%.1f" % FarroadCore.HYBRID_MUL
+		"lowAtkMag": return "the lower of ATK/MAG"
 		var k: return String(k).to_upper()
 
 ## Who an action hits, in plain words.

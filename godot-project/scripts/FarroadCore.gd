@@ -611,8 +611,6 @@ static func eff_evade(u: Dictionary) -> float:
 static func eff_charge_rate(u: Dictionary) -> float:
 	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0))
 
-## Ian: x1.5 on the earlier 1.6 so the hybrid starters keep up.
-const HYBRID_MUL := 2.4
 static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "mag": return eff_mag(u)
 	if key == "def": return eff_def(u)
@@ -622,9 +620,10 @@ static func stat_by_key(u: Dictionary, key) -> float:
 	# the average of ATK and MAG, for a unit whose build doesn't lean
 	# hard into either camp.
 	# Ian: the ATK/MAG average still lost to a single maxed stat -- these
-	# now use the LOWER of the two with a bigger multiplier, so an evenly
-	# built unit does as well as a specialist does with its own stat.
-	if key == "avgAtkMag": return minf(eff_atk(u), eff_mag(u)) * HYBRID_MUL
+	# now use the LOWER of the two. Their extra strength is in the action's
+	# own power (Wearing Down x6.24, Iron Resolve x4.8), not a hidden
+	# multiplier on the stat, so the description shows the real numbers.
+	if key == "avgAtkMag": return minf(eff_atk(u), eff_mag(u))
 	return eff_atk(u)
 
 ## ===== tick cost / mitigation (mirrors farroad-core.js:152-186) =====
