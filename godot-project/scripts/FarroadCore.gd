@@ -362,7 +362,7 @@ const BONUSES := {
 	"swift": {"n": "Swift", "d": "−5 turn cost per level (other upgrades on normal actions add +5 each)"},
 	"potent": {"n": "Potent", "d": "+15% to whatever it does — damage or healing", "mag": true},
 	"lasting": {"n": "Lasting", "d": "+1 turn on the status it applies — nothing if it applies none"},
-	"deepening": {"n": "Deepening", "d": "its status (buff or debuff) is 25% stronger — no effect on damage"},
+	"deepening": {"n": "Deepening", "d": "its status is stronger: +10% a buff, +20% a debuff — no effect on damage"},
 	"surge": {"n": "Surge", "d": "+10 charge gain — dead on charge actions themselves"},
 	"piercing": {"n": "Piercing", "d": "+0.15 pierce — DEF for a physical action, RES for a magic one; worth most vs a target strong in that stat"},
 	"broad": {"n": "Broad", "d": "single target → full AoE (whole party or whole enemy side) — dead on a self or already-multi action"},
@@ -486,7 +486,7 @@ static func apply_bonuses(map: Dictionary) -> void:
 			if a.get("tk") == "ally": a["tk"] = "allAllies"
 			elif a.get("tk") == "foe": a["tk"] = "allFoes"
 		if b.get("deepening") and a.get("applies"):
-			a["deepen"] = a.get("deepen", 0.0) + 0.25 * b["deepening"]
+			a["deepen"] = a.get("deepen", 0.0) + (DEEPEN_BUFF if is_buff_status(a.get("applies")) else DEEPEN_DEBUFF) * b["deepening"]
 		if a.get("isCharge"):
 			var ups := 0
 			for k in b.keys():
@@ -560,8 +560,8 @@ static func mag_of(u: Dictionary, id: String) -> float:
 ## How strong an action's status is, on top of the status's base strength:
 ## Ian -- rarer actions apply stronger statuses (the same 1.25x / 1.55x
 ## their damage already gets; a rare buff used to be its common twin with
-## one more turn), and the Deepening Lore upgrade (+25% a level, buffs and
-## debuffs alike) now actually does what it says -- it was never read before.
+## one more turn), and the Deepening Lore upgrade (+10% a level on a buff,
+## +20% on a debuff) now actually does what it says -- it was never read before.
 static func status_potency(act: Dictionary) -> float:
 	var p: float = RARITY_POWER_MUL.get(act.get("rarity", "common"), 1.0)
 	var deep = act.get("deepen")
@@ -572,8 +572,11 @@ static func status_potency(act: Dictionary) -> float:
 ## With rarity and Deepening stacking (Lore is a flat 1 a level), a status
 ## could reach 100%: instant turns (Hasted), no damage taken (Warded), zero
 ## ATK/MAG/DEF/RES. These are capped; the rest just grow.
-const STATUS_MAG_CAP := {"hasted": -0.75, "warded": -0.75, "enfeebled": -0.75, "dulled": -0.75,
-	"sundered": -0.75, "frail": -0.75, "blurred": 0.50, "exposed": -0.50}
+const STATUS_MAG_CAP := {"hasted": -0.80, "warded": -0.80, "enfeebled": -0.80, "dulled": -0.80,
+	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50}
+## Ian: Deepening per level -- +10% on a buff, +20% on a debuff.
+const DEEPEN_BUFF := 0.10
+const DEEPEN_DEBUFF := 0.20
 
 static func apply_status(u: Dictionary, id: String, t: int, caster_spirit, potency: float = 1.0) -> void:
 	u["st"][id] = t
