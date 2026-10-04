@@ -834,7 +834,63 @@ func _build_status_card(u: Dictionary) -> Control:
 			enrage_text = "⏱ calm — enrages at turn %d" % _enrage_after()
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
 
+	# Ian: tap a party unit on the Road to pick the action it takes next.
+	if u["isParty"] and u["hp"] > 0 and status_filter_uid == u["id"] and battle["over"] == null:
+		_add_next_action_picker(box, u)
+
 	return card
+
+## "Next turn" buttons on a tapped party unit's card: each action in its
+## gambits (and its charge action once the charge is full), plus Auto to
+## let its gambits decide again. The choice replaces that unit's next
+## locked-in turn, so the turn order shows it straight away.
+func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
+	box.add_child(_rich_line("[font_size=13][b]Next turn:[/b][/font_size]"))
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 6)
+	flow.add_theme_constant_override("v_separation", 6)
+	box.add_child(flow)
+	var options: Array = []
+	for slot in u.get("slots", []):
+		var aid: String = str(slot.get("action", ""))
+		if aid != "" and not options.has(aid) and FarroadCore.ACTIONS.has(aid):
+			options.append(aid)
+	var ch = u.get("chargeAction")
+	if ch and FarroadCore.ACTIONS.has(ch) and float(u["charge"]) >= FarroadCore.cost_of_charge(FarroadCore.ACTIONS[ch]):
+		options.append(ch)
+	var locked: Dictionary = battle.get("lockedActors", {})
+	var queue: Array = locked.get(u["id"], [])
+	var current: String = str(queue[0]["actionId"]) if not queue.is_empty() else ""
+	var manual: bool = not queue.is_empty() and queue[0].get("manual", false)
+	for aid in options:
+		var b := Button.new()
+		var a: Dictionary = FarroadCore.ACTIONS[aid]
+		b.text = ("⚡ " if a.get("isCharge", false) else "") + str(a["name"])
+		if aid == current:
+			b.text = "▶ " + b.text
+		b.pressed.connect(_choose_next_action.bind(u["id"], aid))
+		flow.add_child(b)
+	var auto := Button.new()
+	auto.text = "Auto" if manual else "▶ Auto (gambits)"
+	auto.disabled = not manual
+	auto.pressed.connect(_choose_next_action.bind(u["id"], ""))
+	flow.add_child(auto)
+
+## aid "" = back to its gambits.
+func _choose_next_action(uid: String, aid: String) -> void:
+	if battle.get("lockedActors") == null:
+		battle["lockedActors"] = {}
+	var view: UnitView = unit_views_by_id.get(uid)
+	if view == null:
+		return
+	var locked: Dictionary = battle["lockedActors"]
+	# Its later turns are re-planned from this choice on the next refresh.
+	locked.erase(uid)
+	if aid != "":
+		locked[uid] = [{"actionId": aid, "resultingAlternate": int(view.unit["alternateFlag"]), "condId": null, "manual": true}]
+	_refresh_turn_order()
+	_refresh_status_popup()
+	Analytics.add("features", "manualAction")
 
 ## Mirrors defResPair (farroad-ui.js:1638-1651) -- EFFECTIVE DEF/RES, the
 ## lower one flagged only when the gap is >=15% (a smaller gap is noise).
