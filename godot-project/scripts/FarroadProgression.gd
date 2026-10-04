@@ -949,9 +949,11 @@ static func equipment_affinity(g: Dictionary, uid: String) -> Dictionary:
 				out[ax] += item.get("affinity", {}).get(ax, 0.0)
 	return out
 
-## Ian: a unit's title is its role from its two highest non-HP stats (with
-## its current level and gear), led by its strongest elemental affinity if
-## it has one -- e.g. "Fire Warden". All five within 2: Freelancer.
+## Ian: a unit's title is its role from its two highest non-HP stats as
+## they'd be at level 100 (so it doesn't change as it levels), led by its
+## strongest elemental affinity if it has one -- e.g. "Fire Warden". All
+## five within 2: Freelancer.
+const TITLE_LEVEL := 100
 const ROLE_TITLES := {"atk+mag": "Duelist", "atk+def": "Fighter", "atk+res": "Paladin", "atk+spd": "Rogue",
 	"mag+def": "Warden", "mag+res": "Mage", "mag+spd": "Sorcerer", "def+res": "Tank", "def+spd": "Bruiser",
 	"res+spd": "Warlock"}
@@ -968,6 +970,12 @@ static func role_for_stats(st: Dictionary) -> String:
 	pair.sort_custom(func(a, b): return TITLE_STATS.find(a) < TITLE_STATS.find(b))
 	return ROLE_TITLES.get("%s+%s" % pair, "Freelancer")
 
+static func role_at_100(uid: String) -> String:
+	var d = FarroadCore.roster_by_id(uid)
+	if d == null:
+		return "Freelancer"
+	return role_for_stats(stats_at(uid, d["stats"], d["hp"], TITLE_LEVEL))
+
 static func element_prefix(aff: Dictionary) -> String:
 	var best := ""
 	var best_v := 0.0
@@ -979,8 +987,7 @@ static func element_prefix(aff: Dictionary) -> String:
 	return best.capitalize()
 
 static func unit_title(g: Dictionary, uid: String) -> String:
-	var u := build_party_unit(g, uid, 0)
-	var role := role_for_stats(u["base"])
+	var role := role_at_100(uid)
 	var el := element_prefix(effective_affinity(g, uid))
 	return (el + " " + role) if el != "" else role
 

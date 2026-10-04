@@ -246,6 +246,16 @@ func _start_game() -> void:
 	shop_panel.setup(g, _vp, self)
 	_build_arena_button()
 	_start_analytics()
+	# Ian: idle income is earned while the game is open too (it used to be
+	# away-only). Real seconds, so 2x speed doesn't double it; time away is
+	# still covered by the welcome-back catch-up from the last save.
+	var idle_t := Timer.new()
+	idle_t.wait_time = IDLE_TICK_SEC
+	idle_t.ignore_time_scale = true
+	idle_t.autostart = true
+	idle_t.timeout.connect(_on_idle_tick)
+	add_child(idle_t)
+	_idle_last_ms = Time.get_ticks_msec()
 	var wd := Timer.new()
 	wd.wait_time = ROAD_WATCHDOG_SEC
 	wd.autostart = true
@@ -1702,7 +1712,8 @@ func _show_action_detail_popup(action_id: String) -> void:
 	# Ian: action costs on the Catalogue (and every action's details) --
 	# the time cost (rank x100, the same "cost" Lore shows): how long until
 	# the user's next turn, 100 being a normal action.
-	var time_txt := "Cost %d" % roundi(float(act["rank"]) * 100.0)
+	var time_txt := "Cost %d%s" % [roundi(float(act["rank"]) * 100.0),
+		" (the lowest a cost can go)" if float(act["rank"]) <= FarroadCore.RANK_FLOOR + 0.001 else ""]
 	if act.get("isCharge", false):
 		cost_lbl.text = "%s  ·  Charge action: uses %d charge" % [time_txt, int(FarroadCore.cost_of_charge(act))]
 	else:
@@ -2575,7 +2586,7 @@ func _show_unit_detail_popup(uid: String) -> void:
 	title.bbcode_enabled = true
 	title.fit_content = true
 	title.text = "[b][color=#%s]%s[/color][/b]  %s · %s row" % [color.to_html(false), d["name"],
-		(FarroadProgression.unit_title(g, uid) if g["owned"].has(uid) else FarroadProgression.role_for_stats(d.get("stats", {}))),
+		(FarroadProgression.unit_title(g, uid) if g["owned"].has(uid) else FarroadProgression.role_at_100(uid)),
 		str(d.get("row", "front"))]
 	vbox.add_child(title)
 	var st: Dictionary = d.get("stats", {})
@@ -2925,6 +2936,22 @@ func _on_battle_finished(outcome: String, from: Node = null) -> void:
 	_road_changing += 1
 	await _on_battle_finished_inner(outcome)
 	_road_changing -= 1
+
+const IDLE_TICK_SEC := 5.0
+var _idle_last_ms: int = 0
+
+func _on_idle_tick() -> void:
+	var now_ms := Time.get_ticks_msec()
+	# at most a minute per tick: a long gap (app suspended) is time away,
+	# which the welcome-back catch-up already pays
+	var dt: float = minf((now_ms - _idle_last_ms) / 1000.0, 60.0)
+	_idle_last_ms = now_ms
+	if g.is_empty() or dt <= 0.0:
+		return
+	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
+	g["aether"] = float(g.get("aether", 0.0)) + r["aether"] * dt
+	g["marks"] = float(g.get("marks", 0.0)) + r["marks"] * FarroadProgression.marks_mul(g) * dt
+	_refresh_hud()
 
 ## Ian: "Road doesn't resume after quests on occasion." Couldn't reproduce
 ## it, so this safety net checks every few seconds: with no side fight,

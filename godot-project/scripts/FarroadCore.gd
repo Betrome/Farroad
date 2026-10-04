@@ -359,7 +359,7 @@ static func is_buff_status(s) -> bool:
 ## (farroad-core.js:368-376); `apply_bonuses` still honors old stacks for
 ## backward compatibility, it just isn't newly purchasable.
 const BONUSES := {
-	"swift": {"n": "Swift", "d": "−5 turn cost per level (other upgrades on normal actions add +5 each)"},
+	"swift": {"n": "Swift", "d": "−5 turn cost per level, down to a lowest cost of 30 (other upgrades on normal actions add +5 each)"},
 	"potent": {"n": "Potent", "d": "+15% to whatever it does — damage or healing", "mag": true},
 	"lasting": {"n": "Lasting", "d": "+1 turn on the status it applies — nothing if it applies none"},
 	"deepening": {"n": "Deepening", "d": "its status is stronger: +10% a buff, +20% a debuff — no effect on damage"},
