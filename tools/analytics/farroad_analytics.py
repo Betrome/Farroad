@@ -28,6 +28,9 @@ CACHE = os.path.join(DATA_DIR, "reports.jsonl")
 CURSOR = os.path.join(DATA_DIR, "cursor.txt")
 CONTENT = os.path.join(HERE, "..", "..", "godot-project", "data", "content.json")
 CONDS = os.path.join(HERE, "..", "..", "farroadgambitconditions.csv")
+# Reports from development test runs, not players (one id per line).
+IGNORE_FILE = os.path.join(HERE, "ignore_ids.txt")
+IGNORE_IDS = {l.split("#")[0].strip() for l in open(IGNORE_FILE, encoding="utf-8")} - {""} if os.path.exists(IGNORE_FILE) else set()
 
 
 # ---------- fetching ----------
@@ -83,7 +86,8 @@ def load_reports(path):
                 rep = json.loads(rep)
             except json.JSONDecodeError:
                 continue
-        if isinstance(rep, dict) and rep.get("schema") == 1 and not str(rep.get("id", "")).startswith("test"):
+        rid = str(rep.get("id", "")) if isinstance(rep, dict) else ""
+        if isinstance(rep, dict) and rep.get("schema") == 1 and not rid.startswith("test") and rid not in IGNORE_IDS:
             out.append(rep)   # ids starting "test" are setup checks, not players
     return out
 

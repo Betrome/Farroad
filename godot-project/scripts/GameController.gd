@@ -246,6 +246,11 @@ func _start_game() -> void:
 	shop_panel.setup(g, _vp, self)
 	_build_arena_button()
 	_start_analytics()
+	var wd := Timer.new()
+	wd.wait_time = ROAD_WATCHDOG_SEC
+	wd.autostart = true
+	wd.timeout.connect(_road_watchdog)
+	add_child(wd)
 	notifier = Notifier.new()
 	add_child(notifier)
 	notifier.setup(g)
@@ -2735,11 +2740,63 @@ func _animate_wave_retreat(old_presenter: Node) -> void:
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the
 ## checkpoint wave internally (it calls start_wave itself), so only a WIN
 ## needs a separate start_wave(wave+1) call here.
+var _road_changing := 0   # wave changes in progress (the watchdog leaves those alone)
+
 func _on_battle_finished(outcome: String, from: Node = null) -> void:
 	# Only the Road's current presenter may advance the Road; a stray one
 	# finishing would advance the wave a second time.
 	if from != null and from != current_presenter:
 		return
+	_road_changing += 1
+	await _on_battle_finished_inner(outcome)
+	_road_changing -= 1
+
+## Ian: "Road doesn't resume after quests on occasion." Couldn't reproduce
+## it, so this safety net checks every few seconds: with no side fight,
+## tutorial or wave change under way, the Road must have a running, visible
+## fight -- if not, it's restarted, and what was wrong goes into the stats
+## (features: roadWatchdog:<reason>) so real reports show the cause.
+const ROAD_WATCHDOG_SEC := 3.0
+var _watchdog_strikes := 0
+
+func _road_watchdog() -> void:
+	if g.is_empty() or g.get("mc") == null or g.get("sideBattle") != null or _road_changing > 0:
+		_watchdog_strikes = 0
+		return
+	if tutorial != null and (tutorial.holds_road() or tutorial.active != ""):
+		_watchdog_strikes = 0
+		return
+	var p = current_presenter
+	var reason := ""
+	if p == null or not is_instance_valid(p):
+		reason = "noFight"
+	elif not p.visible:
+		reason = "hidden"
+	elif p.loop_paused:
+		reason = "paused"
+	elif p._loop_started and p.battle.get("over") != null:
+		reason = "overNotAdvanced"
+	if reason == "":
+		_watchdog_strikes = 0
+		return
+	# two checks in a row, so a normal moment between steps isn't mistaken
+	_watchdog_strikes += 1
+	if _watchdog_strikes < 2:
+		return
+	_watchdog_strikes = 0
+	Analytics.add("features", "roadWatchdog:" + reason)
+	match reason:
+		"noFight":
+			_begin_next_fight()
+		"hidden":
+			p.show()
+			p.call("set_loop_paused", false)
+		"paused":
+			p.call("set_loop_paused", false)
+		"overNotAdvanced":
+			_on_battle_finished(str(p.battle["over"]), p)
+
+func _on_battle_finished_inner(outcome: String) -> void:
 	_record_road_wave(outcome == "party")
 	if outcome == "party":
 		# Captured BEFORE after_wave_cleared/start_wave advance g["wave"] --

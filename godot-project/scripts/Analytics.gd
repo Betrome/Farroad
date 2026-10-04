@@ -296,6 +296,11 @@ static func build_report(g: Dictionary) -> Dictionary:
 
 static func due() -> bool:
 	_ensure()
+	# Only real exported builds report: runs from the Godot editor (Claude's
+	# headless tests among them) never send -- they were landing in the
+	# Sheet as fake players.
+	if OS.has_feature("editor") and endpoint == ENDPOINT:
+		return false
 	return state["enabled"] and endpoint != "" and not _sending \
 		and Time.get_unix_time_from_system() - float(state["lastSent"]) >= SEND_EVERY_SEC
 

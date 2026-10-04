@@ -200,6 +200,15 @@ func _build_unlocked_card() -> void:
 	pull_x10_btn.pressed.connect(_on_pull_x10_pressed)
 	card_container.add_child(pull_x10_btn)
 
+	# Ian: a button that spends every Mark on as many pulls as it buys.
+	var n_all: int = floori(marks / float(cost)) if cost > 0 else 0
+	var pull_all_btn := Button.new()
+	pull_all_btn.text = "PULL ALL — %d pulls, %d Marks" % [n_all, n_all * cost]
+	pull_all_btn.disabled = n_all < 1
+	_style_pull_button(pull_all_btn, n_all >= 1)
+	pull_all_btn.pressed.connect(_on_pull_many_pressed.bind(-1))
+	card_container.add_child(pull_all_btn)
+
 	var pity_n := int(g.get("pullsSinceUnit", 0))
 	# Ian: a breakdown of each kind's chance and the rarity split inside it
 	# (share of that kind, and the overall per-pull chance in brackets).
@@ -315,9 +324,14 @@ func _on_pull_pressed() -> void:
 	_refresh_card()
 
 func _on_pull_x10_pressed() -> void:
+	_on_pull_many_pressed(10)
+
+## `count` pulls, or as many as the Marks pay for when count < 0.
+func _on_pull_many_pressed(count: int) -> void:
 	var results := []
 	var fielded_any := false
-	for i in range(10):
+	var limit: int = count if count > 0 else 100000
+	for i in range(limit):
 		var result := FarroadProgression.do_pull(g)
 		if result.is_empty():
 			break
