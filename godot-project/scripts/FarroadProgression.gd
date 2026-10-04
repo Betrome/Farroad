@@ -820,7 +820,8 @@ static func stats_at(uid: String, base: Dictionary, base_hp: float, l: int) -> D
 		o[k] = base[k]
 	return o
 
-const SLOT_LEVELS: Array[int] = [1, 1, 10, 100, 500, 1000]
+## Ian: extra slots at levels 50 and 250.
+const SLOT_LEVELS: Array[int] = [1, 1, 10, 50, 100, 250, 500, 1000]
 
 static func slots_at(l: int) -> int:
 	var n := 0
