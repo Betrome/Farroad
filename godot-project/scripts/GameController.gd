@@ -1647,12 +1647,16 @@ func _show_action_detail_popup(action_id: String) -> void:
 	vbox.add_child(power_lbl)
 
 	var cost_lbl := Label.new()
+	# Ian: action costs on the Catalogue (and every action's details) --
+	# the time cost (rank x100, the same "cost" Lore shows): how long until
+	# the user's next turn, 100 being a normal action.
+	var time_txt := "Cost %d" % roundi(float(act["rank"]) * 100.0)
 	if act.get("isCharge", false):
-		cost_lbl.text = "Charge action -- fills at %d per use of a non-charge action" % int(FarroadCore.cost_of_charge(act))
+		cost_lbl.text = "%s  ·  Charge action: uses %d charge" % [time_txt, int(FarroadCore.cost_of_charge(act))]
 	else:
 		# Ian: "shorten the charge bit to just Charge +x, where x is the
 		# current amount."
-		cost_lbl.text = "Charge +%d" % int(act.get("charge", 0))
+		cost_lbl.text = "%s  ·  Charge +%d" % [time_txt, int(act.get("charge", 0))]
 	cost_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(cost_lbl)

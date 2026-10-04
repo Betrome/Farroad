@@ -202,8 +202,10 @@ func _refresh_actions() -> void:
 			continue
 		if is_known:
 			var row := HBoxContainer.new()
+			# Ian: the action's cost (time until the next turn, 100 = normal)
 			var lbl := _rich_row(_rarity_name(act["name"], act.get("rarity", "common")) +
-				" Lv%d" % FarroadProgression.action_level(g, aid))
+				" Lv%d  [color=#%s]cost %d[/color]" % [FarroadProgression.action_level(g, aid),
+					Palette.TEXT_DIM.to_html(false), roundi(float(act["rank"]) * 100.0)])
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)
 			var info_btn := Button.new()
