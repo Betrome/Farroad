@@ -2429,7 +2429,8 @@ func _show_unit_detail_popup(uid: String) -> void:
 	title.bbcode_enabled = true
 	title.fit_content = true
 	title.text = "[b][color=#%s]%s[/color][/b]  %s · %s row" % [color.to_html(false), d["name"],
-		str(d.get("role", "")).capitalize(), str(d.get("row", "front"))]
+		(FarroadProgression.unit_title(g, uid) if g["owned"].has(uid) else FarroadProgression.role_for_stats(d.get("stats", {}))),
+		str(d.get("row", "front"))]
 	vbox.add_child(title)
 	var st: Dictionary = d.get("stats", {})
 	var stat_lbl := Label.new()

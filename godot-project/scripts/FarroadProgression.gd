@@ -949,6 +949,41 @@ static func equipment_affinity(g: Dictionary, uid: String) -> Dictionary:
 				out[ax] += item.get("affinity", {}).get(ax, 0.0)
 	return out
 
+## Ian: a unit's title is its role from its two highest non-HP stats (with
+## its current level and gear), led by its strongest elemental affinity if
+## it has one -- e.g. "Fire Warden". All five within 2: Freelancer.
+const ROLE_TITLES := {"atk+mag": "Duelist", "atk+def": "Fighter", "atk+res": "Paladin", "atk+spd": "Rogue",
+	"mag+def": "Warden", "mag+res": "Mage", "mag+spd": "Sorcerer", "def+res": "Tank", "def+spd": "Bruiser",
+	"res+spd": "Warlock"}
+const TITLE_STATS: Array[String] = ["atk", "mag", "def", "res", "spd"]
+const TITLE_ELEMENTS: Array[String] = ["fire", "water", "earth", "air", "light", "dark", "spirit"]
+
+static func role_for_stats(st: Dictionary) -> String:
+	var vals: Array = TITLE_STATS.map(func(k): return float(st.get(k, 0)))
+	if vals.max() - vals.min() <= 2.0:
+		return "Freelancer"
+	var order: Array = TITLE_STATS.duplicate()
+	order.sort_custom(func(a, b): return float(st.get(a, 0)) > float(st.get(b, 0)) or 		(float(st.get(a, 0)) == float(st.get(b, 0)) and TITLE_STATS.find(a) < TITLE_STATS.find(b)))
+	var pair: Array = [order[0], order[1]]
+	pair.sort_custom(func(a, b): return TITLE_STATS.find(a) < TITLE_STATS.find(b))
+	return ROLE_TITLES.get("%s+%s" % pair, "Freelancer")
+
+static func element_prefix(aff: Dictionary) -> String:
+	var best := ""
+	var best_v := 0.0
+	for el in TITLE_ELEMENTS:
+		var v := float(aff.get(el, 0.0))
+		if v > best_v:
+			best_v = v
+			best = el
+	return best.capitalize()
+
+static func unit_title(g: Dictionary, uid: String) -> String:
+	var u := build_party_unit(g, uid, 0)
+	var role := role_for_stats(u["base"])
+	var el := element_prefix(effective_affinity(g, uid))
+	return (el + " " + role) if el != "" else role
+
 static func effective_affinity(g: Dictionary, uid: String) -> Dictionary:
 	var base := affinity_baseline(uid)
 	var purchased := affinity_purchased(g, uid)

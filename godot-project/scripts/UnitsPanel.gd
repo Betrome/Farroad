@@ -241,8 +241,9 @@ func _build_summary_card() -> void:
 	name_lbl.fit_content = true
 	var rarity: String = def.get("rarity", "common")
 	var color: Color = RARITY_COLOR.get(rarity, Color(1, 1, 1))
-	name_lbl.text = "[b][color=#%s]%s[/color][/b]  Lv %d  ·  %s row  ·  %s" % [
-		color.to_html(false), def["name"], level, def.get("row", "front"), ("Fielded" if g["party"].has(selected_uid) else "Benched")]
+	name_lbl.text = "[b][color=#%s]%s[/color][/b]  %s  ·  Lv %d  ·  %s row  ·  %s" % [
+		color.to_html(false), def["name"], FarroadProgression.unit_title(g, selected_uid), level,
+		def.get("row", "front"), ("Fielded" if g["party"].has(selected_uid) else "Benched")]
 	content_container.add_child(name_lbl)
 
 	var hp_lbl := Label.new()

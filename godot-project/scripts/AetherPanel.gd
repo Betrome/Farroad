@@ -329,7 +329,7 @@ func _refresh_card() -> void:
 	# Header + XP.
 	var header := Label.new()
 	var row_tag: String = "" if g["party"].has(uid) else " • benched"
-	header.text = "%s — %s — LV %d%s" % [def["name"], def.get("role", ""), level, row_tag]
+	header.text = "%s — %s — LV %d%s" % [def["name"], FarroadProgression.unit_title(g, uid), level, row_tag]
 	header.add_theme_font_size_override("font_size", 16)
 	card_container.add_child(header)
 
