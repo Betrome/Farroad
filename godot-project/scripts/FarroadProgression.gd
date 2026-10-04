@@ -2775,12 +2775,21 @@ static func dungeon_available(dungeon: Dictionary, now) -> bool:
 ## current build.
 const QUEST_DIFFICULTY_MUL := 0.5
 
-static func quest_stage_wave(g: Dictionary, uid: String, stage_idx: int) -> int:
-	var frac: float = FarroadCore.QUEST_LINES[uid][stage_idx]["powerFraction"]
-	# never past the last wave the player has actually cleared -- early on
-	# Power runs well ahead of the Road (wave 13 quest fights at wave 5)
-	var cap: int = maxi(1, int(g.get("farthest", 1)) - 1)
-	return clampi(roundi(frac * QUEST_DIFFICULTY_MUL * power_level(g)), 1, cap)
+## Ian: quests are a fixed, fairly easy difficulty -- the same Road waves
+## for everyone, not scaled to the party's Power. Stage 5 (the boss) is the
+## softened wave-20 boss.
+const QUEST_STAGE_WAVES: Array[int] = [6, 10, 14, 17, 20]
+## Bumped when quest difficulty changes: stages saved under an older rule
+## are rebuilt the next time they're attempted.
+const QUEST_RULES_VERSION := 2
+
+static func quest_stage_wave(_g: Dictionary, _uid: String, stage_idx: int) -> int:
+	return QUEST_STAGE_WAVES[clampi(stage_idx, 0, QUEST_STAGE_WAVES.size() - 1)]
+
+static func _refresh_quest_rules(q: Dictionary) -> void:
+	if int(q.get("rulesV", 1)) < QUEST_RULES_VERSION:
+		q["frozen"] = []
+		q["rulesV"] = QUEST_RULES_VERSION
 
 ## Ian: "Have quests/dungeons show their power level (the recommended power
 ## level players should be to complete them)." The fight's enemy stats
@@ -2820,7 +2829,7 @@ static func dungeon_power(dungeon: Dictionary) -> int:
 ## real stream and the live wave are left untouched).
 static func quest_stage_power(g: Dictionary, uid: String, stage: int) -> int:
 	var q: Dictionary = g["quests"].get(uid, {})
-	var frozen: Array = q.get("frozen", [])
+	var frozen: Array = q.get("frozen", []) if int(q.get("rulesV", 1)) >= QUEST_RULES_VERSION else []
 	if stage < frozen.size() and frozen[stage] != null:
 		return snapshot_power(frozen[stage]["enemies"], int(frozen[stage]["wave"]))
 	var step: Dictionary = FarroadCore.QUEST_LINES[uid][stage]
@@ -2856,6 +2865,7 @@ static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 		return {}
 	var stage: int = q["stage"]
 	var step: Dictionary = line[stage]
+	_refresh_quest_rules(q)
 	q["frozen"] = q.get("frozen", [])
 	while (q["frozen"] as Array).size() <= stage:
 		(q["frozen"] as Array).append(null)
