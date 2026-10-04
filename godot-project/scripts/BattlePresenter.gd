@@ -265,7 +265,7 @@ func _reposition_units() -> void:
 		else:
 			(enemy_front if u.get("row") == "front" else enemy_back).append(view)
 	_place_side(party_front, party_back, party_front_x, party_back_x, false)
-	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, true)
+	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, not _rival_team(enemy_front + enemy_back))
 
 ## Group I (20-item batch): per-unit, not a single global constant -- a
 ## boss (u["isBoss"]) reads BOSS_SIZE_MUL bigger, and an archetype's own
@@ -407,7 +407,7 @@ func _layout_units(units: Array) -> void:
 		else:
 			(enemy_front if u.get("row") == "front" else enemy_back).append(view)
 	_place_side(party_front, party_back, party_front_x, party_back_x, false)
-	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, true)
+	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, not _rival_team(enemy_front + enemy_back))
 
 ## Assigns every unit on ONE side a Y position -- each reserving a vertical
 ## band proportional to its own field size (_unit_size), not an equal
@@ -424,6 +424,14 @@ func _layout_units(units: Array) -> void:
 ## so e.g. a 1-front/1-back pair can land at the identical Y (directly
 ## behind each other), freeing vertical room for a bigger boss sprite, per
 ## Ian's own "saves space" reasoning.
+## Ian: an Arena rival is a party, so it's laid out like one (no unit
+## directly behind another), mirrored on the enemy side.
+func _rival_team(views: Array) -> bool:
+	for v in views:
+		if v.unit.get("pvp", false):
+			return true
+	return false
+
 func _place_side(front: Array, back: Array, front_x: float, back_x: float, allow_shared_rows: bool) -> void:
 	if allow_shared_rows:
 		_place_column(front, front_x)
