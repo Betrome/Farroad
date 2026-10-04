@@ -182,10 +182,10 @@ func _refresh_actions() -> void:
 	var filter_row := HFlowContainer.new()
 	filter_row.add_theme_constant_override("h_separation", 6)
 	filter_row.add_theme_constant_override("v_separation", 6)
-	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh_actions()))
-	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh_actions()))
-	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh_actions()))
-	filter_row.add_child(ActionFilter.sort_dropdown(_refresh_actions))
+	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh()))
+	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh()))
+	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh()))
+	filter_row.add_child(ActionFilter.sort_dropdown(_refresh))
 	list_container.add_child(filter_row)
 
 	var known: Array = FarroadProgression.lore_action_ids(g)
@@ -223,7 +223,7 @@ func _refresh_gambits() -> void:
 	var filter_row := HFlowContainer.new()
 	filter_row.add_theme_constant_override("h_separation", 6)
 	filter_row.add_theme_constant_override("v_separation", 6)
-	filter_row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, gambit_filter_group, func(v): gambit_filter_group = v; _refresh_gambits()))
+	filter_row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, gambit_filter_group, func(v): gambit_filter_group = v; _refresh()))
 	list_container.add_child(filter_row)
 
 	var filters_active: bool = gambit_filter_group != "any"
