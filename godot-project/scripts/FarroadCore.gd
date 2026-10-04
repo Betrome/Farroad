@@ -1007,19 +1007,20 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			return {"ok": f.size() >= 3, "target": def_foe(b, u)}
 		"foe_charging":
 			for x in foes(b, u):
-				if x.get("chargeAction") and x["charge"] >= 70:
+				# 70% of that foe's own charge cost (Lore can move it off 100)
+				if x.get("chargeAction") and x["charge"] >= 0.7 * cost_of_charge(ACTIONS.get(x["chargeAction"])):
 					return {"ok": true, "target": x}
 			return {"ok": false, "target": null}
 		"foe_softest_def":
 			var f := foes(b, u)
-			if f.size() < 2: return {"ok": false, "target": null}
+			if f.is_empty(): return {"ok": false, "target": null}   # Ian: one foe counts as the group
 			var t = f[0]
 			for i in range(1, f.size()):
 				if eff_def(f[i]) < eff_def(t): t = f[i]
 			return {"ok": true, "target": t}
 		"foe_softest_res":
 			var f := foes(b, u)
-			if f.size() < 2: return {"ok": false, "target": null}
+			if f.is_empty(): return {"ok": false, "target": null}   # Ian: one foe counts as the group
 			var t = f[0]
 			for i in range(1, f.size()):
 				if eff_res(f[i]) < eff_res(t): t = f[i]
@@ -1029,7 +1030,8 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			if f.is_empty(): return {"ok": false, "target": null}
 			var t = f[0]
 			for i in range(1, f.size()):
-				if eff_atk(f[i]) > eff_atk(t): t = f[i]
+				# Ian: hardest hitter counts magic too (mages were never picked)
+				if maxf(eff_atk(f[i]), eff_mag(f[i])) > maxf(eff_atk(t), eff_mag(t)): t = f[i]
 			return {"ok": true, "target": t}
 		"foe_acts_next":
 			var f := foes(b, u)
@@ -1047,19 +1049,19 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			return {"ok": false, "target": null}
 		"foe_pack_hurt":
 			var f := foes(b, u)
-			if f.size() < 2: return {"ok": false, "target": null}
+			if f.is_empty(): return {"ok": false, "target": null}   # Ian: one foe counts as the group
 			for x in f:
 				if hp_pct(x) >= 0.50: return {"ok": false, "target": null}
 			return {"ok": true, "target": by_lowest_hp(f)}
 		"foe_pack_healthy":
 			var f := foes(b, u)
-			if f.size() < 2: return {"ok": false, "target": null}
+			if f.is_empty(): return {"ok": false, "target": null}   # Ian: one foe counts as the group
 			for x in f:
 				if hp_pct(x) < 0.70: return {"ok": false, "target": null}
 			return {"ok": true, "target": by_highest_hp(f)}
 		"foe_mostly_weakened":
 			var f := foes(b, u)
-			if f.size() < 2: return {"ok": false, "target": null}
+			if f.is_empty(): return {"ok": false, "target": null}   # Ian: one foe counts as the group
 			var n := 0
 			for x in f:
 				if any_debuff(x): n += 1
@@ -1361,7 +1363,18 @@ static func step(b: Dictionary) -> Variant:
 		u["alternateFlag"] = entry["resultingAlternate"]
 		if queue.is_empty():
 			locked.erase(u["id"])
-		ch = {"actionId": entry["actionId"], "target": null, "via": "locked -> %s" % entry["actionId"]}
+		ch = {"actionId": entry["actionId"], "target": null, "via": "locked -> %s" % entry["actionId"],
+			"condId": entry.get("condId")}
+		# Ian: "Foe: lowest HP not working" -- a locked turn kept the action
+		# but dropped the gambit's target, so it fell back to the default
+		# (random) target. Re-run the same condition now for a fresh target
+		# (e.g. whoever is lowest at this moment); if it no longer holds,
+		# the default target is used.
+		var cid = entry.get("condId")
+		if cid != null and cid != "none":
+			var r := resolve_condition(str(cid), u, b, ACTIONS.get(entry["actionId"]))
+			if r["ok"] and r["target"] != null and r["target"]["hp"] > 0:
+				ch["target"] = r["target"]
 	else:
 		ch = choose(u, b)
 	var act: Dictionary = ACTIONS.get(ch["actionId"], ACTIONS.get("strike"))

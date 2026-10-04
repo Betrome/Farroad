@@ -1488,7 +1488,8 @@ func _lock_upcoming_actors(upcoming: Array) -> void:
 		battle["det"] = true
 		var ch := FarroadCore.choose_from(u, battle, state)
 		battle["det"] = was_det
-		queue.append({"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"])})
+		queue.append({"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"]),
+			"condId": ch.get("condId")})   # so its target is re-picked by the same rule
 	for uid in locked.keys().duplicate():
 		var view: UnitView = unit_views_by_id.get(uid)
 		if view == null or view.unit["hp"] <= 0:
