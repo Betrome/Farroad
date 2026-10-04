@@ -2823,10 +2823,19 @@ const QUEST_DIFFICULTY_MUL := 0.5
 const QUEST_STAGE_WAVES: Array[int] = [6, 10, 14, 17, 20]
 ## Bumped when quest difficulty changes: stages saved under an older rule
 ## are rebuilt the next time they're attempted.
-const QUEST_RULES_VERSION := 2
+const QUEST_RULES_VERSION := 3
+## Ian: rare units' quests at 2x those waves, legendary at 4x.
+const QUEST_RARITY_MUL := {"common": 1, "rare": 2, "legendary": 4}
 
-static func quest_stage_wave(_g: Dictionary, _uid: String, stage_idx: int) -> int:
-	return QUEST_STAGE_WAVES[clampi(stage_idx, 0, QUEST_STAGE_WAVES.size() - 1)]
+static func quest_stage_wave(_g: Dictionary, uid: String, stage_idx: int) -> int:
+	var d = FarroadCore.roster_by_id(uid)
+	var mul: int = int(QUEST_RARITY_MUL.get(d.get("rarity", "common") if d != null else "common", 1))
+	var idx := clampi(stage_idx, 0, QUEST_STAGE_WAVES.size() - 1)
+	var w: int = QUEST_STAGE_WAVES[idx] * mul
+	# a non-boss stage never lands on a boss wave (e.g. rare stage 2 = 20)
+	if idx < QUEST_STAGE_WAVES.size() - 1 and is_boss_wave(w):
+		w -= 1
+	return w
 
 static func _refresh_quest_rules(q: Dictionary) -> void:
 	if int(q.get("rulesV", 1)) < QUEST_RULES_VERSION:
