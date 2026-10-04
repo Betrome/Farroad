@@ -144,7 +144,7 @@ func _build_ui(parent: Node) -> void:
 	id_btn.flat = true
 	id_btn.tooltip_text = "Your player ID -- tap to copy"
 	id_btn.pressed.connect(func():
-		DisplayServer.clipboard_set(Analytics.display_id())
+		if _parent: _parent.call("copy_text", Analytics.display_id())
 		id_btn.text = "ID: %s  (copied)" % Analytics.display_id())
 	vbox.add_child(id_btn)
 

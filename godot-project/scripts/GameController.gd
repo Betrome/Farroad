@@ -1752,7 +1752,7 @@ func _show_pvp_popup() -> void:
 	var copy_btn := Button.new()
 	copy_btn.text = "Copy my team code"
 	copy_btn.pressed.connect(func():
-		DisplayServer.clipboard_set(my_code)
+		copy_text(my_code)
 		copy_btn.text = "Copied!")
 	vbox.add_child(copy_btn)
 
@@ -1791,7 +1791,11 @@ func _show_pvp_popup() -> void:
 	var row := HBoxContainer.new()
 	var paste_btn := Button.new()
 	paste_btn.text = "Paste"
-	paste_btn.pressed.connect(func(): paste_box.text = DisplayServer.clipboard_get())
+	paste_btn.pressed.connect(func():
+		var t := paste_text("Paste a team code:")
+		if t != "":
+			paste_box.text = t
+			paste_box.text_changed.emit())   # check the code straight away
 	row.add_child(paste_btn)
 	var fight_btn := Button.new()
 	fight_btn.text = "Fight!"
@@ -1972,10 +1976,28 @@ func _show_pvp_result_popup(event: Dictionary) -> void:
 	var copy_btn := Button.new()
 	copy_btn.text = "Copy result to share" if won else "Copy result and my team code"
 	copy_btn.pressed.connect(func():
-		DisplayServer.clipboard_set(brag)
+		copy_text(brag)
 		copy_btn.text = "Copied!")
 	vbox.add_child(copy_btn)
 	await _finish_detail_overlay(o)
+
+## Ian (web build): copy/paste of Arena codes didn't work in the browser --
+## the game can't read the system clipboard there. On web, copying uses the
+## browser's clipboard (falling back to a box with the text selected), and
+## pasting opens the browser's own prompt to paste into.
+static func copy_text(text: String) -> void:
+	DisplayServer.clipboard_set(text)
+	if OS.has_feature("web"):
+		var js := "(function(t){ var fb = function(){ window.prompt('Copy this (Ctrl+C, or long-press then Copy):', t); };" \
+			+ " if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(t).catch(fb); } else { fb(); } })(%s);"
+		JavaScriptBridge.eval(js % JSON.stringify(text), true)
+
+## The pasted text, or "" if cancelled.
+static func paste_text(prompt: String) -> String:
+	if OS.has_feature("web"):
+		var r = JavaScriptBridge.eval("window.prompt(%s, '') || ''" % JSON.stringify(prompt), true)
+		return str(r) if r != null else ""
+	return DisplayServer.clipboard_get()
 
 func _show_stats_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
