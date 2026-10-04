@@ -266,6 +266,8 @@ func _start_game() -> void:
 	tutorial.setup(self)
 	for p in [units_panel, party_panel, quests_panel, shop_panel, expedition_panel,
 			settings_panel, catalogue_panel]:
+		# before _reset_menu, so it sees the level the menu was on
+		p.popup.popup_hide.connect(_on_tab_hidden.bind(p))
 		p.popup.popup_hide.connect(_reset_menu.bind(p))
 	_begin_next_fight()
 
@@ -1311,7 +1313,7 @@ func _ensure_tab_close_x(panel: Node) -> void:
 	var pop: PopupPanel = panel.popup
 	var x: Button = pop.get_node_or_null("CloseX")
 	if x == null:
-		x = _make_close_x(func(): pop.hide())
+		x = _make_close_x(func(): _tab_close_or_back(panel))
 		x.name = "CloseX"
 		x.top_level = true
 		pop.add_child(x)
@@ -1332,7 +1334,51 @@ func _reset_scrolls(panel: Node) -> void:
 ## existing open logic (_panel_opening + refresh + popup + battle-pause),
 ## which already correctly closes Settings' own popup via _panel_opening.
 func _open_catalogue() -> void:
+	catalogue_panel.set_meta("fromMenu", true)
 	catalogue_panel.call("_on_toggle_pressed")
+
+## Ian: "Clicking the x or the outside of a page should take you up one
+## level." A menu with a level above it (Units on Gambits/Aether/Lore/Gear
+## -> Summary; Catalogue opened from the Menu -> the Menu) goes there
+## instead of closing; at the top level it closes as before. Pop-ups inside
+## a menu already close one at a time.
+func _tab_can_go_back(panel: Node) -> bool:
+	if panel == catalogue_panel:
+		return catalogue_panel.get_meta("fromMenu", false)
+	return panel.has_method("can_go_back") and panel.call("can_go_back")
+
+func _tab_go_back(panel: Node) -> void:
+	if panel == catalogue_panel:
+		catalogue_panel.set_meta("fromMenu", false)
+		if catalogue_panel.popup.visible:
+			catalogue_panel.popup.hide()
+		settings_panel.call("_on_toggle_pressed")
+	elif panel.has_method("go_back"):
+		panel.call("go_back")
+
+## The tab menu's X.
+func _tab_close_or_back(panel: Node) -> void:
+	if _tab_can_go_back(panel):
+		_tab_go_back(panel)
+	else:
+		if panel == catalogue_panel:
+			catalogue_panel.set_meta("fromMenu", false)
+		panel.popup.hide()
+
+## A tap outside a menu hides it; if the menu had a level above, reopen
+## there instead (unless something else was opened in its place).
+func _on_tab_hidden(panel: Node) -> void:
+	var back := _tab_can_go_back(panel)
+	if back:
+		_reopen_one_level_up.call_deferred(panel)
+
+func _reopen_one_level_up(panel: Node) -> void:
+	if open_panel != panel or panel.popup.visible:
+		return   # another menu took its place, or it's already showing
+	if panel == catalogue_panel:
+		_tab_go_back(panel)
+	else:
+		panel.call("_on_toggle_pressed")   # reopens at its top level
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 
@@ -1359,7 +1405,13 @@ func _raise_self_hosted_overlays() -> void:
 		if is_instance_valid(ov) and ov.get_parent() != null:
 			ov.get_parent().move_child(ov, ov.get_parent().get_child_count() - 1)
 
+## A pop-up window that isn't a tab menu (e.g. the battle Log) can host
+## detail overlays while it's open.
+var overlay_host_override: Window = null
+
 func _overlay_host() -> Array:
+	if overlay_host_override != null and is_instance_valid(overlay_host_override) and overlay_host_override.visible:
+		return [overlay_host_override, Vector2(overlay_host_override.size)]
 	if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		return [open_panel.popup, Vector2(open_panel.popup.size)]
 	return [self, _vp]
@@ -1998,6 +2050,100 @@ static func paste_text(prompt: String) -> String:
 		var r = JavaScriptBridge.eval("window.prompt(%s, '') || ''" % JSON.stringify(prompt), true)
 		return str(r) if r != null else ""
 	return DisplayServer.clipboard_get()
+
+## ===== Wipes (Ian) =====
+## The last WIPE_LOG_MAX waves that wiped the party, newest first: the wave,
+## when, the party, and the enemies as they were when the fight began.
+const WIPE_LOG_MAX := 10
+
+func _record_wipe() -> void:
+	var enemies: Array = []
+	if current_presenter != null and is_instance_valid(current_presenter) and current_presenter.has_meta("enemySnap"):
+		enemies = current_presenter.get_meta("enemySnap")
+	var party: Array = []
+	for uid in g.get("party", []):
+		var d = FarroadCore.roster_by_id(uid)
+		party.append({"id": uid, "name": d["name"] if d else uid, "lvl": FarroadProgression.level_of(g, uid)})
+	var log: Array = g.get("wipeLog", [])
+	log.push_front({"wave": int(g.get("wave", 1)), "at": int(Time.get_unix_time_from_system()), "party": party, "enemies": enemies})
+	g["wipeLog"] = log.slice(0, WIPE_LOG_MAX)
+
+func _ago(ts: int) -> String:
+	var s: int = maxi(0, int(Time.get_unix_time_from_system()) - ts)
+	if s < 60: return "just now"
+	if s < 3600: return "%dm ago" % (s / 60)
+	if s < 86400: return "%dh ago" % (s / 3600)
+	return "%dd ago" % (s / 86400)
+
+## Level 1: the list of wipes. Each opens level 2 on top; tapping outside
+## or the X on any level closes just that level.
+func _show_wipes_popup(host: Window = null) -> void:
+	overlay_host_override = host
+	var o := _build_detail_overlay()
+	vbox_title(o["vbox"], "Recent wipes")
+	var log: Array = g.get("wipeLog", [])
+	if log.is_empty():
+		o["vbox"].add_child(_wrap_label("No wipes yet.", true))
+	for w in log:
+		var b := Button.new()
+		var names: Array = (w.get("party", []) as Array).map(func(p): return "%s %d" % [p["name"], int(p["lvl"])])
+		b.text = "Wave %d  ·  %s  ·  %d foes" % [int(w["wave"]), _ago(int(w["at"])), (w.get("enemies", []) as Array).size()]
+		b.tooltip_text = "Party: " + ", ".join(names)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(_show_wipe_wave.bind(w))
+		o["vbox"].add_child(b)
+	await _finish_detail_overlay(o)
+
+func vbox_title(vbox: VBoxContainer, text: String) -> void:
+	var t := Label.new()
+	t.text = text
+	t.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(t)
+
+## Level 2: the enemies in that wave.
+func _show_wipe_wave(w: Dictionary) -> void:
+	var o := _build_detail_overlay()
+	vbox_title(o["vbox"], "Wave %d" % int(w["wave"]))
+	var names: Array = (w.get("party", []) as Array).map(func(p): return "%s (Lv %d)" % [p["name"], int(p["lvl"])])
+	o["vbox"].add_child(_wrap_label("Your party: " + ", ".join(names), true))
+	for e in w.get("enemies", []):
+		var b := Button.new()
+		var st: Dictionary = e["stats"]
+		b.text = "%s%s  ·  HP %d  ATK %d  MAG %d" % [e["name"], "  (boss)" if e.get("isBoss", false) else "",
+			int(st["hp"]), int(st["atk"]), int(st["mag"])]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(_show_wipe_enemy.bind(e, int(w["wave"])))
+		o["vbox"].add_child(b)
+	await _finish_detail_overlay(o)
+
+## Level 3: one enemy's stats, as it was when the fight began.
+func _show_wipe_enemy(e: Dictionary, wave: int) -> void:
+	var o := _build_detail_overlay(Palette.ENEMY_RED)
+	var vbox: VBoxContainer = o["vbox"]
+	vbox_title(vbox, "%s%s" % [e["name"], " (boss)" if e.get("isBoss", false) else ""])
+	var st: Dictionary = e["stats"]
+	vbox.add_child(_wrap_label("Wave %d  ·  %s row" % [wave, str(e.get("row", "front"))], true))
+	vbox.add_child(_wrap_label("HP %d   ATK %d   MAG %d" % [int(st["hp"]), int(st["atk"]), int(st["mag"])]))
+	vbox.add_child(_wrap_label("DEF %d   RES %d   SPD %d" % [int(st["def"]), int(st["res"]), int(st["spd"])]))
+	vbox.add_child(_wrap_label("Crit %d%% / %d%% magic   Evade %d%%" % [roundi(float(st["atkCrit"]) * 100.0),
+		roundi(float(st["magCrit"]) * 100.0), roundi(float(st["evade"]) * 100.0)]))
+	var aff: Array = []
+	for ax in (e.get("affinity", {}) as Dictionary).keys():
+		var v := float(e["affinity"][ax])
+		if v != 0.0:
+			aff.append("%s %+d%%" % [str(ax).capitalize(), roundi(FarroadCore.affinity_mul(v) * 100.0)])
+	vbox.add_child(_wrap_label("Affinities: " + (", ".join(aff) if not aff.is_empty() else "none"), true))
+	var acts: Array = []
+	for s in e.get("slots", []):
+		var a = FarroadCore.ACTIONS.get(s["action"])
+		if a != null and not acts.has(a["name"]):
+			acts.append(a["name"])
+	if e.get("chargeAction") and FarroadCore.ACTIONS.has(e["chargeAction"]):
+		acts.append("⚡ " + str(FarroadCore.ACTIONS[e["chargeAction"]]["name"]))
+	vbox.add_child(_wrap_label("Actions: " + ", ".join(acts), true))
+	if float(e.get("thorns", 0.0)) > 0.0:
+		vbox.add_child(_wrap_label("Thorns: reflects %d%% of max HP when hit" % roundi(float(e["thorns"]) * 100.0), true))
+	await _finish_detail_overlay(o)
 
 func _show_stats_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
@@ -2675,6 +2821,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		return
 	if tutorial != null and tutorial.holds_road():
 		presenter.set_loop_paused(true)   # the Road waits out a running (or due) tutorial
+	# the wave's enemies as they were at the start (enrage changes them)
+	presenter.set_meta("enemySnap", (g.get("enemies", []) as Array).map(FarroadProgression.bake_enemy_snapshot))
 	presenter.analytics_key = str(int(g.get("wave", 1)))
 	presenter.analytics_boss = FarroadProgression.is_boss_wave(int(g.get("wave", 1)))
 	presenter.start_battle(g["battle"], g["units"] + g["enemies"], stage_enemies_offscreen, g.get("clearedWaves", {}), hide_party_until_revealed, auto_start_loop)
@@ -2916,6 +3064,7 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		if is_instance_valid(next) and next == current_presenter:
 			next.call("begin_combat")
 	else:
+		_record_wipe()
 		FarroadProgression.on_wipe(g)
 		_refresh_hud()
 		_save_game()

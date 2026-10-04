@@ -194,6 +194,13 @@ func _on_dropdown_selected(idx: int) -> void:
 	selected_uid = uids[idx]
 	_refresh_content()
 
+## Ian: X / tapping outside goes up a level -- from a sub-tab to Summary.
+func can_go_back() -> bool:
+	return current_sub_tab != "summary"
+
+func go_back() -> void:
+	_on_sub_tab_pressed("summary")
+
 func _on_sub_tab_pressed(tab: String) -> void:
 	# a locked sub-tab says when it opens (Tutorial.gd)
 	if _parent and _parent.has_method("_tab_unlocked") and not _parent.call("_tab_unlocked", tab):

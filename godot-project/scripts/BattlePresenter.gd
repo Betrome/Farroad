@@ -989,6 +989,13 @@ func _build_log_ui() -> void:
 	clear_btn.text = "Clear"
 	clear_btn.pressed.connect(_on_clear_pressed)
 	header.add_child(clear_btn)
+	# Ian: the waves that wiped the party most recently.
+	var wipes_btn := Button.new()
+	wipes_btn.text = "Wipes"
+	wipes_btn.pressed.connect(func():
+		if get_parent() and get_parent().has_method("_show_wipes_popup"):
+			get_parent().call("_show_wipes_popup", log_popup))
+	header.add_child(wipes_btn)
 
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 60)
