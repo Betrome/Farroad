@@ -1511,8 +1511,22 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	# either way: identical to host_size when host has no such inset
 	# (GameController itself, confirmed unaffected by direct measurement
 	# too), and self-correcting when it does.
-	box.position = (backdrop.size - box.size) / 2.0
-	close_btn.position = box.position + Vector2(box.size.x - close_btn.size.x - 6.0, 6.0)
+	# Ian (web build): the box sometimes landed with its top-left corner at
+	# the centre -- on web it could still report size 0 a frame after being
+	# built, and this was a one-off placement. Now it's anchored to the
+	# centre and grows both ways, so it stays centred whatever size it ends
+	# up; the close button follows it.
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var place := func():
+		if not is_instance_valid(box) or not is_instance_valid(close_btn):
+			return
+		box.position = (backdrop.size - box.size) / 2.0
+		close_btn.position = box.position + Vector2(box.size.x - close_btn.size.x - 6.0, 6.0)
+	place.call()
+	box.resized.connect(place)
+	backdrop.resized.connect(place)
 
 ## Post-Milestone-3 APK feedback (round 5): "I want to have the filters be
 ## in the actual drop downs when selecting the actions, not above them...
