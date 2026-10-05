@@ -50,8 +50,12 @@ func _state_key(exp: Dictionary) -> String:
 	return "arrived" if exp.get("arrivedAt") != null else ("home" if exp.get("homeAt") != null else "away")
 
 func _bank_text(exp: Dictionary) -> String:
-	return "Banked %d Aether, %d Marks so far — reached wave %d." % [
+	var t := "Banked %d Aether, %d Marks so far — reached wave %d." % [
 		roundi(exp["bank"]["aether"]), floori(exp["bank"]["marks"]), int(exp["ew"])]
+	var finds: Array = exp["bank"].get("finds", [])
+	if not finds.is_empty():
+		t += " Found: " + ", ".join(finds.map(func(f): return FarroadProgression.find_name(f))) + "."
+	return t
 
 func _tick_live() -> void:
 	if popup == null or not popup.visible or _live.is_empty():

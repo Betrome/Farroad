@@ -2203,6 +2203,13 @@ const EXPED_EVENTS: Array = [
 	{"text": "{names} left an offering at a wayside shrine and felt lighter for it.", "aether": 0.0, "marks": 0.0, "heal": 0.15},
 	{"text": "{names} bartered spare rations at a crossroads trading post.", "aether": 0.0, "marks": 0.75, "heal": 0.0},
 	{"text": "{names} cut a traveler loose from a bandit camp -- the bandits had already fled.", "aether": 1.25, "marks": 0.0, "heal": 0.0},
+	# Ian: finds -- gear, actions and gambits, handed over on Collect
+	{"text": "{names} found a dented chest by the roadside with gear inside.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "equip"},
+	{"text": "{names} pried open a sealed crate in a ruined watchtower.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "equip"},
+	{"text": "{names} learned a technique from a retired duelist.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "action"},
+	{"text": "{names} found a battered tome of combat arts.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "action"},
+	{"text": "{names} studied the tactics of a veteran caravan guard.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "cond"},
+	{"text": "{names} copied battle plans from an abandoned war camp.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "cond"},
 ]
 const DIRECTION_AFFINITY_BONUS := 6.0
 
@@ -2508,6 +2515,14 @@ static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, si
 		bits.append("+%d Marks" % floori(m_gain))
 	if float(ev["heal"]) > 0.0:
 		bits.append("recovered some HP")
+	if ev.has("find"):
+		var f := _roll_find(g, str(ev["find"]))
+		if not f.is_empty():
+			var bank: Dictionary = exp["bank"]
+			if not bank.has("finds"):
+				bank["finds"] = []
+			(bank["finds"] as Array).append(f)
+			bits.append("found " + find_name(f))
 	var text: String = String(ev["text"]).replace("{names}", names)
 	if not bits.is_empty():
 		text += " (%s)" % ", ".join(bits)
@@ -2589,6 +2604,57 @@ static func resume_expedition(g: Dictionary, id: String, now) -> bool:
 			return true
 	return false
 
+## ---- expedition finds (Ian) ----
+## Picked when found (so the log can name it), handed over on Collect by
+## the same rules as a Marks pull: new actions/gambits unlock, a repeat
+## action becomes Lore for it, a repeat gambit becomes Aether, gear stacks.
+static func _roll_find(g: Dictionary, kind: String) -> Dictionary:
+	match kind:
+		"equip":
+			return {"kind": "equip", "id": weighted_equipment_pick(g["rng"], random_equipment_ids())}
+		"action":
+			return {"kind": "action", "id": weighted_action_pick(g["rng"], FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS)}
+		"cond":
+			var cp: Array = FarroadCore.ALL_CONDITION_IDS.filter(func(id): return id != "none")
+			return {"kind": "cond", "id": cp[g["rng"].next_int(cp.size())]}
+	return {}
+
+static func find_name(f: Dictionary) -> String:
+	match str(f.get("kind", "")):
+		"equip":
+			return str(FarroadCore.EQUIPMENT.get(f["id"], {}).get("name", f["id"]))
+		"action":
+			var a = FarroadCore.ACTIONS.get(f["id"])
+			return ("⚡ " if a != null and a.get("isCharge", false) else "") + (str(a["name"]) if a != null else str(f["id"]))
+		"cond":
+			return "gambit: " + FarroadCore.cond_label(f["id"])
+	return "?"
+
+static func grant_find(g: Dictionary, f: Dictionary) -> void:
+	var id: String = str(f.get("id", ""))
+	match str(f.get("kind", "")):
+		"equip":
+			g["equipInv"][id] = int(g["equipInv"].get(id, 0)) + 1
+		"action":
+			g["actionCounts"][id] = int(g["actionCounts"].get(id, 0)) + 1
+			if bool(FarroadCore.ACTIONS.get(id, {}).get("isCharge", false)) and g.get("mc") != null:
+				g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
+				if g["mc"]["acquiredCharges"].has(id):
+					_credit_lore(g, id)
+				else:
+					g["mc"]["acquiredCharges"].append(id)
+			elif (g["actions"] as Array).has(id):
+				_credit_lore(g, id)
+			else:
+				g["actions"].append(id)
+		"cond":
+			g["condCounts"][id] = int(g["condCounts"].get(id, 0)) + 1
+			if (g["conditions"] as Array).has(id):
+				_credit_dup_gambit(g)
+			else:
+				g["conditions"].append(id)
+	Analytics.add("expeditionFinds", "%s:%s" % [f.get("kind", ""), id])
+
 ## Mirrors collectExpedition (farroad-ui.js:1046-1056) -- only reachable
 ## once arrivedAt is set; grants bank into the real economy and removes
 ## the expedition.
@@ -2601,6 +2667,8 @@ static func collect_expedition(g: Dictionary, id: String) -> bool:
 		return false
 	g["aether"] = float(g["aether"]) + float(exp["bank"]["aether"])
 	g["marks"] = float(g["marks"]) + float(exp["bank"]["marks"])
+	for f in exp["bank"].get("finds", []):
+		grant_find(g, f)
 	Analytics.add("expedition", "collected")
 	Analytics.add("expedition", "aetherCollected", float(exp["bank"]["aether"]))
 	Analytics.add("expedition", "marksCollected", float(exp["bank"]["marks"]))
