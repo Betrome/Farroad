@@ -2268,6 +2268,9 @@ static func apply_direction_affinity(enemies: Array, dir: String) -> Array:
 const EXPED_BASE_SEC := 120.0
 const EXPED_SEC_PER_WAVE := 0.16
 const EXPED_REWARD_MUL := 2.0
+## Ian: no enrage on expeditions (testing how it plays). A fight that runs
+## to the turn limit counts as a loss and is recorded as a stall.
+const EXPED_ENRAGE := false
 const EXPED_MAX_SPEEDUP := 0.5   # at most half the time
 
 ## Average of (higher of ATK and MAG) + SPD over living units.
@@ -2428,12 +2431,15 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			exp["ew"] += 1
 			_advance_direction_depth(g, exp, now, sim_now)
 		else:
-			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": EXPED_ENRAGE})
 			var beat_guard := 0
 			while battle["over"] == null and beat_guard < 4000:
 				beat_guard += 1
 				if FarroadCore.step(battle) == null:
 					break
+			if battle["over"] == null:
+				exp["stalls"] = int(exp.get("stalls", 0)) + 1
+				Analytics.add("expedition", "stall")
 			if battle["over"] == "party":
 				g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + enemies.size()
 				var r := kill_reward(exp["ew"], enemies.size())
@@ -2526,7 +2532,7 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 	var b_enemies: Array = apply_direction_affinity(
 		apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
 	var b_party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
-	var b_battle := FarroadCore.make_battle(b_party + b_enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
+	var b_battle := FarroadCore.make_battle(b_party + b_enemies, {"rng": g["rng"], "enrage": EXPED_ENRAGE})
 	var b_guard := 0
 	while b_battle["over"] == null and b_guard < 4000:
 		b_guard += 1
