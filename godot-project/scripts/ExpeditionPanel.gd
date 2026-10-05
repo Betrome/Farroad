@@ -291,7 +291,10 @@ func _state_text(exp: Dictionary, now: float) -> String:
 		var remain: int = maxi(0, roundi(float(exp["homeAt"]) - now))
 		return "Heading home, back in %s." % _fmt_duration(remain)
 	var away: int = maxi(0, roundi(now - float(exp["startedAt"])))
-	return "Away %s, reached wave %d." % [_fmt_duration(away), int(exp["ew"])]
+	var pace := ""
+	if exp.get("waveSec") != null:
+		pace = " About %ds a wave." % roundi(float(exp["waveSec"]))
+	return "Away %s, reached wave %d.%s" % [_fmt_duration(away), int(exp["ew"]), pace]
 
 func _fmt_duration(sec: int) -> String:
 	if sec >= 3600:

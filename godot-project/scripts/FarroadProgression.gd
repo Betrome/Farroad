@@ -2177,7 +2177,8 @@ static func new_game(seed: int, mc) -> Dictionary:
 ## push_expedition_log's own per-expedition log covers the same
 ## information for this panel's own display.
 
-const EXPED_RETURN_HP_FRAC := 0.25
+## Ian: parties push on until 10% HP (was 25%).
+const EXPED_RETURN_HP_FRAC := 0.10
 const EXPED_CAP_SEC := OFFLINE_CAP_SEC
 const EXPED_DISCOVERY_CHANCE := 0.08
 ## 24-item batch, Group E4: non-combat road events. EXPED_EVENT_CHANCE is
@@ -2187,7 +2188,8 @@ const EXPED_DISCOVERY_CHANCE := 0.08
 ## with depth exactly the way fights do); heal restores a fraction of the
 ## party's shared HP pool. {names} is filled with the party's names.
 ## Mirrored verbatim in farroad-ui.js (EXPED_EVENTS) and parity-reference.js.
-const EXPED_EVENT_CHANCE := 0.10
+## Ian: more road events (no fight) so parties get further (was 10%).
+const EXPED_EVENT_CHANCE := 0.25
 const EXPED_EVENTS: Array = [
 	{"text": "{names} passed through a roadside town and traded stories for supplies.", "aether": 0.5, "marks": 0.0, "heal": 0.0},
 	{"text": "{names} sold salvaged gear at a market stall.", "aether": 0.0, "marks": 1.0, "heal": 0.0},
@@ -2261,6 +2263,35 @@ static func apply_direction_affinity(enemies: Array, dir: String) -> Array:
 ## build_party_unit (Step 3f) but genuinely different HP math: ONE shared
 ## hp_frac across the whole party (not per-unit g["hpCarry"]), so it's its
 ## own function rather than a build_party_unit reuse.
+## Ian: waves take twice as long (parties stay out longer) and each wave
+## won pays twice as much to compensate.
+const EXPED_BASE_SEC := 120.0
+const EXPED_SEC_PER_WAVE := 0.16
+const EXPED_REWARD_MUL := 2.0
+const EXPED_MAX_SPEEDUP := 0.5   # at most half the time
+
+## Average of (higher of ATK and MAG) + SPD over living units.
+static func offence_of(units: Array) -> float:
+	var t := 0.0
+	var n := 0
+	for u in units:
+		if u["hp"] > 0:
+			t += maxf(float(u["base"]["atk"]), float(u["base"]["mag"])) + float(u["base"]["spd"])
+			n += 1
+	return t / n if n > 0 else 0.0
+
+## Seconds an expedition spends on one wave: 60 + 0.08 per wave, cut by
+## 1 - enemy offence / party offence when the party's is higher (twice the
+## enemies' halves it), capped at EXPED_MAX_SPEEDUP.
+static func expedition_wave_sec(ew: int, party: Array, enemies: Array) -> float:
+	var base := EXPED_BASE_SEC + EXPED_SEC_PER_WAVE * ew
+	var po := offence_of(party)
+	var eo := offence_of(enemies)
+	var cut := 0.0
+	if po > 0.0 and eo > 0.0 and po > eo:
+		cut = minf(EXPED_MAX_SPEEDUP, 1.0 - eo / po)
+	return base * (1.0 - cut)
+
 static func build_expedition_party(g: Dictionary, party_ids: Array, hp_frac) -> Array:
 	var out := []
 	for i in range(party_ids.size()):
@@ -2364,7 +2395,14 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	var turned_back := false
 	while remaining > 0.0 and guard < 200000:
 		guard += 1
-		var cost: float = 20.0 + travel_sec(exp["ew"])
+		# Ian: a wave takes 60s (+0.08s per wave), cut by how much the
+		# party's offence beats this wave's enemies -- glass cannons move
+		# faster but don't get as far.
+		var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
+		var enemies: Array = apply_direction_affinity(
+			apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
+		var cost: float = expedition_wave_sec(exp["ew"], party, enemies)
+		exp["waveSec"] = cost
 		if cost > remaining:
 			break
 		# Ian: expedition log entries "tend to be grouped together... should
@@ -2390,9 +2428,6 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			exp["ew"] += 1
 			_advance_direction_depth(g, exp, now, sim_now)
 		else:
-			var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
-			var enemies: Array = apply_direction_affinity(
-				apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
 			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
 			var beat_guard := 0
 			while battle["over"] == null and beat_guard < 4000:
@@ -2402,10 +2437,11 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			if battle["over"] == "party":
 				g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + enemies.size()
 				var r := kill_reward(exp["ew"], enemies.size())
-				exp["bank"]["aether"] = float(exp["bank"]["aether"]) + r["aether"] * mul
-				exp["bank"]["marks"] = float(exp["bank"]["marks"]) + r["marks"] * marks_mul(g) * mul
+				var rm: float = mul * EXPED_REWARD_MUL
+				exp["bank"]["aether"] = float(exp["bank"]["aether"]) + r["aether"] * rm
+				exp["bank"]["marks"] = float(exp["bank"]["marks"]) + r["marks"] * marks_mul(g) * rm
 				if is_boss_wave(exp["ew"]):
-					exp["bank"]["aether"] = float(exp["bank"]["aether"]) + boss_aether(exp["ew"]) * mul
+					exp["bank"]["aether"] = float(exp["bank"]["aether"]) + boss_aether(exp["ew"]) * rm
 				var alive: Array = party.filter(func(u): return u["hp"] > 0)
 				if alive.is_empty():
 					exp["hpFrac"] = 0.0
