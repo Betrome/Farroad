@@ -50,6 +50,11 @@ func _oracle(cid: String, u: Dictionary, b: Dictionary, act) -> Array:
 		var pool: Array = foes if who == "foe" else (allies if who == "ally" else [u])
 		var v := pool.filter(test)
 		return [not v.is_empty(), v]
+	var cm := RegEx.create_from_string("^foe_charge_gte_(\\d+)$").search(cid)
+	if cm:
+		var need := float(cm.get_string(1)) / 100.0
+		var cv := foes.filter(func(x): return x.get("chargeAction") and x["charge"] >= need * FarroadCore.cost_of_charge(FarroadCore.ACTIONS.get(x["chargeAction"])))
+		return [not cv.is_empty(), cv]
 	match cid:
 		"none": return [true, null]
 		"foe_any": return [not foes.is_empty(), foes]

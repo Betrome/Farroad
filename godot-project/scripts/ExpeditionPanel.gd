@@ -58,6 +58,7 @@ func _bank_text(exp: Dictionary) -> String:
 	return t
 
 func _tick_live() -> void:
+	_update_badge()
 	if popup == null or not popup.visible or _live.is_empty():
 		return
 	var now := _now()
@@ -86,6 +87,7 @@ func reflow(new_vp: Vector2) -> void:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	_update_badge.call_deferred()
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
@@ -94,12 +96,13 @@ func _build_ui(parent: Node) -> void:
 	# so Road, right after it, stays close to true center).
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	_update_badge.call_deferred()
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -173,7 +176,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 
 func _notify_currency_changed() -> void:
 	if _parent and _parent.has_method("_refresh_hud"):
@@ -214,10 +217,7 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	vbox.add_theme_constant_override("separation", 4)
 	card.add_child(vbox)
 
-	var names := ""
-	for uid in exp["partyIds"]:
-		var def = FarroadCore.roster_by_id(uid)
-		names += ("" if names == "" else ", ") + (def["name"] if def else uid)
+	var names: String = FarroadProgression.expedition_label(exp)
 	# Every Label below can carry an arbitrarily long/variable string (a
 	# full party's names, growing currency figures, a dungeon-unlock
 	# sentence) -- autowrap + SIZE_EXPAND_FILL keeps each one shrinkable to
@@ -295,10 +295,7 @@ func _state_text(exp: Dictionary, now: float) -> String:
 		var remain: int = maxi(0, roundi(float(exp["homeAt"]) - now))
 		return "Heading home, back in %s." % _fmt_duration(remain)
 	var away: int = maxi(0, roundi(now - float(exp["startedAt"])))
-	var pace := ""
-	if exp.get("waveSec") != null:
-		pace = " About %ds a wave." % roundi(float(exp["waveSec"]))
-	return "Away %s, reached wave %d.%s" % [_fmt_duration(away), int(exp["ew"]), pace]
+	return "Away %s, reached wave %d." % [_fmt_duration(away), int(exp["ew"])]
 
 func _fmt_duration(sec: int) -> String:
 	if sec >= 3600:
@@ -439,3 +436,35 @@ func _on_send_pressed() -> void:
 		selected_uids = []
 		selected_direction = ""
 	_refresh()
+
+## Ian: an exclamation point in the corner of the Expedition button when a
+## party is ready to be collected.
+func _ready_to_collect() -> bool:
+	for exp in g.get("expeditions", []):
+		if exp.get("arrivedAt") != null:
+			return true
+	return false
+
+func _update_badge() -> void:
+	if toggle_button == null or not is_instance_valid(toggle_button):
+		return
+	var badge := toggle_button.get_node_or_null("Badge") as Label
+	if badge == null:
+		badge = Label.new()
+		badge.name = "Badge"
+		badge.text = "!"
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		var d: float = maxf(16.0, toggle_button.size.x * 0.34)
+		badge.custom_minimum_size = Vector2(d, d)
+		badge.size = Vector2(d, d)
+		badge.position = Vector2(toggle_button.size.x - d * 0.75, -d * 0.35)
+		badge.add_theme_font_size_override("font_size", int(d * 0.8))
+		badge.add_theme_color_override("font_color", Color.WHITE)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.85, 0.12, 0.10)
+		sb.set_corner_radius_all(int(d))
+		badge.add_theme_stylebox_override("normal", sb)
+		toggle_button.add_child(badge)
+	badge.visible = _ready_to_collect()

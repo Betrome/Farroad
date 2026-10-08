@@ -126,7 +126,20 @@ func _sorted_owned_conditions() -> Array:
 	var arr: Array = g["conditions"].duplicate()
 	if cond_filter_group != "any":
 		arr = arr.filter(func(cid): return cid == "none" or cid.begins_with(cond_filter_group + "_"))
+	# Ian: "organized by most used, then by type" -- usage = how many gambit
+	# slots across every unit's loadout currently use the condition.
+	var used: Dictionary = {}
+	for uid in g.get("loadout", {}).keys():
+		for slot in g["loadout"][uid]:
+			var sc: String = str(slot.get("cond", "none"))
+			used[sc] = int(used.get(sc, 0)) + 1
 	arr.sort_custom(func(a, b):
+		if (a == "none") != (b == "none"):
+			return a == "none"
+		var ua: int = int(used.get(a, 0))
+		var ub: int = int(used.get(b, 0))
+		if ua != ub:
+			return ua > ub
 		var ga := _cond_group_rank(a)
 		var gb := _cond_group_rank(b)
 		if ga != gb:
@@ -167,7 +180,13 @@ func _build_auto_set_row() -> void:
 	btn.text = "Auto-set"
 	btn.pressed.connect(_on_auto_set_pressed)
 	row.add_child(btn)
-	slots_container.add_child(row)
+	# one header block (auto-set + saved sets) so the slot cards below keep
+	# the same child offset
+	var head := VBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.add_child(row)
+	head.add_child(UnitSets.build(g, selected_uid, "gambit", _refresh_slots))
+	slots_container.add_child(head)
 
 func _on_auto_set_pressed() -> void:
 	FarroadProgression.auto_assign_loadout(g, selected_uid)

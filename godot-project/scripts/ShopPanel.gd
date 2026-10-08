@@ -46,7 +46,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -117,7 +117,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:
@@ -289,8 +289,10 @@ func _on_buy_unit(uid: String) -> void:
 func _refresh_equipment() -> void:
 	_filter_row([
 		ActionFilter.dropdown(ActionFilter.GEAR_SLOT_OPTIONS, f_slot, func(v): f_slot = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh())])
-	for iid in FarroadCore.EQUIPMENT.keys():
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.GEAR_STAT_OPTIONS, ActionFilter.gear_stat, func(v): ActionFilter.gear_stat = v; _refresh()),
+		ActionFilter.dropdown(ActionFilter.GEAR_SORT_OPTIONS, ActionFilter.gear_sort, func(v): ActionFilter.gear_sort = v; _refresh())])
+	for iid in ActionFilter.gear_ids(FarroadCore.EQUIPMENT.keys(), null, false):
 		var item: Dictionary = FarroadCore.EQUIPMENT[iid]
 		if f_slot != "any" and item.get("slot") != f_slot:
 			continue

@@ -72,8 +72,8 @@ textures/vram_compression/import_etc2_astc=true
 ; over this canvas clear color, with no parchment panel behind it (unlike
 ; every popup). No override existed here before, so it was rendering at
 ; Godot's own engine default (confirmed directly: 0.3, 0.3, 0.3) -- 30%
-; lighter (x1.3) is 0.39.
-environment/defaults/default_clear_color=Color(0.39, 0.39, 0.39, 1)
+; lighter (x1.3) is 0.39. Ian later asked for 15-25% lighter again: x1.2 = 0.47.
+environment/defaults/default_clear_color=Color(0.47, 0.47, 0.47, 1)
 
 [editor_plugins]
 

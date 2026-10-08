@@ -82,7 +82,19 @@ const ENRAGE_AFTER := 20
 const ENRAGE_PCT := 0.025
 const TICK_K := 10000.0
 const GAIN_RATIO := 12.5
-const K_BASE := 25.0
+## Defence constant: damage is multiplied by K / (K + DEF). A smaller K makes
+## DEF/RES count for more. DMG_SCALE rebalances overall damage afterwards.
+static var K_BASE: float = 25.0
+static var DMG_SCALE: float = 1.0
+## Ian: DEF/RES were worth far less than ATK/SPD (a +25% DEF was worth about
+## a fifth of what +25% ATK was). Mitigation is now K/(K+DEF) raised toward
+## DEF_EXP around a reference level for each side, so defence beyond (or
+## below) the usual amount counts for more, while a typical unit's damage
+## taken stays where it was. DEF_EXP 1 = the old formula. At 2.5, +25% DEF is
+## worth about 60-80% of what +25% ATK is (it was about a fifth).
+static var DEF_EXP: float = 2.5
+static var MIT_REF_PARTY: float = 0.36   # mitigation a typical player unit has (DEF about 1.8 x K)
+static var MIT_REF_ENEMY: float = 0.67   # ... and a typical enemy (DEF about half of K)
 ## Ian's new effects: poisoned (hurts every time ANY unit acts, not just
 ## on the victim's own turns), confused (its single-target actions may land
 ## on a random unit, friend or foe), exposed (lower evade).
@@ -314,7 +326,10 @@ const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "f
 	"ally_hp_gte_60", "self_hp_gte_60", "self_hp_lte_60", "foe_hp_lte_70", "ally_hp_gte_70",
 	"ally_hp_lte_70", "self_hp_gte_70", "self_hp_lte_70", "foe_hp_gte_80", "foe_hp_lte_80",
 	"ally_hp_gte_80", "ally_hp_lte_80", "self_hp_gte_80", "self_hp_lte_80", "foe_hp_gte_90",
-	"foe_hp_lte_90", "ally_hp_gte_90", "ally_hp_lte_90", "self_hp_gte_90", "self_hp_lte_90"]
+	"foe_hp_lte_90", "ally_hp_gte_90", "ally_hp_lte_90", "self_hp_gte_90", "self_hp_lte_90",
+	"foe_hp_gte_25", "foe_hp_lte_25", "ally_hp_gte_25", "ally_hp_lte_25", "self_hp_gte_25", "self_hp_lte_25",
+	"foe_hp_gte_75", "foe_hp_lte_75", "ally_hp_gte_75", "ally_hp_lte_75", "self_hp_gte_75", "self_hp_lte_75",
+	"foe_charge_gte_25", "foe_charge_gte_50", "foe_charge_gte_75"]
 
 ## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
 ## 321-519) =====
@@ -399,7 +414,7 @@ static func bonus_applies(a, bid: String) -> bool:
 	# handles null (and 0/""/empty) the same way JS's falsy values do.
 	match bid:
 		"swift": return true
-		"potent": return true if a.get("power") else false
+		"potent": return true if (a.get("power") or a.get("revive")) else false
 		"lasting": return true if a.get("applies") else false
 		"deepening": return true if a.get("applies") else false   # Ian: buffs too
 		"surge": return false if a.get("isCharge") else true
@@ -437,7 +452,8 @@ static func snapshot() -> void:
 				"turns": a.get("turns"), "chargeCost": a.get("chargeCost"),
 				# Ian: Broad/Cleansing/Deepening change these too, so they're
 				# reset with the rest -- they used to build up on every re-apply
-				"tk": a.get("tk"), "cleanse": a.get("cleanse"), "deepen": a.get("deepen")}
+				"tk": a.get("tk"), "cleanse": a.get("cleanse"), "deepen": a.get("deepen"),
+				"revive": a.get("revive")}
 
 static func pristine_of(id: String):
 	snapshot()
@@ -452,7 +468,7 @@ static func apply_bonuses(map: Dictionary) -> void:
 		var a = ACTIONS[id]
 		var p = PRISTINE[id]
 		for k in p.keys():
-			if p[k] == null and k in ["tk", "cleanse", "deepen"]:
+			if p[k] == null and k in ["tk", "cleanse", "deepen", "revive"]:
 				a.erase(k)   # absent before any Lore: absent again
 			else:
 				a[k] = p[k]
@@ -695,6 +711,12 @@ static func k_of(_level: int) -> float:
 	return K_BASE * wave_scale(current_wave)
 static func beat_ms(n: int) -> int:
 	return 900 if n <= 14 else (700 if n <= 28 else (520 if n <= 44 else 400))
+## The factor Hasted/Slowed put on a unit's wait between turns (1 = none).
+static func speed_status_mul(u: Dictionary) -> float:
+	var h: float = (1 + mag_of(u, "hasted")) if has(u, "hasted") else 1.0
+	var sl: float = (1 + mag_of(u, "slowed")) if has(u, "slowed") else 1.0
+	return h * sl
+
 static func incoming_mul(u: Dictionary) -> float:
 	return (1 + mag_of(u, "warded")) if has(u, "warded") else 1.0
 
@@ -931,6 +953,14 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			"foe": return cond_foe_pct(b, u, pct["cmp"], v)
 			"ally": return cond_ally_pct(b, u, pct["cmp"], v)
 			"self": return cond_self_pct(u, pct["cmp"], v)
+	# Ian: "Foe: charge >= 50%" and other chosen values -- any
+	# foe_charge_gte_N is a share of that foe's own charge cost.
+	if cond_id.begins_with("foe_charge_gte_") and cond_id.substr(15).is_valid_int():
+		var need: float = float(cond_id.substr(15).to_int()) / 100.0
+		for x in foes(b, u):
+			if x.get("chargeAction") and x["charge"] >= need * cost_of_charge(ACTIONS.get(x["chargeAction"])):
+				return {"ok": true, "target": x}
+		return {"ok": false, "target": null}
 	match cond_id:
 		"foe_any":
 			var t = def_foe(b, u)
@@ -1111,6 +1141,8 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 
 ## Mirrors each C(id,label,...)'s label text, for the 'via' log string.
 static func cond_label(cond_id: String) -> String:
+	if cond_id.begins_with("foe_charge_gte_") and cond_id.substr(15).is_valid_int():
+		return "Foe: charge ≥ %d%%" % cond_id.substr(15).to_int()
 	var pct := _parse_pct_condition(cond_id)
 	if pct["matched"]:
 		var group_display: String = {"foe": "Foe", "ally": "Ally", "self": "Self"}[pct["group"]]
@@ -1207,7 +1239,9 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["off"] = stat_by_key(src, act["scaleStat"]) if act.get("scaleStat") else (eff_atk(src) if is_phys else eff_mag(src))
 	o["defRaw"] = eff_def(tgt) if is_phys else eff_res(tgt)
 	o["defEff"] = o["defRaw"] * (1 - act.get("defPierce", 0.0))
-	o["mit"] = o["K"] / (o["K"] + o["defEff"])
+	var mit_old: float = o["K"] / (o["K"] + o["defEff"])
+	var mit_ref: float = MIT_REF_PARTY if (tgt["isParty"] or tgt.get("pvp", false)) else MIT_REF_ENEMY
+	o["mit"] = mit_old * pow(mit_old / mit_ref, DEF_EXP - 1.0) if DEF_EXP != 1.0 else mit_old
 	o["affMul"] = affinity_factor(src, tgt, act)
 	o["power"] = pv
 	o["base"] = pv * o["off"] * o["mit"] * o["affMul"]
@@ -1215,6 +1249,7 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["afterVariance"] = d
 	if o["crit"]:
 		d *= CRIT_MUL
+	d *= DMG_SCALE
 	o["wardMul"] = incoming_mul(tgt)
 	d *= o["wardMul"]
 	o["rowOut"] = row_out(src, is_phys)
@@ -1364,7 +1399,7 @@ static func step(b: Dictionary) -> Variant:
 		if queue.is_empty():
 			locked.erase(u["id"])
 		ch = {"actionId": entry["actionId"], "target": null, "via": "locked -> %s" % entry["actionId"],
-			"condId": entry.get("condId")}
+			"condId": entry.get("condId"), "paid": float(entry.get("paid", 0.0))}
 		# Ian: "Foe: lowest HP not working" -- a locked turn kept the action
 		# but dropped the gambit's target, so it fell back to the default
 		# (random) target. Re-run the same condition now for a fresh target
@@ -1464,7 +1499,17 @@ static func step(b: Dictionary) -> Variant:
 					if hit_attempted.has(t["id"]) and not hit_landed.has(t["id"]):
 						continue
 					var already := has(t, act["applies"])
+					var speed_before: float = speed_status_mul(t)
 					apply_status(t, act["applies"], act["turns"], u["affinity"]["spirit"], status_potency(act))
+					# Ian: Haste/Slow weren't doing what they should -- they only
+					# changed the waits scheduled AFTER the status landed, so the
+					# target's current wait (and, with a short duration, most of
+					# the effect) was lost. Rescale what is left of the current
+					# wait right away. (The caster's own wait is set below.)
+					if t != u and (act["applies"] == "hasted" or act["applies"] == "slowed"):
+						var speed_after: float = speed_status_mul(t)
+						if speed_before > 0.0 and speed_after != speed_before and t["nextActAt"] > b["t"]:
+							t["nextActAt"] = b["t"] + maxi(1, roundi(float(t["nextActAt"] - b["t"]) * speed_after / speed_before))
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
 		if act.get("selfTaunt"):
 			apply_status(u, "taunted", act["selfTaunt"], u["affinity"]["spirit"])
@@ -1488,7 +1533,10 @@ static func step(b: Dictionary) -> Variant:
 			pu["hp"] = max(0, pu["hp"] - pd)
 			e["poison"].append({"targetName": pu["name"], "amount": pd})
 	if act.get("isCharge"):
-		u["charge"] -= cost_of_charge(act)
+		# a charge action locked into the turn order was already paid for
+		# when it was queued (BattlePresenter._lock_upcoming_actors)
+		if float(ch.get("paid", 0.0)) <= 0.0:
+			u["charge"] -= cost_of_charge(act)
 	else:
 		u["charge"] += act["charge"] * eff_charge_rate(u)
 	e["chargeAfter"] = u["charge"]
@@ -1609,3 +1657,16 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 		best["at"] += tc_of(best["u"], act["rank"])
 	b["det"] = was_det
 	return out
+
+## Ian: a queued charge action was paid for when it entered the turn-order
+## queue -- if the fight ends before it goes off, give the cost back.
+static func refund_queued_charges(b: Dictionary) -> void:
+	var locked: Dictionary = b.get("lockedActors", {})
+	for uid in locked.keys():
+		for entry in (locked[uid] as Array):
+			var paid: float = float(entry.get("paid", 0.0))
+			if paid > 0.0:
+				for u in b["units"]:
+					if u["id"] == uid:
+						u["charge"] = float(u["charge"]) + paid
+	b["lockedActors"] = {}

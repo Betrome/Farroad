@@ -56,7 +56,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -118,7 +118,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_roster()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
@@ -159,20 +159,23 @@ func _refresh_roster() -> void:
 		row_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		roster_container.add_child(row_lbl)
 
+	# Ian: filter and sort for units (physical / magic focus, rarity, level...)
+	roster_container.add_child(UnitFilter.controls(_refresh_roster))
+
 	_build_presets_section()
 
 	var party_header := Label.new()
 	party_header.text = "PARTY"
 	party_header.modulate = Palette.PARTY_BLUE
 	roster_container.add_child(party_header)
-	for uid in FarroadProgression.mc_first(g["party"]):
+	for uid in UnitFilter.apply(g, FarroadProgression.mc_first(g["party"])):
 		roster_container.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed, true))
 
 	var bench_header := Label.new()
 	bench_header.text = "BENCHED"
 	bench_header.modulate = Palette.PARTY_BLUE
 	roster_container.add_child(bench_header)
-	var avail: Array = FarroadProgression.available_for_party(g)
+	var avail: Array = UnitFilter.apply(g, FarroadProgression.available_for_party(g))
 	if avail.is_empty():
 		var none_lbl := Label.new()
 		none_lbl.text = "(none)"

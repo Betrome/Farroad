@@ -40,7 +40,11 @@ func _on_android_ready() -> void:
 	ch.set_id(CHANNEL_ID).set_name("Farroad").set_description("Idle rewards and expedition returns") \
 		.set_importance(3)
 	_scheduler.create_notification_channel(ch)
+	var was_pending := _pending_schedule
 	cancel_scheduled()   # the game is open: nothing pending should fire
+	if was_pending:
+		schedule_away()
+		return
 	# Ian: ask the first time the game is opened.
 	if not bool(Analytics.state.get("notifyAsked", false)):
 		Analytics.state["notifyAsked"] = true
@@ -49,7 +53,10 @@ func _on_android_ready() -> void:
 		if not _scheduler.has_post_notifications_permission():
 			_scheduler.request_post_notifications_permission()
 
+var _pending_schedule := false
+
 func cancel_scheduled() -> void:
+	_pending_schedule = false
 	if not _ready_android:
 		return
 	_scheduler.cancel(ID_IDLE)
@@ -60,6 +67,9 @@ func cancel_scheduled() -> void:
 ## while it's away.
 func schedule_away() -> void:
 	if not _ready_android:
+		# the plugin is still starting (opened and closed again quickly):
+		# schedule the moment it is ready, unless the game is reopened first
+		_pending_schedule = _scheduler != null
 		return
 	cancel_scheduled()
 	if not enabled() or g.is_empty():
@@ -67,15 +77,19 @@ func schedule_away() -> void:
 	var now := Time.get_unix_time_from_system()
 	var still_out := 0
 	var i := 0
+	var idx := -1
 	for exp in g.get("expeditions", []):
+		idx += 1
 		if exp.get("arrivedAt") != null:
 			continue
-		if exp.get("homeAt") != null:
+		# A party that hasn't turned back yet has no known home time (the
+		# game only works that out when it is open), so work out roughly when
+		# it will turn back by playing the trip forward on a throwaway copy.
+		var home_at: float = float(exp["homeAt"]) if exp.get("homeAt") != null else _predict_home(idx, now)
+		if home_at > 0.0:
 			if i < MAX_EXP:
-				_schedule(ID_EXPEDITION_BASE + i, "Expedition back",
-					"%s are back from the %s. Collect their haul!" % [FarroadProgression._expedition_names(exp["partyIds"]),
-						FarroadProgression.direction_label(exp["direction"]).to_lower()],
-					maxi(1, roundi(float(exp["homeAt"]) - now)))
+				_schedule(ID_EXPEDITION_BASE + i, "Expedition back", _return_text(exp),
+					maxi(1, roundi(home_at - now)))
 				i += 1
 		else:
 			still_out += 1
@@ -93,9 +107,7 @@ func _schedule(id: int, title: String, text: String, delay_sec: int) -> void:
 func on_expedition_arrived(exp: Dictionary) -> void:
 	if not enabled() or OS.get_name() != "Windows" or DisplayServer.window_is_focused():
 		return
-	toast("Expedition back", "%s are back from the %s. Collect their haul!" % [
-		FarroadProgression._expedition_names(exp["partyIds"]),
-		FarroadProgression.direction_label(exp["direction"]).to_lower()])
+	toast("Expedition back", _return_text(exp))
 
 ## A Windows notification through the system's own toast service (no extra
 ## software; shown under PowerShell's name).
@@ -111,3 +123,37 @@ $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powersh
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
 """ % [esc.call(title), esc.call(text)]
 	OS.create_process("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script])
+
+## "Ansa's party has returned from exploring to the west." -- the first
+## member names the party; no member list.
+static func _return_text(exp: Dictionary) -> String:
+	var where: String = FarroadProgression.direction_label(exp["direction"]).to_lower()
+	# a saved party goes by its own name (Ian)
+	var party_nm: String = str(exp.get("partyName", ""))
+	if party_nm != "":
+		return "%s has returned from exploring to the %s." % [party_nm, where]
+	var leader := "Your"
+	var ids: Array = exp.get("partyIds", [])
+	if not ids.is_empty():
+		var def = FarroadCore.roster_by_id(ids[0])
+		leader = ("%s's" % def["name"]) if def != null else "Your"
+	return "%s party has returned from exploring to the %s." % [leader, where]
+
+## When a party that is still out will turn back, found by playing the trip
+## forward on a deep copy of the game (never the real one). -1 if it won't
+## turn back within the longest stretch a single catch-up covers.
+func _predict_home(idx: int, now: float) -> float:
+	var gc: Dictionary = {}
+	for k in g.keys():
+		if k in ["battle", "units", "enemies", "roadBattle", "sideBattle", "over", "rng"]:
+			continue
+		var v = g[k]
+		gc[k] = v.duplicate(true) if (v is Dictionary or v is Array) else v
+	gc["rng"] = FarroadCore.make_rng(int(g.get("seed", 7)) + 991 + idx)
+	gc["_dryRun"] = true
+	var exps: Array = gc.get("expeditions", [])
+	if idx >= exps.size():
+		return -1.0
+	var exp: Dictionary = exps[idx]
+	FarroadProgression.resolve_expedition(gc, exp, now + FarroadProgression.OFFLINE_CAP_SEC)
+	return float(exp["homeAt"]) if exp.get("homeAt") != null else -1.0

@@ -128,6 +128,12 @@ func _refresh_card() -> void:
 	header.text = "[font_size=16][color=#%s]%s[/color][/font_size]" % [rarity_color.to_html(false), def["name"]]
 	card_container.add_child(header)
 
+	# Ian: gear filtering and sorting by stat (applies to every slot's list)
+	card_container.add_child(ActionFilter.gear_controls(_refresh_card))
+	card_container.add_child(UnitSets.build(g, uid, "gear", func():
+		FarroadProgression.refresh_live_stats(g)
+		_refresh_card()))
+
 	for slot in FarroadCore.EQUIPMENT_SLOTS:
 		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 2)
@@ -185,7 +191,7 @@ func _build_slot_option(uid: String, slot: String) -> OptionButton:
 	opt.add_item("— empty —", 0)
 	var item_ids: Array = ["" as String]
 	var idx := 1
-	for item_id in FarroadCore.EQUIPMENT.keys():
+	for item_id in ActionFilter.gear_ids(FarroadCore.EQUIPMENT.keys(), cur_id):
 		var item: Dictionary = FarroadCore.EQUIPMENT[item_id]
 		if item["slot"] != kind:
 			continue

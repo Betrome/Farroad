@@ -818,7 +818,10 @@ func _build_status_card(u: Dictionary) -> Control:
 		# No progression/Aether-investment layer ported yet (out of this
 		# milestone's scope -- see the plan) -- shown honestly at its
 		# unmodified baseline rather than a fabricated number.
-		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY 0%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["336b28", DIM_COLOR]))
+		var rec_pct: int = 0
+		if recovery_lookup.is_valid():
+			rec_pct = roundi(float(recovery_lookup.call(str(u.get("id", "")))) * 100.0)
+		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY %d%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["336b28", rec_pct, DIM_COLOR]))
 	elif battle.get("enrage"):
 		# Stacks are battle-wide (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- every enemy shows the SAME stack count
@@ -862,6 +865,8 @@ func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
 	var queue: Array = locked.get(u["id"], [])
 	var current: String = str(queue[0]["actionId"]) if not queue.is_empty() else ""
 	var manual: bool = not queue.is_empty() and queue[0].get("manual", false)
+	if current != "" and not options.has(current) and FarroadCore.ACTIONS.has(current):
+		options.append(current)   # a paid-for charge action stays selectable
 	for aid in options:
 		var b := Button.new()
 		var a: Dictionary = FarroadCore.ACTIONS[aid]
@@ -885,9 +890,19 @@ func _choose_next_action(uid: String, aid: String) -> void:
 		return
 	var locked: Dictionary = battle["lockedActors"]
 	# Its later turns are re-planned from this choice on the next refresh.
+	# give back whatever the replaced queue had already paid for
+	for old_entry in (locked.get(uid, []) as Array):
+		view.unit["charge"] = float(view.unit["charge"]) + float(old_entry.get("paid", 0.0))
 	locked.erase(uid)
 	if aid != "":
-		locked[uid] = [{"actionId": aid, "resultingAlternate": int(view.unit["alternateFlag"]), "condId": null, "manual": true}]
+		var m_entry := {"actionId": aid, "resultingAlternate": int(view.unit["alternateFlag"]), "condId": null, "manual": true}
+		var m_act = FarroadCore.ACTIONS.get(aid)
+		if m_act != null and m_act.get("isCharge", false):
+			var m_cost: float = FarroadCore.cost_of_charge(m_act)
+			view.unit["charge"] = float(view.unit["charge"]) - m_cost
+			m_entry["paid"] = m_cost
+		locked[uid] = [m_entry]
+	view.update_charge()
 	_refresh_turn_order()
 	_refresh_status_popup()
 	Analytics.add("features", "manualAction")
@@ -1143,7 +1158,7 @@ func _build_wave_progress_ui() -> void:
 		wave_progress_circles.append({"panel": panel, "style": style, "wave": w_num})
 
 func _wave_circle_color(lit: bool) -> Color:
-	return Palette.GOLD_LIGHT if lit else Color(0.3, 0.3, 0.34, 0.9)
+	return Palette.GOLD_LIGHT if lit else Color(0.36, 0.36, 0.41, 0.9)
 
 ## Sets the "Wave N" text and every circle's lit/unlit state -- called
 ## once from start_battle (progress doesn't change mid-fight) and again by
@@ -1559,8 +1574,18 @@ func _lock_upcoming_actors(upcoming: Array) -> void:
 		battle["det"] = true
 		var ch := FarroadCore.choose_from(u, battle, state)
 		battle["det"] = was_det
-		queue.append({"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"]),
-			"condId": ch.get("condId")})   # so its target is re-picked by the same rule
+		var q_entry := {"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"]),
+			"condId": ch.get("condId")}   # so its target is re-picked by the same rule
+		# Ian: a charge action pays its cost the moment it enters the queue,
+		# so charge-stealing can't stop it and it can't steal from one
+		# already queued; refunded if the fight ends first.
+		var q_act = FarroadCore.ACTIONS.get(ch["actionId"])
+		if q_act != null and q_act.get("isCharge", false):
+			var cost: float = FarroadCore.cost_of_charge(q_act)
+			u["charge"] = float(u["charge"]) - cost
+			q_entry["paid"] = cost
+			view.update_charge()
+		queue.append(q_entry)
 	for uid in locked.keys().duplicate():
 		var view: UnitView = unit_views_by_id.get(uid)
 		if view == null or view.unit["hp"] <= 0:
@@ -1638,6 +1663,8 @@ func _append_log(e: Dictionary) -> void:
 	var note_bbcodes := []
 	if e["dot"] > 0:
 		note_bbcodes.append("[color=#%s]🔥 −%d[/color]" % [NOTE_COLOR, e["dot"]])
+	if e.get("regen", 0) > 0:
+		note_bbcodes.append("[color=#%s]✚ regen +%d[/color]" % [NOTE_COLOR, int(e["regen"])])
 	for h in e["heals"]:
 		note_bbcodes.append("[color=#%s]✚ %s +%d[/color]" % [NOTE_COLOR, h["targetName"], h["amount"]])
 	for note in e["notes"]:
@@ -1694,6 +1721,12 @@ func set_loop_paused(p: bool) -> void:
 ## can't step the same battle twice and finish it twice.
 var _loop_started := false
 ## Where this fight is, for the gameplay stats (road/quest/dungeon/pvp).
+## Set by GameController: uid -> between-wave Recovery fraction (the Status
+## screen shows the real value, not a placeholder 0%).
+var recovery_lookup: Callable = Callable()
+## Set by GameController: uid -> the unit's current title ("Fire Guardian"),
+## so fight stats can show which titles win most.
+var title_lookup: Callable = Callable()
 var analytics_ctx := "road"
 var _fight_actions := {}   # party action id -> uses this fight (stats)
 ## Set by GameController: the Road wave / quest stage / dungeon wave /
@@ -1757,7 +1790,10 @@ func _run_battle_loop() -> void:
 	Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought, {
 		"key": analytics_key, "boss": analytics_boss, "turns": int(battle.get("beat", 0)),
 		"secs": (Time.get_ticks_msec() - _fight_ms - _paused_ms) / 1000.0, "fast": Engine.time_scale > 1.0,
-		"enemies": enemies, "fallen": fallen})
+		"enemies": enemies, "fallen": fallen,
+		"titles": fought.map(func(uid): return str(title_lookup.call(uid)) if title_lookup.is_valid() else "")})
+	# queued charge actions that never went off give their cost back
+	FarroadCore.refund_queued_charges(battle)
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])
@@ -2026,6 +2062,13 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var an: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = an + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), Color(1.0, 0.45, 0.15), an)
+	# Ian: "show regen hp gains" -- Regen heals at the start of the unit's own
+	# turn (step() records it in e["regen"]); a green number on the unit.
+	if actor_view != null and e.get("regen", 0) > 0:
+		actor_view.update_hp()
+		var rn: int = stagger.get(e.get("actorName"), 0)
+		stagger[e.get("actorName")] = rn + 1
+		DamageNumber.spawn(self, actor_view.damage_spawn_position(), "+%d" % int(e["regen"]), Color(0.4, 0.95, 0.5), rn)
 	# poison ticks on everyone poisoned, every action (green numbers)
 	for pz in e.get("poison", []):
 		var pv: UnitView = unit_views_by_name.get(pz["targetName"])
@@ -2141,3 +2184,11 @@ func _animate_projectile(actor: UnitView, dest: Vector2, duration: float = MAGIC
 	tw.tween_property(bolt, "position", dest, duration)
 	await tw.finished
 	bolt.queue_free()
+
+## Ian: pressing a bottom-bar button closes every pop-up before opening its
+## own screen -- this covers the battle's Status and Log windows.
+func close_popups() -> void:
+	if status_popup != null and is_instance_valid(status_popup):
+		status_popup.hide()
+	if log_popup != null and is_instance_valid(log_popup):
+		log_popup.hide()

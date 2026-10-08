@@ -192,6 +192,14 @@ func _bonus_total_summary(aid: String) -> String:
 		bits.append("+%d turn duration" % (int(_numf(act.get("turns"))) - int(_numf(p.get("turns")))))
 	if _numf(act.get("rank")) != _numf(p.get("rank")):
 		bits.append("×%d%% initiative" % roundi((1.0 / _numf(act.get("rank"))) / (1.0 / _numf(p.get("rank"))) * 100.0))
+	if str(act.get("tk")) != str(p.get("tk")):
+		bits.append("hits %s" % ActionFilter.target_label(act))
+	if int(_numf(act.get("cleanse"))) != int(_numf(p.get("cleanse"))):
+		bits.append("+%d debuff removed" % (int(_numf(act.get("cleanse"))) - int(_numf(p.get("cleanse")))))
+	if _numf(act.get("deepen")) != _numf(p.get("deepen")):
+		bits.append("+%d%% status strength" % roundi((_numf(act.get("deepen")) - _numf(p.get("deepen"))) * 100.0))
+	if not act.get("isCharge") and _numf(act.get("charge")) != _numf(p.get("charge")):
+		bits.append("+%d charge gain" % roundi(_numf(act.get("charge")) - _numf(p.get("charge"))))
 	if act.get("isCharge") and _numf(act.get("chargeCost")) != _numf(p.get("chargeCost")):
 		var delta: float = _numf(act.get("chargeCost")) - _numf(p.get("chargeCost"))
 		bits.append("%s%d gauge" % ["+" if delta > 0 else "", roundi(delta)])
@@ -318,46 +326,11 @@ func _refresh_card() -> void:
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
-	var rarity_color: Color = RARITY_COLOR.get(act.get("rarity"), Color(1, 1, 1))
-	box.add_child(_rich_line("[b]%s[color=#%s]%s[/color][/b] [font_size=12]Lv%d[/font_size]" % [
-		"⚡ " if act.get("isCharge") else "", rarity_color.to_html(false), act["name"], _action_level(aid)]))
 
-	var cost_text := "cost %d" % roundi(float(act["rank"]) * 100.0)
-	if act.get("isCharge"):
-		cost_text += "  ⚡ gauge %d" % roundi(FarroadCore.cost_of_charge(act))
-	var cost_lbl := Label.new()
-	cost_lbl.text = cost_text
-	cost_lbl.modulate = Palette.TEXT_DIM
-	box.add_child(cost_lbl)
-
-	for line in ActionFilter.effect_lines(act):
-		var fx_lbl := Label.new()
-		fx_lbl.text = line
-		fx_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		box.add_child(fx_lbl)
-
-	var scales_text := "scales with %s" % ActionFilter.scale_label(act)
-	if act.get("power"):
-		scales_text += "  ·  " + ActionFilter.power_text(act)
-	var scales_lbl := Label.new()
-	scales_lbl.text = scales_text
-	scales_lbl.modulate = Palette.TEXT_DIM
-	box.add_child(scales_lbl)
-
-	var used: Dictionary = FarroadProgression.used_actions(g)
-	var holders_text: String
-	if not (holders["active"] as Array).is_empty():
-		holders_text = "used by %s" % ", ".join(holders["active"])
-	elif used.has(aid):
-		# Unreachable pre-Step-3j (an MC-banked-but-unequipped charge) -- see
-		# used_actions' own comment; ported for fidelity rather than
-		# silently dropped.
-		holders_text = "unused — not refundable, kept as part of the party's charge pool"
-	else:
-		holders_text = "unused — refundable"
-	box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [
-		"336b28" if not (holders["active"] as Array).is_empty() else "786147", holders_text]))
+	# the same full detail card the info popup shows (cost, target, scaling,
+	# status effect, who uses it, every Lore upgrade bought)
+	if _parent and _parent.has_method("_fill_action_detail"):
+		_parent.call("_fill_action_detail", box, aid)
 
 	var summary := _bonus_total_summary(aid)
 	if summary != "":
@@ -366,10 +339,17 @@ func _refresh_card() -> void:
 
 	# v2.4: show ONLY bonuses that can do something to this action --
 	# mirrors bonus_applies' own real filtering exactly (farroad-ui.js:2175).
+	# Ian: an upgrade that reaches its max (Broad, Piercing's cap) must stay
+	# listed and adjustable -- bonus_applies turns false once it has taken
+	# effect, so a row is also kept while any stacks are bought; only "+" is
+	# disabled when it can't do anything more.
 	var live_bids: Array = []
+	var can_buy: Dictionary = {}
 	for bid in FarroadCore.BONUSES.keys():
-		if FarroadCore.bonus_applies(act, bid):
+		var applies: bool = FarroadCore.bonus_applies(act, bid)
+		if applies or int(b.get(bid, 0)) > 0:
 			live_bids.append(bid)
+			can_buy[bid] = applies
 	var total_on_action: int = FarroadCore.action_bonus_total(b)
 	var bonus_list := VBoxContainer.new()
 	bonus_list.add_theme_constant_override("separation", 8)
@@ -392,7 +372,11 @@ func _refresh_card() -> void:
 		var count_lbl := Label.new()
 		count_lbl.text = str(n)
 		ctl.add_child(count_lbl)
-		ctl.add_child(_build_purchase_button("+ %d" % price, price, aid, _on_buy_bonus.bind(aid, bid), 0.18))
+		var plus_btn := _build_purchase_button("+ %d" % price, price, aid, _on_buy_bonus.bind(aid, bid), 0.18)
+		if not can_buy[bid]:
+			plus_btn.disabled = true
+			plus_btn.tooltip_text = "At its maximum"
+		ctl.add_child(plus_btn)
 		row.add_child(ctl)
 		bonus_list.add_child(row)
 	card_container.add_child(bonus_list)

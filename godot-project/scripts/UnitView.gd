@@ -373,7 +373,7 @@ func _build(unit_size: float) -> void:
 	_hp_bg = ColorRect.new()
 	_hp_bg.size = Vector2(size, bar_h)
 	_hp_bg.position = Vector2(-half, half + gap)
-	_hp_bg.color = Color(0.15, 0.15, 0.15)
+	_hp_bg.color = Color(0.18, 0.18, 0.18)
 	_chrome.add_child(_hp_bg)
 
 	_hp_fg = ColorRect.new()
@@ -389,7 +389,7 @@ func _build(unit_size: float) -> void:
 	_charge_bg = ColorRect.new()
 	_charge_bg.size = Vector2(size, charge_h)
 	_charge_bg.position = Vector2(-half, charge_y)
-	_charge_bg.color = Color(0.12, 0.12, 0.16)
+	_charge_bg.color = Color(0.15, 0.15, 0.19)
 	_chrome.add_child(_charge_bg)
 
 	_charge_fg = ColorRect.new()
@@ -685,8 +685,25 @@ func _sync_chrome() -> void:
 	_chrome.visible = is_visible_in_tree()
 	_chrome.modulate = modulate
 
-func _process(_delta: float) -> void:
+## Ian: a unit's idle loop occasionally stopped (a frozen pose). Whatever
+## cuts an animation short, a living unit whose animation has been sitting
+## finished for a moment goes back to its idle loop.
+const IDLE_WATCHDOG_SEC := 1.2
+var _still_for: float = 0.0
+
+func _process(delta: float) -> void:
 	_sync_chrome()
+	if shape is AnimatedSprite2D and float(unit["hp"]) > 0.0 and is_visible_in_tree():
+		var asp: AnimatedSprite2D = shape
+		if asp.is_playing():
+			_still_for = 0.0
+		else:
+			_still_for += delta
+			if _still_for >= IDLE_WATCHDOG_SEC:
+				_still_for = 0.0
+				play_state("idle")
+	else:
+		_still_for = 0.0
 
 func _exit_tree() -> void:
 	if _chrome != null and is_instance_valid(_chrome) and _chrome.get_parent() != self:

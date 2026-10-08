@@ -317,7 +317,7 @@ function buildContent(rootDir) {
   const EQUIP_KINDS = ['head', 'body', 'legs', 'hand'];
   const EQUIP_STAT_FAMILY = {
     head: ['def', 'res'], body: ['def', 'res'],
-    legs: ['spd', 'evade'], hand: ['atk', 'mag']
+    legs: ['atk', 'mag', 'def', 'res', 'spd', 'evade'], hand: ['atk', 'mag']
   };
   const EQUIP_ALL_STATS = ['atk', 'mag', 'def', 'res', 'spd', 'evade'];
   Object.keys(EQUIPMENT).forEach(id => {

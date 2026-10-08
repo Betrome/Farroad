@@ -93,7 +93,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_card()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
@@ -168,7 +168,7 @@ func _build_unlocked_card() -> void:
 
 	var bar_bg := ColorRect.new()
 	bar_bg.custom_minimum_size = Vector2(_vp.x * 0.7, 10)
-	bar_bg.color = Color(0.15, 0.15, 0.15)
+	bar_bg.color = Color(0.18, 0.18, 0.18)
 	var bar_fg := ColorRect.new()
 	var frac: float = clampf(marks / float(cost), 0.0, 1.0)
 	bar_fg.size = Vector2(_vp.x * 0.7 * frac, 10)
@@ -291,7 +291,8 @@ func _describe_pull_result(r: Dictionary) -> String:
 			var fielded_txt := "Fielded immediately." if r["fielded"] else "Benched — party is full, but yours."
 			return "New companion%s: %s. %s" % [pity_tag, name, fielded_txt]
 		"unit_dup":
-			return "Every unit already owned — converted to +%d Aether." % int(r["aetherGain"])
+			var lore_bit: String = "" if str(r.get("loreActionId", "")) == "" else " and +1 Lore on %s" % str(FarroadCore.ACTIONS.get(r["loreActionId"], {}).get("name", r["loreActionId"]))
+			return "Duplicate %s (%s): +%d Aether%s." % [str(r.get("name", "companion")), str(r.get("rarity", "common")), int(r["aetherGain"]), lore_bit]
 		"equip":
 			var item = FarroadCore.EQUIPMENT.get(r["id"])
 			var iname: String = item["name"] if item else r["id"]
@@ -300,7 +301,9 @@ func _describe_pull_result(r: Dictionary) -> String:
 			var act = FarroadCore.ACTIONS.get(r["id"])
 			var aname: String = act["name"] if act else r["id"]
 			var noun: String = "charge action" if r.get("isCharge") else "action"
-			return "Duplicate %s, converted to +1 Lore on it: %s." % [noun, aname] if r["duplicate"] else "New %s: %s." % [noun, aname]
+			if r["duplicate"]:
+				return "Duplicate %s, converted to +1 Lore on it: %s." % [noun, aname]
+			return ("New %s: %s, plus 1 Lore." if r.get("isCharge") else "New %s: %s.") % [noun, aname]
 		"cond":
 			if not r["duplicate"]:
 				return "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
@@ -376,13 +379,19 @@ func _describe_pull_results(results: Array) -> String:
 			"unit_dup":
 				unit_dups += 1
 				dup_aether += int(r.get("aetherGain", 0))
+				if str(r.get("loreActionId", "")) != "":
+					var un := _action_name(r["loreActionId"])
+					lore_by_action[un] = int(lore_by_action.get(un, 0)) + 1
 			"action":
 				if r["duplicate"]:
 					dup_actions += 1
-					var an := _action_name(r["id"])
-					lore_by_action[an] = int(lore_by_action.get(an, 0)) + 1
 				else:
 					new_actions += 1
+				# a charge action always banks a Lore; a plain one only when it
+				# was a duplicate
+				if r["duplicate"] or r.get("isCharge", false):
+					var an := _action_name(r["id"])
+					lore_by_action[an] = int(lore_by_action.get(an, 0)) + 1
 			"cond":
 				if r["duplicate"]:
 					dup_conds += 1

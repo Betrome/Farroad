@@ -265,6 +265,7 @@ def analyse(reports):
     # Win contribution, overall and per kind of fight.
     a["win_actions"] = {ctx: win_table(c, "Actions", ctx) for ctx in [None, "road", "quest", "dungeon", "pvp"]}
     a["win_units"] = {ctx: win_table(c, "Units", ctx) for ctx in [None, "road", "quest", "dungeon", "pvp"]}
+    a["win_titles"] = {ctx: win_table(c, "Titles", ctx) for ctx in [None, "road", "quest", "dungeon", "pvp"]}
 
     # Quests and dungeons vs the Arena (sideBattles keys: "quest_cleared:uid#2").
     side = defaultdict(Counter)
@@ -550,7 +551,7 @@ def share_series(a, group, keys):
 
 
 def win_rank_tables(a, kind, ctx, label):
-    rows, base, total = (a["win_actions"] if kind == "Actions" else a["win_units"])[ctx]
+    rows, base, total = {"Actions": a["win_actions"], "Units": a["win_units"], "Titles": a["win_titles"]}[kind][ctx]
     title = f"{CTX_NAMES.get(ctx, 'All fights')}: {kind.lower()} and wins"
     good = [(k, v) for k, v in rows.items() if v[2] >= MIN_FIGHTS]
     few = sorted(((k, v) for k, v in rows.items() if v[2] < MIN_FIGHTS), key=lambda kv: -kv[1][2])
@@ -819,6 +820,9 @@ def build_html(a):
         P.append(win_rank_tables(a, "Units", ctx, unit))
     for ctx in ["road", "quest", "dungeon", "pvp"]:
         P.append(win_rank_tables(a, "Actions", ctx, act))
+    # Ian: which player titles win the most battles
+    for ctx in [None, "road", "quest", "dungeon", "pvp"]:
+        P.append(win_rank_tables(a, "Titles", ctx, lambda t: t))
     P.append("</div>")
 
     P.append("<h2 id='actions'>Actions</h2><div class='note'>Click an action for its Lore upgrades, trends, win rates and who uses it.</div>")

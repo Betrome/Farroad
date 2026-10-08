@@ -52,7 +52,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -114,7 +114,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 ## Also called by GameController (dynamic has_method()+call()) after a
@@ -213,6 +213,9 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	var total_waves: int = (d["waves"] as Array).size()
 	info_lbl.text = "%d waves (ends in a boss) · +%d Crystal\n%s" % [total_waves, FarroadProgression.DUNGEON_CRYSTAL,
 		_power_text(FarroadProgression.dungeon_power(d))]
+	var d_axis: String = str(d.get("element", ""))
+	if d_axis != "":
+		info_lbl.text += "\n%s foes, weak to %s" % [d_axis.capitalize(), str(FarroadProgression.DUNGEON_OPPOSITE.get(d_axis, "")).capitalize()]
 	info_lbl.modulate = Palette.TEXT_DIM
 	info_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL

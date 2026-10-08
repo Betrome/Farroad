@@ -802,7 +802,7 @@ func _show_welcome_back_popup() -> void:
 	if wave_delta > 0:
 		progress_txt = "Cleared %d wave%s, now at wave %d." % [wave_delta, ("" if wave_delta == 1 else "s"), int(s["wave_after"])]
 	else:
-		progress_txt = "Not enough time passed to clear another wave."
+		progress_txt = "No checkpoint reached."
 
 	var wipes_gained: int = int(s["wipes_gained"])
 	var wipe_txt := ""
@@ -844,29 +844,20 @@ func _show_welcome_back_popup() -> void:
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(gained)
 
-	# Ian: "don't add rewards from... idle until collected. Add a collect
-	# button." Idle's own flat trickle is banked into pendingIdleAether/
-	# pendingIdleMarks (simulate_offline_progress), distinct from the
-	# wave-clear gains above (which stay auto-applied, never gated).
+	# Ian: closing this screen without collecting lost the idle income, so it
+	# is now added the moment you enter the game; the popup only reports it.
 	var idle_aether: float = s.get("idle_aether_pending", 0.0)
 	var idle_marks: float = s.get("idle_marks_pending", 0.0)
 	if idle_aether > 0.0 or idle_marks > 0.0:
+		FarroadProgression.collect_idle_reward(g)
+		_refresh_hud()
+		_save_game()
 		var idle_lbl := Label.new()
-		idle_lbl.text = "+%d Aether, +%d Marks of idle income, pending" % [roundi(idle_aether), floori(idle_marks)]
+		idle_lbl.text = "+%d Aether, +%d Marks of idle income (added)" % [roundi(idle_aether), floori(idle_marks)]
 		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 		idle_lbl.modulate = Palette.PARTY_BLUE
 		idle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vbox.add_child(idle_lbl)
-
-		var collect_btn := Button.new()
-		collect_btn.text = "Collect idle income"
-		collect_btn.pressed.connect(func():
-			FarroadProgression.collect_idle_reward(g)
-			_refresh_hud()
-			_save_game()
-			idle_lbl.text = "Collected."
-			collect_btn.disabled = true)
-		vbox.add_child(collect_btn)
 
 	await _finish_detail_overlay(o)
 
@@ -1292,6 +1283,17 @@ func _refresh_hud() -> void:
 func _set_battle_paused(_paused: bool) -> void:
 	pass
 
+## Ian: "Selecting buttons at the bottom should close all pop-ups and open
+## the selected (including the road)." One place that dismisses everything
+## closable: the open tab menu, the Arena, and the battle's Status/Log.
+func _close_all_popups() -> void:
+	_close_arena()
+	if open_panel != null and is_instance_valid(open_panel):
+		open_panel.popup.hide()
+	for p in [current_presenter, side_presenter]:
+		if p != null and is_instance_valid(p) and p.has_method("close_popups"):
+			p.call("close_popups")
+
 ## Called by every panel (dynamic has_method()+call()) at the very start
 ## of its own _on_toggle_pressed, BEFORE opening its own popup -- closes
 ## whichever OTHER panel's popup is currently open first. Godot's own
@@ -1306,9 +1308,7 @@ func _set_battle_paused(_paused: bool) -> void:
 ## old popup's own dismiss handling), means the new popup still opens on
 ## the SAME tap that closed the old one.
 func _panel_opening(panel: Node) -> void:
-	_close_arena()
-	if open_panel != null and open_panel != panel and is_instance_valid(open_panel):
-		open_panel.popup.hide()
+	_close_all_popups()
 	open_panel = panel
 	# Ian: "When a menu screen is exited and returned to, have it reset to
 	# the top." Runs after the panel has rebuilt and shown its content.
@@ -1648,10 +1648,7 @@ func _show_expedition_log_popup(exp: Dictionary) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 
-	var names := ""
-	for uid in exp["partyIds"]:
-		var def = FarroadCore.roster_by_id(uid)
-		names += ("" if names == "" else ", ") + (def["name"] if def else uid)
+	var names: String = FarroadProgression.expedition_label(exp)
 	var title_lbl := Label.new()
 	title_lbl.text = "%s — %s" % [names, FarroadProgression.direction_label(exp["direction"])]
 	title_lbl.add_theme_font_size_override("font_size", 16)
@@ -1681,11 +1678,19 @@ func _show_expedition_log_popup(exp: Dictionary) -> void:
 ## _show_welcome_back_popup already set, rather than duplicating this
 ## construction into every panel that needs it).
 func _show_action_detail_popup(action_id: String) -> void:
+	if FarroadCore.ACTIONS.get(action_id) == null:
+		return
+	var o := _build_detail_overlay()
+	_fill_action_detail(o["vbox"], action_id)
+	await _finish_detail_overlay(o)
+
+## Everything the action-detail card shows, built into any container -- the
+## popup uses it, and so does the Lore page (Ian: "Lore page should show
+## details of the selected action").
+func _fill_action_detail(vbox: Container, action_id: String) -> void:
 	var act = FarroadCore.ACTIONS.get(action_id)
 	if act == null:
 		return
-	var o := _build_detail_overlay()
-	var vbox: VBoxContainer = o["vbox"]
 
 	var color: Color = RARITY_COLOR.get(act.get("rarity", "common"), Color(1, 1, 1))
 	var title := RichTextLabel.new()
@@ -1699,11 +1704,8 @@ func _show_action_detail_popup(action_id: String) -> void:
 	# Ian: "actions say rank x0.87, not the stat(s) they scale with and the
 	# multiplier." Same "scales with X · power ×N" phrasing LorePanel's own
 	# action-detail card already uses, so both surfaces read consistently.
-	var scale_txt: String = ActionFilter.scale_label(act)
 	var power_lbl := Label.new()
-	power_lbl.text = "%s -- target: %s -- scales with %s" % [camp_txt, target_txt, scale_txt]
-	if act.get("power"):
-		power_lbl.text += "  ·  " + ActionFilter.power_text(act)
+	power_lbl.text = "%s -- target: %s -- %s" % [camp_txt, target_txt, ActionFilter.scales_text(act)]
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	power_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(power_lbl)
@@ -1776,7 +1778,15 @@ func _show_action_detail_popup(action_id: String) -> void:
 	used_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(used_lbl)
 
-	await _finish_detail_overlay(o)
+	# every Lore upgrade bought on it, not just the ones that change a number
+	var stacks: String = FarroadProgression.lore_stacks_text(g, action_id)
+	if stacks != "":
+		var lore_lbl := Label.new()
+		lore_lbl.text = "Lore upgrades: " + stacks
+		lore_lbl.modulate = Palette.NOTE_PURPLE
+		lore_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+		lore_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		vbox.add_child(lore_lbl)
 
 ## 24-item batch: "add a Stats button in the menu that shows furthest
 ## wave, number of wipes, enemies defeated, bosses defeated, dungeons
@@ -1793,6 +1803,12 @@ func _show_pvp_popup() -> void:
 	var o := _build_detail_overlay(Palette.PARTY_BLUE, true)
 	o["backdrop"].set_meta("arena", true)
 	var vbox: VBoxContainer = o["vbox"]
+	# Ian: "Arena window needs to be the same size as the others" -- match the
+	# tab menus' 96% x 73.5% window instead of filling the whole screen.
+	var arena_m: float = _vp.y * 0.025
+	var arena_scroll: ScrollContainer = o["scroll"]
+	arena_scroll.custom_minimum_size = Vector2(_vp.x * 0.96 - arena_m * 2.0, _vp.y * 0.76 - arena_m * 2.0 - 8.0)
+	vbox.custom_minimum_size = Vector2(arena_scroll.custom_minimum_size.x - 16.0, 0)
 	var rec: Dictionary = g.get("pvp", {})
 	var title := Label.new()
 	title.text = "Arena"
@@ -2120,8 +2136,8 @@ func _show_wipe_wave(w: Dictionary) -> void:
 	for e in w.get("enemies", []):
 		var b := Button.new()
 		var st: Dictionary = e["stats"]
-		b.text = "%s%s  ·  HP %d  ATK %d  MAG %d" % [e["name"], "  (boss)" if e.get("isBoss", false) else "",
-			int(st["hp"]), int(st["atk"]), int(st["mag"])]
+		var elv: int = roundi(FarroadCore.level_curve(float(w["wave"])))
+		b.text = "%s%s  ·  Lv %d" % [e["name"], "  (boss)" if e.get("isBoss", false) else "", elv]
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(_show_wipe_enemy.bind(e, int(w["wave"])))
 		o["vbox"].add_child(b)
@@ -2144,14 +2160,24 @@ func _show_wipe_enemy(e: Dictionary, wave: int) -> void:
 		if v != 0.0:
 			aff.append("%s %+d%%" % [str(ax).capitalize(), roundi(FarroadCore.affinity_mul(v) * 100.0)])
 	vbox.add_child(_wrap_label("Affinities: " + (", ".join(aff) if not aff.is_empty() else "none"), true))
-	var acts: Array = []
+	# Ian: the enemy's actions can be inspected from here
+	vbox.add_child(_wrap_label("Actions (tap to inspect):", true))
+	var act_row := HFlowContainer.new()
+	act_row.add_theme_constant_override("h_separation", 6)
+	act_row.add_theme_constant_override("v_separation", 4)
+	var seen_ids: Array = []
 	for s in e.get("slots", []):
-		var a = FarroadCore.ACTIONS.get(s["action"])
-		if a != null and not acts.has(a["name"]):
-			acts.append(a["name"])
-	if e.get("chargeAction") and FarroadCore.ACTIONS.has(e["chargeAction"]):
-		acts.append("⚡ " + str(FarroadCore.ACTIONS[e["chargeAction"]]["name"]))
-	vbox.add_child(_wrap_label("Actions: " + ", ".join(acts), true))
+		var aid_s: String = str(s["action"])
+		if FarroadCore.ACTIONS.has(aid_s) and not seen_ids.has(aid_s):
+			seen_ids.append(aid_s)
+	if e.get("chargeAction") and FarroadCore.ACTIONS.has(e["chargeAction"]) and not seen_ids.has(e["chargeAction"]):
+		seen_ids.append(e["chargeAction"])
+	for aid_s in seen_ids:
+		var ab := Button.new()
+		ab.text = ("⚡ " if FarroadCore.ACTIONS[aid_s].get("isCharge", false) else "") + str(FarroadCore.ACTIONS[aid_s]["name"])
+		ab.pressed.connect(_show_action_detail_popup.bind(aid_s))
+		act_row.add_child(ab)
+	vbox.add_child(act_row)
 	if float(e.get("thorns", 0.0)) > 0.0:
 		vbox.add_child(_wrap_label("Thorns: reflects %d%% of max HP when hit" % roundi(float(e["thorns"]) * 100.0), true))
 	await _finish_detail_overlay(o)
@@ -2781,10 +2807,8 @@ func _build_unit_subpanel_content(panel_key: String, container: Container, uid: 
 ## open -- the Road view is already always rendered behind every popup, so
 ## "returning to it" is just closing whatever's currently open.
 func _on_road_pressed() -> void:
-	_close_arena()
-	if open_panel != null and is_instance_valid(open_panel):
-		open_panel.popup.hide()
-		open_panel = null
+	_close_all_popups()
+	open_panel = null
 
 ## Called by PartyPanel (dynamic has_method()+call(), same pattern as
 ## _set_battle_paused) right after a bench/field edit -- pushes the roster
@@ -2824,6 +2848,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		return
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
+	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
+	presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	add_child(presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
@@ -3259,6 +3285,8 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
 func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter = load("res://scripts/BattlePresenter.gd").new()
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
+	side_presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
+	side_presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	add_child(side_presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame

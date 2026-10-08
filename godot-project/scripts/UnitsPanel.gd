@@ -63,7 +63,7 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
-	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.735)
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
@@ -78,6 +78,8 @@ func _build_ui(parent: Node) -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	root_vbox.add_child(title)
 
+	# Ian: same unit filter/sort as the Party tab
+	root_vbox.add_child(UnitFilter.controls(_refresh_dropdown))
 	dropdown = OptionButton.new()
 	dropdown.item_selected.connect(_on_dropdown_selected)
 	root_vbox.add_child(dropdown)
@@ -151,7 +153,7 @@ func _on_toggle_pressed() -> void:
 	selected_uid = "kesh" if g["owned"].has("kesh") else ""
 	current_sub_tab = "summary"
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.735)))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:
@@ -173,7 +175,7 @@ func _refresh() -> void:
 
 func _refresh_dropdown() -> void:
 	dropdown.clear()
-	var uids: Array = FarroadProgression.owned_ids(g)
+	var uids: Array = UnitFilter.apply(g, FarroadProgression.owned_ids(g), [selected_uid])
 	for idx in range(uids.size()):
 		var uid: String = uids[idx]
 		var def = FarroadCore.roster_by_id(uid)
@@ -188,7 +190,7 @@ func _refresh_dropdown() -> void:
 ## whole point of "so you can swap between units easily" (previously each
 ## sub-panel had to be independently reopened per unit).
 func _on_dropdown_selected(idx: int) -> void:
-	var uids: Array = FarroadProgression.owned_ids(g)
+	var uids: Array = UnitFilter.apply(g, FarroadProgression.owned_ids(g), [selected_uid])
 	if idx < 0 or idx >= uids.size():
 		return
 	selected_uid = uids[idx]

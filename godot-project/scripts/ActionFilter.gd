@@ -58,6 +58,14 @@ static func scale_label(act: Dictionary) -> String:
 		"lowAtkMag": return "the lower of ATK/MAG"
 		var k: return String(k).to_upper()
 
+## "scales with X · power ×N" for an action that deals damage or heals; an
+## action with no power (a pure buff/debuff like Bulwark) has a fixed effect
+## that no stat changes, so it says so instead of naming a stat.
+static func scales_text(act: Dictionary) -> String:
+	if not act.get("power"):
+		return "no stat scaling (fixed effect)"
+	return "scales with %s  ·  %s" % [scale_label(act), power_text(act)]
+
 ## Who an action hits, in plain words.
 static func target_label(act: Dictionary) -> String:
 	return {"foe": "one foe", "allFoes": "all foes", "ally": "one ally", "allAllies": "the whole party",
@@ -164,3 +172,69 @@ static func dropdown(options: Array, current_value: String, on_change: Callable)
 			opt.select(idx)
 	opt.item_selected.connect(func(i): on_change.call(options[i][0]))
 	return opt
+
+## ===== gear filter + sort (Ian: "gear filtering and sorting by stat") =====
+const GEAR_SORT_OPTIONS := [["default", "Default order"], ["name", "Sort: A–Z"], ["rarity", "Sort: Rarity"],
+	["atk", "Sort: ATK"], ["mag", "Sort: MAG"], ["def", "Sort: DEF"], ["res", "Sort: RES"],
+	["spd", "Sort: SPD"], ["evade", "Sort: Evade"]]
+const GEAR_STAT_OPTIONS := [["any", "Any stats"], ["atk", "Has ATK"], ["mag", "Has MAG"], ["def", "Has DEF"],
+	["res", "Has RES"], ["spd", "Has SPD"], ["evade", "Has Evade"], ["affinity", "Has affinity"]]
+const GEAR_RARITY_RANK := {"common": 0, "rare": 1, "legendary": 2}
+static var gear_sort: String = "default"
+static var gear_rarity: String = "any"
+static var gear_stat: String = "any"
+
+static func _gear_has_stat(item: Dictionary, stat: String) -> bool:
+	if stat == "affinity":
+		for v in (item.get("affinity", {}) as Dictionary).values():
+			if float(v) != 0.0:
+				return true
+		return false
+	return item.get(stat) != null and float(item.get(stat)) != 0.0
+
+## Three dropdowns (rarity / stat / sort) wired to the shared gear settings.
+static func gear_controls(on_change: Callable) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 6)
+	row.add_theme_constant_override("v_separation", 4)
+	row.add_child(dropdown(RARITY_OPTIONS, gear_rarity, func(v):
+		gear_rarity = v
+		on_change.call()))
+	row.add_child(dropdown(GEAR_STAT_OPTIONS, gear_stat, func(v):
+		gear_stat = v
+		on_change.call()))
+	row.add_child(dropdown(GEAR_SORT_OPTIONS, gear_sort, func(v):
+		gear_sort = v
+		on_change.call()))
+	return row
+
+## `ids` filtered and sorted per the shared gear settings; `keep` (an item
+## id that must stay listed, e.g. what's already worn) is never filtered out.
+static func gear_ids(ids: Array, keep = null, with_rarity: bool = true) -> Array:
+	var out: Array = ids.filter(func(id):
+		if id == keep:
+			return true
+		var item: Dictionary = FarroadCore.EQUIPMENT.get(id, {})
+		if with_rarity and gear_rarity != "any" and str(item.get("rarity", "common")) != gear_rarity:
+			return false
+		return gear_stat == "any" or _gear_has_stat(item, gear_stat))
+	if gear_sort == "default":
+		return out
+	out.sort_custom(func(x, y):
+		var ix: Dictionary = FarroadCore.EQUIPMENT.get(x, {})
+		var iy: Dictionary = FarroadCore.EQUIPMENT.get(y, {})
+		match gear_sort:
+			"name":
+				return str(ix.get("name", x)).to_lower() < str(iy.get("name", y)).to_lower()
+			"rarity":
+				var rx: int = GEAR_RARITY_RANK.get(str(ix.get("rarity", "common")), 0)
+				var ry: int = GEAR_RARITY_RANK.get(str(iy.get("rarity", "common")), 0)
+				if rx != ry:
+					return rx > ry
+			_:
+				var vx: float = float(ix.get(gear_sort, 0.0)) if ix.get(gear_sort) != null else 0.0
+				var vy: float = float(iy.get(gear_sort, 0.0)) if iy.get(gear_sort) != null else 0.0
+				if vx != vy:
+					return vx > vy
+		return str(ix.get("name", x)).to_lower() < str(iy.get("name", y)).to_lower())
+	return out

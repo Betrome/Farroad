@@ -293,8 +293,8 @@ const BOSS_AETHER_WAVES := 12.5
 const DUP_UNIT_WAVES := 3
 const NOMINAL_WAVE_SEC := 40.0
 const IDLE_FLOOR_PER_5MIN := 3.0
-const IDLE_AETHER_GROWTH_MUL := 1.5
-const IDLE_MARKS_GROWTH_MUL := 6.0
+const IDLE_AETHER_GROWTH_MUL := 3.0
+const IDLE_MARKS_GROWTH_MUL := 4.5
 
 static func pulls_unlocked(g: Dictionary) -> bool:
 	return g.get("farthest", 1) >= MARKS_UNLOCK_WAVE
@@ -339,6 +339,12 @@ static func dup_unit_aether(w: float) -> int:
 	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
 	return int(round(DUP_UNIT_WAVES * (kr + idle)))
 
+## Duplicate units pay more the rarer they are.
+const DUP_UNIT_RARITY_MUL := {"common": 1.0, "rare": 2.0, "legendary": 4.0}
+
+static func dup_unit_reward(w: float, unit_def: Dictionary) -> int:
+	return int(round(dup_unit_aether(w) * float(DUP_UNIT_RARITY_MUL.get(unit_def.get("rarity", "common"), 1.0))))
+
 ## Mirrors pullCostAt/pullCost (farroad-progression.js:59, :787) -- a flat
 ## cost, deliberately non-scaling (v2.3). There is only ONE pull tier in
 ## the real game -- no premium/bulk variant exists.
@@ -352,7 +358,7 @@ static func pull_cost(w: float) -> int:
 
 ## Mirrors P.PULL_ODDS (farroad-ui.js:2286) -- equip is "about as rare as
 ## units" (Ian's own call in the real game's v2.14 changelog).
-const PULL_ODDS := {"unit": 0.10, "equip": 0.10, "action": 0.40, "cond": 0.40}
+const PULL_ODDS := {"unit": 0.05, "equip": 0.10, "action": 0.45, "cond": 0.40}
 ## Mirrors P.PULL_PITY_AT (farroad-ui.js:2294) -- a companion is guaranteed
 ## at least every 30 pulls regardless of the roll.
 const PULL_PITY_AT := 30
@@ -411,9 +417,17 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 		# still a real acquisition.
 		var avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false))
 		if avail.is_empty():
-			var dup := dup_unit_aether(g.get("wave", 1))
+			# Ian: a duplicate unit pays Aether by rarity, plus one Lore on
+			# its charge action (drawn from the whole roster, same rarity
+			# weights as any unit pull).
+			var dup_pick: Dictionary = weighted_roster_pick(g["rng"], FarroadCore.ROSTER)
+			var dup := dup_unit_reward(float(g.get("farthest", g.get("wave", 1))), dup_pick)
 			g["aether"] += dup
-			return {"kind": "unit_dup", "pity": pity, "aetherGain": dup}
+			var dup_lore: String = str(dup_pick.get("chargeAction", "")) if dup_pick.get("chargeAction") else ""
+			if dup_lore != "":
+				_credit_lore(g, dup_lore)
+			return {"kind": "unit_dup", "pity": pity, "aetherGain": dup, "id": dup_pick["id"],
+				"name": dup_pick["name"], "rarity": dup_pick.get("rarity", "common"), "loreActionId": dup_lore}
 		var pick: Dictionary = weighted_roster_pick(g["rng"], avail)
 		var fielded: bool = join_companion(g, pick["id"])
 		return {"kind": "unit", "pity": pity, "id": pick["id"], "name": pick["name"], "fielded": fielded}
@@ -442,14 +456,16 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 			# time pulls unlock (wave 20+, well past mandatory character
 			# creation) -- defensive no-op rather than crashing if somehow
 			# null (the RNG draw above is still consumed either way).
+			# Ian: charge actions are pulled for the Lore -- every pull banks
+			# one Lore on the action (even for a unit you don't own yet);
+			# the first copy also becomes available to the MC.
+			_credit_lore(g, aid)
 			if g["mc"] == null:
 				return {"kind": "action", "id": aid, "duplicate": false, "isCharge": true}
 			g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
 			var dup_mc: bool = g["mc"]["acquiredCharges"].has(aid)
 			if not dup_mc:
 				g["mc"]["acquiredCharges"].append(aid)
-			else:
-				_credit_lore(g, aid)
 			return {"kind": "action", "id": aid, "duplicate": dup_mc, "isCharge": true}
 		var dup_a: bool = g["actions"].has(aid)
 		if not dup_a:
@@ -481,7 +497,7 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 ## (no Aether/Marks), per Ian's follow-up to the Crystal/Shop batch.
 const DUNGEON_CRYSTAL := 1
 const QUEST_STAGE_CRYSTAL := 1
-const SHOP_GAMBIT_PRICE := 10
+const SHOP_GAMBIT_PRICE := 5
 const SHOP_ACTION_PRICE := {"common": 20, "rare": 50, "legendary": 100}
 const SHOP_UNIT_PRICE := {"common": 100, "rare": 200, "legendary": 500}
 const SHOP_EQUIPMENT_PRICE := {"common": 10, "rare": 30, "legendary": 90}
@@ -657,7 +673,12 @@ const RARITY_PULL_WEIGHT := {"common": 3, "rare": 1, "legendary": 1}
 ## no rarity. Returns [{kind, label, chance, rarities: {rarity: share}}].
 static func pull_odds_breakdown(g: Dictionary) -> Array:
 	var out := []
-	var unit_pool: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false)).map(func(r): return r.get("rarity", "common"))
+	# once every unit is owned, pulls still land on units (as duplicates), so
+	# the odds keep showing the whole roster
+	var unit_src: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false))
+	if unit_src.is_empty():
+		unit_src = FarroadCore.ROSTER
+	var unit_pool: Array = unit_src.map(func(r): return r.get("rarity", "common"))
 	var action_pool: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).map(func(id): return FarroadCore.ACTIONS.get(id, {}).get("rarity", "common"))
 	var equip_pool: Array = random_equipment_ids().map(func(id): return FarroadCore.EQUIPMENT.get(id, {}).get("rarity", "common"))
 	for spec in [["unit", "Unit", unit_pool], ["action", "Action", action_pool], ["cond", "Gambit", []], ["equip", "Gear", equip_pool]]:
@@ -1329,6 +1350,103 @@ static func available_for_party(g: Dictionary) -> Array:
 			out.append(uid)
 	return out
 
+## ===== per-unit gambit sets and gear sets (Ian: "5 per unit gambit and gear
+## sets in their tabs that can be saved and loaded similar to parties") =====
+## g["loadoutSets"][uid] = [{name, slots:[{cond, action}]}], at most
+## UNIT_SET_CAP per unit; g["gearSets"][uid] = [{name, items:{slot: item_id}}].
+const UNIT_SET_CAP := 5
+
+static func _sets_of(g: Dictionary, key: String, uid: String) -> Array:
+	if not g.has(key) or g[key] == null:
+		g[key] = {}
+	if not g[key].has(uid):
+		g[key][uid] = []
+	return g[key][uid]
+
+static func loadout_sets(g: Dictionary, uid: String) -> Array:
+	return _sets_of(g, "loadoutSets", uid)
+
+static func gear_sets(g: Dictionary, uid: String) -> Array:
+	return _sets_of(g, "gearSets", uid)
+
+static func save_loadout_set(g: Dictionary, uid: String, set_name: String) -> bool:
+	var trimmed := set_name.strip_edges()
+	var sets := loadout_sets(g, uid)
+	if trimmed == "" or sets.size() >= UNIT_SET_CAP:
+		return false
+	var slots: Array = ensure_loadout(g, uid)
+	sets.append({"name": trimmed.substr(0, 24), "slots": slots.map(func(s): return {"cond": s["cond"], "action": s["action"]})})
+	Analytics.add("features", "saveGambitSet")
+	return true
+
+## Puts a saved gambit set on the unit. Actions or gambits it no longer has,
+## or that another unit already uses (units can't share non-starter actions),
+## fall back to Strike / always. Returns how many slots had to change.
+static func load_loadout_set(g: Dictionary, uid: String, index: int) -> int:
+	var sets := loadout_sets(g, uid)
+	if index < 0 or index >= sets.size():
+		return -1
+	var changed := 0
+	var slots: Array = ensure_loadout(g, uid)
+	var saved: Array = sets[index]["slots"]
+	for i in range(slots.size()):
+		var src: Dictionary = saved[i] if i < saved.size() else {"cond": "none", "action": "strike"}
+		var act: String = str(src["action"])
+		var cond: String = str(src["cond"])
+		if not g["actions"].has(act) or action_holder_in_party(g, act, uid) != null:
+			act = "strike"
+			changed += 1
+		if not g["conditions"].has(cond):
+			cond = "none"
+			changed += 1
+		slots[i] = {"cond": cond, "action": act}
+	g["loadout"][uid] = slots
+	g["touched"][uid] = true
+	sync_loadout(g, uid)
+	Analytics.add("features", "loadGambitSet")
+	return changed
+
+static func delete_loadout_set(g: Dictionary, uid: String, index: int) -> bool:
+	var sets := loadout_sets(g, uid)
+	if index < 0 or index >= sets.size():
+		return false
+	sets.remove_at(index)
+	return true
+
+static func save_gear_set(g: Dictionary, uid: String, set_name: String) -> bool:
+	var trimmed := set_name.strip_edges()
+	var sets := gear_sets(g, uid)
+	if trimmed == "" or sets.size() >= UNIT_SET_CAP:
+		return false
+	var items: Dictionary = (g.get("equipped", {}).get(uid, {}) as Dictionary).duplicate()
+	sets.append({"name": trimmed.substr(0, 24), "items": items})
+	Analytics.add("features", "saveGearSet")
+	return true
+
+## Puts a saved gear set on the unit. A piece you no longer own, or whose
+## every copy is on someone else, is left empty. Returns how many were missed.
+static func load_gear_set(g: Dictionary, uid: String, index: int) -> int:
+	var sets := gear_sets(g, uid)
+	if index < 0 or index >= sets.size():
+		return -1
+	for slot in FarroadCore.EQUIPMENT_SLOTS:
+		unequip_item(g, uid, slot)
+	var missed := 0
+	var items: Dictionary = sets[index]["items"]
+	for slot in items.keys():
+		if not equip_item(g, uid, str(slot), str(items[slot])):
+			missed += 1
+	refresh_live_stats(g)
+	Analytics.add("features", "loadGearSet")
+	return missed
+
+static func delete_gear_set(g: Dictionary, uid: String, index: int) -> bool:
+	var sets := gear_sets(g, uid)
+	if index < 0 or index >= sets.size():
+		return false
+	sets.remove_at(index)
+	return true
+
 ## ===== party presets (24-item batch, Group E1) =====
 ## Ian: "save current party as a default party you name. Have up to 10."
 ## g["partyPresets"] is an Array of {"name": String, "party": Array[uid]}.
@@ -1503,6 +1621,19 @@ static func total_lore(g: Dictionary) -> float:
 static func action_level(g: Dictionary, action_id: String) -> int:
 	return floori(g["loreByAction"].get(action_id, 0.0))
 
+## Every Lore upgrade bought on an action as plain text ("Swift ×2, Broad"),
+## in the order the Lore page lists them -- includes the ones whose effect
+## isn't a stat change (Broad, Cleansing, Deepening) that the numeric summary
+## can't show. "" when there are none.
+static func lore_stacks_text(g: Dictionary, action_id: String) -> String:
+	var b: Dictionary = g["bonuses"].get(action_id, {})
+	var bits: Array = []
+	for bid in FarroadCore.BONUSES.keys():
+		var n: int = int(b.get(bid, 0))
+		if n > 0:
+			bits.append("%s ×%d" % [FarroadCore.BONUSES[bid]["n"], n] if n > 1 else str(FarroadCore.BONUSES[bid]["n"]))
+	return ", ".join(bits)
+
 ## Mirrors the inline unusedIds/refundTotal computation (farroad-ui.js:2051-2056)
 ## -- read-only preview, no mutation. Iterates g["bonuses"].keys() (every
 ## action id the player has EVER spent Lore on), not lore_action_ids(g) --
@@ -1585,7 +1716,11 @@ static func refresh_live_stats(g: Dictionary) -> void:
 		u["base"]["evade"] = st["evade"]; u["base"]["atkCrit"] = st["atkCrit"]; u["base"]["magCrit"] = st["magCrit"]
 		var fr: float = float(u["hp"]) / float(u["maxHp"])
 		u["maxHp"] = st["hp"]
-		u["hp"] = maxf(1.0, round(st["hp"] * fr))
+		# a fallen ally stays fallen -- the old max(1, ...) stood dead units
+		# back up at 1 HP (alive in the numbers, but with no animation and
+		# stuck out of the turn order) whenever anything was bought or
+		# equipped mid-fight
+		u["hp"] = 0.0 if float(u["hp"]) <= 0.0 else maxf(1.0, round(st["hp"] * fr))
 		u["level"] = level_of(g, u["id"])
 		u["affinity"] = effective_affinity(g, u["id"])
 		u["slots"] = ensure_loadout(g, u["id"]).map(func(s): return {"cond": s["cond"], "action": s["action"]})
@@ -2138,7 +2273,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
 		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0,
 		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0,
-		"party": ["kesh"], "partyPresets": [], "wipeLog": [], "appearance": {}, "approach": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
+		"party": ["kesh"], "partyPresets": [], "loadoutSets": {}, "gearSets": {}, "wipeLog": [], "appearance": {}, "approach": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
 		"lvl": {"kesh": 1}, "bank": {"kesh": 0}, "maxLevelEver": 1, "owned": {"kesh": 1},
@@ -2203,13 +2338,6 @@ const EXPED_EVENTS: Array = [
 	{"text": "{names} left an offering at a wayside shrine and felt lighter for it.", "aether": 0.0, "marks": 0.0, "heal": 0.15},
 	{"text": "{names} bartered spare rations at a crossroads trading post.", "aether": 0.0, "marks": 0.75, "heal": 0.0},
 	{"text": "{names} cut a traveler loose from a bandit camp -- the bandits had already fled.", "aether": 1.25, "marks": 0.0, "heal": 0.0},
-	# Ian: finds -- gear, actions and gambits, handed over on Collect
-	{"text": "{names} found a dented chest by the roadside with gear inside.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "equip"},
-	{"text": "{names} pried open a sealed crate in a ruined watchtower.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "equip"},
-	{"text": "{names} learned a technique from a retired duelist.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "action"},
-	{"text": "{names} found a battered tome of combat arts.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "action"},
-	{"text": "{names} studied the tactics of a veteran caravan guard.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "cond"},
-	{"text": "{names} copied battle plans from an abandoned war camp.", "aether": 0.0, "marks": 0.0, "heal": 0.0, "find": "cond"},
 ]
 const DIRECTION_AFFINITY_BONUS := 6.0
 
@@ -2225,6 +2353,23 @@ static func is_on_expedition(g: Dictionary, uid: String) -> bool:
 		if exp["partyIds"].has(uid):
 			return true
 	return false
+
+## What an expedition's party is called: the saved party's name when it was
+## sent as one (Ian), else the members' names.
+static func expedition_label(exp: Dictionary) -> String:
+	var nm: String = str(exp.get("partyName", ""))
+	return nm if nm != "" else _expedition_names(exp["partyIds"])
+
+## The saved party (preset) whose members are exactly these, or "".
+static func preset_name_for(g: Dictionary, party_ids: Array) -> String:
+	var want: Array = party_ids.duplicate()
+	want.sort()
+	for p in g.get("partyPresets", []):
+		var have: Array = (p["party"] as Array).duplicate()
+		have.sort()
+		if have == want:
+			return str(p["name"])
+	return ""
 
 static func _expedition_names(party_ids: Array) -> String:
 	var names: Array = []
@@ -2347,12 +2492,15 @@ static func send_expedition(g: Dictionary, party_ids: Array, direction: String, 
 		"direction": direction, "startedAt": now, "lastResolvedAt": now,
 		"ew": 1, "hpFrac": 1.0, "bank": {"aether": 0.0, "marks": 0.0},
 		"homeAt": null, "arrivedAt": null, "log": []}
+	var preset_nm := preset_name_for(g, party_ids)
+	if preset_nm != "":
+		exp["partyName"] = preset_nm
 	g["expeditions"].append(exp)
 	Analytics.add("expedition", "sent:" + direction)
 	Analytics.add("expedition", "size:%d" % party_ids.size())
 	for uid in party_ids:
 		Analytics.add("expeditionUnits", uid)
-	var names := _expedition_names(party_ids)
+	var names := expedition_label(exp)
 	push_expedition_log(exp, "%s set out to explore %s." % [names, direction_label(direction)], now)
 	return true
 
@@ -2366,7 +2514,7 @@ static func begin_return_trip(exp: Dictionary, decision_moment, reason: String, 
 		return
 	var away_sec: float = maxf(0.0, float(decision_moment) - float(exp["startedAt"]))
 	exp["homeAt"] = float(decision_moment) + away_sec / 2.0
-	var names := _expedition_names(exp["partyIds"])
+	var names := expedition_label(exp)
 	push_expedition_log(exp, "%s — %s Heading home now." % [names, reason], now)
 	check_arrival(exp, now)
 
@@ -2376,7 +2524,7 @@ static func check_arrival(exp: Dictionary, now) -> void:
 	if exp.get("arrivedAt") != null or exp.get("homeAt") == null or float(now) < float(exp["homeAt"]):
 		return
 	exp["arrivedAt"] = now
-	var names := _expedition_names(exp["partyIds"])
+	var names := expedition_label(exp)
 	push_expedition_log(exp, "%s arrived home — awaiting collection." % names, now)
 
 ## Mirrors resolveExpedition (farroad-ui.js:1160-1206) -- the real-time
@@ -2436,6 +2584,7 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 		if g["rng"].next() < EXPED_EVENT_CHANCE:
 			roll_expedition_event(g, exp, mul, sim_now)
 			exp["ew"] += 1
+			roll_expedition_pickup(g, exp, sim_now)
 			_advance_direction_depth(g, exp, now, sim_now)
 		else:
 			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": EXPED_ENRAGE})
@@ -2446,7 +2595,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 					break
 			if battle["over"] == null:
 				exp["stalls"] = int(exp.get("stalls", 0)) + 1
-				Analytics.add("expedition", "stall")
+				if not g.get("_dryRun", false):
+					Analytics.add("expedition", "stall")
 			if battle["over"] == "party":
 				g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + enemies.size()
 				var r := kill_reward(exp["ew"], enemies.size())
@@ -2465,6 +2615,7 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 					exp["hpFrac"] = sum_frac / alive.size()
 				exp["ew"] += 1
 				roll_expedition_discovery(g, exp, mul, sim_now)
+				roll_expedition_pickup(g, exp, sim_now)
 				_advance_direction_depth(g, exp, now, sim_now)
 			else:
 				exp["hpFrac"] = 0.0
@@ -2500,7 +2651,7 @@ static func _advance_direction_depth(g: Dictionary, exp: Dictionary, now, sim_no
 ## the node's own simulated timestamp.
 static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, sim_now: float) -> void:
 	var ev: Dictionary = EXPED_EVENTS[g["rng"].next_int(EXPED_EVENTS.size())]
-	var names := _expedition_names(exp["partyIds"])
+	var names := expedition_label(exp)
 	var r := kill_reward(exp["ew"], enemy_count(int(exp["ew"])))
 	var a_gain: float = r["aether"] * mul * float(ev["aether"])
 	var m_gain: float = r["marks"] * marks_mul(g) * mul * float(ev["marks"])
@@ -2528,6 +2679,33 @@ static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, si
 		text += " (%s)" % ", ".join(bits)
 	push_expedition_log(exp, text, sim_now)
 
+## Ian: pickups (gear, actions, gambits) start at 0% and gain 0.3% for every
+## wave the party clears; the chance goes back to 0 whenever the party picks
+## something up. Kept per expedition (exp["pickupChance"]).
+const EXPED_PICKUP_STEP := 0.003
+const EXPED_PICKUP_TEXT := {
+	"equip": ["{names} found a dented chest by the roadside with gear inside.", "{names} pried open a sealed crate in a ruined watchtower."],
+	"action": ["{names} learned a technique from a retired duelist.", "{names} found a battered tome of combat arts."],
+	"cond": ["{names} studied the tactics of a veteran caravan guard.", "{names} copied battle plans from an abandoned war camp."]}
+
+static func roll_expedition_pickup(g: Dictionary, exp: Dictionary, sim_now: float) -> void:
+	var chance: float = float(exp.get("pickupChance", 0.0))
+	if g["rng"].next() < chance:
+		var kinds := ["equip", "action", "cond"]
+		var kind: String = kinds[g["rng"].next_int(kinds.size())]
+		var f := _roll_find(g, kind)
+		if not f.is_empty():
+			var bank: Dictionary = exp["bank"]
+			if not bank.has("finds"):
+				bank["finds"] = []
+			(bank["finds"] as Array).append(f)
+			var texts: Array = EXPED_PICKUP_TEXT[kind]
+			var line: String = String(texts[g["rng"].next_int(texts.size())]).replace("{names}", expedition_label(exp))
+			push_expedition_log(exp, "%s (found %s)" % [line, find_name(f)], sim_now)
+		exp["pickupChance"] = 0.0
+	else:
+		exp["pickupChance"] = chance + EXPED_PICKUP_STEP
+
 ## Mirrors rollExpeditionDiscovery (farroad-ui.js:1250-1266) -- a flat 8%
 ## chance per won node, a full one-off bonus fight against the SAME
 ## party/ew, banked or logged as a miss. Never a dungeon (v2.9 correction,
@@ -2542,7 +2720,7 @@ const EXPED_FOES := ["some bandits", "a wolf pack", "a band of highwaymen", "a r
 static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float, now) -> void:
 	if g["rng"].next() >= EXPED_DISCOVERY_CHANCE:
 		return
-	var names := _expedition_names(exp["partyIds"])
+	var names := expedition_label(exp)
 	var foe: String = EXPED_FOES[g["rng"].next_int(EXPED_FOES.size())]
 	var b_enemies: Array = apply_direction_affinity(
 		apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
@@ -2599,7 +2777,7 @@ static func resume_expedition(g: Dictionary, id: String, now) -> bool:
 			exp["homeAt"] = null
 			exp["recalled"] = false
 			exp["lastResolvedAt"] = float(now)
-			push_expedition_log(exp, "%s turned around and headed back out." % _expedition_names(exp["partyIds"]), now)
+			push_expedition_log(exp, "%s turned around and headed back out." % expedition_label(exp), now)
 			Analytics.add("expedition", "resumed")
 			return true
 	return false
@@ -2858,6 +3036,42 @@ static func units_from_snapshots(snapshots: Array) -> Array:
 			"chargeAction": snap.get("chargeAction"), "slots": snap["slots"], "affinity": snap["affinity"]}))
 	return out
 
+## Ian: "Dungeons should be unique, with affinities just like their
+## expeditions." Each dungeon gets its own element: the first in a
+## direction uses that direction's own element (as its expeditions do), the
+## next ones step round the other elements, so no two dungeons in a line
+## fight alike. Its foes are strong in that element (+DIRECTION_AFFINITY_BONUS)
+## and weak to the opposite one, so the element also tells you how to beat it.
+const DUNGEON_AXES: Array = ["fire", "water", "earth", "air", "light", "dark"]
+const DUNGEON_OPPOSITE := {"fire": "water", "water": "fire", "earth": "air", "air": "earth", "light": "dark", "dark": "light"}
+const DUNGEON_PLACES := {"fire": ["Cinder Hollow", "Ashen Forge", "Emberdeep"],
+	"water": ["Drowned Vault", "Tidecaller Grotto", "Mistfall Cavern"],
+	"earth": ["Stonebound Deep", "Rootlock Barrow", "Gravel Mine"],
+	"air": ["Stormspire", "Skyreach Ruins", "Whisperwind Pass"],
+	"light": ["Sunlit Chapel", "Dawnglass Keep", "Halo Vault"],
+	"dark": ["Gloam Crypt", "Duskmire Pit", "Hollow Sepulchre"]}
+
+static func _dungeon_place(axis: String, dir: String, tier: int) -> String:
+	var names: Array = DUNGEON_PLACES.get(axis, ["Dungeon"])
+	return names[(int(abs(dir.hash())) + tier) % names.size()]
+
+static func dungeon_axis(dir: String, tier: int) -> String:
+	var own = FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("affinity")
+	var start: int = DUNGEON_AXES.find(own) if own else int(abs(dir.hash())) % DUNGEON_AXES.size()
+	if start < 0:
+		start = 0
+	return DUNGEON_AXES[(start + maxi(0, tier - 1)) % DUNGEON_AXES.size()]
+
+static func _apply_dungeon_affinity(enemies: Array, axis: String) -> Array:
+	var weak: String = DUNGEON_OPPOSITE.get(axis, "")
+	for u in enemies:
+		u["affinity"][axis] = float(u["affinity"].get(axis, 0.0)) + DIRECTION_AFFINITY_BONUS
+		if weak != "":
+			u["affinity"][weak] = float(u["affinity"].get(weak, 0.0)) - DUNGEON_WEAKNESS
+	return enemies
+
+const DUNGEON_WEAKNESS := 4
+
 ## Mirrors unlockDirectionDungeon (farroad-ui.js:1284-1313). Dungeon ids
 ## use Godot's own randi(), not g["rng"] -- same established reasoning as
 ## send_expedition's own id (unique, not reproducible; never bit-exact
@@ -2867,20 +3081,22 @@ static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now)
 	var mul: float = cfg["mul"]
 	var base_wave: int = tier * int(cfg["unlockEvery"])
 	var regular_wave: int = (base_wave - 1) if is_boss_wave(base_wave) else base_wave
+	var axis: String = dungeon_axis(dir, tier)
 	var waves := []
 	for i in range(int(cfg["waveCount"]) - 1):
-		var enemies: Array = apply_direction_affinity(
-			apply_stat_mul(build_enemies(g, regular_wave, true), mul), dir)
+		var enemies: Array = _apply_dungeon_affinity(
+			apply_stat_mul(build_enemies(g, regular_wave, true), mul), axis)
 		waves.append({"wave": regular_wave, "enemies": enemies.map(bake_enemy_snapshot)})
 	var boss_wave: int = next_boss_wave(base_wave - 1)
-	var boss_enemies: Array = apply_direction_affinity(
-		apply_stat_mul(build_enemies(g, boss_wave, true), mul * DUNGEON_LEN), dir)
+	var boss_enemies: Array = _apply_dungeon_affinity(
+		apply_stat_mul(build_enemies(g, boss_wave, true), mul * DUNGEON_LEN), axis)
 	if cfg.get("bossName"):
 		for u in boss_enemies:
 			u["name"] = cfg["bossName"]
 	waves.append({"wave": boss_wave, "enemies": boss_enemies.map(bake_enemy_snapshot)})
 	var dungeon := {"id": "dgn%d_%d" % [int(now), randi() % 1000000],
-		"name": "%s Dungeon (depth %d)" % [cfg["label"], base_wave], "direction": dir, "tier": tier,
+		"name": "%s (%s, depth %d)" % [_dungeon_place(axis, dir, tier), cfg["label"], base_wave],
+		"element": axis, "direction": dir, "tier": tier,
 		"waves": waves, "clears": 0, "charges": DUNGEON_START_CHARGES, "chargeDay": _utc_day(now)}
 	g["dungeons"].append(dungeon)
 	return dungeon

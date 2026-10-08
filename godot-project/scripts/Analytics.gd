@@ -201,6 +201,11 @@ static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array,
 	for uid in units:
 		add("fightUnits_" + res, uid)
 		add("fightUnits_%s_%s" % [ctx, res], uid)
+	# win rate by title (Ian): each fielded unit's title counts once per fight
+	for t in info.get("titles", []):
+		if str(t) != "":
+			add("fightTitles_" + res, str(t))
+			add("fightTitles_%s_%s" % [ctx, res], str(t))
 
 ## Per-fight records (Ian: to relate actions/units/combinations to clear
 ## time, specific waves and enemy types). Each is a short array:
