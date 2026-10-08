@@ -238,6 +238,11 @@ func _on_row_toggle_pressed(uid: String) -> void:
 		return
 	var new_row: String = "back" if def.get("row", "front") == "front" else "front"
 	def["row"] = new_row
+	# kept in the save (it used to reset on restart) -- the cloud save and the
+	# Arena team read it from there
+	if not (g.get("rows") is Dictionary):
+		g["rows"] = {}
+	g["rows"][uid] = new_row
 	for u in g.get("units", []):
 		if u["id"] == uid:
 			u["row"] = new_row

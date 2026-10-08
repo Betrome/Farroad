@@ -82,6 +82,14 @@ func _build_ui(parent: Node) -> void:
 	confirm_btn.pressed.connect(_on_confirm_pressed)
 	root_vbox.add_child(confirm_btn)
 
+	# Ian (cloud saves): bring an existing game over from another device
+	var recover_btn := Button.new()
+	recover_btn.text = "Continue a game from another device"
+	recover_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_account_popup"):
+			_parent.call("_show_account_popup"))
+	root_vbox.add_child(recover_btn)
+
 	_refresh_stats()
 	_refresh_charges()
 
@@ -289,7 +297,7 @@ func _on_confirm_pressed() -> void:
 	if name == "" or FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_charge_choice == "":
 		return
 	var built: Dictionary = FarroadProgression.mc_build_stats(mc_points)
-	var mc := {"name": name, "stats": built["stats"], "hp": built["hp"], "growth": built["growth"],
+	var mc := {"name": name, "stats": built["stats"], "hp": built["hp"], "growth": built["growth"], "points": mc_points.duplicate(),
 		"chargeAction": mc_charge_choice, "acquiredCharges": [mc_charge_choice], "body": mc_body}
 	root.queue_free()
 	_on_confirm.call(mc)

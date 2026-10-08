@@ -44,10 +44,16 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	# Ian: the same size as the other main menus (96% x 76%), scrolling
+	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	popup.add_child(scroll)
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(_vp.x * 0.7, 0)
+	vbox.custom_minimum_size = Vector2(popup_size.x - 40, 0)
 	vbox.add_theme_constant_override("separation", 14)
-	popup.add_child(vbox)
+	scroll.add_child(vbox)
 
 	var title := Label.new()
 	title.text = "SETTINGS"
@@ -60,6 +66,14 @@ func _build_ui(parent: Node) -> void:
 	# detail view uses (GameController._show_inventory_popup), which
 	# builds its own live readout fresh each time it's opened -- no local
 	# label to keep refreshed here anymore.
+	# Ian: cloud saves -- the recovery code that moves this game to another device
+	var account_btn := Button.new()
+	account_btn.text = "Cloud save & recovery code"
+	account_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_account_popup"):
+			_parent.call("_show_account_popup"))
+	vbox.add_child(account_btn)
+
 	var inventory_btn := Button.new()
 	inventory_btn.text = "Inventory"
 	inventory_btn.pressed.connect(_on_inventory_pressed)
@@ -191,7 +205,7 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
-	popup.popup_centered(Vector2(_vp.x * 0.7, _vp.y * 0.3))
+	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:

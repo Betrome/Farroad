@@ -18,7 +18,7 @@ const VERSION := 1
 ## action's new pool (this project is still dev/test-only, a "Reset Game"
 ## button already exists) -- every action just starts fresh at 0.
 const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "crystal", "wipes", "enemiesDefeated",
-	"party", "partyPresets", "loadoutSets", "gearSets", "wipeLog", "appearance", "approach", "pvp", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
+	"party", "partyPresets", "loadoutSets", "gearSets", "rows", "wipeLog", "appearance", "approach", "pvp", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
 	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
 	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
@@ -152,6 +152,8 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	# post-this-feature save just default-fills [].
 	if not g.get("expeditions"):
 		g["expeditions"] = []
+	if not g.get("rows"):
+		g["rows"] = {}
 	if not g.get("loadoutSets"):
 		g["loadoutSets"] = {}
 	if not g.get("gearSets"):

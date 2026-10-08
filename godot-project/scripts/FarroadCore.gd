@@ -496,6 +496,9 @@ static func apply_bonuses(map: Dictionary) -> void:
 			a["turns"] = a.get("turns", 3) + b["lasting"]
 		if b.get("potent") and a.get("power"):
 			a["power"] = a["power"] * (1 + 0.15 * b["potent"])
+		# Ian: Potent also strengthens revives (the HP they bring a unit back with)
+		if b.get("potent") and a.get("revive"):
+			a["revive"] = minf(1.0, float(a["revive"]) * (1 + 0.15 * b["potent"]))
 		if b.get("cleansing") and a.get("heal"):
 			a["cleanse"] = a.get("cleanse", 0) + b["cleansing"]
 		if b.get("broad"):

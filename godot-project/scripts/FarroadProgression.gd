@@ -3205,12 +3205,12 @@ static func _refresh_quest_rules(q: Dictionary) -> void:
 ## level players should be to complete them)." The fight's enemy stats
 ## through the same formula as power_level (stat total / POWER_STAT_DIVISOR
 ## plus the wave's level), for its toughest wave.
-static func snapshot_power(snaps: Array, wave: int) -> int:
+static func snapshot_power(snaps: Array, _wave: int) -> int:
 	var total := 0.0
 	for e in snaps:
 		var st: Dictionary = e["stats"]
 		total += float(st["hp"]) + float(st["atk"]) + float(st["mag"]) + float(st["def"]) + float(st["res"]) + float(st["spd"])
-	return maxi(1, roundi(total / POWER_STAT_DIVISOR + FarroadCore.level_curve(wave)))
+	return maxi(1, roundi(total / POWER_STAT_DIVISOR))   # stats only, like party Power
 
 ## The fielded party's power on the same scale (what a quest or dungeon
 ## fight is actually up against).
@@ -3225,9 +3225,20 @@ static func party_power_of(g: Dictionary, uids: Array) -> int:
 		var def = FarroadCore.roster_by_id(uid)
 		if def == null:
 			continue
-		var st: Dictionary = stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
-		total += st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"]
-	return maxi(1, roundi(total / POWER_STAT_DIVISOR + FarroadCore.level_curve(g.get("farthest", 1))))
+		total += unit_power_stats(g, uid)
+	return maxi(1, roundi(total / POWER_STAT_DIVISOR))
+
+## A unit's stat total for Power, gear and Aether investments included (Ian:
+## gear didn't count). The Arena's ranked Power (Ranked.power_of) uses the
+## same sum, so Power reads the same on the Road and in the Arena.
+static func unit_power_stats(g: Dictionary, uid: String) -> float:
+	var def = FarroadCore.roster_by_id(uid)
+	if def == null:
+		return 0.0
+	var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
+	apply_pct_stat_investment(g, uid, st)
+	apply_equipment_stats(g, uid, st)
+	return float(st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"])
 
 static func dungeon_power(dungeon: Dictionary) -> int:
 	var best := 1
@@ -3313,12 +3324,18 @@ static func prep_dungeon_attempt(g: Dictionary, id: String, now) -> Dictionary:
 ## always auto-plays), so that half of the real function has nothing to
 ## mirror. GameController.gd's own pause/hide of current_presenter is the
 ## Godot-side equivalent of "stop the Road while this runs."
-static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Dictionary) -> bool:
+## `prebuilt`: a ranked PvP fight arrives already built (Ranked.build_battle,
+## from the server's teams and seed) and is used as it is.
+static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Dictionary, prebuilt: Dictionary = {}) -> bool:
 	if g.get("sideBattle") != null:
 		return false
 	g["roadBattle"] = g["battle"]
 	var saved_wave: int = g["wave"]
 	FarroadCore.set_wave(wave)
+	if not prebuilt.is_empty():
+		g["battle"] = prebuilt
+		g["sideBattle"] = {"savedWave": saved_wave, "wave": wave, "meta": meta}
+		return true
 	var party := build_expedition_party(g, g["party"], 1)
 	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": g.get("enrage", true)})
 	if meta.get("kind") == "pvp":   # both teams enrage, so long fights still end evenly
@@ -3378,6 +3395,16 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	g["roadBattle"] = null
 	g["sideBattle"] = null
 
+	if meta["kind"] == "pvp" and meta.get("ranked", false):
+		# the server already decided this fight; the replay just showed it
+		Ranked.end_battle(g.get("bonuses", {}))
+		var s_won: bool = bool(meta.get("serverWon", false))
+		var rk: Dictionary = g.get_or_add("ranked", {})
+		rk["rating"] = int(meta.get("rating", 0))
+		return {"kind": "pvp_won" if s_won else "pvp_lost", "owner": meta["owner"], "power": meta["power"],
+			"turns": int(meta.get("serverTurns", turns)), "gaveUp": gave_up, "team": meta.get("team", ""),
+			"ranked": true, "rating": int(meta.get("rating", 0)), "delta": int(meta.get("delta", 0)),
+			"replayDiffered": (not gave_up) and ((result == "party") != s_won)}
 	if meta["kind"] == "pvp":
 		PvP.clear_actions()
 		var won: bool = result == "party" and not gave_up
@@ -3495,6 +3522,17 @@ static func mc_build_stats(points: Dictionary) -> Dictionary:
 ## _try_resume_save (resumed game) and _on_mc_confirmed (fresh game),
 ## exactly matching the real applyCustomMC's own two call sites
 ## (tryResumeSave() and boot()).
+## Puts each unit's saved front/back row onto its roster entry (rows used to
+## live only in memory and reset on restart).
+static func apply_rows(g: Dictionary) -> void:
+	var rows = g.get("rows", {})
+	if not (rows is Dictionary):
+		return
+	for uid in rows:
+		var def = FarroadCore.roster_by_id(str(uid))
+		if def != null and str(rows[uid]) in ["front", "back"]:
+			def["row"] = str(rows[uid])
+
 static func apply_custom_mc(g: Dictionary) -> void:
 	var mc = g.get("mc")
 	if mc == null:

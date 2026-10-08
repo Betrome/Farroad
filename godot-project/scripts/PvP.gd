@@ -97,7 +97,7 @@ static func rival_team(r: Dictionary) -> Dictionary:
 			"maxHp": float(st["hp"]), "affinity": def.get("affinity", {}),
 			"slots": (spec["slots"] as Array).map(func(s): return {"cond": s[0], "action": s[1]}),
 			"chargeAction": def.get("chargeAction"), "row": def.get("row"), "look": Appearance.look({}, spec["id"])})
-	var power := maxi(1, roundi(total / FarroadProgression.POWER_STAT_DIVISOR + FarroadCore.level_curve(int(r["wave"]))))
+	var power := maxi(1, roundi(total / FarroadProgression.POWER_STAT_DIVISOR))
 	return {"v": 1, "owner": r["name"], "team": r["name"], "rival": r["id"], "power": power,
 		"units": units, "bonuses": (r["lore"] as Dictionary).duplicate(true)}
 

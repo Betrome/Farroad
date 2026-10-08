@@ -19,6 +19,8 @@ extends Node2D
 
 signal battle_finished(outcome)
 
+## Ian: damage over time (burning, poison) shows in purple.
+const DOT_COLOR := Color(0.74, 0.42, 0.98)
 const TURN_ORDER_COUNT := 5
 # Status/Log now sit just to the right of the enrage gauge (x 0.016-0.316)
 # as small square icon buttons -- placeholder squares (see _build_icon_tab)
@@ -838,8 +840,21 @@ func _build_status_card(u: Dictionary) -> Control:
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
 
 	# Ian: tap a party unit on the Road to pick the action it takes next.
-	if u["isParty"] and u["hp"] > 0 and status_filter_uid == u["id"] and battle["over"] == null:
+	if u["isParty"] and u["hp"] > 0 and status_filter_uid == u["id"] and battle["over"] == null and not battle.get("ranked", false):
 		_add_next_action_picker(box, u)
+
+	# Ian: tapping an enemy shows what it will do -- its gambits, top first
+	if not u["isParty"] and status_filter_uid == u["id"]:
+		var lines: Array = []
+		var ch = u.get("chargeAction")
+		if ch != null and FarroadCore.ACTIONS.has(ch):
+			lines.append("⚡ charge full → %s" % FarroadCore.ACTIONS[ch]["name"])
+		for s in u.get("slots", []):
+			var a = FarroadCore.ACTIONS.get(str(s.get("action", "")))
+			lines.append("%s → %s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?"))])
+		box.add_child(_rich_line("[font_size=12][b]Gambits[/b][/font_size]"))
+		for l in lines:
+			box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, l]))
 
 	return card
 
@@ -1453,7 +1468,10 @@ func _preview_respecting_locks() -> Array:
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
 	var upcoming: Array = [] if battle["over"] != null else _preview_respecting_locks()
-	_lock_upcoming_actors(upcoming)
+	# a ranked fight replays the server's fight exactly: no locking ahead (it
+	# changes when actions are picked) and no manual choices
+	if not battle.get("ranked", false):
+		_lock_upcoming_actors(upcoming)
 	# A small inset off the card's own width -- the true content width after
 	# the PanelContainer's own border/margins, not the full slot fraction.
 	var max_w: float = _turn_card_w - _vp.x * 0.02
@@ -2061,7 +2079,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		actor_view.update_hp()
 		var an: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = an + 1
-		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), Color(1.0, 0.45, 0.15), an)
+		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), DOT_COLOR, an)
 	# Ian: "show regen hp gains" -- Regen heals at the start of the unit's own
 	# turn (step() records it in e["regen"]); a green number on the unit.
 	if actor_view != null and e.get("regen", 0) > 0:
@@ -2069,7 +2087,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var rn: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = rn + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), "+%d" % int(e["regen"]), Color(0.4, 0.95, 0.5), rn)
-	# poison ticks on everyone poisoned, every action (green numbers)
+	# poison ticks on everyone poisoned, every action (purple numbers, like every damage-over-time tick)
 	for pz in e.get("poison", []):
 		var pv: UnitView = unit_views_by_name.get(pz["targetName"])
 		if pv == null:
@@ -2077,7 +2095,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		pv.update_hp()
 		var pn: int = stagger.get(pz["targetName"], 0)
 		stagger[pz["targetName"]] = pn + 1
-		DamageNumber.spawn(self, pv.damage_spawn_position(), str(pz["amount"]), Color(0.55, 0.85, 0.2), pn)
+		DamageNumber.spawn(self, pv.damage_spawn_position(), str(pz["amount"]), DOT_COLOR, pn)
 	_apply_status_notes(e, stagger)
 
 ## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/

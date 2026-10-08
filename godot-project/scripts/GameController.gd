@@ -136,6 +136,11 @@ static func _size_desktop_window() -> void:
 	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 func _ready() -> void:
+	# The PvP server is this same game started with "-- --server" (or a
+	# dedicated-server export): it swaps straight to the server scene.
+	if OS.has_feature("dedicated_server") or OS.get_cmdline_user_args().has("--server"):
+		get_tree().change_scene_to_file.call_deferred("res://scenes/Server.tscn")
+		return
 	_add_symbol_fonts()
 	_size_desktop_window()
 	# Ian: "can we add a 2x speed button?" Engine.time_scale is a global
@@ -203,6 +208,7 @@ func _attach_touch_scroll(node) -> void:   # untyped: it may be freed by the tim
 ## or a freshly confirmed character), run only once `g` is guaranteed
 ## fully built either way.
 func _start_game() -> void:
+	_start_cloud.call_deferred()
 	_build_background_layer()
 	_build_hud()
 	_refresh_hud()
@@ -414,7 +420,9 @@ func _try_resume_save() -> bool:
 	if parsed == null:
 		return false
 	g = FarroadSave.deserialize(parsed)
+	_local_saved_at = int(parsed.get("savedAt", 0))
 	FarroadProgression.apply_custom_mc(g)
+	FarroadProgression.apply_rows(g)
 	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
 	UnitView.game_state = g
 	var resume_wave: int = g["wave"] if g.get("wave") else 1
@@ -467,6 +475,8 @@ func _notification(what: int) -> void:
 				notifier.schedule_away()
 		NOTIFICATION_APPLICATION_PAUSED:
 			_save_game()
+			if cloud != null:
+				cloud.upload()
 			_backgrounded_at = Time.get_unix_time_from_system()
 			if notifier != null:
 				notifier.schedule_away()   # Android: idle-full / party-home alerts
@@ -553,6 +563,8 @@ func _save_game() -> void:
 	f.store_string(JSON.stringify(snap))
 	Analytics.save()
 	f.close()
+	if cloud != null:
+		cloud.mark_dirty()
 
 ## Ian (batch): "I want to eventually replace the blank background with
 ## illustrations and locales along the road... what do we need to do now
@@ -1804,115 +1816,389 @@ func _show_pvp_popup() -> void:
 	o["backdrop"].set_meta("arena", true)
 	var vbox: VBoxContainer = o["vbox"]
 	# Ian: "Arena window needs to be the same size as the others" -- match the
-	# tab menus' 96% x 73.5% window instead of filling the whole screen.
+	# tab menus' 96% x 76% window instead of filling the whole screen.
 	var arena_m: float = _vp.y * 0.025
 	var arena_scroll: ScrollContainer = o["scroll"]
 	arena_scroll.custom_minimum_size = Vector2(_vp.x * 0.96 - arena_m * 2.0, _vp.y * 0.76 - arena_m * 2.0 - 8.0)
+	arena_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vbox.custom_minimum_size = Vector2(arena_scroll.custom_minimum_size.x - 16.0, 0)
-	var rec: Dictionary = g.get("pvp", {})
 	var title := Label.new()
 	title.text = "Arena"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
-	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))]))
+	# Every fight is decided on the PvP server (Ian: option 2); share codes and
+	# local-only rival fights are gone, and the ready-made rivals are server
+	# opponents in the same list as players.
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	vbox.add_child(box)
+	_fill_ranked.call_deferred(box, o["backdrop"])
+	await _finish_detail_overlay(o)
 
-	# --- your team
-	vbox.add_child(_section_label("Your team"))
-	var my_code := PvP.export_code(g)
-	var me = PvP.import_code(my_code)
-	vbox.add_child(_wrap_label(PvP.describe(me["team"]) if me.has("team") else ""))
-	vbox.add_child(_wrap_label("Others fight your fielded party as it is now. Send them this code:", true))
-	var code_box := TextEdit.new()
-	code_box.text = my_code
-	code_box.editable = false
-	code_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	code_box.custom_minimum_size = Vector2(0, _vp.y * 0.09)
-	vbox.add_child(code_box)
-	var copy_btn := Button.new()
-	copy_btn.text = "Copy my team code"
-	copy_btn.pressed.connect(func():
-		copy_text(my_code)
-		copy_btn.text = "Copied!")
-	vbox.add_child(copy_btn)
+## ===== cloud saves (Ian) =====
+var cloud: CloudSave = null
+## When the save this session started from was written (0 for a new game).
+var _local_saved_at := 0
 
-	# --- ready-made rival teams (Ian)
-	vbox.add_child(_section_label("Rival teams"))
-	var beaten: Dictionary = rec.get("rivals", {})
-	var rival_teams: Array = PvP.RIVALS.map(func(r): return [r, PvP.rival_team(r)])
-	rival_teams.sort_custom(func(a, b): return int(a[1]["power"]) < int(b[1]["power"]))   # weakest first
-	for pair in rival_teams:
-		var r: Dictionary = pair[0]
-		var team: Dictionary = pair[1]
-		var card := VBoxContainer.new()
-		var head := HBoxContainer.new()
-		var name_lbl := _wrap_label("%s%s  ·  Power %d" % [r["name"], "  ✓" if beaten.has(r["id"]) else "", int(team["power"])])
-		head.add_child(name_lbl)
-		var go := Button.new()
-		go.text = "Fight"
-		go.disabled = g.get("sideBattle") != null
-		go.pressed.connect(func():
-			o["backdrop"].queue_free()
-			_start_pvp(team))
-		head.add_child(go)
-		card.add_child(head)
-		var names: Array = (team["units"] as Array).map(func(u): return str(u["name"]))
-		card.add_child(_wrap_label("%s %s" % [r["blurb"], "(" + ", ".join(names) + ")"], true))
-		vbox.add_child(card)
+func _start_cloud() -> void:
+	if not RankedClient.online():
+		return
+	cloud = CloudSave.new()
+	add_child(cloud)
+	cloud.setup(_ranked(), func(): return FarroadSave.serialize(g, int(Time.get_unix_time_from_system())))
+	# a newer save from another device is offered before this one overwrites it
+	var remote := await cloud.fetch()
+	if not remote.is_empty() and int(remote.get("savedAt", 0)) > _local_saved_at + 60:
+		_show_cloud_choice(remote)
+		return
+	cloud.upload()
 
-	# --- a rival's team
-	vbox.add_child(_section_label("Fight a team"))
-	var paste_box := TextEdit.new()
-	paste_box.placeholder_text = "Paste a team code here"
-	paste_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	paste_box.custom_minimum_size = Vector2(0, _vp.y * 0.09)
-	vbox.add_child(paste_box)
-	var preview := _wrap_label("", true)
+func _cloud_line(snap: Dictionary) -> String:
+	var when := Time.get_datetime_string_from_unix_time(int(snap.get("savedAt", 0)), true)
+	return "Furthest wave %d, %d Aether (saved %s UTC)" % [int(snap.get("farthest", 1)), roundi(float(snap.get("aether", 0))), when]
+
+## Another device saved more recently: use that save, or keep this one (which
+## then becomes the cloud copy).
+func _show_cloud_choice(remote: Dictionary) -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	vbox_title(vbox, "Newer save found")
+	vbox.add_child(_wrap_label("Your cloud save is newer than the one on this device."))
+	vbox.add_child(_wrap_label("Cloud: " + _cloud_line(remote)))
+	vbox.add_child(_wrap_label("This device: " + _cloud_line(FarroadSave.serialize(g, _local_saved_at)), true))
+	var use_btn := Button.new()
+	use_btn.text = "Use the cloud save"
+	use_btn.pressed.connect(func(): _load_snapshot(remote))
+	vbox.add_child(use_btn)
+	var keep_btn := Button.new()
+	keep_btn.text = "Keep this device's save"
+	keep_btn.pressed.connect(func():
+		o["backdrop"].queue_free()
+		cloud.upload())
+	vbox.add_child(keep_btn)
+	await _finish_detail_overlay(o)
+
+## Replaces the save on this device with `snap` and restarts from it.
+func _load_snapshot(snap: Dictionary) -> void:
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(JSON.stringify(snap))
+	f.close()
+	get_tree().reload_current_scene()
+
+## The recovery code (to carry this game to another device) and the box to
+## enter one from another device.
+func _show_account_popup() -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	var vbox: VBoxContainer = o["vbox"]
+	vbox_title(vbox, "Cloud save")
+	if not RankedClient.online():
+		vbox.add_child(_wrap_label("Cloud saves aren't online yet.", true))
+		await _finish_detail_overlay(o)
+		return
+	if g.get("mc") != null:
+		vbox.add_child(_wrap_label("Your game is saved to the cloud automatically. To play it on another device, enter this recovery code there. Keep it private: it's the key to your game."))
+		var code := CloudSave.recovery_code()
+		var code_box := TextEdit.new()
+		code_box.text = code
+		code_box.editable = false
+		code_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+		code_box.custom_minimum_size = Vector2(0, _vp.y * 0.07)
+		vbox.add_child(code_box)
+		var copy_btn := Button.new()
+		copy_btn.text = "Copy recovery code"
+		copy_btn.pressed.connect(func():
+			copy_text(code)
+			copy_btn.text = "Copied!")
+		vbox.add_child(copy_btn)
+	vbox.add_child(_section_label("Continue a game from another device"))
+	vbox.add_child(_wrap_label("Enter that device's recovery code. This replaces the game on this device.", true))
+	var entry := LineEdit.new()
+	entry.placeholder_text = "Recovery code"
+	vbox.add_child(entry)
 	var row := HBoxContainer.new()
 	var paste_btn := Button.new()
 	paste_btn.text = "Paste"
 	paste_btn.pressed.connect(func():
-		var t := paste_text("Paste a team code:")
+		var t := paste_text("Paste your recovery code:")
 		if t != "":
-			paste_box.text = t
-			paste_box.text_changed.emit())   # check the code straight away
+			entry.text = t)
 	row.add_child(paste_btn)
-	var fight_btn := Button.new()
-	fight_btn.text = "Fight!"
-	fight_btn.disabled = true
-	fight_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(fight_btn)
+	var go := Button.new()
+	go.text = "Load that game"
+	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(go)
 	vbox.add_child(row)
-	vbox.add_child(preview)
-	var parsed := {}
-	paste_box.text_changed.connect(func():
-		var r := PvP.import_code(paste_box.text)
-		parsed.clear()
-		if paste_box.text.strip_edges() == "":
-			preview.text = ""
-		elif r.has("error"):
-			preview.text = r["error"]
-		else:
-			parsed.merge(r)
-			preview.text = PvP.describe(r["team"])
-		fight_btn.disabled = parsed.is_empty() or g.get("sideBattle") != null)
-	fight_btn.pressed.connect(func():
-		if parsed.is_empty():
+	var note := _wrap_label("", true)
+	vbox.add_child(note)
+	go.pressed.connect(func():
+		var why := CloudSave.use_recovery_code(entry.text)
+		if why != "":
+			note.text = why
 			return
-		var team: Dictionary = parsed["team"]
-		o["backdrop"].queue_free()
-		_start_pvp(team))
-
-	# --- recent fights
-	var hist: Array = rec.get("history", [])
-	if not hist.is_empty():
-		vbox.add_child(_section_label("Recent fights"))
-		for h in hist.slice(0, 10):
-			var who: String = str(h.get("owner", "?"))
-			if PvP.rival(str(h.get("rival", ""))).is_empty():
-				who += "'s team"
-			vbox.add_child(_wrap_label("%s vs %s (Power %d) in %d turns" % [
-				"Won" if h.get("won") else "Lost", who, int(h.get("power", 0)), int(h.get("turns", 0))], true))
+		go.disabled = true
+		note.text = "Loading..."
+		var res := await _ranked().call_api("/save/get")
+		if res.has("error") or not (res.get("save") is Dictionary):
+			var err := str(res.get("error", "offline"))
+			note.text = "No cloud save was found for that code." if err in ["no_save", "bad_key"] else RankedClient.explain(err)
+			go.disabled = false
+			return
+		_load_snapshot(res["save"]))
 	await _finish_detail_overlay(o)
+
+## ===== ranked PvP (the server decides; the game replays) =====
+var ranked_client: RankedClient = null
+
+func _ranked() -> RankedClient:
+	if ranked_client == null or not is_instance_valid(ranked_client):
+		ranked_client = RankedClient.new()
+		add_child(ranked_client)
+	return ranked_client
+
+## The Ranked part of the Arena: uploads the fielded party, then shows your
+## rating, opponents near it and the leaderboard.
+func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
+	if not RankedClient.online():
+		box.add_child(_wrap_label("The Arena isn't online yet.", true))
+		return
+	var status := _wrap_label("Connecting to the Arena...", true)
+	box.add_child(status)
+	var me_name: String = str(g["mc"].get("name", "Traveler")) if g.get("mc") != null else "Traveler"
+	var hello := await _ranked().call_api("/hello", {"name": me_name})
+	if not is_instance_valid(box):
+		return
+	if hello.has("error"):
+		status.text = RankedClient.explain(str(hello["error"]))
+		return
+	# Ian: the Arena team comes from the cloud save, so every time the Arena
+	# opens the save goes up first (starting cloud saves if they weren't yet)
+	if cloud == null:
+		cloud = CloudSave.new()
+		add_child(cloud)
+		cloud.setup(_ranked(), func(): return FarroadSave.serialize(g, int(Time.get_unix_time_from_system())))
+	await cloud.upload()
+	var up := await _ranked().call_api("/team", {"team": Ranked.team_from_game(g)})
+	if not is_instance_valid(box):
+		return
+	if up.has("error"):
+		status.text = RankedClient.explain(str(up["error"]))
+		return
+	var me: Dictionary = up["me"]
+	status.text = "Rating %d  ·  %d won, %d lost" % [int(me["rating"]), int(me["wins"]), int(me["losses"])]
+	status.modulate = Color(1, 1, 1)
+	box.add_child(_wrap_label("Your team: Power %d" % int(me["power"])))
+	box.add_child(_wrap_label("Your fielded party is your Arena team; others fight it while you're away.", true))
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	var lb_btn := Button.new()
+	lb_btn.text = "Leaderboard"
+	lb_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lb_btn.pressed.connect(_show_leaderboard)
+	btn_row.add_child(lb_btn)
+	# Ian: your last 50 fights, the ones you started and the ones you defended
+	var rec_btn := Button.new()
+	rec_btn.text = "Records"
+	rec_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rec_btn.pressed.connect(_show_records)
+	btn_row.add_child(rec_btn)
+	box.add_child(btn_row)
+	var opp := await _ranked().call_api("/opponents")
+	if not is_instance_valid(box):
+		return
+	box.add_child(_section_label("Opponents"))
+	var opp_box := VBoxContainer.new()
+	var list: Array = opp.get("opponents", [])
+	if list.is_empty():
+		box.add_child(_wrap_label(RankedClient.explain(str(opp["error"])) if opp.has("error") else "No opponents yet. Check back soon.", true))
+	else:
+		box.add_child(ActionFilter.dropdown(OPPONENT_SORTS, _opponent_sort, func(v):
+			_opponent_sort = v
+			_fill_opponents(opp_box, list, status, backdrop)))
+	box.add_child(opp_box)
+	_fill_opponents(opp_box, list, status, backdrop)
+	var hist: Array = hello.get("history", [])
+	if not hist.is_empty():
+		box.add_child(_section_label("Recent fights"))
+		for h in hist.slice(0, 10):
+			var how: String = ("Beat" if h.get("won") else "Lost to") if h.get("attack") else ("Held off" if h.get("won") else "Beaten by")
+			box.add_child(_wrap_label("%s %s  (%+d)" % [how, str(h.get("vs", "?")), int(h.get("delta", 0))], true))
+
+## Ian: sort the opponent list.
+const OPPONENT_SORTS := [["power_desc", "Highest power"], ["power_asc", "Lowest power"],
+	["rating_desc", "Highest rating"], ["rating_asc", "Lowest rating"], ["name_asc", "Name A-Z"], ["name_desc", "Name Z-A"]]
+static var _opponent_sort: String = "rating_desc"
+
+func _fill_opponents(opp_box: VBoxContainer, list: Array, status: Label, backdrop: Node) -> void:
+	for c in opp_box.get_children():
+		c.queue_free()
+	var sorted: Array = list.duplicate()
+	sorted.sort_custom(func(a, b):
+		match _opponent_sort:
+			"power_desc": return int(a["power"]) > int(b["power"])
+			"power_asc": return int(a["power"]) < int(b["power"])
+			"rating_asc": return int(a["rating"]) < int(b["rating"])
+			"name_asc": return str(a["name"]).to_lower() < str(b["name"]).to_lower()
+			"name_desc": return str(a["name"]).to_lower() > str(b["name"]).to_lower()
+		return int(a["rating"]) > int(b["rating"]))
+	for i in sorted.size():
+		var p: Dictionary = sorted[i]
+		# Ian: a line between teams; the name with its Fight button, and
+		# Rating and Power in columns on the line below
+		if i > 0:
+			opp_box.add_child(HSeparator.new())
+		var row := HBoxContainer.new()
+		var lbl := _wrap_label(str(p["name"]))
+		row.add_child(lbl)
+		var go := Button.new()
+		go.text = "Fight"
+		go.disabled = g.get("sideBattle") != null
+		go.pressed.connect(func():
+			go.disabled = true
+			go.text = "..."
+			var res := await _ranked().call_api("/fight", {"opponent": str(p["id"])})
+			if res.has("error"):
+				go.text = "Fight"
+				go.disabled = false
+				status.text = RankedClient.explain(str(res["error"]))
+				return
+			if is_instance_valid(backdrop):
+				backdrop.queue_free()
+			_start_ranked(res))
+		row.add_child(go)
+		opp_box.add_child(row)
+		var stats := GridContainer.new()
+		stats.columns = 2
+		stats.add_theme_constant_override("h_separation", int(_vp.x * 0.06))
+		for txt in ["Rating %d" % int(p["rating"]), "Power %d" % int(p["power"])]:
+			var c := Label.new()
+			c.text = txt
+			c.modulate = Palette.TEXT_DIM
+			c.custom_minimum_size = Vector2(_vp.x * 0.3, 0)
+			stats.add_child(c)
+		opp_box.add_child(stats)
+
+## Your 50 most recent Arena fights, newest first: when, who, whether you
+## attacked or defended, the result and the rating change.
+func _show_records() -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	vbox_title(o["vbox"], "Records")
+	var wait := _wrap_label("Loading...", true)
+	o["vbox"].add_child(wait)
+	_finish_detail_overlay(o)
+	var me_name: String = str(g["mc"].get("name", "Traveler")) if g.get("mc") != null else "Traveler"
+	var res := await _ranked().call_api("/hello", {"name": me_name})
+	if not is_instance_valid(wait):
+		return
+	if res.has("error"):
+		wait.text = RankedClient.explain(str(res["error"]))
+		return
+	var hist: Array = res.get("history", [])
+	if hist.is_empty():
+		wait.text = "No Arena fights yet."
+		return
+	wait.queue_free()
+	var att := hist.filter(func(h): return h.get("attack"))
+	var dfn := hist.filter(func(h): return not h.get("attack"))
+	o["vbox"].add_child(_wrap_label("Offense: %d won, %d lost" % [
+		att.filter(func(h): return h.get("won")).size(), att.filter(func(h): return not h.get("won")).size()], true))
+	o["vbox"].add_child(_wrap_label("Defense: %d won, %d lost" % [
+		dfn.filter(func(h): return h.get("won")).size(), dfn.filter(func(h): return not h.get("won")).size()], true))
+	# Ian: each fight on two lines, in three columns -- the opponent with
+	# Won/Lost (green/red) under it; their Power with your rating change under
+	# it; Offense/Defense with how long ago under it. A line between fights.
+	# Ian: no sideways scrolling -- the three columns share the window's own
+	# width (less the gaps between them), and the window never scrolls sideways
+	var rec_scroll: ScrollContainer = o["scroll"]
+	rec_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var avail: float = float(o["vbox"].custom_minimum_size.x) - _vp.x * 0.03 * 2.0 - 4.0
+	var col_w: Array = [avail * 0.42, avail * 0.29, avail * 0.29]
+	var cell := func(grid: GridContainer, text: String, col: int, dim: bool, color = null) -> void:
+		var l := Label.new()
+		l.text = text
+		l.clip_text = true
+		l.custom_minimum_size = Vector2(col_w[col], 0)
+		if dim:
+			l.modulate = Palette.TEXT_DIM
+		if color != null:
+			l.add_theme_color_override("font_color", color)
+		grid.add_child(l)
+	var list := hist.slice(0, 50)
+	for i in list.size():
+		var h: Dictionary = list[i]
+		if i > 0:
+			o["vbox"].add_child(HSeparator.new())
+		var grid := GridContainer.new()
+		grid.columns = 3
+		grid.add_theme_constant_override("h_separation", int(_vp.x * 0.03))
+		grid.add_theme_constant_override("v_separation", 2)
+		var won: bool = bool(h.get("won"))
+		# line 1: opponent, their Power, when; line 2: Won/Lost with Offense/Defense
+		# beside it, then the rating change
+		cell.call(grid, str(h.get("vs", "?")), 0, false)
+		cell.call(grid, ("Power %d" % int(h["power"])) if h.get("power") != null else "Power —", 1, false)
+		cell.call(grid, _ago(int(h.get("at", 0))), 2, true)
+		cell.call(grid, "Won" if won else "Lost", 0, false, Palette.GOOD_GREEN if won else Palette.BAD_RED)
+		cell.call(grid, "Offense" if h.get("attack") else "Defense", 1, false)
+		cell.call(grid, "Rating %+d" % int(h.get("delta", 0)), 2, true)
+		o["vbox"].add_child(grid)
+
+func _show_leaderboard() -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	vbox_title(o["vbox"], "Leaderboard")
+	var wait := _wrap_label("Loading...", true)
+	o["vbox"].add_child(wait)
+	_finish_detail_overlay(o)
+	var res := await _ranked().call_api("/leaderboard")
+	if not is_instance_valid(wait):
+		return
+	if res.has("error"):
+		wait.text = RankedClient.explain(str(res["error"]))
+		return
+	wait.queue_free()
+	var top: Array = res.get("top", [])
+	(o["scroll"] as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	# Ian: columns, so rating, wins and losses compare at a glance
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", int(_vp.x * 0.03))
+	grid.add_theme_constant_override("v_separation", 4)
+	var cell := func(text: String, header: bool, right: bool, expand: bool) -> void:
+		var l := Label.new()
+		l.text = text
+		l.clip_text = true
+		if right:
+			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		if expand:
+			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if header:
+			l.modulate = Palette.TEXT_DIM
+		grid.add_child(l)
+	for h in [["#", true], ["Name", false], ["Rating", true], ["Wins", true], ["Losses", true]]:
+		cell.call(h[0], true, h[1], h[0] == "Name")
+	for i in top.size():
+		var p: Dictionary = top[i]
+		cell.call(str(i + 1), false, true, false)
+		cell.call(str(p["name"]), false, false, true)
+		cell.call(str(int(p["rating"])), false, true, false)
+		cell.call(str(int(p["wins"])), false, true, false)
+		cell.call(str(int(p["losses"])), false, true, false)
+	o["vbox"].add_child(grid)
+
+## Plays back a fight the server just decided: the same two teams and seed
+## through the same engine, so it ends the way the server said.
+func _start_ranked(res: Dictionary) -> void:
+	if g.get("sideBattle") != null:
+		return
+	if open_panel != null and is_instance_valid(open_panel):
+		open_panel.popup.hide()
+	var battle := Ranked.build_battle(res["me"], res["them"], int(res["seed"]))
+	var them_name: String = str(res.get("themName", "Rival"))
+	_enter_side_battle([], Ranked.fight_wave(res["me"], res["them"]), {"kind": "pvp", "ranked": true, "owner": them_name,
+		"power": Ranked.power_of(res["them"]), "team": them_name + "'s team", "rival": "",
+		"serverWon": bool(res["won"]), "serverTurns": int(res.get("turns", 0)),
+		"rating": int(res.get("rating", 0)), "delta": int(res.get("delta", 0))}, battle)
 
 ## Ian: Arena is its own bottom-row button (where Marks was).
 var arena_button: Button
@@ -2046,6 +2332,12 @@ func _show_pvp_result_popup(event: Dictionary) -> void:
 	var verb := "beat" if won else "lost to"
 	var foe_name: String = event["team"] if str(event.get("team", "")) != "" else event["owner"] + "'s team"
 	vbox.add_child(_wrap_label("You %s %s (Power %d) in %d turns." % [verb, foe_name, int(event["power"]), int(event["turns"])]))
+	if event.get("ranked", false):
+		vbox.add_child(_wrap_label("Rating %d (%+d)" % [int(event["rating"]), int(event["delta"])]))
+		if event.get("replayDiffered", false):
+			vbox.add_child(_wrap_label("(The replay on this device ended differently; the server's result counts.)", true))
+		await _finish_detail_overlay(o)
+		return
 	var rec: Dictionary = g.get("pvp", {})
 	vbox.add_child(_wrap_label("Record: %d won, %d lost" % [int(rec.get("wins", 0)), int(rec.get("losses", 0))], true))
 	var me = FarroadCore.roster_by_id("kesh")
@@ -3266,8 +3558,8 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 ## set_loop_paused every sibling panel already uses, plus additionally
 ## hiding it since the side battle needs the same on-field real estate,
 ## not a small popup) is this port's whole equivalent.
-func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary) -> void:
-	if not FarroadProgression.start_side_battle(g, enemies, wave, meta):
+func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary, prebuilt: Dictionary = {}) -> void:
+	if not FarroadProgression.start_side_battle(g, enemies, wave, meta, prebuilt):
 		return
 	_side_started_ms = Time.get_ticks_msec()
 	if current_presenter != null:
