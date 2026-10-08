@@ -2314,6 +2314,14 @@ static func new_game(seed: int, mc) -> Dictionary:
 
 ## Ian: parties push on until 10% HP (was 25%).
 const EXPED_RETURN_HP_FRAC := 0.10
+## Ian: a hurt party can stop and rest, healing by its members' Recovery,
+## instead of turning back. It starts resting below REST_BELOW and keeps going
+## until REST_UNTIL, each rest taking REST_WAVES waves' worth of time. A party
+## with no Recovery can't rest and turns back as before.
+static var EXPED_REST: bool = true
+static var EXPED_REST_BELOW: float = 0.35
+static var EXPED_REST_UNTIL: float = 0.70
+static var EXPED_REST_WAVES: float = 2.0
 const EXPED_CAP_SEC := OFFLINE_CAP_SEC
 const EXPED_DISCOVERY_CHANCE := 0.08
 ## 24-item batch, Group E4: non-combat road events. EXPED_EVENT_CHANCE is
@@ -2620,6 +2628,7 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			else:
 				exp["hpFrac"] = 0.0
 		remaining -= cost
+		remaining = _expedition_rest(g, exp, remaining, cost, resolve_started_at + (capped - remaining))
 		if exp["hpFrac"] < EXPED_RETURN_HP_FRAC:
 			turned_back = true
 			break
@@ -2705,6 +2714,30 @@ static func roll_expedition_pickup(g: Dictionary, exp: Dictionary, sim_now: floa
 		exp["pickupChance"] = 0.0
 	else:
 		exp["pickupChance"] = chance + EXPED_PICKUP_STEP
+
+## Rests a hurt party in place (see EXPED_REST). Returns the time left after
+## the rests it took.
+static func _expedition_rest(g: Dictionary, exp: Dictionary, remaining: float, wave_sec: float, sim_now: float) -> float:
+	var hp_frac: float = float(exp["hpFrac"])
+	if not EXPED_REST or hp_frac <= 0.0 or hp_frac >= EXPED_REST_BELOW:
+		return remaining
+	var rec := 0.0
+	for uid in exp["partyIds"]:
+		rec += recovery_of(g, uid)
+	rec /= maxf(1.0, float((exp["partyIds"] as Array).size()))
+	if rec <= 0.0:
+		return remaining
+	var rest_sec: float = wave_sec * EXPED_REST_WAVES
+	var rests := 0
+	while hp_frac < EXPED_REST_UNTIL and remaining >= rest_sec:
+		hp_frac = minf(1.0, hp_frac + rec)
+		remaining -= rest_sec
+		rests += 1
+	if rests > 0:
+		exp["hpFrac"] = hp_frac
+		exp["rests"] = int(exp.get("rests", 0)) + rests
+		push_expedition_log(exp, "%s stopped to rest%s and recovered some HP." % [expedition_label(exp), "" if rests == 1 else " (%d times)" % rests], sim_now)
+	return remaining
 
 ## Mirrors rollExpeditionDiscovery (farroad-ui.js:1250-1266) -- a flat 8%
 ## chance per won node, a full one-off bonus fight against the SAME
