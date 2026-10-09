@@ -20,3 +20,4 @@ seraphine,Seraphine,archmage,back,330,12,42,14,26,24,0.03,0.14,1,0.05,starfall,2
 zephyra,Zephyra,duelist,front,340,30,14,16,16,40,0.12,0.04,1,0.14,thousandcuts,0.70,1.50,foe,,FALSE,legendary,0,0,-3,6,0,0,3,0,LEGENDARY - SPD. Too fast to follow; strikes again and again.
 bastian,Bastian,guardian,front,760,22,14,44,28,18,0.04,0.03,1,0.02,unbreakable,0,1.40,allAllies,warded,FALSE,legendary,0,0,5,-3,2,0,5,0,LEGENDARY - DEF. Shields the whole party and draws every blow.
 morwen,Morwen,oracle,back,420,12,30,20,44,22,0.03,0.08,1,0.05,nullwave,1.80,1.70,allFoes,dulled,FALSE,legendary,0,2,0,0,-3,5,0,5,LEGENDARY - RES. Turns her warding into a wave that dulls every foe.
+lyrael,Lyrael,spiritcaller,back,350,10,38,15,28,21,0.03,0.12,1,0.05,soulstorm,2.50,1.80,allFoes,frail,FALSE,legendary,0,0,0,0,0,0,-4,10,"Legendary Spirit mage. Strong in Spirit, so her debuffs land harder and her Spirit magic hits for more; thin against physical hits (weak to Body)."

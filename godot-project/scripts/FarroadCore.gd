@@ -166,7 +166,7 @@ const CHARGE_ACTIONS: Array[String] = ["oath", "ninefold", "hearthlight", "vowof
 	"atk_cry", "mag_font", "def_bulwark", "res_ward", "spd_fleet",
 	"colossusslam", "reapersharvest",
 	"pyreblade", "tidebloom", "landslide", "skyfall", "dawnbreak", "nightfall",
-	"worldsplitter", "starfall", "thousandcuts", "unbreakable", "nullwave"]
+	"worldsplitter", "starfall", "thousandcuts", "unbreakable", "nullwave", "floodgate", "soulstorm"]
 
 ## Every action units can equip: the CSV rows of kind "equippable"
 ## (content.json's `player` flag), in file order; falls back to the old
@@ -287,8 +287,10 @@ static func roster_by_id(id: String) -> Variant:
 ## elemental archetypes (strong in one element, weak to its opposite)
 ## are interleaved with the original six, so every post-tutorial wave
 ## mixes plain and elemental enemies.
-const ROT: Array[String] = ["wolf", "cinderimp", "knight", "tidewraith", "hound", "cragback",
-	"ox", "galeharpy", "priest", "dawnacolyte", "shrike", "umbralstalker"]
+## Ian: four Body/Spirit archetypes (ironhide, hollowhusk, carrion, veilwarden)
+## are spread through it so weaknesses to Body and Spirit show up in ordinary waves.
+const ROT: Array[String] = ["wolf", "cinderimp", "knight", "tidewraith", "carrion", "hound", "cragback",
+	"ox", "galeharpy", "ironhide", "priest", "dawnacolyte", "shrike", "hollowhusk", "umbralstalker", "veilwarden"]
 
 ## Mirrors dmgTakenMul (farroad-core.js:887-888) -- the DEF/evade-vs-reference
 ## multiplier buildEnemies sizes a body's HP pool against.
@@ -329,7 +331,25 @@ const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "f
 	"foe_hp_lte_90", "ally_hp_gte_90", "ally_hp_lte_90", "self_hp_gte_90", "self_hp_lte_90",
 	"foe_hp_gte_25", "foe_hp_lte_25", "ally_hp_gte_25", "ally_hp_lte_25", "self_hp_gte_25", "self_hp_lte_25",
 	"foe_hp_gte_75", "foe_hp_lte_75", "ally_hp_gte_75", "ally_hp_lte_75", "self_hp_gte_75", "self_hp_lte_75",
-	"foe_charge_gte_25", "foe_charge_gte_50", "foe_charge_gte_75"]
+	"foe_charge_gte_25", "foe_charge_gte_50", "foe_charge_gte_75",
+	# Ian: affinity -- strong to any affinity, and weak to Body / Spirit
+	"foe_strong_fire", "foe_strong_water", "foe_strong_earth", "foe_strong_air", "foe_strong_light",
+	"foe_strong_dark", "foe_strong_body", "foe_strong_spirit", "foe_weak_body", "foe_weak_spirit",
+	# status
+	"ally_has_debuff", "self_has_debuff", "foe_has_buff", "foe_taunting", "foe_poisoned", "foe_burning",
+	"foe_blinded", "foe_slowed", "foe_confused", "ally_poisoned", "ally_burning",
+	# party-wide
+	"ally_pack_hurt", "ally_2plus_hurt", "ally_pack_healthy", "ally_2plus_alive", "self_last_standing",
+	"ally_softest_def", "ally_softest_res",
+	# charge (for the charge-sharing actions)
+	"self_charge_gte_25", "self_charge_gte_50", "self_charge_gte_75",
+	"ally_charge_gte_25", "ally_charge_gte_50", "ally_charge_gte_75", "ally_charge_lte_25", "ally_charge_lte_50"]
+
+const AFFINITY_CONDITION_AXES: Array[String] = ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]
+## foe_<id> -> the debuff it looks for on a foe / on an ally.
+const FOE_STATUS_CONDS := {"foe_poisoned": "poisoned", "foe_burning": "burning", "foe_blinded": "blinded",
+	"foe_slowed": "slowed", "foe_confused": "confused"}
+const ALLY_STATUS_CONDS := {"ally_poisoned": "poisoned", "ally_burning": "burning"}
 
 ## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
 ## 321-519) =====
@@ -414,7 +434,7 @@ static func bonus_applies(a, bid: String) -> bool:
 	# handles null (and 0/""/empty) the same way JS's falsy values do.
 	match bid:
 		"swift": return true
-		"potent": return true if (a.get("power") or a.get("revive")) else false
+		"potent": return true if (a.get("power") or a.get("revive") or a.get("giveCharge") or a.get("siphonCharge")) else false
 		"lasting": return true if a.get("applies") else false
 		"deepening": return true if a.get("applies") else false   # Ian: buffs too
 		"surge": return false if a.get("isCharge") else true
@@ -499,6 +519,10 @@ static func apply_bonuses(map: Dictionary) -> void:
 		# Ian: Potent also strengthens revives (the HP they bring a unit back with)
 		if b.get("potent") and a.get("revive"):
 			a["revive"] = minf(1.0, float(a["revive"]) * (1 + 0.15 * b["potent"]))
+		if b.get("potent") and a.get("giveCharge"):
+			a["giveCharge"] = float(a["giveCharge"]) * (1 + 0.15 * b["potent"])
+		if b.get("potent") and a.get("siphonCharge"):
+			a["siphonCharge"] = float(a["siphonCharge"]) * (1 + 0.15 * b["potent"])
 		if b.get("cleansing") and a.get("heal"):
 			a["cleanse"] = a.get("cleanse", 0) + b["cleansing"]
 		if b.get("broad"):
@@ -861,6 +885,15 @@ static func resolve_target(act: Dictionary, ct, u: Dictionary, b: Dictionary) ->
 	if k == "ally" or k == "allAllies":
 		if ct != null and ct["isParty"] == u["isParty"] and ct["hp"] > 0:
 			return ct
+		# A charge gift with no gambit aim goes to the ally (not the user) closest
+		# to firing its charge action, rather than the lowest-HP one.
+		if k == "ally" and act.get("giveCharge"):
+			var best = null
+			for x in allies(b, u):
+				if x != u and x.get("chargeAction") and (best == null or charge_share(x) > charge_share(best)):
+					best = x
+			if best != null:
+				return best
 		return by_lowest_hp(allies(b, u))
 	if k == "deadAlly":
 		if ct != null and ct["isParty"] == u["isParty"] and ct["hp"] <= 0:
@@ -922,6 +955,31 @@ static func _parse_pct_condition(cond_id: String) -> Dictionary:
 					return {"matched": true, "group": group, "cmp": cmp, "pct": suffix.to_int()}
 	return {"matched": false}
 
+## "foe_weak_fire" / "foe_strong_spirit" -> {matched, kind: weak|strong, axis}.
+static func _parse_affinity_condition(cond_id: String) -> Dictionary:
+	for kind in ["weak", "strong"]:
+		var prefix: String = "foe_" + kind + "_"
+		if cond_id.begins_with(prefix):
+			var axis: String = cond_id.substr(prefix.length())
+			if AFFINITY_CONDITION_AXES.has(axis):
+				return {"matched": true, "kind": kind, "axis": axis}
+	return {"matched": false}
+
+## "self_charge_gte_50" / "ally_charge_lte_25" -> {matched, who, cmp, pct}.
+static func _parse_charge_condition(cond_id: String) -> Dictionary:
+	for who in ["self", "ally"]:
+		for cmp in ["gte", "lte"]:
+			var prefix: String = who + "_charge_" + cmp + "_"
+			if cond_id.begins_with(prefix) and cond_id.substr(prefix.length()).is_valid_int():
+				return {"matched": true, "who": who, "cmp": cmp, "pct": cond_id.substr(prefix.length()).to_int()}
+	return {"matched": false}
+
+## A unit's charge as a share of its own charge cost (a unit with no charge
+## action counts against the generic CHARGE_FULL).
+static func charge_share(x: Dictionary) -> float:
+	var act = ACTIONS.get(x["chargeAction"]) if x.get("chargeAction") else null
+	return float(x["charge"]) / maxf(1.0, cost_of_charge(act))
+
 static func _pct_cmp(x: float, cmp: String, v: float) -> bool:
 	return x >= v if cmp == "gte" else x <= v
 
@@ -964,7 +1022,89 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			if x.get("chargeAction") and x["charge"] >= need * cost_of_charge(ACTIONS.get(x["chargeAction"])):
 				return {"ok": true, "target": x}
 		return {"ok": false, "target": null}
+	# Ian: "Foe: weak/strong to <affinity>" for all eight affinities. A NEGATIVE
+	# raw affinity on the foe is what aff_term reads as "takes more damage from
+	# this" (Body: physical hits; Spirit: debuffs land harder on it); a
+	# POSITIVE one is the opposite.
+	var aff := _parse_affinity_condition(cond_id)
+	if aff["matched"]:
+		for x in foes(b, u):
+			var raw: float = float(x["affinity"].get(aff["axis"], 0.0))
+			if (raw < 0.0) if aff["kind"] == "weak" else (raw > 0.0):
+				return {"ok": true, "target": x}
+		return {"ok": false, "target": null}
+	var chg := _parse_charge_condition(cond_id)
+	if chg["matched"]:
+		var best = null
+		var best_pct: float = 0.0
+		var pool: Array = [u] if chg["who"] == "self" else allies(b, u).filter(func(x): return x != u and x.get("chargeAction"))
+		for x in pool:
+			var share: float = charge_share(x)
+			if not _pct_cmp(share, chg["cmp"], float(chg["pct"]) / 100.0):
+				continue
+			if best == null or (share > best_pct if chg["cmp"] == "gte" else share < best_pct):
+				best = x
+				best_pct = share
+		return {"ok": best != null, "target": best}
+	if FOE_STATUS_CONDS.has(cond_id):
+		for x in foes(b, u):
+			if has(x, FOE_STATUS_CONDS[cond_id]):
+				return {"ok": true, "target": x}
+		return {"ok": false, "target": null}
+	if ALLY_STATUS_CONDS.has(cond_id):
+		var hit := allies(b, u).filter(func(x): return has(x, ALLY_STATUS_CONDS[cond_id]))
+		var t = by_lowest_hp(hit)
+		return {"ok": t != null, "target": t}
 	match cond_id:
+		"ally_has_debuff":
+			var t = by_lowest_hp(allies(b, u).filter(func(x): return any_debuff(x)))
+			return {"ok": t != null, "target": t}
+		"self_has_debuff":
+			return {"ok": any_debuff(u), "target": u}
+		"foe_has_buff":
+			for x in foes(b, u):
+				for s in BUFFS:
+					if has(x, s):
+						return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"foe_taunting":
+			for x in foes(b, u):
+				if has(x, "taunted"):
+					return {"ok": true, "target": x}
+			return {"ok": false, "target": null}
+		"ally_pack_hurt":
+			var al := allies(b, u)
+			if al.is_empty(): return {"ok": false, "target": null}
+			for x in al:
+				if hp_pct(x) >= 0.50: return {"ok": false, "target": null}
+			return {"ok": true, "target": by_lowest_hp(al)}
+		"ally_2plus_hurt":
+			var hurt := allies(b, u).filter(func(x): return hp_pct(x) < 0.60)
+			return {"ok": hurt.size() >= 2, "target": by_lowest_hp(hurt)}
+		"ally_pack_healthy":
+			var al := allies(b, u)
+			if al.is_empty(): return {"ok": false, "target": null}
+			for x in al:
+				if hp_pct(x) < 0.70: return {"ok": false, "target": null}
+			return {"ok": true, "target": by_highest_hp(al)}
+		"ally_2plus_alive":
+			return {"ok": allies(b, u).size() >= 2, "target": null}
+		"self_last_standing":
+			return {"ok": allies(b, u).size() == 1, "target": u}
+		"ally_softest_def":
+			var al := allies(b, u)
+			if al.is_empty(): return {"ok": false, "target": null}
+			var t = al[0]
+			for i in range(1, al.size()):
+				if eff_def(al[i]) < eff_def(t): t = al[i]
+			return {"ok": true, "target": t}
+		"ally_softest_res":
+			var al := allies(b, u)
+			if al.is_empty(): return {"ok": false, "target": null}
+			var t = al[0]
+			for i in range(1, al.size()):
+				if eff_res(al[i]) < eff_res(t): t = al[i]
+			return {"ok": true, "target": t}
 		"foe_any":
 			var t = def_foe(b, u)
 			return {"ok": t != null, "target": t}
@@ -987,47 +1127,6 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 		"foe_warded":
 			for x in foes(b, u):
 				if eff_res(x) > eff_def(x):
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		# "Weak to <element>" -- a NEGATIVE raw affinity on the TARGET's
-		# own affinity[element] is exactly what aff_term's
-		# (1-affinity_mul(def_raw)) factor reads as "takes more damage
-		# from this element" (a negative raw -> a negative affinity_mul
-		# -> defender factor > 1), so raw<0 is the correct, already-
-		# established sign convention for "weak to X", not a new one
-		# invented for this condition. Scoped to the 6 THEMED elemental
-		# axes (fire/water/earth/air/light/dark, the same set
-		# DIRECTION_CONFIG's own per-direction affinity theming already
-		# uses) -- body/spirit are generic physical/healing modifiers,
-		# not an elemental "weakness" in the same legible sense.
-		"foe_weak_fire":
-			for x in foes(b, u):
-				if x["affinity"]["fire"] < 0:
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		"foe_weak_water":
-			for x in foes(b, u):
-				if x["affinity"]["water"] < 0:
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		"foe_weak_earth":
-			for x in foes(b, u):
-				if x["affinity"]["earth"] < 0:
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		"foe_weak_air":
-			for x in foes(b, u):
-				if x["affinity"]["air"] < 0:
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		"foe_weak_light":
-			for x in foes(b, u):
-				if x["affinity"]["light"] < 0:
-					return {"ok": true, "target": x}
-			return {"ok": false, "target": null}
-		"foe_weak_dark":
-			for x in foes(b, u):
-				if x["affinity"]["dark"] < 0:
 					return {"ok": true, "target": x}
 			return {"ok": false, "target": null}
 		"foe_fast":
@@ -1151,19 +1250,38 @@ static func cond_label(cond_id: String) -> String:
 		var group_display: String = {"foe": "Foe", "ally": "Ally", "self": "Self"}[pct["group"]]
 		var symbol: String = "≥" if pct["cmp"] == "gte" else "≤"
 		return "%s: HP %s %d%%" % [group_display, symbol, pct["pct"]]
+	var aff_c := _parse_affinity_condition(cond_id)
+	if aff_c["matched"]:
+		return "Foe: %s to %s" % [aff_c["kind"], str(aff_c["axis"]).capitalize()]
+	var chg_c := _parse_charge_condition(cond_id)
+	if chg_c["matched"]:
+		return "%s: charge %s %d%%" % ["Self" if chg_c["who"] == "self" else "Ally (not self)",
+			"≥" if chg_c["cmp"] == "gte" else "≤", chg_c["pct"]]
 	match cond_id:
+		"ally_has_debuff": return "Ally: has a debuff"
+		"self_has_debuff": return "Self: has a debuff"
+		"foe_has_buff": return "Foe: has a buff"
+		"foe_taunting": return "Foe: taunting"
+		"foe_poisoned": return "Foe: poisoned"
+		"foe_burning": return "Foe: burning"
+		"foe_blinded": return "Foe: blinded"
+		"foe_slowed": return "Foe: slowed"
+		"foe_confused": return "Foe: confused"
+		"ally_poisoned": return "Ally: poisoned"
+		"ally_burning": return "Ally: burning"
+		"ally_pack_hurt": return "Allies: ALL below 50%"
+		"ally_2plus_hurt": return "Allies: 2+ below 60%"
+		"ally_pack_healthy": return "Allies: NONE below 70%"
+		"ally_2plus_alive": return "Allies: 2+ alive"
+		"self_last_standing": return "Self: last one standing"
+		"ally_softest_def": return "Ally: softest DEF"
+		"ally_softest_res": return "Ally: softest RES"
 		"none": return "— always —"
 		"foe_any": return "Foe: any"
 		"foe_lowest_hp": return "Foe: lowest HP"
 		"foe_highest_hp": return "Foe: highest HP"
 		"foe_armoured": return "Foe: armoured (DEF > RES)"
 		"foe_warded": return "Foe: resistant (RES > DEF)"
-		"foe_weak_fire": return "Foe: weak to Fire"
-		"foe_weak_water": return "Foe: weak to Water"
-		"foe_weak_earth": return "Foe: weak to Earth"
-		"foe_weak_air": return "Foe: weak to Air"
-		"foe_weak_light": return "Foe: weak to Light"
-		"foe_weak_dark": return "Foe: weak to Dark"
 		"foe_fast": return "Foe: faster than you"
 		"foe_3plus": return "Foe: 3+ present"
 		"foe_charging": return "Foe: charge ≥ 70%"
@@ -1514,6 +1632,23 @@ static func step(b: Dictionary) -> Variant:
 						if speed_before > 0.0 and speed_after != speed_before and t["nextActAt"] > b["t"]:
 							t["nextActAt"] = b["t"] + maxi(1, roundi(float(t["nextActAt"] - b["t"]) * speed_after / speed_before))
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
+		# Ian: charge-sharing actions. giveCharge: each target (never the user)
+		# gains that much charge. siphonCharge: the user gives up to that much
+		# of its own charge, split evenly among the other targets.
+		if act.get("giveCharge"):
+			for t in targets:
+				if t["hp"] > 0 and t != u:
+					t["charge"] = float(t["charge"]) + float(act["giveCharge"])
+					e["notes"].append("gave %d charge to %s" % [roundi(float(act["giveCharge"])), t["name"]])
+		if act.get("siphonCharge"):
+			var takers: Array = targets.filter(func(t): return t["hp"] > 0 and t != u)
+			var spend: float = minf(maxf(0.0, float(u["charge"])), float(act["siphonCharge"]))
+			if not takers.is_empty() and spend > 0.0:
+				var each: float = spend / takers.size()
+				u["charge"] = float(u["charge"]) - spend
+				for t in takers:
+					t["charge"] = float(t["charge"]) + each
+				e["notes"].append("shared %d charge (%d each)" % [roundi(spend), roundi(each)])
 		if act.get("selfTaunt"):
 			apply_status(u, "taunted", act["selfTaunt"], u["affinity"]["spirit"])
 			e["notes"].append("taunting")

@@ -14,7 +14,7 @@ extends RefCounted
 
 ## Bump when the team format or the fight rules change in a way that would
 ## make an older game replay a fight differently.
-const PROTOCOL := 2
+const PROTOCOL := 3
 const MAX_UNITS := 5
 const MAX_LEVEL := 5000
 const MAX_LORE_STACKS := 99

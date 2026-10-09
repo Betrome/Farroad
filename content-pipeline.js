@@ -167,6 +167,9 @@ function compileActions(rows) {
     if (r.kind === 'equippable') e.player = true;
     // Charge taken from each target hit (Ian: actions that steal charge).
     if (r.steal_charge) e.stealCharge = num(r.steal_charge);
+    // Charge-sharing actions (Ian): give each target charge / share the user's own.
+    if (r.give_charge) e.giveCharge = num(r.give_charge);
+    if (r.siphon_charge) e.siphonCharge = num(r.siphon_charge);
     if (r.design_note) e.note = r.design_note;
     e.rarity = compileRarity(r);
     actions[r.id] = e;

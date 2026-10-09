@@ -39,10 +39,11 @@ const FIRST_BOSS_LEN := 0.92
 ## Elemental batch: the wave-20 tutorial boss stays the Roadwarden (Stone
 ## Ox body, Warden's Maul). Every later boss wave cycles through six named
 ## elemental bosses, one per element -- 40 Pyre Tyrant, 60 Drowned
-## Matriarch, ... 140 Hollow King, 160 Pyre Tyrant again.
+## Matriarch, ... 140 Hollow King, then the Body and Spirit bosses (160 Iron
+## Sovereign, 180 Hollow Oracle), and round again from 200.
 const TUTORIAL_BOSS_ARCH := "ox"
 const BOSS_ROTATION: Array[String] = ["pyretyrant", "drownedmatriarch", "mountaincolossus",
-	"stormroc", "dawnseraph", "hollowking"]
+	"stormroc", "dawnseraph", "hollowking", "ironsovereign", "holloworacle"]
 
 static func boss_arch_for(w: int) -> String:
 	if w <= BOSS_WAVES[0]:
@@ -806,7 +807,9 @@ static var GROWTH := {
 	"seraphine": {"hp": 15.0, "atk": 0.7, "mag": 3.0, "def": 0.9, "res": 1.8, "spd": 1.3},
 	"zephyra": {"hp": 16.0, "atk": 2.1, "mag": 0.8, "def": 1.0, "res": 1.0, "spd": 2.4},
 	"bastian": {"hp": 38.0, "atk": 1.4, "mag": 0.8, "def": 3.0, "res": 2.0, "spd": 0.8},
-	"morwen": {"hp": 20.0, "atk": 0.7, "mag": 2.0, "def": 1.3, "res": 3.0, "spd": 1.1}}
+	"morwen": {"hp": 20.0, "atk": 0.7, "mag": 2.0, "def": 1.3, "res": 3.0, "spd": 1.1},
+	# Ian: a legendary Spirit mage.
+	"lyrael": {"hp": 16.0, "atk": 0.6, "mag": 2.8, "def": 1.0, "res": 2.0, "spd": 1.2}}
 
 static func exp_for(l: int) -> int:
 	return int(round(0.8 * pow(l, 2.8)))
@@ -2272,7 +2275,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
 		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0,
-		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0,
+		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0, "mcRespecs": 0, "mcRespecGranted": false,
 		"party": ["kesh"], "partyPresets": [], "loadoutSets": {}, "gearSets": {}, "wipeLog": [], "appearance": {}, "approach": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
@@ -2559,8 +2562,20 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	var guard := 0
 	var saved_wave: int = g["wave"]
 	var turned_back := false
+	# Ian: "an expedition notification triggered ~8 minutes too soon." The
+	# notification time is worked out by playing the trip forward, which only
+	# matches what really happens if the trip always plays out the same. So
+	# each expedition has its OWN random stream (rngA, seeded from its id),
+	# advanced only by the nodes it actually resolves -- it no longer depends
+	# on what the Road did meanwhile, or on how the catch-up was chunked.
+	var saved_rng = g["rng"]
+	var xr := FarroadCore.make_rng(0)
+	xr.a = int(exp["rngA"]) if exp.get("rngA") != null else (str(exp["id"]).hash() & 0xFFFFFFFF)
+	g["rng"] = xr
 	while remaining > 0.0 and guard < 200000:
 		guard += 1
+		var stream_a: int = xr.a
+		var stream_calls: int = xr.calls
 		# Ian: a wave takes 60s (+0.08s per wave), cut by how much the
 		# party's offence beats this wave's enemies -- glass cannons move
 		# faster but don't get as far.
@@ -2570,6 +2585,10 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 		var cost: float = expedition_wave_sec(exp["ew"], party, enemies)
 		exp["waveSec"] = cost
 		if cost > remaining:
+			# not enough time left for this node: put back what building it
+			# drew, so the next pass starts the node from the same place
+			xr.a = stream_a
+			xr.calls = stream_calls
 			break
 		# Ian: expedition log entries "tend to be grouped together... should
 		# be based on how long the party has been out, not the time of
@@ -2632,6 +2651,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 		if exp["hpFrac"] < EXPED_RETURN_HP_FRAC:
 			turned_back = true
 			break
+	exp["rngA"] = xr.a
+	g["rng"] = saved_rng
 	FarroadCore.set_wave(saved_wave)
 	# Ian: parties sat at wave 2 for 30 minutes. A step costs ~28s but the
 	# game checks every 15s; this used to set lastResolvedAt = now, throwing
@@ -2930,6 +2951,8 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 	g["pendingIdleMarks"] = float(g.get("pendingIdleMarks", 0.0)) + idle_marks_this_time
 	var remaining: float = capped
 	var guard := 0
+	# wave -> [clears, wipes] fought while away (for the gameplay stats)
+	var wave_results: Dictionary = {}
 	while remaining > 0.0 and guard < 200000:
 		guard += 1
 		if g.get("battle") == null:
@@ -2942,10 +2965,15 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 			beat_guard += 1
 			if FarroadCore.step(g["battle"]) == null:
 				break
+		var fought: int = int(g["wave"])
+		if not wave_results.has(fought):
+			wave_results[fought] = [0, 0]
 		if g["battle"]["over"] == "party":
+			wave_results[fought][0] += 1
 			after_wave_cleared(g)
 			start_wave(g, g["wave"] + 1)
 		elif g["battle"]["over"] == "enemy":
+			wave_results[fought][1] += 1
 			on_wipe(g)
 		else:
 			break
@@ -2963,6 +2991,7 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 		"idle_aether_pending": idle_aether_this_time,
 		"idle_marks_pending": idle_marks_this_time,
 		"wipes_gained": int(g.get("wipes", 0)) - wipes_before,
+		"wave_results": wave_results,
 	}
 
 ## Credits the accumulated-but-uncollected idle trickle to
@@ -3462,9 +3491,13 @@ const MC_STAT_RANGE := {
 ## tables (was [56,131], now that x0.2) -- this range was originally
 ## calibrated to match GROWTH's own min/max spread, so a custom MC's
 ## own point-bought growth stays consistent with the rest of the roster.
+## Ian: "have the mc growths be legendary level." The non-HP ranges are the old
+## ones x1.066, so a character with its points spread evenly grows 7.73 stats
+## a level -- the average of the legendary roster (7.3-8.1). HP is unchanged
+## (a balanced build already gets 23 a level against the legendaries' 21.5).
 const MC_GROWTH_RANGE := {
-	"atk": [0.6, 2.7], "mag": [0.5, 2.7], "def": [0.8, 2.4],
-	"res": [0.8, 1.7], "spd": [0.7, 1.6], "hp": [12.6, 33.6]}
+	"atk": [0.64, 2.88], "mag": [0.53, 2.88], "def": [0.85, 2.56],
+	"res": [0.85, 1.81], "spd": [0.75, 1.70], "hp": [12.6, 33.6]}
 const MC_STAT_KEYS: Array[String] = ["atk", "mag", "def", "res", "spd", "hp"]
 const MC_POINT_MIN := 0
 const MC_POINT_MAX := 15
@@ -3522,6 +3555,23 @@ static func mc_build_stats(points: Dictionary) -> Dictionary:
 ## _try_resume_save (resumed game) and _on_mc_confirmed (fresh game),
 ## exactly matching the real applyCustomMC's own two call sites
 ## (tryResumeSave() and boot()).
+## A character's growth is worked out from its creation points, so when the
+## growth ranges change, existing characters follow (otherwise the Arena would
+## reject them for not matching). Characters from before points were kept are
+## given them back if their stats rebuild exactly; ones that don't ("legacy")
+## keep what they have.
+static func _migrate_mc_growth(mc: Dictionary) -> void:
+	var pts: Dictionary = Ranked.mc_points_of(mc)
+	var built: Dictionary = mc_build_stats(pts)
+	if not (mc.get("points") is Dictionary):
+		if float(built["hp"]) != float(mc.get("hp", -1)):
+			return
+		for k in built["stats"]:
+			if float(built["stats"][k]) != float((mc.get("stats", {}) as Dictionary).get(k, -1)):
+				return
+		mc["points"] = pts
+	mc["growth"] = built["growth"]
+
 ## Puts each unit's saved front/back row onto its roster entry (rows used to
 ## live only in memory and reset on restart).
 static func apply_rows(g: Dictionary) -> void:
@@ -3537,6 +3587,7 @@ static func apply_custom_mc(g: Dictionary) -> void:
 	var mc = g.get("mc")
 	if mc == null:
 		return
+	_migrate_mc_growth(mc)
 	if not mc.get("acquiredCharges"):
 		mc["acquiredCharges"] = [mc["chargeAction"]]
 	var kesh_def = FarroadCore.roster_by_id("kesh")

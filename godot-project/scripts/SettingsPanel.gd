@@ -135,8 +135,76 @@ func _build_ui(parent: Node) -> void:
 	var notify_btn := CheckButton.new()
 	notify_btn.text = "Notifications"
 	notify_btn.button_pressed = Notifier.enabled()
-	notify_btn.toggled.connect(func(on: bool): Notifier.set_enabled(on))
 	vbox.add_child(notify_btn)
+	var notify_sub := VBoxContainer.new()
+	notify_sub.visible = Notifier.enabled()
+	vbox.add_child(notify_sub)
+	notify_btn.toggled.connect(func(on: bool):
+		Notifier.set_enabled(on)
+		notify_sub.visible = on)
+	for kind in [["idle", "Idle rewards are full"], ["expedition", "An expedition party is back"]]:
+		var kb := CheckButton.new()
+		kb.text = "   " + kind[1]
+		kb.button_pressed = Notifier.kind_enabled(kind[0]) if Notifier.enabled() else bool(Analytics.state.get("notify_" + kind[0], true))
+		var kk: String = kind[0]
+		kb.toggled.connect(func(on: bool): Notifier.set_kind_enabled(kk, on))
+		notify_sub.add_child(kb)
+	var notify_note := Label.new()
+	notify_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notify_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	notify_note.modulate = Palette.TEXT_DIM
+	notify_note.text = {
+		"android": "Sent even when the game is closed.",
+		"windows": "Sent even when the game is closed.",
+		"web": "Sent while this page stays open in a background tab (a closed tab can't send them).",
+	}.get(Notifier.platform(), "Notifications aren't available on this device.")
+	notify_sub.add_child(notify_note)
+	if Notifier.platform() == "web":
+		var perm_btn := Button.new()
+		perm_btn.text = "Allow notifications in this browser"
+		perm_btn.visible = Notifier.web_permission() == "default"
+		perm_btn.pressed.connect(func():
+			Notifier.web_request_permission()
+			perm_btn.visible = false)
+		notify_sub.add_child(perm_btn)
+	var test_btn := Button.new()
+	test_btn.text = "Send a test notification"
+	var test_note := Label.new()
+	test_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	test_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	test_note.modulate = Palette.TEXT_DIM
+	test_btn.pressed.connect(func():
+		var n = _parent.get("notifier") if _parent else null
+		test_note.text = n.send_test() if n != null else "Not ready yet.")
+	notify_sub.add_child(test_btn)
+	notify_sub.add_child(test_note)
+
+	# Ian: patch notes in the game, and a check for a newer version.
+	var notes_btn := Button.new()
+	notes_btn.text = "Patch notes"
+	notes_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_patch_notes_popup"):
+			_parent.call("_show_patch_notes_popup"))
+	vbox.add_child(notes_btn)
+	var update_btn := Button.new()
+	update_btn.text = "Check for updates"
+	var update_note := Label.new()
+	update_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	update_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	update_note.modulate = Palette.TEXT_DIM
+	update_note.text = "You have version %s." % Updates.current_version()
+	update_btn.pressed.connect(func():
+		update_note.text = "Checking..."
+		if _parent and _parent.has_method("_check_updates"):
+			_parent.call("_check_updates", true, func(msg: String): update_note.text = msg))
+	vbox.add_child(update_btn)
+	vbox.add_child(update_note)
+	if not OS.has_feature("web"):
+		var auto_btn := CheckButton.new()
+		auto_btn.text = "Check for updates when the game starts"
+		auto_btn.button_pressed = Updates.check_enabled()
+		auto_btn.toggled.connect(func(on: bool): Updates.set_check_enabled(on))
+		vbox.add_child(auto_btn)
 
 	# Ian: the terms every player agreed to (they cover the gameplay data).
 	var terms_btn := Button.new()

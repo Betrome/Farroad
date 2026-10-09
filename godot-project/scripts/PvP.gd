@@ -220,6 +220,7 @@ static func build_opponent(g: Dictionary, team: Dictionary) -> Array:
 		for aid in bonuses:
 			var copy: Dictionary = (acts[aid] as Dictionary).duplicate(true)
 			copy["id"] = ID_PREFIX + aid
+			copy["loreLevel"] = FarroadCore.bonus_spend({aid: bonuses[aid]})   # shown as the action's level
 			copies[ID_PREFIX + aid] = copy
 			remap[aid] = ID_PREFIX + aid
 		for aid in originals:

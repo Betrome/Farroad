@@ -170,6 +170,27 @@ static func wave(w: int, seconds: float, cleared: bool) -> void:
 	c["waves"][k] = row
 	_dirty = true
 
+## Waves fought while the game was closed (the offline catch-up replays them):
+## wave -> [clears, wipes]. Counted in the same rows as live play, but with no
+## seconds, so a 4th number keeps how many of those attempts were untimed.
+static func waves_offline(results: Dictionary) -> void:
+	_ensure()
+	if not state["enabled"] or results.is_empty():
+		return
+	var c: Dictionary = state["c"]
+	if not c.has("waves"):
+		c["waves"] = {}
+	for w in results.keys():
+		var k := str(w)
+		var row: Array = c["waves"].get(k, [0.0, 0, 0])
+		while row.size() < 4:
+			row.append(0)
+		row[1] = int(row[1]) + int(results[w][0])
+		row[2] = int(row[2]) + int(results[w][1])
+		row[3] = int(row[3]) + int(results[w][0]) + int(results[w][1])
+		c["waves"][k] = row
+	_dirty = true
+
 ## One battle beat. `ctx` is where it happened: road / quest / dungeon / pvp.
 static func battle_event(e: Dictionary, ctx: String) -> void:
 	if not e.get("isParty", false):

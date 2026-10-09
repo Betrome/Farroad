@@ -174,7 +174,7 @@ ROLE_TITLES = {"atk+mag": "Duelist", "atk+def": "Fighter", "atk+res": "Paladin",
 TITLE_STATS = ["atk", "mag", "def", "res", "spd"]
 TITLE_ELEMENTS = ["fire", "water", "earth", "air", "light", "dark", "spirit"]
 MC_STAT_RANGE = {"atk": (8, 30), "mag": (7, 30), "def": (8, 45), "res": (8, 40), "spd": (11, 26)}
-MC_GROWTH_RANGE = {"atk": (0.6, 2.7), "mag": (0.5, 2.7), "def": (0.8, 2.4), "res": (0.8, 1.7), "spd": (0.7, 1.6)}
+MC_GROWTH_RANGE = {"atk": (0.64, 2.88), "mag": (0.53, 2.88), "def": (0.85, 2.56), "res": (0.85, 1.81), "spd": (0.75, 1.70)}
 MC_ID, MC_LABEL = "kesh", "Main Character"
 
 
@@ -630,14 +630,16 @@ def analyse(reports):
     a["expedition_players"], a["pvp_players"] = len(exped_who), len(arena_who)
     a["pvp_record"] = [s.get("pvp", {}) for s in snaps]
 
-    waves = defaultdict(lambda: [0.0, 0, 0, set()])
+    waves = defaultdict(lambda: [0.0, 0, 0, set(), 0])   # secs, clears, wipes, players, untimed (played while closed)
     for r in reports:
-        for w, (secs, clears, wipes) in r.get("counters", {}).get("waves", {}).items():
+        for w, vals in r.get("counters", {}).get("waves", {}).items():
+            secs, clears, wipes = vals[0], vals[1], vals[2]
             row = waves[int(w)]
             row[0] += secs
             row[1] += clears
             row[2] += wipes
             row[3].add(r["id"])
+            row[4] += vals[3] if len(vals) > 3 else 0
     a["waves"] = waves
     a["fx"] = analyse_fights(reports)
     return a
@@ -1356,17 +1358,17 @@ def build_html(a):
     P.append("<h2 id='waves'>Waves</h2><div class='grid'>")
     rows = []
     for w in sorted(a["waves"]):
-        secs, clears, wipes, ids = a["waves"][w]
+        secs, clears, wipes, ids, untimed = a["waves"][w]
         tries = clears + wipes
-        rows.append((f"wave {w}", secs / max(1, tries), clears, wipes, f"{100 * wipes / max(1, tries):.0f}%", len(ids)))
+        rows.append((f"wave {w}", secs / max(1, tries - untimed), clears, wipes, f"{100 * wipes / max(1, tries):.0f}%", len(ids)))
     P.append(bar_table("Hardest waves (most wipes)", [(r[0], r[3], r[2], r[4], r[5]) for r in sorted(rows, key=lambda r: -r[3])[:25]],
                        ("Wave", "Wipes", "Clears", "Wipe rate", "Players")))
     P.append(bar_table("Slowest waves (avg seconds per attempt)", [(r[0], r[1], r[2] + r[3]) for r in sorted(rows, key=lambda r: -r[1])[:25]], ("Wave", "Seconds", "Attempts")))
     buckets = defaultdict(lambda: [0.0, 0])
-    for w, (secs, clears, wipes, _) in a["waves"].items():
+    for w, (secs, clears, wipes, _, untimed) in a["waves"].items():
         b = (w - 1) // 10 * 10 + 1
         buckets[b][0] += secs
-        buckets[b][1] += clears + wipes
+        buckets[b][1] += clears + wipes - untimed
     P.append(bar_table("Average seconds per wave, by 10s", [(f"{b}-{b + 9}", s / max(1, n)) for b, (s, n) in sorted(buckets.items())], ("Waves", "Seconds"), limit=200))
     P.append("</div>")
 

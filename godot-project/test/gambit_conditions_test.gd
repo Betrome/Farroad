@@ -2,9 +2,9 @@ extends SceneTree
 ## Every gambit condition, checked against an independent reading of its
 ## Run: godot --headless --path godot-project --script test/gambit_conditions_test.gd
 ## description over thousands of random battle states.
-const BUFFS := ["hasted", "warded", "bracing", "blurred", "regen", "surging"]
+const BUFFS := ["hasted", "warded", "bracing", "blurred", "regen", "surging", "taunted"]
 const DEBUFFS := ["enfeebled", "dulled", "sundered", "frail", "slowed", "burning", "poisoned", "exposed", "blinded", "confused"]
-const ELEMS := ["fire", "water", "earth", "air", "light", "dark"]
+const ELEMS := ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]
 var rng := RandomNumberGenerator.new()
 var fails := {}
 var checked := {}
@@ -120,6 +120,44 @@ func _oracle(cid: String, u: Dictionary, b: Dictionary, act) -> Array:
 	if cid.begins_with("foe_weak_"):
 		var el := cid.trim_prefix("foe_weak_")
 		var v := foes.filter(func(x): return x["affinity"][el] < 0); return [not v.is_empty(), v]
+	if cid.begins_with("foe_strong_"):
+		var el2 := cid.trim_prefix("foe_strong_")
+		var v2 := foes.filter(func(x): return x["affinity"][el2] > 0); return [not v2.is_empty(), v2]
+	var sm := RegEx.create_from_string("^(self|ally)_charge_(gte|lte)_(\\d+)$").search(cid)
+	if sm:
+		var th2 := float(sm.get_string(3)) / 100.0
+		var share := func(x):
+			var cost: float = FarroadCore.cost_of_charge(FarroadCore.ACTIONS.get(x["chargeAction"])) if x.get("chargeAction") else 100.0
+			return float(x["charge"]) / cost
+		var pool2: Array = [u] if sm.get_string(1) == "self" else allies.filter(func(x): return x != u and x.get("chargeAction"))
+		var v3 := pool2.filter(func(x): return share.call(x) >= th2 if sm.get_string(2) == "gte" else share.call(x) <= th2)
+		return [not v3.is_empty(), v3]
+	var foe_status := {"foe_poisoned": "poisoned", "foe_burning": "burning", "foe_blinded": "blinded", "foe_slowed": "slowed", "foe_confused": "confused"}
+	if foe_status.has(cid):
+		var v4 := foes.filter(func(x): return x["st"][foe_status[cid]] > 0); return [not v4.is_empty(), v4]
+	var ally_status := {"ally_poisoned": "poisoned", "ally_burning": "burning"}
+	if ally_status.has(cid):
+		var v5 := allies.filter(func(x): return x["st"][ally_status[cid]] > 0); return [not v5.is_empty(), v5]
+	match cid:
+		"ally_has_debuff":
+			var v6 := allies.filter(func(x): return _debuffed(x)); return [not v6.is_empty(), v6]
+		"self_has_debuff": return [_debuffed(u), [u]]
+		"foe_has_buff":
+			var v7 := foes.filter(func(x): return ["hasted", "warded", "taunted", "surging", "bracing", "regen", "blurred"].any(func(s): return x["st"][s] > 0))
+			return [not v7.is_empty(), v7]
+		"foe_taunting":
+			var v8 := foes.filter(func(x): return x["st"]["taunted"] > 0); return [not v8.is_empty(), v8]
+		"ally_pack_hurt": return [not allies.is_empty() and allies.all(func(x): return pct.call(x) < 0.5), allies]
+		"ally_2plus_hurt":
+			var hurt := allies.filter(func(x): return pct.call(x) < 0.6); return [hurt.size() >= 2, hurt]
+		"ally_pack_healthy": return [not allies.is_empty() and allies.all(func(x): return pct.call(x) >= 0.7), allies]
+		"ally_2plus_alive": return [allies.size() >= 2, null]
+		"self_last_standing": return [allies.size() == 1, [u]]
+		"ally_softest_def", "ally_softest_res":
+			var g := func(x): return FarroadCore.eff_def(x) if cid == "ally_softest_def" else FarroadCore.eff_res(x)
+			var lo: float = 1e9
+			for x in allies: lo = minf(lo, g.call(x))
+			return [not allies.is_empty(), allies.filter(func(x): return is_equal_approx(g.call(x), lo))]
 	return [null, null]
 
 func _initialize() -> void:

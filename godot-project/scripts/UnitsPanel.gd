@@ -255,6 +255,15 @@ func _build_summary_card() -> void:
 		def.get("row", "front"), ("Fielded" if g["party"].has(selected_uid) else "Benched")]
 	content_container.add_child(name_lbl)
 
+	# Ian: the item given at wave 100 -- redo the Main Character's stats.
+	if selected_uid == "kesh" and g.get("mc") != null and int(g.get("mcRespecs", 0)) > 0:
+		var remake := Button.new()
+		remake.text = "Use the Shifted Reflection (x%d) — redo my stats" % int(g["mcRespecs"])
+		remake.pressed.connect(func():
+			if _parent and _parent.has_method("_start_mc_respec"):
+				_parent.call("_start_mc_respec"))
+		content_container.add_child(remake)
+
 	var hp_lbl := Label.new()
 	hp_lbl.text = "HP %d / %d" % [roundi(u["hp"]), roundi(u["maxHp"])]
 	content_container.add_child(hp_lbl)

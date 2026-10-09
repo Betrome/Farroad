@@ -84,3 +84,39 @@ ally_hp_gte_90,Ally: HP >= 90%,Ally,Any ally at or above 90% HP,ally HP,lowest-H
 ally_hp_lte_90,Ally: HP <= 90%,Ally,Any ally at or below 90% HP,ally HP,lowest-HP qualifying ally,FALSE,FALSE,mend/hearthlight,v2.9: auto-generated to fill the HP-threshold ladder to 10% granularity across foe/ally/self (the original handful was measured too sparse) - see the generation comment above CONDITIONS in src/farroad-core.js.
 self_hp_gte_90,Self: HP >= 90%,Self,Own HP at or above 90% HP,own HP,self,FALSE,FALSE,vengeance/onslaught,v2.9: auto-generated to fill the HP-threshold ladder to 10% granularity across foe/ally/self (the original handful was measured too sparse) - see the generation comment above CONDITIONS in src/farroad-core.js.
 self_hp_lte_90,Self: HP <= 90%,Self,Own HP at or below 90% HP,own HP,self,FALSE,FALSE,mend/bulwark/brace,v2.9: auto-generated to fill the HP-threshold ladder to 10% granularity across foe/ally/self (the original handful was measured too sparse) - see the generation comment above CONDITIONS in src/farroad-core.js.
+foe_strong_fire,Foe: strong to Fire,Foe,Positive raw affinity check,foe's own affinity.fire,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_fire: the foe resists Fire. Use it to steer away from an element the foe resists.
+foe_strong_water,Foe: strong to Water,Foe,Positive raw affinity check,foe's own affinity.water,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_water: the foe resists Water. Use it to steer away from an element the foe resists.
+foe_strong_earth,Foe: strong to Earth,Foe,Positive raw affinity check,foe's own affinity.earth,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_earth: the foe resists Earth. Use it to steer away from an element the foe resists.
+foe_strong_air,Foe: strong to Air,Foe,Positive raw affinity check,foe's own affinity.air,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_air: the foe resists Air. Use it to steer away from an element the foe resists.
+foe_strong_light,Foe: strong to Light,Foe,Positive raw affinity check,foe's own affinity.light,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_light: the foe resists Light. Use it to steer away from an element the foe resists.
+foe_strong_dark,Foe: strong to Dark,Foe,Positive raw affinity check,foe's own affinity.dark,that foe,FALSE,FALSE,actions of another element,Opposite of foe_weak_dark: the foe resists Dark. Use it to steer away from an element the foe resists.
+foe_strong_body,Foe: strong to Body,Foe,Positive raw affinity check,foe's own affinity.body,that foe,FALSE,FALSE,magic / piercing attacks,Opposite of foe_weak_body: the foe resists Body. Body is physical resistance: a Body-weak foe takes extra damage from physical (ATK) actions.
+foe_strong_spirit,Foe: strong to Spirit,Foe,Positive raw affinity check,foe's own affinity.spirit,that foe,FALSE,FALSE,debuffs,Opposite of foe_weak_spirit: the foe resists Spirit. Spirit is debuff resistance: a Spirit-weak foe has debuffs land harder; a Spirit-strong foe shrugs them off.
+foe_weak_body,Foe: weak to Body,Foe,Negative raw affinity check,foe's own affinity.body,that foe,FALSE,FALSE,physical actions,Mirror of foe_weak_fire for Body. Body is physical resistance: a Body-weak foe takes extra damage from physical (ATK) actions.
+foe_weak_spirit,Foe: weak to Spirit,Foe,Negative raw affinity check,foe's own affinity.spirit,that foe,FALSE,FALSE,debuffs,Mirror of foe_weak_fire for Spirit. Spirit is debuff resistance: a Spirit-weak foe has debuffs land harder; a Spirit-strong foe shrugs them off.
+ally_has_debuff,Ally: has a debuff,Ally,An ally carries at least one debuff,ally statuses,lowest-HP debuffed ally,FALSE,FALSE,"cleanse actions (Hearthlight, Cleansing Lore)",Aims cleanses at whoever actually needs one.
+self_has_debuff,Self: has a debuff,Self,The acting unit carries a debuff,own statuses,self,FALSE,FALSE,cleanse / self-heal,
+foe_has_buff,Foe: has a buff,Foe,A foe carries at least one buff,foe statuses,that foe,FALSE,FALSE,"debuffs, focus fire","Buffs: hasted, warded, taunted, surging, bracing, regen, blurred."
+foe_taunting,Foe: taunting,Foe,A foe is taunting,foe statuses (taunted),that foe,FALSE,FALSE,"AoE, or hitting through the taunt",
+foe_poisoned,Foe: poisoned,Foe,A foe has poisoned,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
+foe_burning,Foe: burning,Foe,A foe has burning,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
+foe_blinded,Foe: blinded,Foe,A foe has blinded,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
+foe_slowed,Foe: slowed,Foe,A foe has slowed,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
+foe_confused,Foe: confused,Foe,A foe has confused,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
+ally_poisoned,Ally: poisoned,Ally,An ally has poisoned,ally statuses,lowest-HP afflicted ally,FALSE,FALSE,cleanse / heal,Damage-over-time on a friend.
+ally_burning,Ally: burning,Ally,An ally has burning,ally statuses,lowest-HP afflicted ally,FALSE,FALSE,cleanse / heal,Damage-over-time on a friend.
+ally_pack_hurt,Allies: ALL below 50%,Ally,Every living ally is under 50% HP,ally HP,lowest-HP ally,FALSE,FALSE,party heals,Mirror of foe_pack_hurt for your own side.
+ally_2plus_hurt,Allies: 2+ below 60%,Ally,At least two allies are under 60% HP,ally HP,lowest-HP ally,FALSE,FALSE,party heals,Fires before the whole party is in trouble.
+ally_pack_healthy,Allies: NONE below 70%,Ally,Every living ally is at 70% HP or more,ally HP,highest-HP ally,FALSE,FALSE,"buffs, charge gifts",Safe to spend a turn on setup.
+ally_2plus_alive,Allies: 2+ alive,Ally,At least two party members are alive (including you),ally list,default ally,FALSE,FALSE,party buffs,
+self_last_standing,Self: last one standing,Self,You are the only living party member,ally list,self,FALSE,FALSE,"self-heal, revive",
+ally_softest_def,Ally: softest DEF,Ally,The ally with the lowest DEF,ally DEF,that ally,FALSE,FALSE,wards / DEF buffs,Includes you.
+ally_softest_res,Ally: softest RES,Ally,The ally with the lowest RES,ally RES,that ally,FALSE,FALSE,wards / RES buffs,Includes you.
+self_charge_gte_25,Self: charge >= 25%,Self,Your charge is at least 25% of your charge cost,own charge,self,FALSE,FALSE,Tithe (share charge),A unit with no charge action counts against 100.
+self_charge_gte_50,Self: charge >= 50%,Self,Your charge is at least 50% of your charge cost,own charge,self,FALSE,FALSE,Tithe (share charge),A unit with no charge action counts against 100.
+self_charge_gte_75,Self: charge >= 75%,Self,Your charge is at least 75% of your charge cost,own charge,self,FALSE,FALSE,Tithe (share charge),A unit with no charge action counts against 100.
+ally_charge_gte_25,Ally (not self): charge >= 25%,Ally,Another ally with a charge action is at least 25% charged,ally charge,most-charged such ally,FALSE,FALSE,Kindle (finish their charge),Never you; needs a charge action.
+ally_charge_gte_50,Ally (not self): charge >= 50%,Ally,Another ally with a charge action is at least 50% charged,ally charge,most-charged such ally,FALSE,FALSE,Kindle (finish their charge),Never you; needs a charge action.
+ally_charge_gte_75,Ally (not self): charge >= 75%,Ally,Another ally with a charge action is at least 75% charged,ally charge,most-charged such ally,FALSE,FALSE,Kindle (finish their charge),Never you; needs a charge action.
+ally_charge_lte_25,Ally (not self): charge <= 25%,Ally,Another ally with a charge action is at most 25% charged,ally charge,least-charged such ally,FALSE,FALSE,Kindle / Tithe (jump-start someone),Never you; needs a charge action.
+ally_charge_lte_50,Ally (not self): charge <= 50%,Ally,Another ally with a charge action is at most 50% charged,ally charge,least-charged such ally,FALSE,FALSE,Kindle / Tithe (jump-start someone),Never you; needs a charge action.

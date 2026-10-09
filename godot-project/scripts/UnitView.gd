@@ -118,6 +118,13 @@ const _ENEMY_ARCH_STYLE := {
 	"stormroc": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.80, 0.65)},
 	"dawnseraph": {"shape": ShapeKind.HEX, "tint": Color(0.95, 0.80, 0.30)},
 	"hollowking": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.12, 0.50)},
+	# Body / Spirit batch.
+	"ironhide": {"shape": ShapeKind.SQUARE, "tint": Color(0.50, 0.46, 0.42)},
+	"hollowhusk": {"shape": ShapeKind.DIAMOND, "tint": Color(0.62, 0.50, 0.85)},
+	"carrion": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.45, 0.55, 0.22)},
+	"veilwarden": {"shape": ShapeKind.CIRCLE, "tint": Color(0.30, 0.65, 0.75)},
+	"ironsovereign": {"shape": ShapeKind.HEX, "tint": Color(0.55, 0.52, 0.48)},
+	"holloworacle": {"shape": ShapeKind.HEX, "tint": Color(0.70, 0.55, 0.90)},
 }
 const _ENEMY_DEFAULT_STYLE := {"shape": ShapeKind.SQUARE, "tint": Color(0.85, 0.30, 0.28)}   # unrecognized/absent arch -- the old flat enemy-red
 

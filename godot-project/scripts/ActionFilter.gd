@@ -141,6 +141,12 @@ static func effect_lines(act: Dictionary) -> Array:
 	var sc := float(act.get("stealCharge", 0.0)) if act.get("stealCharge") else 0.0
 	if sc > 0.0:
 		out.append("Steals %d charge from each target hit." % roundi(sc))
+	var gc := float(act.get("giveCharge", 0.0)) if act.get("giveCharge") else 0.0
+	if gc > 0.0:
+		out.append("Gives each target %d charge (never the user)." % roundi(gc))
+	var sp := float(act.get("siphonCharge", 0.0)) if act.get("siphonCharge") else 0.0
+	if sp > 0.0:
+		out.append("Shares up to %d of the user's own charge, split evenly among the other targets." % roundi(sp))
 	return out
 
 static func passes(act: Dictionary, target: String, stat: String, effect: String) -> bool:

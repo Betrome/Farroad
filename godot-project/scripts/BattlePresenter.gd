@@ -847,11 +847,13 @@ func _build_status_card(u: Dictionary) -> Control:
 	if not u["isParty"] and status_filter_uid == u["id"]:
 		var lines: Array = []
 		var ch = u.get("chargeAction")
+		# Ian: an Arena opponent's actions show their level (the Lore spent on them).
+		var lv := func(a) -> String: return (" Lv%d" % int(a.get("loreLevel", 0))) if (u.get("pvp", false) and a != null) else ""
 		if ch != null and FarroadCore.ACTIONS.has(ch):
-			lines.append("⚡ charge full → %s" % FarroadCore.ACTIONS[ch]["name"])
+			lines.append("⚡ charge full → %s%s" % [FarroadCore.ACTIONS[ch]["name"], lv.call(FarroadCore.ACTIONS[ch])])
 		for s in u.get("slots", []):
 			var a = FarroadCore.ACTIONS.get(str(s.get("action", "")))
-			lines.append("%s → %s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?"))])
+			lines.append("%s → %s%s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?")), lv.call(a)])
 		box.add_child(_rich_line("[font_size=12][b]Gambits[/b][/font_size]"))
 		for l in lines:
 			box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, l]))

@@ -16,6 +16,11 @@ var _on_confirm: Callable
 var mc_points: Dictionary = {}        # {atk,mag,def,res,spd,hp: int 0..15}
 var mc_charge_choice: String = ""
 var mc_body: String = "male"
+## Ian: after wave 100 an item lets the player redo their stats. In this mode only the
+## point-buy shows; the name, look and charge action stay as they are.
+var respec_mode := false
+var _orig_points: Dictionary = {}   # what the character had; confirming needs a change
+var _on_cancel: Callable = Callable()
 var body_buttons: Dictionary = {}
 
 var root: Control
@@ -34,6 +39,18 @@ func setup(vp: Vector2, parent: Node, on_confirm: Callable) -> void:
 	_on_confirm = on_confirm
 	for k in FarroadProgression.MC_STAT_KEYS:
 		mc_points[k] = FarroadProgression.MC_POINT_MIN
+	_build_ui(parent)
+
+func setup_respec(vp: Vector2, parent: Node, mc: Dictionary, on_confirm: Callable, on_cancel: Callable) -> void:
+	respec_mode = true
+	_vp = vp
+	_parent = parent
+	_on_confirm = on_confirm
+	_on_cancel = on_cancel
+	var pts: Dictionary = Ranked.mc_points_of(mc)
+	for k in FarroadProgression.MC_STAT_KEYS:
+		mc_points[k] = clampi(int(pts.get(k, FarroadProgression.MC_POINT_MIN)), FarroadProgression.MC_POINT_MIN, FarroadProgression.MC_POINT_MAX)
+	_orig_points = mc_points.duplicate()
 	_build_ui(parent)
 
 func _build_ui(parent: Node) -> void:
@@ -62,27 +79,41 @@ func _build_ui(parent: Node) -> void:
 	scroll.add_child(root_vbox)
 
 	var title := Label.new()
-	title.text = "Farroad"
+	title.text = "Shifted Reflection" if respec_mode else "Farroad"
 	title.add_theme_font_size_override("font_size", int(_vp.y * 0.045))
 	root_vbox.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "Before the road begins — build your character."
+	subtitle.text = ("Spread your 45 points again. Your name, look and charge action stay as they are. "
+		+ "The Shifted Reflection is only used up when you confirm.") if respec_mode else "Before the road begins — build your character."
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root_vbox.add_child(subtitle)
 
-	_build_body_block(root_vbox)
-	_build_name_block(root_vbox)
+	if not respec_mode:
+		_build_body_block(root_vbox)
+		_build_name_block(root_vbox)
 	_build_stats_block(root_vbox)
-	_build_charges_block(root_vbox)
+	if not respec_mode:
+		_build_charges_block(root_vbox)
 
 	confirm_btn = Button.new()
-	confirm_btn.text = "Begin the road"
+	confirm_btn.text = "Remake my stats" if respec_mode else "Begin the road"
 	confirm_btn.disabled = true
 	confirm_btn.pressed.connect(_on_confirm_pressed)
 	root_vbox.add_child(confirm_btn)
+	if respec_mode:
+		var cancel_btn := Button.new()
+		cancel_btn.text = "Cancel"
+		cancel_btn.pressed.connect(func():
+			root.queue_free()
+			if _on_cancel.is_valid():
+				_on_cancel.call())
+		root_vbox.add_child(cancel_btn)
 
 	# Ian (cloud saves): bring an existing game over from another device
+	if respec_mode:
+		_refresh_stats()
+		return
 	var recover_btn := Button.new()
 	recover_btn.text = "Continue a game from another device"
 	recover_btn.pressed.connect(func():
@@ -288,11 +319,20 @@ func _sanitize_name(raw: String) -> String:
 	return re.sub(raw, "", true).strip_edges().substr(0, 20)
 
 func _update_confirm_state() -> void:
+	if respec_mode:
+		confirm_btn.disabled = FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_points == _orig_points
+		return
 	var name_ok: bool = _sanitize_name(name_edit.text).length() > 0
 	var points_ok: bool = FarroadProgression.mc_points_spent(mc_points) == FarroadProgression.MC_POINTS_TOTAL
 	confirm_btn.disabled = not (name_ok and points_ok and mc_charge_choice != "")
 
 func _on_confirm_pressed() -> void:
+	if respec_mode:
+		if FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_points == _orig_points:
+			return
+		root.queue_free()
+		_on_confirm.call(mc_points.duplicate())
+		return
 	var name := _sanitize_name(name_edit.text)
 	if name == "" or FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_charge_choice == "":
 		return

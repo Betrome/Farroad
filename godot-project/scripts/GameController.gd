@@ -286,6 +286,9 @@ func _start_game() -> void:
 		p.popup.popup_hide.connect(_on_tab_hidden.bind(p))
 		p.popup.popup_hide.connect(_reset_menu.bind(p))
 	_begin_next_fight()
+	_whats_new_if_updated()
+	if Updates.check_enabled() and not OS.has_feature("web"):
+		get_tree().create_timer(6.0).timeout.connect(func(): _check_updates(false))
 
 ## Ian: "have menus reset to their default when closed" -- a closed menu
 ## drops any info/picker box left open inside it and goes back to its
@@ -436,6 +439,8 @@ func _try_resume_save() -> bool:
 		Analytics.add("offline", "seconds", float(_offline_summary.get("elapsed_sec", 0.0)))
 		Analytics.add("offline", "returns")
 		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
+		# Ian: wipes (and clears) fought while the game was closed count in the wave stats too
+		Analytics.waves_offline(_offline_summary.get("wave_results", {}))
 	FarroadProgression.resolve_all_expeditions(g, now)
 	# Ian: the time away must be accurate next launch even after a very
 	# short session -- stamp the save now that this gap has been counted.
@@ -455,6 +460,45 @@ func _on_mc_confirmed(mc: Dictionary) -> void:
 	_save_game()   # mirrors doSave() immediately after boot(7,mc)
 	_start_game()
 
+## ===== Shifted Reflection =====
+## Ian: after a player hits wave 100, an item that lets them redo their Main
+## Character's stats. One is given the first time they reach it (a save that
+## is already past 100 gets it the next time a fight starts).
+const RESPEC_WAVE := 100
+
+func _check_respec_item() -> void:
+	if g.get("mc") == null or bool(g.get("mcRespecGranted", false)) or int(g.get("farthest", 1)) < RESPEC_WAVE:
+		return
+	g["mcRespecGranted"] = true
+	g["mcRespecs"] = int(g.get("mcRespecs", 0)) + 1
+	_save_game()
+	_show_tab_tutorial_popup("Shifted Reflection",
+		"You found a Shifted Reflection. Use it from Units, on your Main Character, to spread your stat points again. Your name, look and charge action stay as they are.")
+
+func _start_mc_respec() -> void:
+	if g.get("mc") == null or int(g.get("mcRespecs", 0)) <= 0 or g.get("sideBattle") != null:
+		return
+	_close_all_popups()
+	var panel = load("res://scripts/McCreatePanel.gd").new()
+	add_child(panel)
+	panel.setup_respec(_vp, self, g["mc"], _on_mc_respec, func(): pass)
+
+func _on_mc_respec(points: Dictionary) -> void:
+	if g.get("mc") == null or int(g.get("mcRespecs", 0)) <= 0:
+		return
+	var built: Dictionary = FarroadProgression.mc_build_stats(points)
+	g["mc"]["stats"] = built["stats"]
+	g["mc"]["hp"] = built["hp"]
+	g["mc"]["growth"] = built["growth"]
+	g["mc"]["points"] = points
+	g["mc"].erase("legacy")
+	g["mcRespecs"] = int(g["mcRespecs"]) - 1
+	FarroadProgression.apply_custom_mc(g)   # onto the roster entry and its growth
+	FarroadProgression.refresh_live_stats(g)
+	Analytics.add("features", "mcRespec")
+	_refresh_hud()
+	_save_game()
+
 ## Ian: "Welcome back screen, when closed, should reset... when they open
 ## it, the time away should be accurate." Save whenever the app is closed
 ## or sent to the background; coming back after a real break reloads the
@@ -470,9 +514,17 @@ func _notification(what: int) -> void:
 	# losing focus (alt-tab) just saves, it never reloads the game.
 	match what:
 		NOTIFICATION_WM_CLOSE_REQUEST, NOTIFICATION_APPLICATION_FOCUS_OUT:
+			if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+				_hold_popups_open()
+				if notifier != null and Notifier.platform() == "web":
+					notifier.schedule_away()   # browser timers while the tab stays open in the background
 			_save_game()
 			if what == NOTIFICATION_WM_CLOSE_REQUEST and notifier != null:
 				notifier.schedule_away()
+		NOTIFICATION_APPLICATION_FOCUS_IN:
+			_release_popups()
+			if notifier != null and Notifier.platform() == "web":
+				notifier.cancel_scheduled()
 		NOTIFICATION_APPLICATION_PAUSED:
 			_save_game()
 			if cloud != null:
@@ -488,6 +540,32 @@ func _notification(what: int) -> void:
 				get_tree().reload_current_scene()
 			else:
 				_backgrounded_at = -1.0
+
+## Ian: "clicking off the browser while the menu is open and coming back
+## closes the menu" -- Godot closes every popup window when the app loses
+## focus. This node hears that first (it's their parent), so it turns the
+## popup behaviour off for the ones showing and puts it back when focus
+## returns. If a menu closed anyway, it's reopened.
+var _held_popups: Array = []
+var _focus_panel: Node = null
+
+func _hold_popups_open() -> void:
+	_focus_panel = open_panel if (open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible) else null
+	_held_popups.clear()
+	for p in get_tree().root.find_children("*", "Popup", true, false):
+		if p.visible and p.get_flag(Window.FLAG_POPUP):
+			p.set_flag(Window.FLAG_POPUP, false)
+			_held_popups.append(p)
+
+func _release_popups() -> void:
+	for p in _held_popups:
+		if is_instance_valid(p):
+			p.set_flag(Window.FLAG_POPUP, true)
+	_held_popups.clear()
+	var panel := _focus_panel
+	_focus_panel = null
+	if panel != null and is_instance_valid(panel) and open_panel == panel and not panel.popup.visible:
+		panel.call_deferred("_on_toggle_pressed")
 
 ## ===== Gameplay stats (Analytics.gd) =====
 ## Counted locally while playing and sent about once a day; see Analytics.gd.
@@ -552,6 +630,118 @@ func _show_terms_popup() -> void:
 	text.add_theme_color_override("default_color", Palette.TEXT_INK)
 	text.text = Analytics.terms_bbcode().replace("By tapping Agree and continue, you agree to these terms.", "You agreed to these terms when you started playing.")
 	vbox.add_child(text)
+	await _finish_detail_overlay(o)
+
+## ===== Patch notes and updates (Updates.gd) =====
+## Ian: patch notes in the game, and a way to see that a newer version is out.
+## The notes ship inside the game; the check asks GitHub for the latest release.
+
+## The notes: one version (the "what's new" after an update) or all of them.
+func _show_patch_notes_popup(only_version: String = "") -> void:
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = ("What's new in version %s" % only_version) if only_version != "" else "Patch notes"
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Palette.TEXT_INK)
+	vbox.add_child(title)
+	var text := RichTextLabel.new()
+	text.bbcode_enabled = true
+	text.fit_content = true
+	text.scroll_active = false
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_color_override("default_color", Palette.TEXT_INK)
+	text.text = Updates.notes_bbcode(only_version)
+	vbox.add_child(text)
+	if only_version != "":
+		var all_btn := Button.new()
+		all_btn.text = "All patch notes"
+		all_btn.pressed.connect(func():
+			o["backdrop"].queue_free()
+			_show_patch_notes_popup())
+		vbox.add_child(all_btn)
+	await _finish_detail_overlay(o)
+
+## Once after the game has been updated: show what changed in this version.
+## A brand-new player (no progress yet) isn't shown it.
+func _whats_new_if_updated() -> void:
+	var cur := Updates.current_version()
+	var last := str(Analytics.state.get("lastSeenVersion", ""))
+	if last == cur:
+		return
+	Analytics.state["lastSeenVersion"] = cur
+	Analytics._dirty = true
+	Analytics.save()
+	if last == "" and int(g.get("farthest", 1)) <= 3:
+		return
+	if Updates.has_notes_for(cur):
+		await get_tree().create_timer(2.5).timeout
+		_show_patch_notes_popup(cur)
+
+## Asks GitHub for the latest release. `manual` (the Settings button) always
+## answers and always shows the window when there is a newer version; the
+## automatic check at launch stays quiet unless there is one, and only
+## mentions each version once. `on_done` gets a one-line result.
+func _check_updates(manual: bool, on_done: Callable = Callable()) -> void:
+	if OS.has_feature("web"):
+		if on_done.is_valid():
+			on_done.call("The browser version is always the latest one.")
+		return
+	var req := HTTPRequest.new()
+	req.timeout = 15.0
+	add_child(req)
+	req.request_completed.connect(func(result: int, code: int, _headers, body: PackedByteArray):
+		req.queue_free()
+		var rel = JSON.parse_string(body.get_string_from_utf8()) if (result == HTTPRequest.RESULT_SUCCESS and code == 200) else null
+		if not (rel is Dictionary) or str(rel.get("tag_name", "")) == "":
+			if on_done.is_valid():
+				on_done.call("Couldn't check for updates right now.")
+			return
+		var latest := str(rel["tag_name"]).trim_prefix("v")
+		var cur := Updates.current_version()
+		if not Updates.is_newer(latest, cur):
+			if on_done.is_valid():
+				on_done.call("You're up to date (version %s)." % cur)
+			return
+		if on_done.is_valid():
+			on_done.call("Version %s is available." % latest)
+		if manual or str(Analytics.state.get("updateShown", "")) != latest:
+			Analytics.state["updateShown"] = latest
+			Analytics._dirty = true
+			Analytics.save()
+			_show_update_popup(rel))
+	if req.request(Updates.RELEASE_URL, PackedStringArray(["Accept: application/vnd.github+json", "User-Agent: Farroad"])) != OK:
+		req.queue_free()
+		if on_done.is_valid():
+			on_done.call("Couldn't check for updates right now.")
+
+func _show_update_popup(rel: Dictionary) -> void:
+	var latest := str(rel.get("tag_name", "")).trim_prefix("v")
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "Version %s is available" % latest
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Palette.TEXT_INK)
+	vbox.add_child(title)
+	var sub := Label.new()
+	sub.text = "You have version %s." % Updates.current_version()
+	sub.add_theme_color_override("font_color", Palette.TEXT_INK)
+	vbox.add_child(sub)
+	var text := RichTextLabel.new()
+	text.bbcode_enabled = true
+	text.fit_content = true
+	text.scroll_active = false
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_color_override("default_color", Palette.TEXT_INK)
+	text.text = Updates.release_bbcode(str(rel.get("body", "")))
+	vbox.add_child(text)
+	var url := str(rel.get("html_url", ""))
+	if url.begins_with("https://github.com/"):
+		var go := Button.new()
+		go.text = "Download the update"
+		go.pressed.connect(func(): OS.shell_open(url))
+		vbox.add_child(go)
 	await _finish_detail_overlay(o)
 
 func _save_game() -> void:
@@ -3138,6 +3328,7 @@ func _sync_row_change(uid: String) -> void:
 func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_revealed: bool = false, auto_start_loop: bool = true) -> void:
 	if g.get("sideBattle") != null:
 		return
+	_check_respec_item()
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
