@@ -15,6 +15,7 @@ import csv
 import html
 import json
 import os
+import re
 import statistics
 import sys
 import urllib.parse
@@ -92,6 +93,63 @@ def load_reports(path):
     return out
 
 
+# ---------- Arena player names ----------
+# Ian: show a player's Main Character name next to their id, for Arena players
+# only. Reports never carry names; the Arena server has them (the leaderboard
+# name). Read with the developer's own gcloud login, one document per player id,
+# keeping only the name. Cached beside the report data (gitignored).
+ARENA_NAMES = os.path.join(DATA_DIR, "arena_names.json")
+ARENA_PROJECT = "farroad"
+
+
+def _gcloud():
+    import shutil
+    exe = shutil.which("gcloud") or shutil.which("gcloud.cmd")
+    if not exe:
+        for base in (os.environ.get("LOCALAPPDATA", ""), os.path.expanduser("~")):
+            cand = os.path.join(base, "Google", "Cloud SDK", "google-cloud-sdk", "bin", "gcloud.cmd")
+            if os.path.exists(cand):
+                return cand
+    return exe
+
+
+def load_arena_names():
+    try:
+        return json.load(open(ARENA_NAMES, encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def refresh_arena_names(ids):
+    """Look up the names of these player ids on the Arena server. Skips quietly
+    (keeping the cached names) if gcloud isn't available or not logged in."""
+    import subprocess
+    names = load_arena_names()
+    exe = _gcloud()
+    if not exe or not ids:
+        return names
+    try:
+        tok = subprocess.run([exe, "auth", "print-access-token"], capture_output=True, text=True, timeout=60).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        tok = ""
+    if not tok:
+        print("Arena names: gcloud isn't logged in, using the saved names.")
+        return names
+    for pid in sorted(ids):
+        url = f"https://firestore.googleapis.com/v1/projects/{ARENA_PROJECT}/databases/(default)/documents/players/{urllib.parse.quote(pid)}"
+        try:
+            req = urllib.request.Request(url, headers={"Authorization": "Bearer " + tok})
+            doc = json.load(urllib.request.urlopen(req, timeout=20))
+            rec = json.loads(doc["fields"]["data"]["stringValue"])
+            if rec.get("name"):
+                names[pid] = str(rec["name"])   # the name only; nothing else is kept
+        except Exception as e:   # no account on the server, or a network problem
+            print(f"Arena names: {pid}: {type(e).__name__}")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    json.dump(names, open(ARENA_NAMES, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+    return names
+
+
 # ---------- aggregation ----------
 
 def names():
@@ -101,7 +159,186 @@ def names():
         return {}, {}
     acts = {k: v.get("name", k) for k, v in c.get("ACTIONS", {}).items()}
     units = {u["id"]: u.get("name", u["id"]) for u in c.get("ROSTER", [])}
+    units[MC_ID] = MC_LABEL   # Ian: each player names their own; report it as the Main Character
     return acts, units
+
+
+# ---------- titles (mirrors FarroadProgression.unit_title) ----------
+# A unit's title: the role from its two highest non-HP stats at level 100,
+# led by its strongest elemental affinity (base + bought + gear), e.g. "Fire Warden".
+PROG_GD = os.path.join(HERE, "..", "..", "godot-project", "scripts", "FarroadProgression.gd")
+TITLE_LEVEL = 100
+ROLE_TITLES = {"atk+mag": "Duelist", "atk+def": "Fighter", "atk+res": "Paladin", "atk+spd": "Rogue",
+               "mag+def": "Warden", "mag+res": "Mage", "mag+spd": "Sorcerer", "def+res": "Tank", "def+spd": "Bruiser",
+               "res+spd": "Warlock"}
+TITLE_STATS = ["atk", "mag", "def", "res", "spd"]
+TITLE_ELEMENTS = ["fire", "water", "earth", "air", "light", "dark", "spirit"]
+MC_STAT_RANGE = {"atk": (8, 30), "mag": (7, 30), "def": (8, 45), "res": (8, 40), "spd": (11, 26)}
+MC_GROWTH_RANGE = {"atk": (0.6, 2.7), "mag": (0.5, 2.7), "def": (0.8, 2.4), "res": (0.8, 1.7), "spd": (0.7, 1.6)}
+MC_ID, MC_LABEL = "kesh", "Main Character"
+
+
+def _content():
+    try:
+        return json.load(open(CONTENT, encoding="utf-8"))
+    except OSError:
+        return {}
+
+
+def _growth_table():
+    try:
+        src = open(PROG_GD, encoding="utf-8").read()
+    except OSError:
+        return {}
+    block = src.split("static var GROWTH := {", 1)[-1].split("\n}", 1)[0]
+    return {m.group(1): {k: float(v) for k, v in re.findall(r'"(\w+)": ([\d.]+)', m.group(2))}
+            for m in re.finditer(r'"(\w+)": \{([^}]*)\}', block)}
+
+
+CONTENT_DATA = _content()
+GROWTH = _growth_table()
+ROSTER = {u["id"]: u for u in CONTENT_DATA.get("ROSTER", [])}
+EQUIPMENT = CONTENT_DATA.get("EQUIPMENT", {})
+
+
+def mc_growth(stats):
+    """The MC's per-level growth, recovered from its point-bought base stats
+    (both come from the same points, P.mcBuildStats)."""
+    out = {}
+    for k, (lo, hi) in MC_STAT_RANGE.items():
+        p = min(15, max(0, round((float(stats.get(k, lo)) - lo) / (hi - lo) * 15)))
+        glo, ghi = MC_GROWTH_RANGE[k]
+        out[k] = round((glo + p / 15 * (ghi - glo)) * 10) / 10
+    return out
+
+
+def stats_at_100(uid, mc_stats=None):
+    if uid == MC_ID and mc_stats:
+        base, grow = mc_stats, mc_growth(mc_stats)
+    else:
+        base = ROSTER.get(uid, {}).get("stats", {})
+        grow = GROWTH.get(uid, GROWTH.get(MC_ID, {}))
+    return {k: round(float(base.get(k, 0)) + grow.get(k, 0) * (TITLE_LEVEL - 1)) for k in TITLE_STATS}
+
+
+def role_for_stats(st):
+    vals = [st[k] for k in TITLE_STATS]
+    if max(vals) - min(vals) <= 2:
+        return "Freelancer"
+    order = sorted(TITLE_STATS, key=lambda k: (-st[k], TITLE_STATS.index(k)))
+    pair = sorted(order[:2], key=TITLE_STATS.index)
+    return ROLE_TITLES.get("+".join(pair), "Freelancer")
+
+
+def unit_affinity(uid, snap_unit=None):
+    base = {} if (uid == MC_ID and snap_unit is not None) else ROSTER.get(uid, {}).get("affinity", {})
+    out = Counter({k: float(v) for k, v in base.items()})
+    if snap_unit:
+        out.update({k: float(v) for k, v in snap_unit.get("aff", {}).items()})
+        for item in snap_unit.get("equip", {}).values():
+            out.update({k: float(v) for k, v in EQUIPMENT.get(item, {}).get("affinity", {}).items()})
+    return out
+
+
+def unit_title(uid, snap_unit=None, mc_stats=None):
+    aff = unit_affinity(uid, snap_unit)
+    best, best_v = "", 0.0
+    for el in TITLE_ELEMENTS:
+        if aff.get(el, 0) > best_v:
+            best, best_v = el, aff[el]
+    role = role_for_stats(stats_at_100(uid, mc_stats))
+    return f"{best.capitalize()} {role}" if best else role
+
+
+def snap_titles(s):
+    return {uid: unit_title(uid, u, s.get("mcStats")) for uid, u in s.get("units", {}).items()}
+
+
+TARGET_NAMES = {"foe": "one foe", "allFoes": "all foes", "ally": "one ally", "allAllies": "the whole party",
+                "self": "self", "deadAlly": "a fallen ally"}
+
+
+def _signed(v):
+    return f"+{v:g}" if v > 0 else f"{v:g}".replace("-", "−")
+
+
+def _top(counter, label=lambda k: k, n=3):
+    return ", ".join(f"{label(k)} ({v:g})" for k, v in counter.most_common(n)) or "none yet"
+
+
+def tips(rep):
+    """Ian: hovering a name shows a card. Actions: their base details. Units:
+    name, title, rarity, row, two highest stats and charge action. Everything
+    else (conditions, gear, Lore upgrades, titles, archetypes): what it's
+    most used with. Keyed by the display name the report prints; each value
+    is [heading, line, ...]."""
+    acts = CONTENT_DATA.get("ACTIONS", {})
+    act = lambda k: rep["acts"].get(k, k)
+    unit = lambda k: rep["units"].get(k, k)
+    out = {}
+    for u in CONTENT_DATA.get("ROSTER", []):
+        uid = u["id"]
+        held = rep["unit_titles"].get(uid, Counter())
+        if uid == MC_ID:
+            lines = [MC_LABEL, "Archetypes: " + _top(rep["mc_archetypes"], n=4),
+                     f"{str(u.get('rarity', 'common')).capitalize()} · stats picked by each player",
+                     "Charge action: " + _top(rep["mc_charge"], act)]
+            out[MC_LABEL] = lines
+            continue
+        title = unit_title(uid)
+        st = stats_at_100(uid)
+        top2 = sorted(TITLE_STATS, key=lambda k: (-st[k], TITLE_STATS.index(k)))[:2]
+        others = Counter({t: n for t, n in held.items() if t != title})
+        lines = [u.get("name", uid), f"Title: {title}" + (f"  ·  players also have: {_top(others)}" if others else ""),
+                 f"{str(u.get('rarity', 'common')).capitalize()} · {str(u.get('row', 'front')).capitalize()} row",
+                 "Highest stats: " + ", ".join(f"{k.upper()} {st[k]}" for k in top2) + " (at level 100)",
+                 "Charge action: " + acts.get(u.get("chargeAction") or "", {}).get("name", "–")]
+        out[u.get("name", uid)] = lines
+    for a in acts.values():
+        name = a.get("name", a["id"])
+        if name in out:
+            continue
+        camp = "Magic" if a.get("camp") == "mag" else "Physical"
+        kind = "Charge action" if a.get("isCharge") else "Action"
+        lines = [name, f"{str(a.get('rarity', 'common')).capitalize()} {kind.lower()} · {camp}" +
+                 (f" · {str(a['element']).capitalize()}" if a.get("element") else "") +
+                 f" · target: {TARGET_NAMES.get(a.get('tk', 'foe'), a.get('tk'))}"]
+        if a.get("power"):
+            stat = str(a.get("scaleStat") or ("mag" if a.get("camp") == "mag" else "atk"))
+            stat = "avg of ATK and MAG" if stat == "avgAtkMag" else stat.upper()
+            lines.append(f"Scales with {stat} · power ×{float(a['power']):.2f}" + (" · heals" if a.get("heal") else ""))
+        else:
+            lines.append("No stat scaling (fixed effect)")
+        cost = f"Cost {round(float(a.get('rank', 1)) * 100)}"
+        lines.append(f"{cost} · uses {a.get('chargeCost') or 100} charge" if a.get("isCharge")   # FarroadCore.CHARGE_FULL
+                     else f"{cost} · Charge +{a.get('charge') or 0}")
+        if a.get("applies"):
+            lines.append(f"Applies {str(a['applies']).capitalize()}" + (f" for {a['turns']} turns" if a.get("turns") else ""))
+        for k, label in (("defPierce", "Ignores {:.0%} of DEF/RES"), ("critBonus", "+{:.0%} crit chance")):
+            if a.get(k):
+                lines.append(label.format(float(a[k])))
+        out[name] = lines
+    # Ian: other sections' names pop up what they're most used with.
+    cond = lambda k: rep["conds"].get(k, k)
+    for cid, by_act in rep["cond_actions"].items():
+        out.setdefault(cond(cid), [cond(cid), "Most paired with: " + _top(by_act, act),
+                                   "Most used on: " + _top(rep["cond_units"].get(cid, Counter()), unit)])
+    for gid, by_unit in rep["gear_units"].items():
+        g = EQUIPMENT.get(gid, {})
+        name = g.get("name", gid)
+        out.setdefault(name, [name, f"{str(g.get('rarity', 'common')).capitalize()} · {str(g.get('slot', '?')).capitalize()} slot",
+                              "Most worn by: " + _top(by_unit, unit)])
+    for bid, by_act in rep["bonus_actions"].items():
+        name = BONUS_NAMES.get(bid, bid)
+        out.setdefault(name, [name, "Most upgraded on: " + _top(by_act, act)])
+    for title, by_unit in rep["title_units"].items():
+        out.setdefault(title, [title, "Most often: " + _top(by_unit, unit, 4)])
+    for arch, d in rep["mc_detail"].items():
+        out[arch] = [f"Main Character: {arch}", "Usual stat picks: " + d["stats"],
+                     "Charge action: " + _top(d["charge"], act),
+                     "Most used actions: " + _top(d["actions"], act),
+                     "Usual partners: " + _top(d["partners"], unit)]
+    return out
 
 
 def cond_names():
@@ -256,6 +493,75 @@ def analyse(reports):
              action_conds=action_conds, action_equipped=action_equipped, cond_equipped=cond_equipped,
              lore_held=lore_held, lore_holders=lore_holders)
     a["mc_charge"] = Counter(s.get("mcCharge") for s in snaps if s.get("mcCharge"))
+    # Reverse lookups for the "most used with" hover cards.
+    cond_actions, cond_units, gear_units, bonus_actions = defaultdict(Counter), defaultdict(Counter), defaultdict(Counter), defaultdict(Counter)
+    for act_id, conds in action_conds.items():
+        for cid, n in conds.items():
+            cond_actions[cid][act_id] += n
+    for uid, conds in unit_conds.items():
+        for cid, n in conds.items():
+            cond_units[cid][uid] += n
+    for uid, gear in unit_gear.items():
+        for gid, n in gear.items():
+            gear_units[gid][uid] += n
+    for act_id, bs in lore_held.items():
+        for bid, n in bs.items():
+            bonus_actions[bid][act_id] += n
+    a.update(cond_actions=cond_actions, cond_units=cond_units, gear_units=gear_units, bonus_actions=bonus_actions)
+
+    # Titles (Ian: the current affinity + role titles), from each player's latest save.
+    unit_titles, title_units = defaultdict(Counter), defaultdict(Counter)
+    for s in snaps:
+        for uid, t in snap_titles(s).items():
+            unit_titles[uid][t] += 1
+            title_units[t][uid] += 1
+    a.update(unit_titles=unit_titles, title_units=title_units)
+    # Reports don't carry title tallies (or carry ones from before the rename),
+    # so title win rates come from each report's unit tallies and its own save.
+    for k in [k for k in c if k.startswith("fightTitles")]:
+        del c[k]
+    for r in reports:
+        tmap = snap_titles(r.get("snapshot", {}))
+        for key, vals in r.get("counters", {}).items():
+            if key.startswith("fightUnits_") and isinstance(vals, dict):
+                for uid, n in vals.items():
+                    if uid in tmap:
+                        c["fightTitles_" + key[len("fightUnits_"):]][tmap[uid]] += n
+
+    # Main Character archetypes (title = strongest element + role from its stat picks).
+    by_player = defaultdict(list)
+    for r in reports:
+        by_player[r["id"]].append(r)
+    mc_rows, mc_detail = defaultdict(lambda: {"players": 0, "farthest": [], "power": [], "win": 0, "loss": 0,
+                                              "stats": defaultdict(list), "charge": Counter(), "actions": Counter(),
+                                              "partners": Counter()}), {}
+    for pid, r in latest.items():
+        s = r["snapshot"]
+        mcu = s.get("units", {}).get(MC_ID)
+        if mcu is None:
+            continue
+        arch = unit_title(MC_ID, mcu, s.get("mcStats"))
+        d = mc_rows[arch]
+        d["players"] += 1
+        d["farthest"].append(s.get("farthest", 1))
+        d["power"].append(s.get("power", 0))
+        for rr in by_player[pid]:
+            for k, v in rr.get("counters", {}).get("fights", {}).items():
+                d["win" if k.endswith(":win") else "loss"] += v
+        for k, v in (s.get("mcStats") or {}).items():
+            d["stats"][k].append(v)
+        if s.get("mcCharge"):
+            d["charge"][s["mcCharge"]] += 1
+        for _, act_id in mcu.get("loadout", []):
+            d["actions"][act_id] += 1
+        for uid in s.get("party", []):
+            if uid != MC_ID:
+                d["partners"][uid] += 1
+    for arch, d in mc_rows.items():
+        st = d["stats"]
+        mc_detail[arch] = dict(d, stats=", ".join(f"{k.upper()} {statistics.median(st[k]):g}" for k in TITLE_STATS if st.get(k)) or "–")
+    a["mc_archetypes"] = Counter({k: d["players"] for k, d in mc_rows.items()})
+    a["mc_detail"] = mc_detail
     lore_buys = defaultdict(Counter)
     for k, v in c["loreBuys"].items():
         aid, bid = k.rsplit(":", 1)
@@ -275,11 +581,53 @@ def analyse(reports):
     a["side"] = side
     a["side_seconds"] = c["sideBattleSeconds"]
     a["quest_stage"] = Counter(st for s in snaps for st in s.get("quests", {}).values())
-    def tried(prefix):
-        return len({r["id"] for r in reports if any(k.startswith(prefix) for k in r["counters"].get("sideBattles", {}))})
-    a["quest_players"], a["dungeon_players"], a["pvp_players"] = tried("quest"), tried("dungeon"), tried("pvp")
-    a["expedition_players"] = len({r["id"] for r in reports
-                                   if any(k.startswith("sent:") for k in r["counters"].get("expedition", {}))})
+    # Who has done quests / dungeons (Ian: listed by player id): from the fight
+    # counters in any report AND from their save (quest stages, dungeon clears).
+    quest_who = defaultdict(lambda: {"cleared": 0, "failed": 0, "abandoned": 0, "stages": 0, "last": ""})
+    dungeon_who = defaultdict(lambda: {"cleared": 0, "failed": 0, "unlocked": 0, "clears": 0, "last": ""})
+    for r in sorted(reports, key=lambda r: r.get("to", 0)):
+        pid, rc, s = r["id"], r.get("counters", {}), r.get("snapshot", {})
+        sb = rc.get("sideBattles", {})
+        q = {kind: sum(v for k, v in sb.items() if k.startswith("quest_" + kind)) for kind in ("cleared", "failed", "abandoned")}
+        d = {kind: sum(v for k, v in sb.items() if k.startswith("dungeon_" + kind)) for kind in ("cleared", "failed")}
+        stages = sum(int(v) for v in (s.get("quests") or {}).values())
+        dungeons = s.get("dungeons") or []
+        if any(q.values()) or stages:
+            w = quest_who[pid]
+            for kind in q:
+                w[kind] += q[kind]
+            w["stages"], w["last"] = max(w["stages"], stages), day_of(r)
+        if any(d.values()) or any(x[2] for x in dungeons):
+            w = dungeon_who[pid]
+            for kind in d:
+                w[kind] += d[kind]
+            w["unlocked"], w["clears"], w["last"] = max(w["unlocked"], len(dungeons)), max(w["clears"], sum(int(x[2]) for x in dungeons)), day_of(r)
+    a["quest_who"], a["dungeon_who"] = dict(quest_who), dict(dungeon_who)
+    a["quest_players"], a["dungeon_players"] = len(quest_who), len(dungeon_who)
+    # Ian: who took part, by player id -- from the counters in any report AND from
+    # what their save shows (an Arena record, an expedition out or explored),
+    # since a day's counters alone miss people whose activity was in an earlier report.
+    arena_who, exped_who = defaultdict(lambda: {"fights": 0, "won": 0, "lost": 0, "last": ""}), defaultdict(lambda: {"sent": 0, "collected": 0, "depth": 0, "last": ""})
+    for r in sorted(reports, key=lambda r: r.get("to", 0)):
+        rc, s, pid = r.get("counters", {}), r.get("snapshot", {}), r["id"]
+        won = sum(v for k, v in rc.get("sideBattles", {}).items() if k.startswith("pvp_won"))
+        lost = sum(v for k, v in rc.get("sideBattles", {}).items() if k.startswith("pvp_lost"))
+        rec = s.get("pvp") or {}
+        if won or lost or rc.get("features", {}).get("pvpSkip") or rec.get("w", 0) + rec.get("l", 0) > 0:
+            w = arena_who[pid]
+            w["won"], w["lost"] = max(w["won"], rec.get("w", 0)), max(w["lost"], rec.get("l", 0))   # lifetime record from the save
+            w["fights"] += won + lost
+            w["last"] = day_of(r)
+        ex = rc.get("expedition", {})
+        depth = max([int(v) for v in (s.get("expeditionDepth") or {}).values()] or [0])
+        if ex or s.get("expeditionsOut") or depth:
+            w = exped_who[pid]
+            w["sent"] += sum(v for k, v in ex.items() if k.startswith("sent:"))
+            w["collected"] += ex.get("collected", 0)
+            w["depth"] = max(w["depth"], depth)
+            w["last"] = day_of(r)
+    a["arena_who"], a["exped_who"] = dict(arena_who), dict(exped_who)
+    a["expedition_players"], a["pvp_players"] = len(exped_who), len(arena_who)
     a["pvp_record"] = [s.get("pvp", {}) for s in snaps]
 
     waves = defaultdict(lambda: [0.0, 0, 0, set()])
@@ -435,6 +783,11 @@ def analyse_fights(reports):
 CSS = """
 :root{--bg:#f7f4ee;--card:#fff;--ink:#2b2620;--dim:#7a7066;--bar:#c8963e;--good:#3f8f5a;--bad:#b4473c;--line:#e6dfd3}
 @media (prefers-color-scheme:dark){:root{--bg:#1d1a17;--card:#26221e;--ink:#eee6da;--dim:#a69b8d;--bar:#d6a24e;--good:#6cc08a;--bad:#e07a6e;--line:#3a342d}}
+header.top{position:sticky;top:0;z-index:30;background:var(--bg);margin:0 -16px;padding:10px 16px 8px;border-bottom:1px solid var(--line)}
+header.top h1{font-size:20px;display:inline-block;margin:0 10px 0 0}header.top .sub{display:inline-block;margin:0}
+header.top nav{margin:6px 0}header.top .kpis{grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}
+header.top .kpi{padding:5px 9px}header.top .kpi b{display:inline;font-size:16px;margin-right:6px}header.top .kpi span{font-size:12px}
+h2{scroll-margin-top:var(--top,150px)}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif}
 main{max-width:1150px;margin:0 auto;padding:20px 16px 60px}h1{margin:0 0 4px;font-size:26px}h2{margin:30px 0 10px;font-size:19px}
 nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}nav a{color:var(--ink);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:13px;background:var(--card)}
@@ -455,8 +808,64 @@ details.x[open]>summary{border-bottom:1px solid var(--line)}.xb{padding:12px;dis
 input.f{width:100%;max-width:320px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);margin:4px 0 8px}
 svg.spark{width:100%;max-width:120px;height:26px}svg.chart{width:100%;height:auto}.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--dim)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.has-tip{text-decoration:underline dotted color-mix(in srgb,var(--dim) 60%,transparent);text-underline-offset:3px;cursor:help}
+.tip{position:fixed;z-index:20;max-width:340px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.18);pointer-events:none;display:none}
+.tip b{display:block;font-size:13px;margin-bottom:2px}.tip div{color:var(--dim)}
+.xh span.s{cursor:pointer;user-select:none}.xh span.s:hover{color:var(--ink)}.xh span.s.on{color:var(--bar)}
+.menu{position:absolute;z-index:15;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:4px;display:none;min-width:190px}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;color:var(--ink);font:inherit;font-size:13px;padding:6px 10px;border-radius:6px;cursor:pointer}.menu button:hover{background:color-mix(in srgb,var(--bar) 15%,transparent)}
 @media (max-width:640px){details.x>summary,.xh{grid-template-columns:1.5fr 1fr 1fr 70px}details.x>summary span:nth-child(4),details.x>summary span:nth-child(5),.xh span:nth-child(4),.xh span:nth-child(5){display:none}}
 """
+
+SCRIPT = """
+const hd=document.getElementById('top'),setTop=()=>document.documentElement.style.setProperty('--top',(hd.offsetHeight+8)+'px');setTop();addEventListener('resize',setTop);
+const tip=document.createElement('div');tip.className='tip';document.body.append(tip);
+const h=s=>s.replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+// Action and unit names anywhere in a table, row heading or "A + B" pair get a hover card.
+for(const el of document.querySelectorAll('td, details.x>summary b')){
+  if(el.children.length)continue;
+  const t=el.textContent.trim();
+  if(TIPS[t]){el.classList.add('has-tip');el.dataset.tip=t;continue;}
+  for(const sep of [' + ',', ']){
+    const parts=t.split(sep);
+    if(parts.length>1&&parts.some(p=>TIPS[p])){
+      el.innerHTML=parts.map(p=>TIPS[p]?`<span class="has-tip" data-tip="${h(p)}">${h(p)}</span>`:h(p)).join(h(sep));break;}
+  }
+}
+document.addEventListener('mouseover',e=>{const t=e.target.closest('.has-tip');if(!t)return;
+  const L=TIPS[t.dataset.tip];tip.innerHTML='<b>'+h(L[0])+'</b>'+L.slice(1).map(x=>'<div>'+h(x)+'</div>').join('');tip.style.display='block';});
+document.addEventListener('mousemove',e=>{if(tip.style.display!=='block')return;
+  const x=Math.min(e.clientX+14,innerWidth-tip.offsetWidth-8),y=e.clientY+18+tip.offsetHeight>innerHeight?e.clientY-tip.offsetHeight-10:e.clientY+18;
+  tip.style.left=x+'px';tip.style.top=y+'px';});
+document.addEventListener('mouseout',e=>{if(e.target.closest('.has-tip'))tip.style.display='none';});
+// Ian: Excel-style sorting on the Actions/Units column headings.
+const menu=document.createElement('div');menu.className='menu';document.body.append(menu);
+const OPTS={t:[['Sort A → Z',1],['Sort Z → A',-1]],n:[['Sort largest to smallest',-1],['Sort smallest to largest',1]],
+  g:[['Rising most first',-1],['Falling most first',1]]};
+function sortBy(head,c,type,dir){
+  const box=head.parentNode.parentNode,rows=[...box.querySelectorAll(':scope>details.x')];
+  rows.sort((a,b)=>{
+    if(c==='i')return a.dataset.ki-b.dataset.ki;
+    const x=a.dataset['k'+c],y=b.dataset['k'+c];
+    if(x===''||y==='')return (x==='')-(y==='');
+    return type==='t'?dir*x.localeCompare(y):dir*(x-y);});
+  for(const r of rows)box.append(r);
+  for(const s of head.parentNode.children){s.classList.remove('on');s.textContent=s.textContent.replace(/ [▲▼]$/,'');}
+  if(c!=='i'){head.classList.add('on');head.textContent+=dir>0?' ▲':' ▼';}
+}
+document.addEventListener('click',e=>{
+  const head=e.target.closest('.xh span.s');
+  if(!head){if(!e.target.closest('.menu'))menu.style.display='none';return;}
+  const c=head.dataset.c,type=head.dataset.t;
+  menu.innerHTML='';
+  for(const [label,dir] of [...OPTS[type],['Original order',0]]){
+    const b=document.createElement('button');b.textContent=label;
+    b.onclick=()=>{sortBy(head,dir?c:'i',type,dir);menu.style.display='none';};menu.append(b);}
+  const r=head.getBoundingClientRect();menu.style.display='block';
+  menu.style.left=Math.min(r.left+scrollX,scrollX+innerWidth-menu.offsetWidth-8)+'px';menu.style.top=(r.bottom+scrollY+4)+'px';
+});
+"""
+
 
 PALETTE = ["#c8963e", "#3f8f5a", "#4a78b8", "#b4473c", "#8a5ab0", "#2a9a9a", "#c46aa0", "#7d7d3a"]
 
@@ -477,6 +886,13 @@ def pct(x, signed=False):
         cls = "good" if x > 0.005 else ("bad" if x < -0.005 else "")
         return f"<span class='{cls}'>{s}</span>"
     return s
+
+
+def stat_card(title, rows, note=""):
+    """A plain label/value card (values are text, so no bars)."""
+    body = "".join(f"<tr><td>{esc(k)}</td><td class='n'>{esc(v)}</td></tr>" for k, v in rows)
+    n = f'<div class="note">{esc(note)}</div>' if note else ""
+    return f'<div class="card"><h3>{esc(title)}</h3><table>{body}</table>{n}</div>'
 
 
 def bar_table(title, rows, cols=("", "Count"), note="", limit=25, raw=False):
@@ -617,28 +1033,33 @@ def speed_text(vals):
 
 
 def explorer(a, kind, keys, label):
-    """Click-to-expand rows (native <details>, no script needed)."""
+    """Click-to-expand rows (native <details>). Ian: clicking a column
+    heading offers Excel-style sorting (A-Z, largest first, ...); each row
+    carries its sort values as data-k0..k5 (empty = no value, sorted last)."""
     wins = a["win_actions" if kind == "action" else "win_units"]
     days = a["days"]
+    heads = [("Action" if kind == "action" else "Unit", "t"), ("Uses" if kind == "action" else "Owners", "n"),
+             ("Equipped by" if kind == "action" else "Fielded", "n"), ("Win rate", "n"), ("vs average", "n"), ("Trend", "g")]
     out = [f"<input class='f' placeholder='Filter {kind}s…' oninput=\"for(const d of this.parentNode.querySelectorAll('details.x'))d.style.display=d.dataset.n.includes(this.value.toLowerCase())?'':'none'\">",
-           "<div class='xh'><span>" + ("Action" if kind == "action" else "Unit") + "</span><span>" +
-           ("Uses" if kind == "action" else "Owners") + "</span><span>" + ("Equipped by" if kind == "action" else "Fielded") +
-           "</span><span>Win rate</span><span>vs average</span><span>Trend</span></div>"]
-    for k in keys:
+           "<div class='xh'>" + "".join(f"<span class='s' data-c='{i}' data-t='{t}' title='Sort'>{esc(h)}</span>"
+                                       for i, (h, t) in enumerate(heads)) + "</div>"]
+    for i, k in enumerate(keys):
         w = wins[None][0].get(k)
         wr = pct(w[3]) if w and w[2] else "–"
         lift = pct(w[4], True) if w and w[2] >= MIN_FIGHTS else "<span class='note'>few fights</span>"
         if kind == "action":
-            uses = a["c"]["actionUse"].get(k, 0)
-            col2, col3 = fmt(uses), fmt(a["action_equipped"].get(k, 0))
-            trend = spark([a["day_c"][d]["actionUse"].get(k, 0) / max(1, sum(a["day_c"][d]["actionUse"].values())) for d in days])
+            n2, n3 = a["c"]["actionUse"].get(k, 0), a["action_equipped"].get(k, 0)
+            shares = [a["day_c"][d]["actionUse"].get(k, 0) / max(1, sum(a["day_c"][d]["actionUse"].values())) for d in days]
         else:
-            col2, col3 = fmt(a["owned"].get(k, 0)), fmt(a["fielded"].get(k, 0))
-            trend = spark([a["day_c"][d]["partyWaves"].get(k, 0) / max(1, sum(a["day_c"][d]["partyWaves"].values())) for d in days])
+            n2, n3 = a["owned"].get(k, 0), a["fielded"].get(k, 0)
+            shares = [a["day_c"][d]["partyWaves"].get(k, 0) / max(1, sum(a["day_c"][d]["partyWaves"].values())) for d in days]
         name = label(k)
+        sort_vals = [name, n2, n3, w[3] if w and w[2] else "", w[4] if w and w[2] >= MIN_FIGHTS else "",
+                     shares[-1] - shares[0] if len(shares) > 1 else ""]
+        data = "".join(f" data-k{j}='{esc(v)}'" for j, v in enumerate(sort_vals))
         body = explorer_body(a, kind, k, label)
-        out.append(f"<details class='x' data-n='{esc(name.lower())}'><summary><span><b>{esc(name)}</b></span><span>{col2}</span>"
-                   f"<span>{col3}</span><span>{wr}</span><span>{lift}</span><span>{trend}</span></summary><div class='xb'>{body}</div></details>")
+        out.append(f"<details class='x' data-n='{esc(name.lower())}' data-ki='{i}'{data}><summary><span><b>{esc(name)}</b></span><span>{fmt(n2)}</span>"
+                   f"<span>{fmt(n3)}</span><span>{wr}</span><span>{lift}</span><span>{spark(shares)}</span></summary><div class='xb'>{body}</div></details>")
     return "".join(out)
 
 
@@ -703,7 +1124,7 @@ def explorer_body(a, kind, k, label):
         P.append(bar_table("Evade / crit steps held (average per owner)", [(STAT_NAMES.get(x, x), v / n) for x, v in a["unit_pct"][k].most_common()], ("Stat", "Steps")))
         P.append(bar_table("Actions in its loadout", ranked(a["unit_actions"][k], act), ("Action", "Players"), limit=10))
         P.append(bar_table("Gambit conditions in its loadout", ranked(a["unit_conds"][k], cond), ("Condition", "Players"), limit=10))
-        P.append(bar_table("Gear worn", ranked(a["unit_gear"][k]), ("Item", "Players"), limit=10))
+        P.append(bar_table("Gear worn", ranked(a["unit_gear"][k], lambda g: EQUIPMENT.get(g, {}).get("name", g)), ("Item", "Players"), limit=10))
         fx = a["fx"]
         if fx["n"]:
             fell, fought = fx["unit_fall"].get(k, [0, 0])
@@ -773,14 +1194,17 @@ def build_html(a):
     unit = lambda k: a["units"].get(k, k)
     cond = lambda k: a["conds"].get(k, k)
     np = max(1, a["n_players"])
+    names_ = a.get("names", {})
+    who = lambda pid: f"{pid} ({names_[pid]})" if pid in names_ else pid   # Arena players' Main Character names
     med = lambda xs: statistics.median(xs) if xs else 0
     c = a["c"]
     days = a["days"]
     P = []
+    P.append("<header class='top' id='top'>")
     P.append(f"<h1>Farroad gameplay stats</h1><div class='sub'>{a['n_players']} players · {a['n_reports']} daily reports · "
              f"{esc(days[0]) if days else ''} to {esc(days[-1]) if days else ''} · built {datetime.now():%Y-%m-%d %H:%M}</div>")
     P.append("<nav>" + "".join(f"<a href='#{i}'>{t}</a>" for i, t in [
-        ("players", "Players"), ("trends", "Trends"), ("wins", "Wins"), ("actions", "Actions"), ("units", "Units"),
+        ("players", "Players"), ("trends", "Trends"), ("wins", "Wins"), ("actions", "Actions"), ("units", "Units"), ("mc", "Main Character"),
         ("gambits", "Gambits"), ("spending", "Spending"), ("quests", "Quests & dungeons"), ("arena", "Arena"),
         ("expeditions", "Expeditions"), ("fights", "Fights"), ("waves", "Waves"), ("tutorials", "Tutorials")]) + "</nav>")
     hours = a["minutes"] / 60
@@ -788,6 +1212,8 @@ def build_html(a):
         ("players", a["n_players"]), ("hours played", fmt(hours)), ("sessions", fmt(a["sessions"])),
         ("median farthest wave", fmt(med(a["farthest"]))), ("median party Power", fmt(med(a["power"]))),
         ("time at 2x speed", f"{100 * a['fast_minutes'] / max(1, a['minutes']):.0f}%")]) + "</div>")
+
+    P.append("</header>")
 
     P.append("<h2 id='players'>Players</h2><div class='grid'>")
     buckets = Counter((f - 1) // 20 * 20 + 1 for f in a["farthest"])
@@ -832,8 +1258,19 @@ def build_html(a):
     P.append("<h2 id='units'>Units</h2><div class='note'>Click a unit for its win rates, investment, loadouts and trend.</div>")
     keys = sorted(set(a["owned"]) | set(c["partyWaves"]), key=lambda k: -c["partyWaves"].get(k, 0))
     P.append(f"<div>{explorer(a, 'unit', keys, unit)}</div>")
-    P.append("<div class='grid' style='margin-top:12px'>")
-    P.append(bar_table("Main character's charge action", ranked(a["mc_charge"], act), ("Action", "Players")))
+    # Ian: compare Main Character archetypes (strongest element + role from its stat picks).
+    P.append("<h2 id='mc'>Main Character archetypes</h2><div class='note'>Each player's Main Character, by title: "
+             "its strongest element (base, bought and from gear) plus the role from its two highest stats at level 100. "
+             "Hover an archetype for its usual stats, actions and partners.</div><div class='grid'>")
+    rows = []
+    for arch, d in sorted(a["mc_detail"].items(), key=lambda kv: -kv[1]["players"]):
+        n = d["win"] + d["loss"]
+        rows.append((arch, d["players"], fmt(med(d["farthest"])), fmt(med(d["power"])),
+                     pct(d["win"] / n) if n else "–", fmt(n), act(d["charge"].most_common(1)[0][0]) if d["charge"] else "–"))
+    P.append(bar_table("Archetypes", rows, ("Archetype", "Players", "Median farthest wave", "Median Power", "Win rate",
+                                            "Fights", "Top charge action"), raw=True, limit=60,
+                       note="Win rate covers every fight those players reported, so it also reflects the rest of their party."))
+    P.append(bar_table("Main Character's charge action", ranked(a["mc_charge"], act), ("Action", "Players")))
     P.append("</div>")
 
     P.append("<h2 id='gambits'>Gambits</h2><div class='grid'>")
@@ -858,8 +1295,21 @@ def build_html(a):
         n = sum(sum(v.values()) for k, v in a["side"].items() if k.startswith(kind))
         return a["side_seconds"].get(kind, 0) / max(1, n)
     P.append("<h2 id='quests'>Quests and dungeons</h2><div class='grid'>")
-    P.append(bar_table("Players who tried them", [("Quests", a["quest_players"], f"{100 * a['quest_players'] / np:.0f}%"),
-        ("Dungeons", a["dungeon_players"], f"{100 * a['dungeon_players'] / np:.0f}%")], ("", "Players", "Share")))
+    P.append(stat_card("Quest and dungeon participation", [
+        ("Players who have done quests", a["quest_players"]),
+        ("Share of all players (quests)", f"{100 * a['quest_players'] / np:.0f}%  ({a['quest_players']} of {a['n_players']})"),
+        ("Players who have done dungeons", a["dungeon_players"]),
+        ("Share of all players (dungeons)", f"{100 * a['dungeon_players'] / np:.0f}%  ({a['dungeon_players']} of {a['n_players']})")]))
+    P.append(bar_table("Players who did quests",
+                       [(who(pid), int(w["stages"]), int(w["cleared"]), int(w["failed"]), int(w["abandoned"]), w["last"])
+                        for pid, w in sorted(a["quest_who"].items(), key=lambda kv: -kv[1]["stages"])],
+                       ("Player", "Stages cleared", "Cleared (period)", "Failed (period)", "Gave up (period)", "Last seen"), raw=True,
+                       note="Stages cleared is total quest progress from their save; the rest count fights in these reports."))
+    P.append(bar_table("Players who did dungeons",
+                       [(who(pid), int(w["clears"]), int(w["unlocked"]), int(w["cleared"]), int(w["failed"]), w["last"])
+                        for pid, w in sorted(a["dungeon_who"].items(), key=lambda kv: -kv[1]["clears"])],
+                       ("Player", "Total clears", "Dungeons unlocked", "Cleared (period)", "Failed (period)", "Last seen"), raw=True,
+                       note="Total clears and dungeons unlocked are from their save; the rest count fights in these reports."))
     P.append(bar_table("Results", side_rows("quest") + side_rows("dungeon"), ("Result", "Fights"),
                        note=f"Average fight: quests {fight_secs('quest'):.0f}s, dungeons {fight_secs('dungeon'):.0f}s."))
     P.append(bar_table("Quest stages reached (per owned unit)", [(f"stage {k}", v) for k, v in sorted(a["quest_stage"].items())], ("Stage", "Units")))
@@ -872,8 +1322,14 @@ def build_html(a):
     P.append("<h2 id='arena'>Arena</h2><div class='grid'>")
     won, lost = a["side"].get("pvp_won", Counter()), a["side"].get("pvp_lost", Counter())
     rivals = sorted(set(won) | set(lost), key=lambda k: -(won[k] + lost[k]))
-    P.append(bar_table("Players who fought", [("Arena", a["pvp_players"], f"{100 * a['pvp_players'] / np:.0f}%")], ("", "Players", "Share"),
+    P.append(stat_card("Arena participation", [("Players who have fought", a["pvp_players"]),
+                       ("Share of all players", f"{100 * a['pvp_players'] / np:.0f}%  ({a['pvp_players']} of {a['n_players']})")],
                        note=f"Average fight {fight_secs('pvp'):.0f}s · {fmt(c['features'].get('pvpSkip', 0))} fights skipped."))
+    P.append(bar_table("Players who fought in the Arena",
+                       [(who(pid), w["won"] + w["lost"], w["won"], w["lost"], f"{100 * w['won'] / max(1, w['won'] + w['lost']):.0f}%", w["last"])
+                        for pid, w in sorted(a["arena_who"].items(), key=lambda kv: -(kv[1]["won"] + kv[1]["lost"]))],
+                       ("Player", "Fights", "Won", "Lost", "Win rate", "Last seen"), raw=True,
+                       note="Player ids; the name is the Main Character's name from the Arena server, where there is one. Record is each player's lifetime Arena record from their save."))
     P.append(bar_table("Results by opponent", [(("Shared code" if k == "code" else k.capitalize()), won[k] + lost[k], won[k], lost[k],
                        f"{100 * won[k] / max(1, won[k] + lost[k]):.0f}%") for k in rivals], ("Opponent", "Fights", "Won", "Lost", "Win rate")))
     P.append(win_rank_tables(a, "Units", "pvp", unit))
@@ -882,7 +1338,13 @@ def build_html(a):
 
     P.append("<h2 id='expeditions'>Expeditions</h2><div class='grid'>")
     e = c["expedition"]
-    P.append(bar_table("Players who sent one", [("Expeditions", a["expedition_players"], f"{100 * a['expedition_players'] / np:.0f}%")], ("", "Players", "Share")))
+    P.append(stat_card("Expedition participation", [("Players who have used expeditions", a["expedition_players"]),
+                       ("Share of all players", f"{100 * a['expedition_players'] / np:.0f}%  ({a['expedition_players']} of {a['n_players']})")]))
+    P.append(bar_table("Players who used expeditions",
+                       [(who(pid), int(w["sent"]), int(w["collected"]), w["depth"] or "–", w["last"])
+                        for pid, w in sorted(a["exped_who"].items(), key=lambda kv: -kv[1]["sent"])],
+                       ("Player", "Sent", "Collected", "Deepest wave", "Last seen"), raw=True,
+                       note="Sent and collected count only what the reports in this period recorded; deepest wave is from their save."))
     P.append(bar_table("Directions sent", [(k[5:], v) for k, v in e.most_common() if k.startswith("sent:")], ("Direction", "Sent")))
     P.append(bar_table("Party size", [(k[5:], v) for k, v in sorted(e.items()) if k.startswith("size:")], ("Units", "Sent")))
     P.append(bar_table("Outcomes", [(k, v) for k, v in e.most_common() if ":" not in k], ("", "Total")))
@@ -916,8 +1378,10 @@ def build_html(a):
     P.append(bar_table("Tutorials", [(k, v[0], v[1], f"{100 * v[1] / max(1, sum(v)):.0f}%") for k, v in sorted(tut.items(), key=lambda kv: -sum(kv[1]))], ("Tutorial", "Done", "Skipped", "Skip rate")))
     P.append(bar_table("Features used", ranked(c["features"]), ("Feature", "Times")))
     P.append("</div>")
+    tips_json = json.dumps(tips(a)).replace("</", "<\\/")
     return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            f"<title>Farroad Stats</title><style>{CSS}</style></head><body><main>{''.join(P)}</main></body></html>")
+            f"<title>Farroad Stats</title><style>{CSS}</style></head><body><main>{''.join(P)}</main>"
+            f"<script>const TIPS={tips_json};{SCRIPT}</script></body></html>")
 
 
 def main():
@@ -936,6 +1400,8 @@ def main():
     if not reports:
         sys.exit("No reports to read yet.")
     a = analyse(reports)
+    # names for Arena players only, from the Arena server (see refresh_arena_names)
+    a["names"] = load_arena_names() if (args.no_fetch or args.from_file) else refresh_arena_names(set(a["arena_who"]))
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(build_html(a))
     print(f"{len(reports)} reports from {a['n_players']} players -> {args.out}")
