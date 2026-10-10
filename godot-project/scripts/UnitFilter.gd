@@ -32,10 +32,9 @@ static func focus_of(uid: String) -> String:
 		return "magic"
 	return "hybrid"
 
-static func controls(on_change: Callable) -> HFlowContainer:
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 4)
+static func controls(on_change: Callable) -> HBoxContainer:
+	var row := HBoxContainer.new()   # one line (Ian)
+	row.add_theme_constant_override("separation", 6)
 	row.add_child(ActionFilter.dropdown(FOCUS_OPTIONS, focus, func(v):
 		focus = v
 		on_change.call()))

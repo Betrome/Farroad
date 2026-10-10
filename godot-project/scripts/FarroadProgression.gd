@@ -1225,11 +1225,16 @@ static func auto_equip(g: Dictionary) -> void:
 ## the real b={units:units,...} in farroad-core.js), so mutating the one
 ## found here is already enough -- no separate g["battle"] touch needed.
 static func sync_loadout(g: Dictionary, uid: String) -> void:
-	if g.get("units") == null:
-		return
-	for u in g["units"]:
-		if u["id"] == uid:
-			u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
+	if g.get("units") != null:
+		for u in g["units"]:
+			if u["id"] == uid:
+				u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
+	# Ian: edit a gambit while training and see it take effect -- a side fight
+	# (training, quest...) has its own copies of the party's units.
+	if g.get("sideBattle") != null and g.get("battle") != null:
+		for u in g["battle"]["units"]:
+			if u["id"] == uid and u["isParty"]:
+				u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
 
 ## Group J (20-item batch): a first-pass heuristic auto-builder for a
 ## unit's loadout, new Godot-only feature (no real-JS equivalent to
@@ -3373,8 +3378,105 @@ static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Di
 		g["battle"]["healDecay"] = PvP.HEAL_DECAY   # healing shrinks as enrage rises
 		g["battle"]["enrageAfter"] = PvP.ENRAGE_AFTER
 		g["battle"]["enragePct"] = PvP.ENRAGE_PCT
+	if meta.get("kind") == "training":   # no enrage, and the loop has no beat cap
+		g["battle"]["enrage"] = false
+		g["battle"]["training"] = true
 	g["sideBattle"] = {"savedWave": saved_wave, "wave": wave, "meta": meta}
 	return true
+
+## ===== Training (Ian): test gambits on dummies =====
+## Up to 10 dummies, each its own settings: which enemy it is (the plain
+## dummy, or any enemy the player has met), a level (it is scaled like that
+## wave), a multiplier per stat, an affinity per element, statuses held for
+## the whole fight, whether it fights back, whether it can be defeated and
+## what share of HP it starts with. Nothing from a training fight counts
+## (no rewards, no stats, no effect on the Road).
+const TRAINING_MAX := 10
+const TRAINING_STATS: Array[String] = ["hp", "atk", "mag", "def", "res", "spd"]
+const TRAINING_STATUSES: Array[String] = ["poisoned", "burning", "blinded", "slowed", "confused",
+	"sundered", "frail", "enfeebled", "dulled", "exposed", "hasted", "warded", "regen", "taunted"]
+const TRAINING_AFFINITY_STEP := 15.0   # "weak" / "strong" on an affinity = -15 / +15, like the elemental enemies
+
+static func training_new_dummy(level: int) -> Dictionary:
+	var mods := {}
+	for k in TRAINING_STATS:
+		mods[k] = 1.0
+	return {"arch": "", "level": maxi(1, level), "mods": mods, "affinity": {}, "statuses": [],
+		"immortal": true, "passive": true, "hpPct": 100}
+
+## The saved setup (kept in the save so it is the same next time).
+static func training_setup(g: Dictionary) -> Dictionary:
+	var t = g.get("trainingSetup")
+	if not (t is Dictionary) or not (t.get("dummies") is Array) or (t["dummies"] as Array).size() != TRAINING_MAX:
+		var ds: Array = []
+		for i in TRAINING_MAX:
+			ds.append(training_new_dummy(int(g.get("wave", 1))))
+		t = {"count": 1, "selected": 0, "dummies": ds}
+		g["trainingSetup"] = t
+	return t
+
+## Enemies the player has met, as [key, name] sorted by name.
+static func training_met_enemies(g: Dictionary) -> Array:
+	var out: Array = []
+	for key in (g.get("seenArch", {}) as Dictionary).keys():
+		if FarroadCore.ARCH.has(key):
+			out.append([key, str(FarroadCore.ARCH[key]["name"])])
+	out.sort_custom(func(a, b): return a[1] < b[1])
+	return out
+
+static func build_training_unit(g: Dictionary, spec: Dictionary, i: int) -> Dictionary:
+	var key: String = str(spec.get("arch", ""))
+	if key == "" or not FarroadCore.ARCH.has(key):
+		key = "wolf"
+	var a: Dictionary = FarroadCore.ARCH[key]
+	var w: int = clampi(int(spec.get("level", 1)), 1, 5000)
+	var saved_wave: int = FarroadCore.current_wave
+	FarroadCore.set_wave(w)
+	var s: float = FarroadCore.wave_scale(w)
+	var hard: float = hard_mul(w)
+	var tut: float = tutorial_atk_mag_mul(w)
+	var hard_atk: float = pow(hard, HARD_ATK_EXP)
+	var hard_def: float = pow(hard, HARD_DEF_EXP)
+	var m: Dictionary = spec.get("mods", {})
+	var hp_base: float = 200.0 * a["hpMul"] * FarroadCore.dmg_taken_mul(a) * s * DIFFICULTY * sqrt(hard) * tut
+	var passive: bool = bool(spec.get("passive", true))
+	var dummy: bool = str(spec.get("arch", "")) == ""
+	var u := FarroadCore.make_unit({
+		"id": "e%d" % i,
+		"name": ("Training Dummy" if dummy else str(a["name"])) + " %d" % (i + 1),
+		"isParty": false, "level": 1, "slotIndex": 10 + i, "arch": key,
+		"thorns": 0 if dummy else a.get("thorns", 0), "isBoss": false, "row": "front" if i < 5 else "back",
+		"stats": {
+			"hp": maxf(8, round(hp_base * float(m.get("hp", 1.0)))),
+			"atk": maxf(1, round(a["atk"] * s * DIFFICULTY * hard_atk * tut * float(m.get("atk", 1.0)))),
+			"mag": maxf(1, round(a.get("mag", 8) * s * DIFFICULTY * hard_atk * tut * float(m.get("mag", 1.0)))),
+			"def": maxf(0, round(a["def"] * s * hard_def * float(m.get("def", 1.0)))),
+			"res": maxf(0, round(a["res"] * s * hard_def * float(m.get("res", 1.0)))),
+			"spd": maxf(1, round(a["spd"] * sqrt(s) * hard_def * float(m.get("spd", 1.0)))),
+			"atkCrit": minf(FarroadCore.CAP_CRIT, a["atkCrit"] * sqrt(s)),
+			"magCrit": minf(FarroadCore.CAP_CRIT, a.get("magCrit", 0.04) * sqrt(s)),
+			"chargeRate": 1.0, "evade": 0.0 if dummy else a["evade"]},
+		"chargeAction": null if passive else a.get("chargeAction"),
+		"affinity": FarroadCore.default_affinity() if dummy else a["affinity"],
+		"slots": [{"cond": "none", "action": "wait"}, {"cond": "none", "action": "wait"}] if passive \
+			else a["slots"].map(func(sl): return {"cond": sl["cond"], "action": sl["action"]})})
+	FarroadCore.set_wave(saved_wave)
+	for ax in (spec.get("affinity", {}) as Dictionary).keys():
+		u["affinity"][ax] = float(spec["affinity"][ax])
+	for st in spec.get("statuses", []):
+		FarroadCore.apply_status(u, str(st), 999, 0.0)
+	if bool(spec.get("immortal", true)):
+		u["immortal"] = true
+	u["hp"] = maxf(1.0, round(float(u["maxHp"]) * float(spec.get("hpPct", 100)) / 100.0))
+	return u
+
+## Starts the training fight (the party at full HP against the dummies).
+static func training_enemies(g: Dictionary) -> Array:
+	var t := training_setup(g)
+	var out: Array = []
+	for i in int(t["count"]):
+		out.append(build_training_unit(g, t["dummies"][i], i))
+	return out
 
 ## Mirrors finishSideBattle (farroad-ui.js:1476-1618), minus the superboss
 ## branch (out of scope) and all pushDrop/sysLog text -- returns a plain
@@ -3398,7 +3500,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	# Stats page: counted here, before g["battle"] is swapped back to the
 	# Road -- covers every dungeon wave (each one resolves through this
 	# function) and a quest stage's single fight alike.
-	if result == "party" and not gave_up and meta["kind"] != "pvp":
+	if result == "party" and not gave_up and meta["kind"] != "pvp" and meta["kind"] != "training":
 		var foes: int = 0
 		for u in g["battle"]["units"]:
 			if not u["isParty"]:
@@ -3424,6 +3526,8 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	g["roadBattle"] = null
 	g["sideBattle"] = null
 
+	if meta["kind"] == "training":
+		return {"kind": "training_done"}
 	if meta["kind"] == "pvp" and meta.get("ranked", false):
 		# the server already decided this fight; the replay just showed it
 		Ranked.end_battle(g.get("bonuses", {}))

@@ -322,7 +322,7 @@ func _refresh_card() -> void:
 	# price (no more "costs one more than its last" triangular scaling).
 	var free := FarroadProgression.free_lore(g, aid)
 	card_container.add_child(_rich_line(
-		"[b][color=#75578f]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
+		"[b][color=#c3a7e3]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var box := VBoxContainer.new()
@@ -334,7 +334,7 @@ func _refresh_card() -> void:
 
 	var summary := _bonus_total_summary(aid)
 	if summary != "":
-		box.add_child(_rich_line("[font_size=12][color=#75578f]Lore total: %s[/color][/font_size]" % summary))
+		box.add_child(_rich_line("[font_size=12][color=#c3a7e3]Lore total: %s[/color][/font_size]" % summary))
 	card_container.add_child(box)
 
 	# v2.4: show ONLY bonuses that can do something to this action --
@@ -359,8 +359,8 @@ func _refresh_card() -> void:
 		var price: int = FarroadCore.bonus_price(act, bid, total_on_action)
 		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 0)
-		row.add_child(_rich_line("[b]%s[/b] [color=#bd6b14]%d Lore[/color]" % [info["n"], price]))
-		row.add_child(_rich_line("[font_size=12][color=#786147]%s[/color][/font_size]" % info["d"]))
+		row.add_child(_rich_line("[b]%s[/b] [color=#e4a83f]%d Lore[/color]" % [info["n"], price]))
+		row.add_child(_rich_line("[font_size=12][color=#b9b3a3]%s[/color][/font_size]" % info["d"]))
 		var ctl := HBoxContainer.new()
 		ctl.add_theme_constant_override("separation", 10)
 		var minus_btn := Button.new()
@@ -382,7 +382,7 @@ func _refresh_card() -> void:
 	card_container.add_child(bonus_list)
 
 	card_container.add_child(_rich_line(
-		"[font_size=11][color=#786147]%d of %d upgrades apply to this action; the rest would do nothing.[/color][/font_size]" % [
+		"[font_size=11][color=#b9b3a3]%d of %d upgrades apply to this action; the rest would do nothing.[/color][/font_size]" % [
 			live_bids.size(), FarroadCore.BONUSES.size()]))
 
 func _on_action_selected(aid: String) -> void:
@@ -408,9 +408,8 @@ func _open_unequipped_picker(candidate_ids: Array) -> void:
 func _populate_unequipped_picker(list_container: Container, backdrop: Node, candidate_ids: Array) -> void:
 	for c in list_container.get_children():
 		c.queue_free()
-	var filter_row := HFlowContainer.new()
-	filter_row.add_theme_constant_override("h_separation", 6)
-	filter_row.add_theme_constant_override("v_separation", 6)
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", 6)
 	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v):
 		action_filter_target = v
 		_populate_unequipped_picker(list_container, backdrop, candidate_ids)))
@@ -458,7 +457,7 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 		if entry[0] == current_value:
 			opt.select(idx)
 	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
-	return opt
+	return UiKit.compact_dropdown(opt)
 
 func _on_buy_bonus(aid: String, bid: String) -> void:
 	FarroadProgression.buy_bonus(g, aid, bid)

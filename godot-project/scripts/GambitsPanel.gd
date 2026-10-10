@@ -158,7 +158,7 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 		if entry[0] == current_value:
 			opt.select(idx)
 	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
-	return opt
+	return UiKit.compact_dropdown(opt)
 
 ## Mirrors buildGambits' per-slot condition/action <select> pair
 ## (farroad-ui.js:2791-2840) plus the ▲/▼ reorder buttons.
@@ -180,6 +180,13 @@ func _build_auto_set_row() -> void:
 	btn.text = "Auto-set"
 	btn.pressed.connect(_on_auto_set_pressed)
 	row.add_child(btn)
+	# Ian: test the gambits against training dummies (the same screen as the Quests tab's)
+	var test_btn := Button.new()
+	test_btn.text = "Test"
+	test_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_open_training"):
+			_parent.call("_open_training"))
+	row.add_child(test_btn)
 	# one header block (auto-set + saved sets) so the slot cards below keep
 	# the same child offset
 	var head := VBoxContainer.new()
@@ -391,9 +398,8 @@ func _open_action_picker(i: int, current_action: String) -> void:
 func _populate_action_picker(list_container: Container, backdrop: Node, i: int, current_action: String) -> void:
 	for c in list_container.get_children():
 		c.queue_free()
-	var filter_row := HFlowContainer.new()
-	filter_row.add_theme_constant_override("h_separation", 6)
-	filter_row.add_theme_constant_override("v_separation", 4)
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", 6)
 	var lbl := Label.new()
 	lbl.text = "Filter:"
 	lbl.modulate = Palette.TEXT_DIM
@@ -454,9 +460,8 @@ func _open_charge_picker(acquired: Array, current: String) -> void:
 func _populate_charge_picker(list_container: Container, backdrop: Node, acquired: Array, current: String) -> void:
 	for c in list_container.get_children():
 		c.queue_free()
-	var filter_row := HFlowContainer.new()
-	filter_row.add_theme_constant_override("h_separation", 6)
-	filter_row.add_theme_constant_override("v_separation", 4)
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", 6)
 	var lbl := Label.new()
 	lbl.text = "Filter:"
 	lbl.modulate = Palette.TEXT_DIM

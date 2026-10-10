@@ -211,10 +211,9 @@ var f_rarity := "any"
 var f_group := "any"
 var f_slot := "any"
 
-func _filter_row(dropdowns: Array) -> HFlowContainer:
-	var row := HFlowContainer.new()
-	row.add_theme_constant_override("h_separation", 6)
-	row.add_theme_constant_override("v_separation", 6)
+func _filter_row(dropdowns: Array) -> HBoxContainer:
+	var row := HBoxContainer.new()   # one line (Ian)
+	row.add_theme_constant_override("separation", 6)
 	for d in dropdowns:
 		row.add_child(d)
 	list_container.add_child(row)

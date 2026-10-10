@@ -260,10 +260,12 @@ static func _load_sprite_frames(path: String) -> SpriteFrames:
 	_sprite_frames_cache[path] = false
 	return null
 
-var _hp_bg: ColorRect
-var _hp_fg: ColorRect
-var _charge_bg: ColorRect
-var _charge_fg: ColorRect
+var _hp_bar: UiBar
+var _charge_bar: UiBar
+var _hp_bg: Control        # aliases of the two bars, so show/hide/fade code stays as is
+var _hp_fg: Control
+var _charge_bg: Control
+var _charge_fg: Control
 var _click_area: Area2D
 var _name_label: Label
 
@@ -297,8 +299,8 @@ func _build(unit_size: float) -> void:
 	_chrome = Node2D.new()
 	add_child(_chrome)
 	var half := size / 2.0
-	var bar_h: float = max(4.0, size * 0.12)
-	var charge_h: float = max(2.0, bar_h * 0.5)
+	var bar_h: float = max(9.0, size * 0.2)
+	var charge_h: float = max(4.0, bar_h * 0.6)
 	# Group I (20-item batch): tightened from the original bar_h-sized gaps
 	# (the bar's own height doubling as the gap between it and the next
 	# element) to a small, consistent gap -- shrinks each unit's total
@@ -377,33 +379,28 @@ func _build(unit_size: float) -> void:
 			_boss_ring.z_index = -1
 			shape.add_child(_boss_ring)
 
-	_hp_bg = ColorRect.new()
-	_hp_bg.size = Vector2(size, bar_h)
-	_hp_bg.position = Vector2(-half, half + gap)
-	_hp_bg.color = Color(0.18, 0.18, 0.18)
-	_chrome.add_child(_hp_bg)
-
-	_hp_fg = ColorRect.new()
-	_hp_fg.size = Vector2(size, bar_h)
-	_hp_fg.position = _hp_bg.position
-	_hp_fg.color = Color(0.25, 0.85, 0.30)
-	_chrome.add_child(_hp_fg)
+	# The UI kit's bars (UiBar): recessed trough, lit fill, a pale "recent damage"
+	# segment on a hit; HP turns green -> yellow -> red, charge is orange with
+	# stepped ticks.
+	_hp_bar = UiBar.new(UiKit.HP_GOOD, true)
+	_hp_bar.custom_minimum_size = Vector2.ZERO
+	_hp_bar.size = Vector2(size, bar_h)
+	_hp_bar.position = Vector2(-half, half + gap)
+	_chrome.add_child(_hp_bar)
+	_hp_bg = _hp_bar
+	_hp_fg = _hp_bar
 
 	# Thin charge bar, directly below the HP bar -- fills toward whichever
 	# charge action the unit itself has (costOfCharge), or the generic
 	# CHARGE_FULL if it has none, so it never visually overflows past full.
-	var charge_y: float = _hp_bg.position.y + bar_h + gap
-	_charge_bg = ColorRect.new()
-	_charge_bg.size = Vector2(size, charge_h)
-	_charge_bg.position = Vector2(-half, charge_y)
-	_charge_bg.color = Color(0.15, 0.15, 0.19)
-	_chrome.add_child(_charge_bg)
-
-	_charge_fg = ColorRect.new()
-	_charge_fg.size = Vector2(0, charge_h)
-	_charge_fg.position = Vector2(-half, charge_y)
-	_charge_fg.color = Color(0.85, 0.7, 0.15)
-	_chrome.add_child(_charge_fg)
+	var charge_y: float = _hp_bar.position.y + bar_h + gap
+	_charge_bar = UiBar.new(UiKit.CHARGE, false, 4)
+	_charge_bar.custom_minimum_size = Vector2.ZERO
+	_charge_bar.size = Vector2(size, charge_h)
+	_charge_bar.position = Vector2(-half, charge_y)
+	_chrome.add_child(_charge_bar)
+	_charge_bg = _charge_bar
+	_charge_fg = _charge_bar
 
 	# Group I: "space out units vertically so names aren't overlapping. Put
 	# names under the charge bar." -- moved from above the shape (its old
@@ -411,7 +408,12 @@ func _build(unit_size: float) -> void:
 	_name_label = Label.new()
 	_name_label.text = unit["name"]
 	_name_label.position = Vector2(-half, charge_y + charge_h + gap)
-	_name_label.add_theme_font_size_override("font_size", int(size * 0.25))
+	_name_label.add_theme_font_size_override("font_size", int(size * 0.36))
+	# Ian: names get an outline. The names sit on the pale sky, so light text with a
+	# thin black outline (thick outlines fill in the letters at this size).
+	_name_label.add_theme_color_override("font_color", Palette.TEXT_INK)
+	_name_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_name_label.add_theme_constant_override("outline_size", 2)
 	_chrome.add_child(_name_label)
 
 	# Tap/click target -- a plain rectangle covering the shape's own bounds
@@ -612,9 +614,7 @@ func update_name(new_name: String) -> void:
 ## in place, so this always reflects the live value, no separate sync needed.
 func update_hp() -> void:
 	var frac: float = clamp(float(unit["hp"]) / float(unit["maxHp"]), 0.0, 1.0)
-	var bar_h: float = _hp_bg.size.y
-	_hp_fg.size = Vector2(size * frac, bar_h)
-	_hp_fg.color = Color(0.25, 0.85, 0.30) if frac > 0.3 else Color(0.90, 0.70, 0.15) if frac > 0.0 else Color(0.5, 0.1, 0.1)
+	_hp_bar.set_frac(frac)
 	if frac <= 0.0:
 		if not _played_dead_state:
 			_played_dead_state = true
@@ -666,7 +666,7 @@ func update_charge() -> void:
 	var act = FarroadCore.ACTIONS.get(unit["chargeAction"])
 	var max_charge: float = FarroadCore.cost_of_charge(act)
 	var frac: float = clamp(float(unit.get("charge", 0.0)) / max_charge, 0.0, 1.0)
-	_charge_fg.size = Vector2(size * frac, _charge_bg.size.y)
+	_charge_bar.set_frac(frac)
 
 ## World-space point a floating damage number should spawn from.
 func damage_spawn_position() -> Vector2:

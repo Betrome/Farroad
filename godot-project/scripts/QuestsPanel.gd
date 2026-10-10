@@ -152,6 +152,19 @@ func _refresh_card() -> void:
 
 	var busy: bool = g.get("sideBattle") != null
 
+	# Ian: training dummies -- the same screen as the Gambits editor's Test button
+	var training_header := Label.new()
+	training_header.text = "TRAINING"
+	training_header.add_theme_font_size_override("font_size", 16)
+	card_container.add_child(training_header)
+	var training_btn := Button.new()
+	training_btn.text = "Open training dummies"
+	training_btn.disabled = busy
+	training_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_open_training"):
+			_parent.call("_open_training"))
+	card_container.add_child(training_btn)
+
 	var dungeons_header := Label.new()
 	dungeons_header.text = "DUNGEONS"
 	dungeons_header.add_theme_font_size_override("font_size", 16)

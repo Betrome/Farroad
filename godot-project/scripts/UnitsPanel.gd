@@ -180,6 +180,7 @@ func _refresh_dropdown() -> void:
 		var uid: String = uids[idx]
 		var def = FarroadCore.roster_by_id(uid)
 		var label: String = def["name"] if def else uid
+		label += "  Lv %d" % int(g["lvl"].get(uid, 1))
 		if not g["party"].has(uid):
 			label += " (benched)"
 		dropdown.add_item(label, idx)

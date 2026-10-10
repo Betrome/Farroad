@@ -188,7 +188,7 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 	var row := HBoxContainer.new()
 	var name_lbl := Label.new()
 	var def = FarroadCore.roster_by_id(uid)
-	name_lbl.text = def["name"] if def else uid
+	name_lbl.text = ("%s  Lv %d" % [def["name"], int(g["lvl"].get(uid, 1))]) if def else uid
 	name_lbl.custom_minimum_size = Vector2(_vp.x * 0.18, 0)
 	row.add_child(name_lbl)
 	# Front/Back toggle -- fielded units only (bench row placement has no

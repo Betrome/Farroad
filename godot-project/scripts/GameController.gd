@@ -99,6 +99,17 @@ const SYMBOL_FONTS := ["res://fonts/NotoSansSymbols2-Regular.ttf", "res://fonts/
 
 static func _add_symbol_fonts() -> void:
 	var base: Font = ThemeDB.fallback_font
+	# the theme's own font (Selawik) lacks a few characters (the true minus,
+	# >= and <=): it falls back to the engine font, which has them
+	var pt: Theme = ThemeDB.get_project_theme()
+	if pt != null and base != null:
+		var tf: Font = pt.default_font
+		if tf is FontFile and not tf.fallbacks.has(base):
+			tf.fallbacks = [base]
+		if pt.has_font("bold_font", "RichTextLabel"):
+			var bf: Font = pt.get_font("bold_font", "RichTextLabel")
+			if bf is FontFile and not bf.fallbacks.has(base):
+				bf.fallbacks = [base]
 	if base == null or not base.fallbacks.is_empty():
 		return
 	var list: Array[Font] = []
@@ -138,6 +149,10 @@ static func _size_desktop_window() -> void:
 func _ready() -> void:
 	# The PvP server is this same game started with "-- --server" (or a
 	# dedicated-server export): it swaps straight to the server scene.
+	# a look at the proposed UI kit: run the game with --ui-preview
+	if OS.get_cmdline_user_args().has("--ui-preview"):
+		get_tree().change_scene_to_file.call_deferred("res://scenes/UiKitMockup.tscn")
+		return
 	if OS.has_feature("dedicated_server") or OS.get_cmdline_user_args().has("--server"):
 		get_tree().change_scene_to_file.call_deferred("res://scenes/Server.tscn")
 		return
@@ -370,6 +385,7 @@ func _on_viewport_resized() -> void:
 	# 24-item batch, Group D3: shifted down 5% from the old 0.015/0.043 --
 	# see _build_hud's own comment for the full history.
 	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
+	_place_hud_plate()
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
 	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
@@ -782,8 +798,8 @@ static var _sky_gradient_texture: Texture2D
 static func _get_sky_gradient_texture() -> Texture2D:
 	if _sky_gradient_texture == null:
 		var img := Image.create(1, _SKY_GRADIENT_TEX_H, false, Image.FORMAT_RGBA8)
-		var top := Color(0.97, 0.92, 0.80, 1.0)
-		var bottom: Color = Palette.BG_PARCHMENT_DEEP
+		var top: Color = Palette.SKY_TOP
+		var bottom: Color = Palette.SKY_BOTTOM
 		for y in range(_SKY_GRADIENT_TEX_H):
 			img.set_pixel(0, y, top.lerp(bottom, float(y) / float(_SKY_GRADIENT_TEX_H - 1)))
 		_sky_gradient_texture = ImageTexture.create_from_image(img)
@@ -855,6 +871,18 @@ func _build_hud() -> void:
 	# string. Each cell also gets its own real screen position, so a
 	# reward flyer can fly to the EXACT currency it's for (see
 	# _spawn_reward_drops) instead of a single shared combined-label spot.
+	# Ian (UI kit): every word sits on a plate -- the currency and idle lines get
+	# one, since the road behind them is the pale sky.
+	hud_plate = Panel.new()
+	var plate_style := StyleBoxFlat.new()
+	plate_style.bg_color = Color(UiKit.PLATE, 0.93)
+	plate_style.set_corner_radius_all(UiKit.RADIUS)
+	plate_style.set_border_width_all(1)
+	plate_style.border_color = UiKit.SILVER_DIM
+	hud_plate.add_theme_stylebox_override("panel", plate_style)
+	hud_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(hud_plate)
+	_place_hud_plate()
 	currency_row = HBoxContainer.new()
 	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
 	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
@@ -879,11 +907,11 @@ func _build_hud() -> void:
 	# simulate_offline_progress's own comment).
 	idle_rate_label = Label.new()
 	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	idle_rate_label.modulate = Color(0.65, 0.65, 0.65)
+	idle_rate_label.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	idle_row.add_child(idle_rate_label)
 	power_level_cell = Label.new()
 	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	power_level_cell.modulate = Color(0.65, 0.65, 0.65)
+	power_level_cell.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	idle_row.add_child(power_level_cell)
 
 	# Ian: "can we add a 2x speed button?" Top-right corner, mirroring
@@ -913,6 +941,14 @@ func _build_hud() -> void:
 	add_child(fade_overlay)
 
 	_build_road_button()
+
+var hud_plate: Panel
+
+func _place_hud_plate() -> void:
+	if hud_plate == null:
+		return
+	hud_plate.position = Vector2(_vp.x * 0.01, _vp.y * 0.059)
+	hud_plate.size = Vector2(_vp.x * 0.98, _vp.y * 0.058)
 
 func _on_speed_toggle_pressed() -> void:
 	_speed_2x = not _speed_2x
@@ -966,9 +1002,25 @@ func _build_road_button() -> void:
 	var hover_style := StyleBoxFlat.new()
 	hover_style.bg_color = Palette.GOLD_LIGHT
 	hover_style.set_corner_radius_all(8)
+	var disabled_style := StyleBoxFlat.new()
+	disabled_style.bg_color = Color(Palette.GOLD, 0.45)
+	disabled_style.set_corner_radius_all(8)
+	# no padding on any state: the theme's button padding would make this bar
+	# taller than its slot and push it down over the tab icons
+	for sb in [normal_style, hover_style, disabled_style]:
+		sb.content_margin_top = 0.0
+		sb.content_margin_bottom = 0.0
+		sb.content_margin_left = 4.0
+		sb.content_margin_right = 4.0
 	road_button.add_theme_stylebox_override("normal", normal_style)
 	road_button.add_theme_stylebox_override("hover", hover_style)
 	road_button.add_theme_stylebox_override("pressed", hover_style)
+	road_button.add_theme_stylebox_override("disabled", disabled_style)
+	road_button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	road_button.add_theme_color_override("font_color", Color("1f1608"))
+	road_button.add_theme_color_override("font_hover_color", Color("1f1608"))
+	road_button.add_theme_color_override("font_pressed_color", Color("1f1608"))
+	road_button.add_theme_color_override("font_disabled_color", Color("e9dcc0"))
 	road_button.pressed.connect(_on_road_pressed)
 	add_child(road_button)
 
@@ -1042,7 +1094,7 @@ func _show_welcome_back_popup() -> void:
 	var gained := Label.new()
 	gained.text = "+%d Aether, +%d Marks from wave clears" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
 	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-	gained.modulate = Palette.GOLD_PRESSED
+	gained.modulate = Palette.GOLD_TEXT
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(gained)
 
@@ -1453,7 +1505,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		var gained := Label.new()
 		gained.text = "+%d Crystal" % crystal_gained
 		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-		gained.modulate = Palette.GOLD_PRESSED
+		gained.modulate = Palette.GOLD_TEXT
 		vbox.add_child(gained)
 
 	await _finish_detail_overlay(o)
@@ -3138,7 +3190,7 @@ func _show_unit_detail_popup(uid: String) -> void:
 		var row := HBoxContainer.new()
 		var cl := Label.new()
 		cl.text = "⚡ Charge action: %s" % (cact["name"] if cact else cid)
-		cl.modulate = Palette.GOLD_PRESSED
+		cl.modulate = Palette.GOLD_TEXT
 		cl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		cl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(cl)
@@ -3184,7 +3236,7 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 		var bl := Label.new()
 		bl.text = "Boss version of the %s: HP ×%.1f, ATK/MAG ×%.1f, extra Spirit (resists debuffs), drawn larger." % [
 			a["name"], FarroadProgression.BOSS_LEN, 1.1 * FarroadProgression.BOSS_HARD_EXTRA]
-		bl.modulate = Palette.GOLD_PRESSED
+		bl.modulate = Palette.GOLD_TEXT
 		bl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(bl)
@@ -3226,7 +3278,7 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 		var charge_row := HBoxContainer.new()
 		var charge_lbl := Label.new()
 		charge_lbl.text = "⚡ Charge action: %s" % (cact["name"] if cact else a["chargeAction"])
-		charge_lbl.modulate = Palette.GOLD_PRESSED
+		charge_lbl.modulate = Palette.GOLD_TEXT
 		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		charge_row.add_child(charge_lbl)
@@ -3729,6 +3781,9 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.0196))
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	# Ian: an outline so rewards stand out against the field
+	lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	lbl.add_theme_constant_override("outline_size", 5)
 	lbl.position = start
 	add_child(lbl)
 	move_child(lbl, get_child_count() - 1)
@@ -3796,9 +3851,78 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 func _side_battle_label_text(meta: Dictionary) -> String:
 	if meta["kind"] == "pvp":
 		return "PvP — vs %s" % (meta["team"] if str(meta.get("team", "")) != "" else meta["owner"] + "'s team")
+	if meta["kind"] == "training":
+		return "Training"
 	if meta["kind"] == "quest":
 		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
 	return "%s — Wave %d/%d" % [meta["name"], int(meta["waveIndex"]) + 1, int(meta["totalWaves"])]
+
+## ===== Training dummies (TrainingSetup.gd) =====
+## Opened from the Gambits editor's Test button and from the Quests tab --
+## both call this, so it is one and the same screen.
+func _open_training() -> void:
+	if g.get("sideBattle") != null:
+		return
+	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true, true)
+	var setup := TrainingSetup.new()
+	setup.build(o["vbox"], g, func():
+		if is_instance_valid(o["backdrop"]):
+			o["backdrop"].queue_free()
+		_start_training())
+	await _finish_detail_overlay(o)
+
+func _start_training() -> void:
+	if g.get("sideBattle") != null:
+		return
+	_close_all_popups()
+	_enter_side_battle(FarroadProgression.training_enemies(g), int(g.get("wave", 1)), {"kind": "training"})
+	_clear_training_buttons()
+	training_end_btn = Button.new()
+	training_end_btn.text = "End training"
+	training_end_btn.position = Vector2(_vp.x * 0.30, _vp.y * 0.015)
+	training_end_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	training_end_btn.pressed.connect(_end_training)
+	add_child(training_end_btn)
+	training_refill_btn = Button.new()
+	training_refill_btn.text = "Refill dummies"
+	training_refill_btn.position = Vector2(_vp.x * 0.60, _vp.y * 0.015)
+	training_refill_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	training_refill_btn.pressed.connect(_refill_dummies)
+	add_child(training_refill_btn)
+
+var training_end_btn: Button
+var training_refill_btn: Button
+
+func _clear_training_buttons() -> void:
+	for b in [training_end_btn, training_refill_btn]:
+		if b != null and is_instance_valid(b):
+			b.queue_free()
+	training_end_btn = null
+	training_refill_btn = null
+
+func _training_running() -> bool:
+	var sb = g.get("sideBattle")
+	return sb != null and str((sb as Dictionary).get("meta", {}).get("kind", "")) == "training"
+
+func _end_training() -> void:
+	if not _training_running():
+		return
+	if side_presenter != null and is_instance_valid(side_presenter):
+		side_presenter.battle_finished.disconnect(_on_side_battle_finished)
+		side_presenter.queue_free()
+		side_presenter = null
+	_resolve_side_battle("enemy", true)
+
+## Back to full HP (the dummies that were knocked down to 1 too).
+func _refill_dummies() -> void:
+	if not _training_running():
+		return
+	for u in g["battle"]["units"]:
+		if not u["isParty"]:
+			u["hp"] = u["maxHp"]
+	if side_presenter != null and is_instance_valid(side_presenter):
+		for v in side_presenter.unit_views_by_id.values():
+			v.update_hp()
 
 ## Called by QuestsPanel (dynamic has_method()+call(), same pattern as
 ## every other panel-to-controller call in this project).
@@ -3837,7 +3961,7 @@ func _give_up_quest() -> void:
 func _resolve_side_battle(result: String, gave_up: bool) -> void:
 	var side_meta: Dictionary = (g["sideBattle"]["meta"] as Dictionary).duplicate() if g.get("sideBattle") != null else {}
 	var event := FarroadProgression.finish_side_battle(g, result, gave_up, Time.get_unix_time_from_system())
-	if event["kind"] != "dungeon_wave_advance":
+	if event["kind"] != "dungeon_wave_advance" and event["kind"] != "training_done":
 		_record_side_battle(side_meta, str(event["kind"]))
 	if event["kind"] == "dungeon_wave_advance":
 		# Ian: "Quests/Dungeons: Same movement between waves as with the
@@ -3867,7 +3991,9 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		# but skipped rebuilding a new one, deferring that to right here --
 		# now that g["sideBattle"] is clear again, it's finally safe to.
 		_begin_next_fight()
-	if str(event["kind"]).begins_with("pvp"):
+	if event["kind"] == "training_done":
+		_clear_training_buttons()
+	elif str(event["kind"]).begins_with("pvp"):
 		if pvp_skip_btn != null and is_instance_valid(pvp_skip_btn):
 			pvp_skip_btn.queue_free()
 		_show_pvp_result_popup(event)

@@ -24,7 +24,7 @@ const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "l
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
 	"affinities", "statInvest", "equipInv", "equipped",
 	"superBossQuests", "superBossesUnlocked", "superBossesCleared",
-	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted"]
+	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup"]
 
 ## JSON round-trip is Godot's own equivalent of JS's `JSON.parse(JSON.stringify(v))`
 ## deep-clone -- values here are always plain Dictionaries/Arrays/primitives

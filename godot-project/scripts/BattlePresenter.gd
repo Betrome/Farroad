@@ -537,12 +537,12 @@ func _footprint_weights(views: Array) -> Array:
 		weights.append(_unit_footprint_height(view.size))
 	return weights
 
-const PARTY_COLOR := "2e578f"
-const ENEMY_COLOR := "9e3329"
-const BAD_COLOR := "9e3329"
-const CRIT_COLOR := "bd6b14"
-const DIM_COLOR := "786147"
-const NOTE_COLOR := "75578f"
+const PARTY_COLOR := "8fc0ff"
+const ENEMY_COLOR := "ff9a8f"
+const BAD_COLOR := "ff9a8f"
+const CRIT_COLOR := "ffbf3f"
+const DIM_COLOR := "d8d2c2"
+const NOTE_COLOR := "d6b5ff"
 
 ## Display names/glyphs for FarroadCore.ST's 14 status ids -- purely
 ## presentation, mirrors nothing in the engine (FarroadCore.gd has no
@@ -733,27 +733,17 @@ func _build_status_card(u: Dictionary) -> Control:
 	else:
 		row_tag = "boss" if u.get("isBoss") else PREF_TEXT.get(u.get("arch"), "")
 	var left := _rich_line("[b][color=#%s][font_size=20]%s[/font_size][/color][/b]  Lv%d%s" % [
-		color, u["name"], level, ("  [color=#382617]%s[/color]" % row_tag) if row_tag != "" else ""])
+		color, u["name"], level, ("  [color=#eeeadf]%s[/color]" % row_tag) if row_tag != "" else ""])
 	header.add_child(left)
 	var hp_lbl := Label.new()
 	hp_lbl.text = "%d / %d" % [max(0, roundi(u["hp"])), u["maxHp"]]
 	header.add_child(hp_lbl)
 	box.add_child(header)
 
-	var hp_bg := ColorRect.new()
-	hp_bg.custom_minimum_size = Vector2(0, 10)
-	hp_bg.color = Palette.BORDER_LEATHER
-	box.add_child(hp_bg)
-	var hp_fg := ColorRect.new()
-	var hp_frac: float = clamp(float(u["hp"]) / float(u["maxHp"]), 0.0, 1.0)
-	# Anchored to hp_bg's own actual size (not a size borrowed from a sibling
-	# container) -- a fixed-pixel width computed from status_container's
-	# minimum size ignored the card's own content margins and overflowed
-	# past the bar at high fractions. Anchors always match the true rect.
-	hp_fg.anchor_right = hp_frac
-	hp_fg.anchor_bottom = 1.0
-	hp_fg.color = Palette.GOOD_GREEN
-	hp_bg.add_child(hp_fg)
+	var hp_bar := UiBar.new(UiKit.HP_GOOD, true)
+	hp_bar.custom_minimum_size = Vector2(0, 10)
+	hp_bar.set_frac(clamp(float(u["hp"]) / float(u["maxHp"]), 0.0, 1.0), false)
+	box.add_child(hp_bar)
 
 	if u.get("chargeAction"):
 		var act = FarroadCore.ACTIONS.get(u["chargeAction"])
@@ -767,22 +757,12 @@ func _build_status_card(u: Dictionary) -> Control:
 		charge_row.add_child(charge_num)
 		box.add_child(charge_row)
 
-		var ch_bg := ColorRect.new()
-		ch_bg.custom_minimum_size = Vector2(0, 6)
-		ch_bg.color = Palette.BORDER_LEATHER
-		box.add_child(ch_bg)
-		var ch_fg := ColorRect.new()
-		# Matches the ORIGINAL UI's own display convention exactly (farroad-ui.js:1711):
-		# clamped against a flat 100, not this unit's own real costOfCharge --
-		# the original shows e.g. "115/100" as a full bar plus an honest
-		# over-100 number, it does not read against the actual adjusted cost.
-		var ch_frac: float = clamp(float(u["charge"]) / 100.0, 0.0, 1.0)
-		# Anchored to ch_bg's own actual size -- see hp_fg's comment above for
-		# why a fixed-pixel width overflowed past the bar at high fractions.
-		ch_fg.anchor_right = ch_frac
-		ch_fg.anchor_bottom = 1.0
-		ch_fg.color = Palette.GOLD if u["isParty"] else Palette.BAD_RED
-		ch_bg.add_child(ch_fg)
+		# Matches the ORIGINAL UI's own display convention (farroad-ui.js:1711):
+		# clamped against a flat 100, not this unit's own real costOfCharge.
+		var ch_bar := UiBar.new(UiKit.CHARGE, false, 4)
+		ch_bar.custom_minimum_size = Vector2(0, 8)
+		ch_bar.set_frac(clamp(float(u["charge"]) / 100.0, 0.0, 1.0), false)
+		box.add_child(ch_bar)
 
 	# ATK/MAG/SPD and DEF/RES on one combined line -- DEF/RES still color the
 	# lower of the two via _def_res_hint (unchanged), just without the
@@ -792,8 +772,8 @@ func _build_status_card(u: Dictionary) -> Control:
 	box.add_child(_rich_line(
 		"[font_size=13]ATK %d MAG %d SPD %d [color=#%s]DEF %d[/color] [color=#%s]RES %d[/color][/font_size]" % [
 			roundi(FarroadCore.eff_atk(u)), roundi(FarroadCore.eff_mag(u)), roundi(u["base"]["spd"]),
-			(CRIT_COLOR if dr["flag_d"] else "382617"), roundi(dr["def"]),
-			(CRIT_COLOR if dr["flag_r"] else "382617"), roundi(dr["res"])]))
+			(CRIT_COLOR if dr["flag_d"] else "f4f0e4"), roundi(dr["def"]),
+			(CRIT_COLOR if dr["flag_r"] else "f4f0e4"), roundi(dr["res"])]))
 
 	# Active status effects (burning, bracing, enfeebled, etc.) -- one line
 	# per currently-active id (turns remaining > 0), reusing the same
@@ -803,7 +783,7 @@ func _build_status_card(u: Dictionary) -> Control:
 	for id in FarroadCore.ST:
 		if FarroadCore.has(u, id):
 			var is_buff: bool = FarroadCore.is_buff_status(id)
-			var status_color := "1f6e96" if is_buff else "7b2fa3"   # darker: readable on parchment (Ian)
+			var status_color := "6cc8ff" if is_buff else "d29bff"   # light + vivid for the dark plate (Ian)
 			var turns: int = int(u["st"][id])
 			box.add_child(_rich_line("[font_size=12][color=#%s]%s %s[/color] [color=#%s]— %s%s[/color][/font_size]" % [
 				status_color, STATUS_GLYPH.get(id, "●"), STATUS_NAMES.get(id, id.capitalize()),
@@ -823,7 +803,7 @@ func _build_status_card(u: Dictionary) -> Control:
 		var rec_pct: int = 0
 		if recovery_lookup.is_valid():
 			rec_pct = roundi(float(recovery_lookup.call(str(u.get("id", "")))) * 100.0)
-		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY %d%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["336b28", rec_pct, DIM_COLOR]))
+		box.add_child(_rich_line("[font_size=12][color=#%s]RECOVERY %d%%[/color] [color=#%s]— HP regained between waves[/color][/font_size]" % ["2ecf74", rec_pct, DIM_COLOR]))
 	elif battle.get("enrage"):
 		# Stacks are battle-wide (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- every enemy shows the SAME stack count
@@ -854,7 +834,7 @@ func _build_status_card(u: Dictionary) -> Control:
 		for s in u.get("slots", []):
 			var a = FarroadCore.ACTIONS.get(str(s.get("action", "")))
 			lines.append("%s → %s%s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?")), lv.call(a)])
-		box.add_child(_rich_line("[font_size=12][b]Gambits[/b][/font_size]"))
+		box.add_child(_rich_line("[font_size=13][b][color=#f4f0e4]Gambits[/color][/b][/font_size]"))
 		for l in lines:
 			box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, l]))
 
@@ -1150,9 +1130,11 @@ func _build_wave_progress_ui() -> void:
 	var circle_row_y: float = enrage_top - circle_gap - boss_d
 
 	wave_progress_label = Label.new()
-	wave_progress_label.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
-	wave_progress_label.modulate = Color(0.65, 0.65, 0.65)
-	wave_progress_label.position = Vector2(margin, circle_row_y - _vp.y * 0.005 - _vp.y * 0.02)
+	wave_progress_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	wave_progress_label.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	wave_progress_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	wave_progress_label.add_theme_constant_override("outline_size", 2)
+	wave_progress_label.position = Vector2(margin, circle_row_y - _vp.y * 0.005 - _vp.y * 0.028)
 	add_child(wave_progress_label)
 
 	wave_progress_circles.clear()
@@ -1261,9 +1243,12 @@ func _build_enrage_ui() -> void:
 	var y: float = status_pos.y + (icon_size - bar_h) / 2.0
 	var w: float = status_pos.x - end_gap - margin
 	enrage_label = Label.new()
-	enrage_label.position = Vector2(margin, y - _vp.y * 0.026)
-	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	enrage_label.modulate = Color(1.0, 0.45, 0.45)
+	enrage_label.position = Vector2(margin, y - _vp.y * 0.032)
+	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.024))
+	# Ian: a black outline so it stands out on the ground
+	enrage_label.add_theme_color_override("font_color", Palette.ENEMY_RED_BRIGHT)
+	enrage_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	enrage_label.add_theme_constant_override("outline_size", 3)
 	add_child(enrage_label)
 
 	enrage_bg = ColorRect.new()
@@ -1388,7 +1373,7 @@ func _build_turn_order_ui() -> void:
 		# the project theme's Label font_color turned dark project-wide,
 		# since that made these cards' own text dark-on-dark).
 		var card_style := StyleBoxFlat.new()
-		card_style.bg_color = Palette.BG_PARCHMENT_DEEP
+		card_style.bg_color = Palette.BG_PARCHMENT   # the plate: the vivid names need it to stay readable
 		card_style.border_color = Palette.BORDER_LEATHER
 		card_style.set_border_width_all(1)
 		if i == 0:
@@ -1407,11 +1392,13 @@ func _build_turn_order_ui() -> void:
 		panel.add_child(vbox)
 
 		var name_lbl := Label.new()
-		name_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
+		name_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+		name_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+		name_lbl.add_theme_constant_override("outline_size", 2)
 		vbox.add_child(name_lbl)
 
 		var action_lbl := Label.new()
-		action_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.014))
+		action_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
 		vbox.add_child(action_lbl)
 
 		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl})
@@ -1484,7 +1471,7 @@ func _refresh_turn_order() -> void:
 			continue
 		card["panel"].visible = true
 		var p = upcoming[i]
-		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.016), max_w)
+		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.018), max_w, 8, true)
 		# Ian: "they aren't the colors I specified" -- `.modulate` MULTIPLIES
 		# against the project theme's own Label font_color (a dark ink,
 		# Color(0.22,0.15,0.09)), not replaces it, so #1462e0 modulated
@@ -1496,7 +1483,7 @@ func _refresh_turn_order() -> void:
 		# No camp/element glyph prefix and no speed (×N) line -- just who's
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.
-		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.014), max_w)
+		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.016), max_w)
 
 ## Post-Milestone-3 APK feedback (Group A2), redesigned again after
 ## further feedback ("I want actions to be locked in as soon as they
@@ -1617,14 +1604,21 @@ func _lock_upcoming_actors(upcoming: Array) -> void:
 ## real natural width at the base size and scales the font down (never below
 ## min_font_size) until it fits max_width instead. clip_text stays on as a
 ## last-resort safety net for the rare case even the floor size overflows.
-func _fit_label_text(lbl: Label, text: String, base_font_size: int, max_width: float, min_font_size: int = 8) -> void:
-	# clip_text must be set AFTER measuring, not before -- a Label with
-	# clip_text already true stops reporting its true unclipped text width
-	# from get_minimum_size() (it reports a small "I don't need room, I'll
-	# clip" size instead), which would silently defeat this exact check.
+func _fit_label_text(lbl: Label, text: String, base_font_size: int, max_width: float, min_font_size: int = 8, first_word_ok: bool = false) -> void:
+	# clip_text must be OFF while measuring -- a Label with clip_text on stops
+	# reporting its true unclipped text width from get_minimum_size() (it
+	# reports a small "I don't need room, I'll clip" size instead), which
+	# silently defeated this check on every refresh after the first (the
+	# old code only turned it off for the first call).
+	lbl.clip_text = false
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", base_font_size)
 	var natural_w: float = lbl.get_minimum_size().x
+	# Ian: names stay large and readable -- when one is too wide at full size,
+	# show just its first word ("Mire Hound 1" -> "Mire") before shrinking it
+	if first_word_ok and natural_w + 6.0 > max_width and text.contains(" "):
+		lbl.text = text.split(" ")[0]
+		natural_w = lbl.get_minimum_size().x
 	if natural_w > max_width and natural_w > 0.0:
 		var scaled: int = maxi(min_font_size, int(floor(base_font_size * (max_width / natural_w))))
 		lbl.add_theme_font_size_override("font_size", scaled)
@@ -1762,7 +1756,8 @@ func _run_battle_loop() -> void:
 	_loop_started = true
 	_fight_ms = Time.get_ticks_msec()
 	var guard := 0
-	while battle["over"] == null and guard < 300:
+	var beat_cap: int = 100000000 if battle.get("training", false) else 300
+	while battle["over"] == null and guard < beat_cap:
 		while loop_paused:
 			var p0 := Time.get_ticks_msec()
 			await get_tree().create_timer(0.1).timeout
@@ -1771,7 +1766,8 @@ func _run_battle_loop() -> void:
 		var e = FarroadCore.step(battle)
 		if e == null:
 			break
-		Analytics.battle_event(e, analytics_ctx)
+		if analytics_ctx != "training":
+			Analytics.battle_event(e, analytics_ctx)
 		if e.get("isParty", false) and e.get("actionId") != null and e["actionId"] != "none":
 			_fight_actions[e["actionId"]] = int(_fight_actions.get(e["actionId"], 0)) + 1
 		_append_log(e)
@@ -1807,7 +1803,8 @@ func _run_battle_loop() -> void:
 				fallen.append(str(u["id"]))
 		else:
 			enemies.append(str(u.get("arch", u["name"])) + ("*" if u.get("isBoss", false) else ""))
-	Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought, {
+	if analytics_ctx != "training":
+		Analytics.fight_end(analytics_ctx, battle["over"] == "party", _fight_actions, fought, {
 		"key": analytics_key, "boss": analytics_boss, "turns": int(battle.get("beat", 0)),
 		"secs": (Time.get_ticks_msec() - _fight_ms - _paused_ms) / 1000.0, "fast": Engine.time_scale > 1.0,
 		"enemies": enemies, "fallen": fallen,
@@ -2060,7 +2057,8 @@ func _apply_hit_effects(e: Dictionary) -> void:
 			DamageNumber.spawn(self, tv.damage_spawn_position(), "Evade", Color(0.75, 0.75, 0.75), n)
 			tv.evade()
 		else:
-			var color := Color(1.0, 0.55, 0.2) if h.get("crit") else Color(1.0, 0.9, 0.3)
+			# Ian: damage is red (a crit is a brighter, more orange red)
+			var color := Color("FF6A2B") if h.get("crit") else Color("FF3B30")
 			DamageNumber.spawn(self, tv.damage_spawn_position(), str(h["damage"]), color, n)
 			tv.shake()
 	for h in e["heals"]:

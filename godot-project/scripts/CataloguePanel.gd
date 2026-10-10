@@ -173,15 +173,14 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 		if entry[0] == current_value:
 			opt.select(idx)
 	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
-	return opt
+	return UiKit.compact_dropdown(opt)
 
 func _action_passes_filter(act: Dictionary) -> bool:
 	return ActionFilter.passes(act, action_filter_target, action_filter_camp, action_filter_effect)
 
 func _refresh_actions() -> void:
-	var filter_row := HFlowContainer.new()
-	filter_row.add_theme_constant_override("h_separation", 6)
-	filter_row.add_theme_constant_override("v_separation", 6)
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", 6)
 	filter_row.add_child(_build_filter_dropdown(ACTION_TARGET_OPTIONS, action_filter_target, func(v): action_filter_target = v; _refresh()))
 	filter_row.add_child(_build_filter_dropdown(ACTION_CAMP_OPTIONS, action_filter_camp, func(v): action_filter_camp = v; _refresh()))
 	filter_row.add_child(_build_filter_dropdown(ACTION_EFFECT_OPTIONS, action_filter_effect, func(v): action_filter_effect = v; _refresh()))
@@ -222,9 +221,8 @@ func _on_action_info_pressed(action_id: String) -> void:
 		_parent.call("_show_action_detail_popup", action_id)
 
 func _refresh_gambits() -> void:
-	var filter_row := HFlowContainer.new()
-	filter_row.add_theme_constant_override("h_separation", 6)
-	filter_row.add_theme_constant_override("v_separation", 6)
+	var filter_row := HBoxContainer.new()
+	filter_row.add_theme_constant_override("separation", 6)
 	filter_row.add_child(_build_filter_dropdown(GAMBIT_GROUP_OPTIONS, gambit_filter_group, func(v): gambit_filter_group = v; _refresh()))
 	list_container.add_child(filter_row)
 

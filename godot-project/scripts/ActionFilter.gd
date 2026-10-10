@@ -177,7 +177,7 @@ static func dropdown(options: Array, current_value: String, on_change: Callable)
 		if options[idx][0] == current_value:
 			opt.select(idx)
 	opt.item_selected.connect(func(i): on_change.call(options[i][0]))
-	return opt
+	return UiKit.compact_dropdown(opt)
 
 ## ===== gear filter + sort (Ian: "gear filtering and sorting by stat") =====
 const GEAR_SORT_OPTIONS := [["default", "Default order"], ["name", "Sort: A–Z"], ["rarity", "Sort: Rarity"],

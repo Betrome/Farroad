@@ -11,61 +11,56 @@ extends RefCounted
 ## just the background itself.
 
 ## ===== backgrounds / chrome =====
-const BG_PARCHMENT := Color(0.93, 0.87, 0.73, 1.0)      # main popup/panel background
-const BG_PARCHMENT_DEEP := Color(0.85, 0.77, 0.60, 1.0) # cards/rows nested a level deeper
-const BORDER_LEATHER := Color(0.42, 0.28, 0.17, 1.0)    # popup/card borders
+## Ian: the UI kit (UiKit.gd / UiKitMockup) -- dark brown plates with a silver
+## rim. The names below are the old parchment ones, kept so every screen picks
+## the new look up from here; BG_PARCHMENT is now the plate, and so on.
+const BG_PARCHMENT := Color("38332b")                   # main popup/panel background (plate)
+const BG_PARCHMENT_DEEP := Color("48423a")              # cards/rows nested a level deeper (raised)
+const BORDER_LEATHER := Color("767b82")                 # popup/card borders (silver, shaded)
+const SILVER := Color("c4c9cf")                         # the lit side of the rim
 
-## ===== text =====
-const TEXT_INK := Color(0.22, 0.15, 0.09, 1.0)          # primary text (replaces default white)
-const TEXT_DIM := Color(0.47, 0.38, 0.28, 1.0)          # secondary/dim text
-const TEXT_FAINT := Color(0.62, 0.56, 0.47, 1.0)        # placeholder/very-dim text
-## Ian: "replace all of the white text with a dark green." The project
-## theme's own RichTextLabel/colors/default_color (theme/default_theme.tres)
-## must be kept in sync with this value by hand -- a .tres resource file
-## can't reference a GDScript const, same duplication convention already
-## established for the Button-style block below.
-const TEXT_GREEN := Color(0.12, 0.32, 0.15, 1.0)        # RichTextLabel default (was white)
+## The road behind the HUD is still the pale sky (the kit is for panels and
+## text; "don't dim the battlefield"). Anything drawn straight onto it needs
+## FIELD_INK, not TEXT_INK.
+const SKY_TOP := Color(0.97, 0.92, 0.80, 1.0)
+const SKY_BOTTOM := Color(0.85, 0.77, 0.60, 1.0)
+const FIELD_INK := Color(0.22, 0.15, 0.09, 1.0)         # dark text for the light field
+
+## ===== text (all >= 4.5:1 on the plate, the raised card and the trough) =====
+const TEXT_INK := Color("eeeadf")                       # primary text
+const TEXT_DIM := Color("b9b3a3")                       # secondary/dim text
+const TEXT_FAINT := Color("b7b3a9")                     # placeholder/very-dim text
+const TEXT_GREEN := Color("eeeadf")                     # RichTextLabel default (theme/default_theme.tres)
 
 ## ===== buttons (also the project-wide default_theme.tres values) =====
-const BTN_NORMAL := Color(0.82, 0.72, 0.52, 1.0)
-const BTN_HOVER := Color(0.90, 0.81, 0.60, 1.0)
-const BTN_PRESSED := Color(0.70, 0.60, 0.42, 1.0)
-const BTN_DISABLED := Color(0.80, 0.77, 0.71, 1.0)
-const BTN_BORDER := Color(0.50, 0.36, 0.20, 1.0)
-const BTN_BORDER_HOVER := Color(0.60, 0.44, 0.24, 1.0)
+const BTN_NORMAL := Color("48423a")
+const BTN_HOVER := Color("554e45")
+const BTN_PRESSED := Color("38332b")
+const BTN_DISABLED := Color("3e3931")
+const BTN_BORDER := Color("767b82")
+const BTN_BORDER_HOVER := Color("c4c9cf")
 
 ## ===== accent / currency / charge =====
 const GOLD := Color(0.66, 0.48, 0.10, 1.0)
-const GOLD_LIGHT := Color(0.80, 0.60, 0.18, 1.0)   # hover state for a gold-filled control
-const GOLD_PRESSED := Color(0.55, 0.40, 0.08, 1.0) # selected-tab / pressed-accent fill
+const GOLD_LIGHT := Color("e0b867")                 # hover state / lit border
+const GOLD_PRESSED := Color(0.55, 0.40, 0.08, 1.0) # selected-tab / pressed-accent FILL
+const GOLD_TEXT := Color("e4a83f")                  # gold as TEXT on the plate
 
 ## ===== camps =====
-const PARTY_BLUE := Color(0.18, 0.34, 0.56, 1.0)
-const ENEMY_RED := Color(0.62, 0.20, 0.16, 1.0)
-## Ian: "add back in the brighter blue and red text on the turn order" --
-## PARTY_BLUE/ENEMY_RED above read as muted once darkened for legibility
-## project-wide; these are a louder, more saturated pair kept just dark
-## enough to still read on the light parchment card background, for the
-## turn-order rail's own ally/enemy name text specifically.
-## Ian: "make the enemy and unit colors on the turn order 30% brighter" --
-## a first pass multiplied the pair above by 1.3 and clamped, but that was
-## nearly invisible on the blue (its blue channel was already 0.95, so
-## clamping ate almost the whole intended increase). Ian's follow-up:
-## "it doesn't look like the name of units... were updated... make the
-## text more saturated and brighter... easy at a glance to tell which is
-## an enemy and which is an ally." A second pass (near-maximally-saturated
-## pure hues) still wasn't vibrant enough -- Ian gave exact hex values this
-## time: #1462e0 (ally) / #E02E14 (enemy), used verbatim.
-const PARTY_BLUE_BRIGHT := Color("#1462e0")
-const ENEMY_RED_BRIGHT := Color("#E02E14")
+const PARTY_BLUE := Color("95b6dd")
+const ENEMY_RED := Color("e9a19c")
+## The turn-order names: the same vivid blue and red, lightened just enough to
+## read on the plate (the old #1462e0 / #E02E14 were for the light cards).
+const PARTY_BLUE_BRIGHT := Color("#6AA2FF")
+const ENEMY_RED_BRIGHT := Color("#FF8570")
 
 ## ===== status / feedback =====
-const GOOD_GREEN := Color(0.20, 0.46, 0.24, 1.0)
-const BAD_RED := Color(0.62, 0.20, 0.16, 1.0)
-const CRIT_AMBER := Color(0.74, 0.42, 0.08, 1.0)
-const NOTE_PURPLE := Color(0.46, 0.34, 0.56, 1.0)
+const GOOD_GREEN := Color("2ecf74")
+const BAD_RED := Color("e9a19c")
+const CRIT_AMBER := Color("e4a83f")
+const NOTE_PURPLE := Color("c3a7e3")
 
 ## ===== rarity =====
-const RARITY_COMMON := Color(0.22, 0.15, 0.09, 1.0)     # = TEXT_INK, white doesn't read on parchment
-const RARITY_RARE := Color(0.18, 0.34, 0.58, 1.0)
-const RARITY_LEGENDARY := Color(0.72, 0.40, 0.06, 1.0)
+const RARITY_COMMON := Color("eeeadf")                  # = TEXT_INK
+const RARITY_RARE := Color("95b6dd")
+const RARITY_LEGENDARY := Color("eda35d")

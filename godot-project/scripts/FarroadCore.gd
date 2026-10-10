@@ -1714,6 +1714,10 @@ static func step(b: Dictionary) -> Variant:
 			e["enrageStacks"] = target_n
 			e["notes"].append("enraged ×%d (+%d%% damage/speed)" % [e["enrageStacks"], round(pct * target_n * 100)])
 	b["log"].append(e)
+	# Training dummies marked "immortal" take damage but can't be defeated.
+	for iu in b["units"]:
+		if iu.get("immortal", false) and iu["hp"] < 1.0:
+			iu["hp"] = 1.0
 	check_end(b)
 	return e
 
