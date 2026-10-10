@@ -494,7 +494,9 @@ func gather(at: Vector2, duration: float) -> void:
 	get_tree().create_timer(c.lifetime + 0.1).timeout.connect(c.queue_free)
 
 ## Awaitable: the spell flies from `from` to `to` over `duration`.
-func launch(from: Vector2, to: Vector2, duration: float) -> void:
+## `to_fn` (optional) returns the target's CURRENT position every frame, so the
+## spell homes in on a unit that is still moving.
+func launch(from: Vector2, to: Vector2, duration: float, to_fn: Callable = Callable()) -> void:
 	var p := profile()
 	var col: Color = p["color"]
 	var head := Node2D.new()
@@ -535,9 +537,10 @@ func launch(from: Vector2, to: Vector2, duration: float) -> void:
 	var wobble: float = float({"air": 0.08, "dark": 0.06}.get(element, 0.0)) * dist
 	var tw := create_tween()
 	tw.tween_method(func(t: float):
-		var pos := from.lerp(to, t) + Vector2(0, -arc * sin(t * PI))
+		var dest: Vector2 = to_fn.call() if to_fn.is_valid() else to
+		var pos := from.lerp(dest, t) + Vector2(0, -arc * sin(t * PI))
 		if wobble > 0.0:
-			pos += (to - from).normalized().orthogonal() * wobble * sin(t * TAU * 1.5)
+			pos += (dest - from).normalized().orthogonal() * wobble * sin(t * TAU * 1.5)
 		head.global_position = pos
 		trail.global_position = pos
 		core.rotation += 0.35 if element == "earth" else 0.0

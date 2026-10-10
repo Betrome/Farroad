@@ -557,7 +557,8 @@ func cast_hand_global() -> Vector2:
 ## Roughly the middle of the unit's body -- where spells land.
 func body_center_global() -> Vector2:
 	var h: float = _art_body_size.y if _art_body_size != Vector2.ZERO else size
-	return global_position + Vector2(0, size / 2.0 - h * 0.55)
+	# from where the sprite IS (a hopping/running unit is offset from its rest spot)
+	return global_position + shape.position + Vector2(0, size / 2.0 - h * 0.55)
 
 ## Seconds from the start of `anim_name` to its impact frame (0 if it has none).
 func time_to_impact(anim_name: String) -> float:
@@ -612,8 +613,12 @@ func update_name(new_name: String) -> void:
 
 ## Re-reads unit["hp"]/["maxHp"] -- FarroadCore.step() mutates the unit dict
 ## in place, so this always reflects the live value, no separate sync needed.
-func update_hp() -> void:
-	var frac: float = clamp(float(unit["hp"]) / float(unit["maxHp"]), 0.0, 1.0)
+## `hp_override` (>= 0) shows that HP instead of the live one -- a beat shows
+## the HP the unit had right after ITS action, even when later actions have
+## already resolved (staggered same-side beats).
+func update_hp(hp_override: float = -1.0) -> void:
+	var hp_now: float = hp_override if hp_override >= 0.0 else float(unit["hp"])
+	var frac: float = clamp(hp_now / float(unit["maxHp"]), 0.0, 1.0)
 	_hp_bar.set_frac(frac)
 	if frac <= 0.0:
 		if not _played_dead_state:
@@ -656,7 +661,7 @@ func update_hp() -> void:
 ## ever spend charge on, so the bar is hidden outright rather than shown
 ## clamped-at-some-fraction-of-a-generic-fallback, which used to read as
 ## "this enemy is charging something" when it never was.
-func update_charge() -> void:
+func update_charge(charge_override: float = -1.0) -> void:
 	if not unit.get("chargeAction"):
 		_charge_bg.visible = false
 		_charge_fg.visible = false
@@ -665,7 +670,8 @@ func update_charge() -> void:
 	_charge_fg.visible = true
 	var act = FarroadCore.ACTIONS.get(unit["chargeAction"])
 	var max_charge: float = FarroadCore.cost_of_charge(act)
-	var frac: float = clamp(float(unit.get("charge", 0.0)) / max_charge, 0.0, 1.0)
+	var ch_now: float = charge_override if charge_override >= 0.0 else float(unit.get("charge", 0.0))
+	var frac: float = clamp(ch_now / max_charge, 0.0, 1.0)
 	_charge_bar.set_frac(frac)
 
 ## World-space point a floating damage number should spawn from.

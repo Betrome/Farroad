@@ -1771,16 +1771,34 @@ func _run_battle_loop() -> void:
 		if e.get("isParty", false) and e.get("actionId") != null and e["actionId"] != "none":
 			_fight_actions[e["actionId"]] = int(_fight_actions.get(e["actionId"], 0)) + 1
 		_append_log(e)
+		# each unit's HP/charge right after THIS action, so its visuals show
+		# these values even if later (staggered) actions have already resolved
+		var snap := {}
+		for su in battle["units"]:
+			snap[su["id"]] = [float(su["hp"]), float(su.get("charge", 0.0))]
+		e["_snap"] = snap
 		active_unit_id = e["actorId"]
 		if status_popup.visible:
 			_refresh_status_popup()
-		await _animate_beat(e)
+		# Ian: several actions in a row from the same side start 0.25 s after
+		# each other instead of waiting for each to finish. Only when the NEXT
+		# actor is a different unit on the same side (one unit never overlaps
+		# itself), and the fight isn't over.
+		if battle["over"] == null and _next_is_same_side_other_unit(e):
+			_beats_running += 1
+			_run_beat_detached(e)
+			await get_tree().create_timer(SAME_SIDE_STAGGER).timeout
+		else:
+			await _animate_beat(e)
+			while _beats_running > 0:
+				await get_tree().process_frame
 		active_unit_id = ""
 		_refresh_turn_order()
-		_refresh_charge_bars()
 		_refresh_enrage()
-		if status_popup.visible:
-			_refresh_status_popup()
+		if _beats_running == 0:      # bars/status sync to real state only once nothing is mid-animation
+			_refresh_charge_bars()
+			if status_popup.visible:
+				_refresh_status_popup()
 	# Defensive: if the loop exited via the guard cap (a genuine stalemate
 	# running past 300 beats) or FarroadCore.step() returning null with
 	# battle["over"] never actually set, battle["over"] would otherwise
@@ -1792,6 +1810,8 @@ func _run_battle_loop() -> void:
 	# same safe fallback every non-"party" outcome already gets).
 	if battle["over"] == null:
 		battle["over"] = "draw"
+	while _beats_running > 0:
+		await get_tree().process_frame
 	_release_chained("")
 	var fought: Array = []
 	var fallen: Array = []
@@ -1814,6 +1834,24 @@ func _run_battle_loop() -> void:
 	_append_raw_log("[b]Battle over: %s[/b]" % str(battle["over"]))
 	_refresh_turn_order()
 	battle_finished.emit(battle["over"])
+
+const SAME_SIDE_STAGGER := 0.25
+var _beats_running := 0
+
+func _run_beat_detached(e: Dictionary) -> void:
+	await _animate_beat(e)
+	_beats_running -= 1
+
+## True when the upcoming actor is a different unit on the same side as the
+## one that just acted (so its beat can start 0.25 s after this one's).
+func _next_is_same_side_other_unit(e: Dictionary) -> bool:
+	var nxt: Array = _preview_respecting_locks()
+	if nxt.is_empty() or nxt[0]["unitId"] == e["actorId"]:
+		return false
+	for u in battle["units"]:
+		if u["id"] == nxt[0]["unitId"]:
+			return bool(u["isParty"]) == bool(e.get("isParty", false))
+	return false
 
 ## Charge accumulates/spends for whichever unit just acted (and enrage can
 ## touch others) -- cheapest correct approach is refreshing everyone each
@@ -1856,7 +1894,7 @@ func _side_center(party_side: bool, body: bool) -> Vector2:
 
 func _is_phys_action(action_id: String) -> bool:
 	var a = FarroadCore.ACTIONS.get(action_id)
-	return a != null and a.get("camp") == "atk" and not a.get("heal")
+	return a != null and a.get("camp") == "atk" and not a.get("heal") and a.get("tk") != "self"
 
 ## Ian: "If a character has multiple physical attacks in a row, have them
 ## move from their first target to their second, rather than back to their
@@ -1885,8 +1923,10 @@ func _animate_beat(e: Dictionary) -> void:
 		await get_tree().create_timer(IDLE_PAUSE).timeout
 		return
 	var act = FarroadCore.ACTIONS.get(e["actionId"])
-	var is_phys: bool = act != null and act.get("camp") == "atk" and not act.get("heal")
 	var target_view: UnitView = unit_views_by_name.get(e["targetName"])
+	# a self-targeted action (e.g. a hound's Quickened Howl) has nowhere to
+	# hop to: it plays as a cast on the spot instead of hopping home
+	var is_phys: bool = act != null and act.get("camp") == "atk" and not act.get("heal") 		and act.get("tk") != "self" and target_view != actor_view
 
 	if target_view == null:
 		await get_tree().create_timer(IDLE_PAUSE).timeout
@@ -2000,7 +2040,7 @@ func _animate_beat(e: Dictionary) -> void:
 		var el = act.get("element") if act != null else null
 		if act != null and act.get("heal") and el == null:
 			el = "heal"
-		var fx := _spell_fx()
+		var fx := _new_cast_fx()
 		fx.unit_size = actor_view.size
 		fx.begin(el)
 		actor_view.play_state("cast")
@@ -2009,8 +2049,17 @@ func _animate_beat(e: Dictionary) -> void:
 		var gather_t: float = to_release if to_release > 0.0 else magic_total * 0.45
 		await fx.gather(actor_view.cast_hand_global(), gather_t)
 		var hit_at: Vector2 = dest_world if is_aoe else target_view.body_center_global()  # AoE: that side's centre
-		await fx.launch(actor_view.cast_hand_global(), hit_at, maxf(0.18, magic_total * 0.5))
+		var live_target := func() -> Vector2:
+			if is_aoe:
+				return _side_center(aoe_side, true)
+			return target_view.body_center_global() if is_instance_valid(target_view) else hit_at
+		if target_view == actor_view and not is_aoe:
+			await get_tree().create_timer(0.15).timeout    # self-buff: nothing to fly to
+		else:
+			await fx.launch(actor_view.cast_hand_global(), hit_at, maxf(0.18, magic_total * 0.5), live_target)
+		hit_at = live_target.call()
 		fx.burst(hit_at)
+		get_tree().create_timer(2.5).timeout.connect(fx.queue_free)
 		_apply_hit_effects(e)
 		if float(actor_view.unit["hp"]) > 0.0:
 			actor_view.play_state("idle")
@@ -2021,6 +2070,16 @@ func _animate_beat(e: Dictionary) -> void:
 ## that both deals damage AND applies a status (or several hits landing on
 ## the same target in one beat) spawns multiple labels at the identical
 ## point, overlapping each other for their entire flight.
+## Show the HP/charge a unit had right after this event's action (see the
+## snapshot taken in _run_battle_loop); falls back to live values.
+func _upd_hp(view: UnitView, e: Dictionary) -> void:
+	var sn = e.get("_snap", {}).get(view.unit["id"])
+	view.update_hp(sn[0] if sn != null else -1.0)
+
+func _upd_charge(view: UnitView, e: Dictionary) -> void:
+	var sn = e.get("_snap", {}).get(view.unit["id"])
+	view.update_charge(sn[1] if sn != null else -1.0)
+
 func _apply_hit_effects(e: Dictionary) -> void:
 	# "Recalled units still appear dead despite acting" -- a revive action
 	# (recall/lastlight) mutates its target's hp directly but is captured
@@ -2035,7 +2094,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 	# already cover the same target.
 	var primary_view: UnitView = unit_views_by_name.get(e.get("targetName"))
 	if primary_view != null:
-		primary_view.update_hp()
+		_upd_hp(primary_view, e)
 	# Ian: "charge bar update on hit, not on return to starting position" --
 	# was only ever refreshed by the post-beat _refresh_charge_bars() sweep,
 	# AFTER a physical attacker's full there-and-back hop completed. This
@@ -2044,13 +2103,13 @@ func _apply_hit_effects(e: Dictionary) -> void:
 	# "impact" moment hits/heals already resolve at.
 	var actor_view: UnitView = unit_views_by_id.get(e.get("actorId"))
 	if actor_view != null:
-		actor_view.update_charge()
+		_upd_charge(actor_view, e)
 	var stagger: Dictionary = {}
 	for h in e["hits"]:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])
 		if tv == null:
 			continue
-		tv.update_hp()
+		_upd_hp(tv, e)
 		var n: int = stagger.get(h["targetName"], 0)
 		stagger[h["targetName"]] = n + 1
 		if h["evaded"]:
@@ -2065,7 +2124,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var tv: UnitView = unit_views_by_name.get(h["targetName"])
 		if tv == null:
 			continue
-		tv.update_hp()
+		_upd_hp(tv, e)
 		var n: int = stagger.get(h["targetName"], 0)
 		stagger[h["targetName"]] = n + 1
 		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5), n)
@@ -2076,14 +2135,14 @@ func _apply_hit_effects(e: Dictionary) -> void:
 	# field position, same as any other damage source. The log popup's own
 	# "🔥 -N" note (BattlePresenter's log-building code) is unchanged.
 	if actor_view != null and e.get("dot", 0) > 0:
-		actor_view.update_hp()
+		_upd_hp(actor_view, e)
 		var an: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = an + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), DOT_COLOR, an)
 	# Ian: "show regen hp gains" -- Regen heals at the start of the unit's own
 	# turn (step() records it in e["regen"]); a green number on the unit.
 	if actor_view != null and e.get("regen", 0) > 0:
-		actor_view.update_hp()
+		_upd_hp(actor_view, e)
 		var rn: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = rn + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), "+%d" % int(e["regen"]), Color(0.4, 0.95, 0.5), rn)
@@ -2092,7 +2151,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var pv: UnitView = unit_views_by_name.get(pz["targetName"])
 		if pv == null:
 			continue
-		pv.update_hp()
+		_upd_hp(pv, e)
 		var pn: int = stagger.get(pz["targetName"], 0)
 		stagger[pz["targetName"]] = pn + 1
 		DamageNumber.spawn(self, pv.damage_spawn_position(), str(pz["amount"]), DOT_COLOR, pn)
@@ -2183,13 +2242,13 @@ func _return_and_settle(actor: UnitView, use_run: bool, was_alive: bool, duratio
 ## field's center for an AoE action -- see _animate_beat's own dest_world).
 ## `duration` defaults to MAGIC_BEAT_TOTAL but is passed explicitly once
 ## enrage pacing (Group B4) is in play.
-var _spell_fx_node: AttackFX
-func _spell_fx() -> AttackFX:
-	if _spell_fx_node == null or not is_instance_valid(_spell_fx_node):
-		_spell_fx_node = AttackFX.new()
-		add_child(_spell_fx_node)
-		_spell_fx_node.setup(_vp.y * 0.05)
-	return _spell_fx_node
+## One effect object per cast: casts that overlap (staggered same-side beats)
+## must not share element/trail/light state.
+func _new_cast_fx() -> AttackFX:
+	var fx := AttackFX.new()
+	add_child(fx)
+	fx.setup(_vp.y * 0.05)
+	return fx
 
 func _animate_projectile(actor: UnitView, dest: Vector2, duration: float = MAGIC_BEAT_TOTAL) -> void:
 	var bolt := Polygon2D.new()
