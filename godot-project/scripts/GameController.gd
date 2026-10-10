@@ -1543,10 +1543,22 @@ func _set_battle_paused(_paused: bool) -> void:
 func _close_all_popups() -> void:
 	_close_arena()
 	if open_panel != null and is_instance_valid(open_panel):
-		open_panel.popup.hide()
+		_hide_open_panel()
 	for p in [current_presenter, side_presenter]:
 		if p != null and is_instance_valid(p) and p.has_method("close_popups"):
 			p.call("close_popups")
+
+## Hide the open tab menu for good: it must not "go up a level" and reopen
+## (e.g. Units' Gambits -> Summary on top of the screen that replaced it,
+## like the training setup opened from the Gambits editor's Test button).
+func _hide_open_panel() -> void:
+	if open_panel == null or not is_instance_valid(open_panel):
+		return
+	if open_panel == units_panel:
+		units_panel.current_sub_tab = "summary"
+	elif open_panel == catalogue_panel:
+		catalogue_panel.set_meta("fromMenu", false)
+	open_panel.popup.hide()
 
 ## Called by every panel (dynamic has_method()+call()) at the very start
 ## of its own _on_toggle_pressed, BEFORE opening its own popup -- closes
@@ -1622,6 +1634,13 @@ func _tab_go_back(panel: Node) -> void:
 
 ## The tab menu's X.
 func _tab_close_or_back(panel: Node) -> void:
+	# Ian: the Units page's X closes the whole page (unlike the other pages,
+	# where it goes up a level). Back on the summary first, so closing it
+	# doesn't make _on_tab_hidden reopen one level up.
+	if panel == units_panel:
+		units_panel.current_sub_tab = "summary"
+		panel.popup.hide()
+		return
 	if _tab_can_go_back(panel):
 		_tab_go_back(panel)
 	else:
@@ -1699,7 +1718,7 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	if (full or on_game) and open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		# a full-size screen takes over the whole view: the menu it was
 		# opened from closes, and it hosts on the game itself
-		open_panel.popup.hide()
+		_hide_open_panel()
 	if full or on_game or host == self:
 		# Anything hosted on the game itself (welcome back, quest results,
 		# full-size screens) goes on its own canvas layer: battle effects
@@ -2433,8 +2452,7 @@ func _show_leaderboard() -> void:
 func _start_ranked(res: Dictionary) -> void:
 	if g.get("sideBattle") != null:
 		return
-	if open_panel != null and is_instance_valid(open_panel):
-		open_panel.popup.hide()
+	_hide_open_panel()
 	var battle := Ranked.build_battle(res["me"], res["them"], int(res["seed"]))
 	var them_name: String = str(res.get("themName", "Rival"))
 	_enter_side_battle([], Ranked.fight_wave(res["me"], res["them"]), {"kind": "pvp", "ranked": true, "owner": them_name,
@@ -2506,8 +2524,7 @@ func _show_tutorials_popup() -> void:
 			again.text = "Replay"
 			again.pressed.connect(func():
 				o["backdrop"].queue_free()
-				if open_panel != null and is_instance_valid(open_panel):
-					open_panel.popup.hide()
+				_hide_open_panel()
 				await get_tree().process_frame
 				if not tutorial.start_replay(id):
 					tutorial.show_toast("Can't replay during a fight.", road_button))
@@ -2527,8 +2544,7 @@ func _pvp_running() -> bool:
 func _start_pvp(team: Dictionary) -> void:
 	if g.get("sideBattle") != null:
 		return
-	if open_panel != null and is_instance_valid(open_panel):
-		open_panel.popup.hide()
+	_hide_open_panel()
 	var enemies := PvP.build_opponent(g, team)
 	_enter_side_battle(enemies, int(g.get("wave", 1)), {"kind": "pvp", "owner": str(team.get("owner", "?")),
 		"power": int(team.get("power", 0)), "team": str(team.get("team", "")), "rival": str(team.get("rival", ""))})
@@ -3877,18 +3893,28 @@ func _start_training() -> void:
 	_close_all_popups()
 	_enter_side_battle(FarroadProgression.training_enemies(g), int(g.get("wave", 1)), {"kind": "training"})
 	_clear_training_buttons()
+	# Ian: the buttons sit right next to the "Training" text above the enrage bar
+	await get_tree().process_frame
+	var title: Label = side_presenter.wave_progress_label if side_presenter != null and is_instance_valid(side_presenter) else null
+	var bx: float = (title.position.x + title.get_minimum_size().x + _vp.x * 0.025) if title != null else _vp.x * 0.30
+	var by: float = (title.position.y) if title != null else _vp.y * 0.60
+	var bh: float = (title.get_minimum_size().y if title != null else _vp.y * 0.03) + 4.0
 	training_end_btn = Button.new()
 	training_end_btn.text = "End training"
-	training_end_btn.position = Vector2(_vp.x * 0.30, _vp.y * 0.015)
-	training_end_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	training_end_btn.position = Vector2(bx, by - 2.0)
+	training_end_btn.custom_minimum_size = Vector2(0, bh)
+	training_end_btn.add_theme_font_size_override("font_size", int(_vp.y * 0.017))
 	training_end_btn.pressed.connect(_end_training)
 	add_child(training_end_btn)
 	training_refill_btn = Button.new()
-	training_refill_btn.text = "Refill dummies"
-	training_refill_btn.position = Vector2(_vp.x * 0.60, _vp.y * 0.015)
-	training_refill_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	training_refill_btn.text = "Reset"
+	training_refill_btn.custom_minimum_size = Vector2(0, bh)
+	training_refill_btn.add_theme_font_size_override("font_size", int(_vp.y * 0.017))
 	training_refill_btn.pressed.connect(_refill_dummies)
 	add_child(training_refill_btn)
+	await get_tree().process_frame
+	if is_instance_valid(training_refill_btn) and is_instance_valid(training_end_btn):
+		training_refill_btn.position = Vector2(training_end_btn.position.x + training_end_btn.size.x + 8.0, by - 2.0)
 
 var training_end_btn: Button
 var training_refill_btn: Button

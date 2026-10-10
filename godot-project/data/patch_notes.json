@@ -1,31 +1,36 @@
 [
-	{
-		"version": "2.37",
-		"title": "Gambits, charge sharing and a legendary mage",
-		"notes": [
-			"**Gambits:** 36 new conditions. Foes can be strong or weak to any affinity (including Body and Spirit); allies and foes can be checked for statuses (poisoned, burning, has a debuff or buff, taunting); whole-party checks (all allies hurt, 2+ hurt, none hurt, last one standing); and charge checks for yourself and your allies.",
-			"**New actions:** Kindle gives an ally charge. Tithe shares some of your own charge with the party. Floodgate (charge action) gives every other ally charge. Potent strengthens all three.",
-			"**New enemies:** Ironhide Brute, Hollow Husk, Rotted Carrion and Veilwarden, plus two new bosses, Iron Sovereign and Hollow Oracle. Existing enemies were given Body and Spirit strengths and weaknesses.",
-			"**New unit:** Lyrael, a legendary Spirit mage.",
-			"**Main Character:** growth per level is now at legendary level. Existing characters are updated automatically.",
-			"**Shifted Reflection:** reach wave 100 to receive one. Use it from Units, on your Main Character, to spread your stat points again.",
-			"**Training:** test your gambits on up to 10 dummies. Open it from the Test button in the Gambits editor or from the Quests tab. Each dummy can be set to any level, have its stats changed, hold statuses, be weak or strong to any affinity, fight back, and can be swapped for any enemy you've met. Nothing in training gives rewards or changes your progress, and you can edit gambits from Units while it runs.",
-			"**Arena:** an opponent's actions now show their level.",
-			"**Notifications:** Windows now alerts you even when the game is closed, and the browser version can notify you while its tab stays open. Each kind of alert has its own switch, plus a test button. Expedition alerts now arrive exactly when the party is home, and Android asks for the permission it needs to deliver idle alerts on time.",
-			"**Fixes:** menus stay open when you switch away from the browser and come back. Waves fought while the game was closed now count in the wave stats.",
-			"**Patch notes and updates:** this window, and a check for new versions, were added to Settings."
-		]
-	},
-	{
-		"version": "2.36",
-		"title": "Ranked Arena and cloud saves",
-		"notes": [
-			"**Arena:** every fight is decided on the Farroad server, so results can't be faked. Your fielded party is your Arena team; others fight it while you're away.",
-			"**Ratings** rise and fall after each fight. Opponents near your rating show their Rating and Power, and can be sorted by power, rating or name.",
-			"**Leaderboard** shows the top players' ratings, wins and losses. **Records** shows your last 50 fights.",
-			"**Cloud saves:** your game is saved to the cloud automatically. Menu > Cloud save & recovery code lets you continue on another phone, PC or the browser.",
-			"**Power** now includes gear and Aether investments, and reads the same on the Road and in the Arena.",
-			"**Potent** now strengthens revives. Tapping an enemy shows its gambits. Damage over time shows in purple."
-		]
-	}
+  {
+    "version": "2.37",
+    "title": "Gambits, charge sharing and a legendary mage",
+    "notes": [
+      "**Gambits:** 36 new conditions. Foes can be strong or weak to any affinity (including Body and Spirit); allies and foes can be checked for statuses (poisoned, burning, has a debuff or buff, taunting); whole-party checks (all allies hurt, 2+ hurt, none hurt, last one standing); and charge checks for yourself and your allies.",
+      "**New actions:** Kindle gives an ally charge. Tithe shares some of your own charge with the party. Floodgate (charge action) gives every other ally charge. Potent strengthens all three.",
+      "**New enemies:** Ironhide Brute, Hollow Husk, Rotted Carrion and Veilwarden, plus two new bosses, Iron Sovereign and Hollow Oracle. Existing enemies were given Body and Spirit strengths and weaknesses.",
+      "**New unit:** Lyrael, a legendary Spirit mage.",
+      "**Main Character:** growth per level is now at legendary level. Existing characters are updated automatically.",
+      "**Shifted Reflection:** reach wave 100 to receive one. Use it from Units, on your Main Character, to spread your stat points again.",
+      "**Training:** test your gambits on up to 10 dummies. Open it from the Test button in the Gambits editor or from the Quests tab. Each dummy can be set to any level, have its stats changed, hold statuses, be weak or strong to any affinity, fight back, and can be swapped for any enemy you've met. Nothing in training gives rewards or changes your progress, and you can edit gambits from Units while it runs.",
+      "**Arena:** an opponent's actions now show their level.",
+      "**Notifications:** Windows now alerts you even when the game is closed, and the browser version can notify you while its tab stays open. Each kind of alert has its own switch, plus a test button. Expedition alerts now arrive exactly when the party is home, and Android asks for the permission it needs to deliver idle alerts on time.",
+      "**Fixes:** menus stay open when you switch away from the browser and come back. Waves fought while the game was closed now count in the wave stats.",
+      "**New look (preparing for the art pass):** the UI changes in this update are the first step before the new art arrives. Every menu now uses dark brown panels with a silver rim and rounded buttons, in a new, clearer font. Text across the game was made lighter and more vibrant, and names, wave text and enrage text have outlines. Damage numbers are red, and rewards that fly in are outlined.",
+      "**Bars:** unit HP and charge bars were redesigned. HP turns green, yellow, then red, charge is orange with step marks, and a pale trail shows the damage you just took.",
+      "**Battle pacing:** when several allies (or several enemies) act in a row, each starts 0.25 seconds after the last. Spells now follow their target if it is still moving, and effects, HP and charge no longer pop or jump early.",
+      "**Units:** levels now show next to each unit in the Units dropdown and the Party list. Long unit names in the turn order show just the first word. A unit's own self-targeted action, like a Mire Hound's Quickened Howl, plays in place instead of hopping.",
+      "**Filters:** the sort and filter options now fit on one line.",
+      "**Patch notes and updates:** this window, and a check for new versions, were added to Settings."
+    ]
+  },
+  {
+    "version": "2.36",
+    "title": "Ranked Arena and cloud saves",
+    "notes": [
+      "**Arena:** every fight is decided on the Farroad server, so results can't be faked. Your fielded party is your Arena team; others fight it while you're away.",
+      "**Ratings** rise and fall after each fight. Opponents near your rating show their Rating and Power, and can be sorted by power, rating or name.",
+      "**Leaderboard** shows the top players' ratings, wins and losses. **Records** shows your last 50 fights.",
+      "**Cloud saves:** your game is saved to the cloud automatically. Menu > Cloud save & recovery code lets you continue on another phone, PC or the browser.",
+      "**Power** now includes gear and Aether investments, and reads the same on the Road and in the Arena.",
+      "**Potent** now strengthens revives. Tapping an enemy shows its gambits. Damage over time shows in purple."
+    ]
+  }
 ]

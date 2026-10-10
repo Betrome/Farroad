@@ -114,6 +114,7 @@ func _recompute_field_fractions() -> void:
 
 func _ready() -> void:
 	_vp = get_viewport_rect().size
+	UnitView.name_ref_size = _vp.y * 0.05
 	_bar_layer = Node2D.new()
 	add_child(_bar_layer)
 	# Needed for UnitView's own Area2D.input_event (tap-a-unit-for-stats,
@@ -217,6 +218,7 @@ func begin_combat() -> void:
 ## the new visible area until the next wave, not just slightly offset.
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	UnitView.name_ref_size = _vp.y * 0.05
 	_recompute_field_fractions()
 
 	if enrage_bg: enrage_bg.queue_free()
@@ -1762,6 +1764,15 @@ func _run_battle_loop() -> void:
 			var p0 := Time.get_ticks_msec()
 			await get_tree().create_timer(0.1).timeout
 			_paused_ms += Time.get_ticks_msec() - p0
+		# a unit never starts a new beat while its previous one is still playing
+		# (staggered same-side beats could otherwise start its 2nd attack before
+		# its 1st had finished, so it jumped back to its rest spot first). By
+		# the time the 1st ends, the turn order already shows it acting again,
+		# so it stays at its target and attacks again, like allies do.
+		var up: Array = _preview_respecting_locks()
+		if busy_guard and not up.is_empty():
+			while _busy_units.has(up[0]["unitId"]):
+				await get_tree().process_frame
 		guard += 1
 		var e = FarroadCore.step(battle)
 		if e == null:
@@ -1789,7 +1800,7 @@ func _run_battle_loop() -> void:
 			_run_beat_detached(e)
 			await get_tree().create_timer(SAME_SIDE_STAGGER).timeout
 		else:
-			await _animate_beat(e)
+			await _tracked_beat(e)
 			while _beats_running > 0:
 				await get_tree().process_frame
 		active_unit_id = ""
@@ -1839,8 +1850,19 @@ const SAME_SIDE_STAGGER := 0.25
 var _beats_running := 0
 
 func _run_beat_detached(e: Dictionary) -> void:
-	await _animate_beat(e)
+	await _tracked_beat(e)
 	_beats_running -= 1
+
+var _busy_units: Dictionary = {}
+var busy_guard := true      # test hook
+var chain_count := 0
+var phys_beats := 0
+var pop_count := 0          # test hook: attacks that began from home while the unit was still out
+
+func _tracked_beat(e: Dictionary) -> void:
+	_busy_units[e["actorId"]] = true
+	await _animate_beat(e)
+	_busy_units.erase(e["actorId"])
 
 ## True when the upcoming actor is a different unit on the same side as the
 ## one that just acted (so its beat can start 0.25 s after this one's).
@@ -1945,8 +1967,13 @@ func _animate_beat(e: Dictionary) -> void:
 	# a unit still standing at its last target: carries on if this beat is
 	# its own next physical attack, otherwise heads home now
 	var chain_start := Vector2.ZERO
+	if is_phys:
+		phys_beats += 1
+	if is_phys and not _chained.has(e["actorId"]) and actor_view.shape.position.length() > 2.0:
+		pop_count += 1          # a unit still away from its spot starts a hop from home: a visible snap
 	if _chained.has(e["actorId"]) and is_phys:
 		chain_start = actor_view.shape.position
+		chain_count += 1
 		_chained.erase(e["actorId"])
 	_release_chained("")
 

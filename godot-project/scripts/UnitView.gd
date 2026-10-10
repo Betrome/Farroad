@@ -268,6 +268,9 @@ var _charge_bg: Control
 var _charge_fg: Control
 var _click_area: Area2D
 var _name_label: Label
+## Name text is one size for every unit (the standard player-sized unit), however
+## big or small the sprite is. Set by BattlePresenter from the screen height.
+static var name_ref_size := 46.0
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
@@ -408,13 +411,14 @@ func _build(unit_size: float) -> void:
 	_name_label = Label.new()
 	_name_label.text = unit["name"]
 	_name_label.position = Vector2(-half, charge_y + charge_h + gap)
-	_name_label.add_theme_font_size_override("font_size", int(size * 0.36))
+	_name_label.add_theme_font_size_override("font_size", int(name_ref_size * 0.36))
 	# Ian: names get an outline. The names sit on the pale sky, so light text with a
 	# thin black outline (thick outlines fill in the letters at this size).
 	_name_label.add_theme_color_override("font_color", Palette.TEXT_INK)
 	_name_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	_name_label.add_theme_constant_override("outline_size", 2)
 	_chrome.add_child(_name_label)
+	_name_label.visible = _shows_name()
 
 	# Tap/click target -- a plain rectangle covering the shape's own bounds
 	# (not the whole footprint including bars/name, which would make
@@ -734,12 +738,17 @@ func hide_chrome() -> void:
 ## rule that a unit with no chargeAction never shows a charge bar at all --
 ## fading one in for such a unit would contradict its normal (non-transition)
 ## state.
+## Ian: enemies carry no name under them -- only bosses (and the player's
+## own units) do.
+func _shows_name() -> bool:
+	return bool(unit.get("isParty", false)) or bool(unit.get("isBoss", false))
+
 func fade_in_chrome(duration: float = 0.5) -> void:
 	_hp_bg.visible = true
 	_hp_fg.visible = true
 	_hp_bg.modulate.a = 0.0
 	_hp_fg.modulate.a = 0.0
-	_name_label.visible = true
+	_name_label.visible = _shows_name()
 	_name_label.modulate.a = 0.0
 	var tw := create_tween()
 	tw.set_parallel(true)

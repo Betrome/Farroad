@@ -163,7 +163,21 @@ func _set_arc_grip(pivot: Vector2, from_tip: Vector2, to_tip: Vector2, via, reac
 	_arc["a0"] = a0
 	_arc["da"] = da
 
+var _held_t := 0.0
+
 func _process(delta: float) -> void:
+	# A smear frame holds the trail until the impact frame starts its fade. If
+	# the attack animation is cut short before that frame (the unit was
+	# interrupted, or the next beat took over its sprite) the trail used to
+	# stay on screen: fade it after a short hold instead.
+	if float(_arc["age"]) < -1.5:
+		_held_t += delta
+		if _held_t > 0.45:
+			_arc["age"] = 0.0
+			_stop_blade_emitter()
+			_light.enabled = false
+	else:
+		_held_t = 0.0
 	if float(_arc["age"]) >= 0.0:
 		_arc["age"] = float(_arc["age"]) + delta
 		if float(_arc["age"]) > TRAIL_LIFE:
