@@ -60,7 +60,18 @@ func _build_ui(parent: Node) -> void:
 	root = Control.new()
 	root.position = Vector2.ZERO
 	root.size = _vp
-	parent.add_child(root)
+	# The respec opens over a running game: on its own canvas layer it draws
+	# above the battle's sprites and effects instead of underneath them.
+	var host: Node = parent
+	if respec_mode:
+		var layer := CanvasLayer.new()
+		layer.layer = 8
+		parent.add_child(layer)
+		host = layer
+		root.tree_exited.connect(func():
+			if is_instance_valid(layer):
+				layer.queue_free())
+	host.add_child(root)
 
 	var background := ColorRect.new()
 	background.color = Palette.BG_PARCHMENT

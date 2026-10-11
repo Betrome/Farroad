@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.37.1",
+    "title": "Shifted Reflection fix",
+    "notes": [
+      "**Fix:** the Shifted Reflection screen no longer has the battle, its effects and the wave text showing through it."
+    ]
+  },
+  {
     "version": "2.37",
     "title": "Gambits, charge sharing and a legendary mage",
     "notes": [
