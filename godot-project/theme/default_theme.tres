@@ -3,7 +3,7 @@
 [ext_resource type="FontFile" path="res://fonts/selawik/Selawik-Bold.ttf" id="1_0ref1"]
 [ext_resource type="FontFile" path="res://fonts/selawik/Selawik-Regular.ttf" id="2_xul1n"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ehq15"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0ref1"]
 content_margin_left = 16.0
 content_margin_top = 8.0
 content_margin_right = 16.0
@@ -13,13 +13,14 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.4627451, 0.48235294, 0.50980395, 0.4)
+border_color = Color(0.4627451, 0.48235294, 0.50980395, 0.34)
 corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
+anti_aliasing_size = 1.6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_il5tp"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xul1n"]
 content_margin_left = 16.0
 content_margin_top = 8.0
 content_margin_right = 16.0
@@ -29,15 +30,16 @@ border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(0.76862746, 0.7882353, 0.8117647, 1)
+border_color = Color(0.76862746, 0.7882353, 0.8117647, 0.85)
 corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
 shadow_color = Color(0.76862746, 0.7882353, 0.8117647, 0.35)
 shadow_size = 6
+anti_aliasing_size = 1.6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_4tj8r"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ehq15"]
 content_margin_left = 16.0
 content_margin_top = 8.0
 content_margin_right = 16.0
@@ -47,13 +49,14 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.76862746, 0.7882353, 0.8117647, 1)
+border_color = Color(0.76862746, 0.7882353, 0.8117647, 0.85)
 corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
+anti_aliasing_size = 1.6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dwelr"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_il5tp"]
 content_margin_left = 16.0
 content_margin_top = 8.0
 content_margin_right = 16.0
@@ -63,13 +66,14 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.4627451, 0.48235294, 0.50980395, 1)
+border_color = Color(0.4627451, 0.48235294, 0.50980395, 0.85)
 corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
+anti_aliasing_size = 1.6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_eev3d"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_4tj8r"]
 content_margin_left = 16.0
 content_margin_top = 8.0
 content_margin_right = 16.0
@@ -79,16 +83,17 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.4627451, 0.48235294, 0.50980395, 1)
+border_color = Color(0.4627451, 0.48235294, 0.50980395, 0.85)
 corner_radius_top_left = 20
 corner_radius_top_right = 20
 corner_radius_bottom_right = 20
 corner_radius_bottom_left = 20
+anti_aliasing_size = 1.6
 
-[sub_resource type="StyleBoxLine" id="StyleBoxLine_4vke1"]
+[sub_resource type="StyleBoxLine" id="StyleBoxLine_dwelr"]
 color = Color(0.4627451, 0.48235294, 0.50980395, 0.5)
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_obgof"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_eev3d"]
 content_margin_left = 10.0
 content_margin_top = 6.0
 content_margin_right = 10.0
@@ -104,7 +109,7 @@ corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_0finn"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_4vke1"]
 content_margin_left = 10.0
 content_margin_top = 6.0
 content_margin_right = 10.0
@@ -120,7 +125,7 @@ corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_o3w03"]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_obgof"]
 content_margin_left = 10.0
 content_margin_top = 8.0
 content_margin_right = 10.0
@@ -144,21 +149,21 @@ Button/colors/font_disabled_color = Color(0.8117647, 0.7882353, 0.7254902, 1)
 Button/colors/font_focus_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 Button/colors/font_hover_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 Button/colors/font_pressed_color = Color(0.93333334, 0.91764706, 0.8745098, 0.9)
-Button/styles/disabled = SubResource("StyleBoxFlat_ehq15")
-Button/styles/focus = SubResource("StyleBoxFlat_il5tp")
-Button/styles/hover = SubResource("StyleBoxFlat_4tj8r")
-Button/styles/normal = SubResource("StyleBoxFlat_dwelr")
-Button/styles/pressed = SubResource("StyleBoxFlat_eev3d")
+Button/styles/disabled = SubResource("StyleBoxFlat_0ref1")
+Button/styles/focus = SubResource("StyleBoxFlat_xul1n")
+Button/styles/hover = SubResource("StyleBoxFlat_ehq15")
+Button/styles/normal = SubResource("StyleBoxFlat_il5tp")
+Button/styles/pressed = SubResource("StyleBoxFlat_4tj8r")
 CheckBox/colors/font_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 CheckButton/colors/font_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
-HSeparator/styles/separator = SubResource("StyleBoxLine_4vke1")
+HSeparator/styles/separator = SubResource("StyleBoxLine_dwelr")
 Label/colors/font_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 LineEdit/colors/caret_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 LineEdit/colors/font_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 LineEdit/colors/font_placeholder_color = Color(0.93333334, 0.91764706, 0.8745098, 0.7)
-LineEdit/styles/focus = SubResource("StyleBoxFlat_obgof")
-LineEdit/styles/normal = SubResource("StyleBoxFlat_0finn")
+LineEdit/styles/focus = SubResource("StyleBoxFlat_eev3d")
+LineEdit/styles/normal = SubResource("StyleBoxFlat_4vke1")
 OptionButton/colors/font_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
-PanelContainer/styles/panel = SubResource("StyleBoxFlat_o3w03")
+PanelContainer/styles/panel = SubResource("StyleBoxFlat_obgof")
 RichTextLabel/colors/default_color = Color(0.93333334, 0.91764706, 0.8745098, 1)
 RichTextLabel/fonts/bold_font = ExtResource("1_0ref1")

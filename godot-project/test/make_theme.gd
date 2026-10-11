@@ -15,7 +15,8 @@ func _capsule(bg: Color, border: Color, border_w: int = 1) -> StyleBoxFlat:
 	s.bg_color = bg
 	s.set_corner_radius_all(20)    # a capsule at any normal button height
 	s.set_border_width_all(border_w)
-	s.border_color = border
+	s.border_color = Color(border, border.a * 0.85)
+	s.anti_aliasing_size = 1.6
 	s.content_margin_left = 16.0
 	s.content_margin_right = 16.0
 	s.content_margin_top = 8.0

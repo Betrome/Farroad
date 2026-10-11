@@ -45,9 +45,10 @@ static func plate_style(modal: bool = false) -> StyleBoxFlat:
 	s.bg_color = Color(PLATE, 0.92)
 	s.set_corner_radius_all(RADIUS)
 	s.set_border_width_all(2 if modal else 1)
-	s.border_color = SILVER_DIM
+	s.border_color = Color(SILVER_DIM, 0.8)
 	s.shadow_color = Color(0, 0, 0, 0.35)
 	s.shadow_size = 6
+	s.anti_aliasing_size = 1.6
 	s.content_margin_left = 14
 	s.content_margin_right = 14
 	s.content_margin_top = 12
@@ -59,7 +60,8 @@ static func capsule_style(base: Color, rim: Color, height: float) -> StyleBoxFla
 	s.bg_color = base
 	s.set_corner_radius_all(int(height / 2.0))
 	s.set_border_width_all(1)
-	s.border_color = rim
+	s.border_color = Color(rim, rim.a * 0.85)
+	s.anti_aliasing_size = 1.6
 	s.content_margin_left = 18
 	s.content_margin_right = 18
 	s.content_margin_top = 6
@@ -127,7 +129,7 @@ static func style_button(btn: Button, kind: String = "secondary", force_state: S
 		for p in pts:
 			cols.append(Color(1, 1, 1, 0.16 * clampf(1.0 - p.y / rr, 0.0, 1.0)))
 		btn.draw_polygon(pts, cols)
-		btn.draw_polyline(pts, Color(1, 1, 1, 0.24), 1.0, true))
+		fade_polyline(btn, pts, Color(1, 1, 1), 1.0, 0.24))
 
 ## The upper half of a capsule's outline, curves included, from the left
 ## middle over the top to the right middle (`inset` px inside the edge).
@@ -218,18 +220,47 @@ static func draw_rim(c: CanvasItem, sz: Vector2, modal: bool) -> void:
 	dim.draw_center = false
 	dim.set_corner_radius_all(int(rad))
 	dim.set_border_width_all(int(ceil(w)))
-	dim.border_color = SILVER_DIM
+	dim.border_color = Color(SILVER_DIM, 0.8)
+	dim.anti_aliasing_size = 1.6
 	c.draw_style_box(dim, Rect2(Vector2.ZERO, sz))
-	var lit := PackedVector2Array()
 	var half := w / 2.0
-	lit.append(Vector2(half, sz.y * 0.62))
-	lit.append(Vector2(half, rad))
-	for i in range(1, 9):
-		var a: float = PI + (PI / 2.0) * float(i) / 8.0
-		lit.append(Vector2(rad + cos(a) * (rad - half), rad + sin(a) * (rad - half)))
-	lit.append(Vector2(sz.x * 0.78, half))
-	c.draw_polyline(lit, SILVER, w, true)
-	c.draw_line(Vector2(rad, w + 1.0), Vector2(sz.x - rad, w + 1.0), Color(1, 1, 1, 0.12), 1.0)
+	var path := PackedVector2Array()
+	path.append(Vector2(half, sz.y * 0.62))
+	path.append(Vector2(half, rad))
+	for i in range(1, 13):
+		var a: float = PI + (PI / 2.0) * float(i) / 12.0
+		path.append(Vector2(rad + cos(a) * (rad - half), rad + sin(a) * (rad - half)))
+	path.append(Vector2(sz.x * 0.78, half))
+	fade_polyline(c, path, SILVER, w, 0.95)
+	# inner top highlight, fading toward both ends
+	var hl := PackedVector2Array([Vector2(rad, w + 1.0), Vector2(sz.x - rad, w + 1.0)])
+	fade_polyline(c, hl, Color(1, 1, 1), 1.0, 0.12)
+
+## A polyline whose opacity eases in from nothing, peaks in the middle and
+## eases back out, so lit edges blend into the rim instead of starting and
+## stopping abruptly.
+static func fade_polyline(c: CanvasItem, path: PackedVector2Array, col: Color, width: float, peak: float) -> void:
+	var total := 0.0
+	for i in range(1, path.size()):
+		total += path[i].distance_to(path[i - 1])
+	if total <= 0.0:
+		return
+	var pts := PackedVector2Array()
+	var cols := PackedColorArray()
+	var steps := clampi(int(total / 3.0), 8, 80)
+	var seg := 0
+	var seg_start := 0.0
+	for k in range(steps + 1):
+		var d: float = total * float(k) / float(steps)
+		while seg < path.size() - 2 and seg_start + path[seg + 1].distance_to(path[seg]) < d:
+			seg_start += path[seg + 1].distance_to(path[seg])
+			seg += 1
+		var seg_len: float = maxf(0.001, path[seg + 1].distance_to(path[seg]))
+		var t: float = clampf((d - seg_start) / seg_len, 0.0, 1.0)
+		pts.append(path[seg].lerp(path[seg + 1], t))
+		var env: float = sin(PI * float(k) / float(steps))
+		cols.append(Color(col, peak * pow(env, 0.7)))
+	c.draw_polyline_colors(pts, cols, width, true)
 
 ## Every pop-up menu window: the kit plate with the silver rim drawn over it.
 static func style_popup(p: PopupPanel) -> void:
@@ -287,7 +318,8 @@ static func card_style(margin: int = 10, chosen: bool = false) -> StyleBoxFlat:
 	s.bg_color = over(BAND, PLATE_LIGHT, 0.34) if chosen else PLATE_LIGHT
 	s.set_corner_radius_all(RADIUS)
 	s.set_border_width_all(2 if chosen else 1)
-	s.border_color = BAND if chosen else Color(SILVER_DIM, 0.6)
+	s.border_color = BAND if chosen else Color(SILVER_DIM, 0.55)
+	s.anti_aliasing_size = 1.6
 	s.set_content_margin_all(margin)
 	return s
 
@@ -356,7 +388,8 @@ static func round_style(btn: Button, sz: float) -> void:
 		sb.bg_color = pair[1]
 		sb.set_corner_radius_all(int(sz / 2.0))
 		sb.set_border_width_all(1)
-		sb.border_color = SILVER_DIM
+		sb.border_color = Color(SILVER_DIM, 0.8)
+		sb.anti_aliasing_size = 1.6
 		sb.content_margin_left = 2.0
 		sb.content_margin_right = 2.0
 		sb.content_margin_top = 2.0
@@ -371,7 +404,11 @@ static func round_style(btn: Button, sz: float) -> void:
 		var c := Vector2(btn.size.x / 2.0, btn.size.y / 2.0)
 		if btn.has_meta("ui_active"):
 			btn.draw_arc(c, d / 2.0 + 3.0, 0, TAU, 40, Color(BAND, 0.55), 3.0, true)
-		btn.draw_arc(c, d / 2.0 - 1.0, PI * 0.75, PI * 1.75, 24, SILVER, 2.0, true))
+		var arc := PackedVector2Array()
+		for i in range(25):
+			var an: float = PI * 0.75 + PI * float(i) / 24.0
+			arc.append(c + Vector2(cos(an), sin(an)) * (d / 2.0 - 1.0))
+		fade_polyline(btn, arc, SILVER, 2.0, 1.0))
 
 static func set_icon_active(btn: Button, on: bool) -> void:
 	if btn == null or not is_instance_valid(btn):
@@ -406,7 +443,7 @@ static func auto_top_light(tree: SceneTree) -> void:
 				for p in pts:
 					cols.append(Color(1, 1, 1, 0.14 * clampf(1.0 - p.y / rr, 0.0, 1.0)))
 				b.draw_polygon(pts, cols)
-				b.draw_polyline(pts, Color(1, 1, 1, 0.20), 1.0, true)))
+				fade_polyline(b, pts, Color(1, 1, 1), 1.0, 0.22)))
 
 ## A main action button: the kit's primary (bronze) capsule at normal size.
 static func primary(btn: Button) -> void:
