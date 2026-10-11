@@ -121,11 +121,15 @@ func _style_direction_button(btn: Button, dir: String) -> void:
 	btn.disabled = occupied and not is_selected
 	var radius_px: int = int(btn.custom_minimum_size.x / 2.0)
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Palette.GOLD_PRESSED if is_selected else Palette.BTN_NORMAL
+	normal.bg_color = UiKit.over(UiKit.BAND, UiKit.PLATE_LIGHT, 0.34) if is_selected else UiKit.PLATE_LIGHT
 	normal.set_corner_radius_all(radius_px)
+	normal.set_border_width_all(1)
+	normal.border_color = UiKit.BAND if is_selected else UiKit.SILVER_DIM
 	var disabled_style := StyleBoxFlat.new()
-	disabled_style.bg_color = Palette.BTN_DISABLED
+	disabled_style.bg_color = Color(UiKit.PLATE_LIGHT, 0.5)
 	disabled_style.set_corner_radius_all(radius_px)
+	disabled_style.set_border_width_all(1)
+	disabled_style.border_color = Color(UiKit.SILVER_DIM, 0.4)
 	btn.add_theme_stylebox_override("normal", normal)
 	btn.add_theme_stylebox_override("hover", normal)
 	btn.add_theme_stylebox_override("pressed", normal)

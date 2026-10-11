@@ -74,12 +74,7 @@ func _build_ui(parent: Node) -> void:
 ## Same opaque-panel convention every sibling panel already established --
 ## the default theme's PopupPanel background isn't fully opaque.
 func _style_popup(p: PopupPanel) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.BORDER_LEATHER
-	style.set_border_width_all(2)
-	style.set_content_margin_all(10)
-	p.add_theme_stylebox_override("panel", style)
+	UiKit.style_popup(p)
 
 ## Same icon-square style every sibling panel's own copy uses (duplicated
 ## here, different script, no shared base).
@@ -88,27 +83,7 @@ func _style_popup(p: PopupPanel) -> void:
 ## (unchanged behavior) until real button art exists (Ian: "prepare for
 ## real button/icon assets").
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	if icon != null:
-		btn.icon = icon
-		btn.expand_icon = true
-	btn.position = pos
-	btn.custom_minimum_size = Vector2(size, size)
-	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Palette.BTN_NORMAL
-	normal_style.set_corner_radius_all(int(size / 2.0))
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Palette.BTN_HOVER
-	hover_style.set_corner_radius_all(int(size / 2.0))
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.pressed.connect(callback)
-	parent.add_child(btn)
-	return btn
+	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
@@ -245,6 +220,7 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	row.add_child(charge_lbl)
 	var enter_btn := Button.new()
 	enter_btn.text = "Enter"
+	UiKit.primary(enter_btn)
 	enter_btn.disabled = busy or charges <= 0
 	if busy:
 		enter_btn.tooltip_text = "A quest or dungeon attempt is already in progress."
@@ -294,6 +270,7 @@ func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer
 	else:
 		var attempt_btn := Button.new()
 		attempt_btn.text = "Attempt"
+		UiKit.primary(attempt_btn)
 		var fielded: bool = (g["party"] as Array).has(uid)
 		if not fielded:
 			attempt_btn.disabled = true

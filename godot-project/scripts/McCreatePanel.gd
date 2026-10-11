@@ -98,6 +98,7 @@ func _build_ui(parent: Node) -> void:
 
 	confirm_btn = Button.new()
 	confirm_btn.text = "Remake my stats" if respec_mode else "Begin the road"
+	UiKit.primary(confirm_btn)
 	confirm_btn.disabled = true
 	confirm_btn.pressed.connect(_on_confirm_pressed)
 	root_vbox.add_child(confirm_btn)
@@ -306,12 +307,7 @@ func _refresh_charges() -> void:
 ## "disabled" reads as unavailable, not chosen, and this screen's whole
 ## point is letting the player pick exactly one of three available options.
 func _charge_style(selected: bool) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.GOLD_PRESSED if selected else Palette.BG_PARCHMENT_DEEP
-	style.border_color = Palette.GOLD_LIGHT if selected else Palette.BORDER_LEATHER
-	style.set_border_width_all(2 if selected else 1)
-	style.set_content_margin_all(10)
-	return style
+	return UiKit.card_style(10, selected)
 
 func _sanitize_name(raw: String) -> String:
 	var re := RegEx.new()

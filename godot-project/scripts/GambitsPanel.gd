@@ -178,6 +178,7 @@ func _build_auto_set_row() -> void:
 	row.add_child(lbl)
 	var btn := Button.new()
 	btn.text = "Auto-set"
+	UiKit.primary(btn)
 	btn.pressed.connect(_on_auto_set_pressed)
 	row.add_child(btn)
 	# Ian: test the gambits against training dummies (the same screen as the Quests tab's)
@@ -209,10 +210,7 @@ func _refresh_slots() -> void:
 	for i in range(slots.size()):
 		var s: Dictionary = slots[i]
 		var card := PanelContainer.new()
-		var style := StyleBoxFlat.new()
-		style.bg_color = Palette.BG_PARCHMENT_DEEP
-		style.set_content_margin_all(10)
-		card.add_theme_stylebox_override("panel", style)
+		card.add_theme_stylebox_override("panel", UiKit.card_style(10))
 		slots_container.add_child(card)
 
 		var vbox := VBoxContainer.new()

@@ -95,12 +95,7 @@ func _show_stat_info_popup(anchor: Control, text: String) -> void:
 	if host == null:
 		return
 	var p := PopupPanel.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT_DEEP
-	style.border_color = Palette.BORDER_LEATHER
-	style.set_border_width_all(2)
-	style.set_content_margin_all(8)
-	p.add_theme_stylebox_override("panel", style)
+	UiKit.style_popup(p)
 	host.add_child(p)
 	var lbl := Label.new()
 	lbl.text = text
@@ -128,19 +123,12 @@ func _info_icon(info_text: String, compact: bool = false) -> Button:
 	btn.text = "ⓘ"
 	btn.custom_minimum_size = Vector2(14 if compact else 20, 0)
 	btn.add_theme_font_size_override("font_size", 9 if compact else 12)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		var style := StyleBoxFlat.new()
-		style.bg_color = Palette.BTN_NORMAL if state != "hover" else Palette.BTN_HOVER
-		style.set_content_margin_all(1 if compact else 2)
-		btn.add_theme_stylebox_override(state, style)
+	UiKit.info_button(btn, compact)
 	btn.pressed.connect(func(): _show_stat_info_popup(btn, info_text))
 	return btn
 
 func _section_label(text: String) -> Label:
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.modulate = Palette.PARTY_BLUE
-	return lbl
+	return UiKit.make_label(text, "label")
 
 ## Same small BBCode-label helper BattlePresenter._rich_line already
 ## established -- duplicated here (different script, no shared base) for the
@@ -296,24 +284,7 @@ func _purchase_row(desc: String, buy_text: String, cost: int, maxed: bool, callb
 ## available state AND the rest of the panel's default grey buttons, not
 ## just a slightly darker grey the eye glosses over.
 func _style_purchase_button(btn: Button, available: bool) -> void:
-	var bg := Color(0.55, 0.42, 0.08) if available else Color(0.22, 0.13, 0.13)
-	var bg_hover := Color(0.7, 0.55, 0.12) if available else Color(0.26, 0.15, 0.15)
-	var font := Color(1.0, 0.93, 0.72) if available else Color(0.6, 0.45, 0.45)
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = bg
-	normal_style.set_corner_radius_all(4)
-	normal_style.set_content_margin_all(6)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = bg_hover
-	hover_style.set_corner_radius_all(4)
-	hover_style.set_content_margin_all(6)
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.add_theme_stylebox_override("disabled", normal_style)
-	btn.add_theme_color_override("font_color", font)
-	btn.add_theme_color_override("font_disabled_color", font)
-	btn.add_theme_color_override("font_hover_color", font)
+	UiKit.purchase_button(btn, available)
 
 func _refresh_card() -> void:
 	for c in card_container.get_children():

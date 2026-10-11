@@ -584,12 +584,7 @@ var status_container: VBoxContainer
 ## fully-opaque panel (alpha 1.0) on both, rather than relying on the theme
 ## default.
 func _style_popup(popup: PopupPanel) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.BORDER_LEATHER
-	style.set_border_width_all(2)
-	style.set_content_margin_all(10)
-	popup.add_theme_stylebox_override("panel", style)
+	UiKit.style_popup(popup)
 
 ## A tab square -- eventually a blank placeholder standing in for real art
 ## (same "placeholder shape until sprites exist" convention UnitView's own
@@ -608,27 +603,7 @@ func _style_popup(popup: PopupPanel) -> void:
 ## (unchanged behavior) until real button art exists (Ian: "prepare for
 ## real button/icon assets").
 func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	if icon != null:
-		btn.icon = icon
-		btn.expand_icon = true
-	btn.position = pos
-	btn.custom_minimum_size = Vector2(size, size)
-	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Palette.BTN_NORMAL
-	normal_style.set_corner_radius_all(int(size / 2.0))
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Palette.BTN_HOVER
-	hover_style.set_corner_radius_all(int(size / 2.0))
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.pressed.connect(callback)
-	add_child(btn)
-	return btn
+	return UiKit.icon_tab(self, pos, size, label_text, callback, icon)
 
 ## Split from the popup itself (below) so reflow() can rebuild just the
 ## icon at a new size/position without also rebuilding (and thereby
@@ -703,18 +678,7 @@ func _refresh_status_popup() -> void:
 
 func _build_status_card(u: Dictionary) -> Control:
 	var card := PanelContainer.new()
-	if u["id"] == active_unit_id:
-		var style := StyleBoxFlat.new()
-		style.bg_color = Palette.BG_PARCHMENT_DEEP
-		style.border_color = Palette.GOLD_LIGHT
-		style.set_border_width_all(3)
-		style.set_content_margin_all(10)
-		card.add_theme_stylebox_override("panel", style)
-	else:
-		var style := StyleBoxFlat.new()
-		style.bg_color = Palette.BG_PARCHMENT_DEEP
-		style.set_content_margin_all(10)
-		card.add_theme_stylebox_override("panel", style)
+	card.add_theme_stylebox_override("panel", UiKit.card_style(10, u["id"] == active_unit_id))
 
 	var box := VBoxContainer.new()
 	card.add_child(box)
@@ -1349,20 +1313,19 @@ func _build_turn_order_ui() -> void:
 	var frame_bottom: float = top + card_h + _vp.y * 0.01
 	turn_order_frame = Panel.new()
 	var frame_style := StyleBoxFlat.new()
-	frame_style.bg_color = Palette.BG_PARCHMENT_DEEP
-	frame_style.border_color = Palette.BORDER_LEATHER
+	frame_style.bg_color = UiKit.PLATE_DARK
+	frame_style.border_color = UiKit.SILVER_DIM
 	frame_style.set_border_width_all(1)
+	frame_style.set_corner_radius_all(UiKit.RADIUS)
 	turn_order_frame.add_theme_stylebox_override("panel", frame_style)
 	turn_order_frame.position = Vector2(margin - frame_pad, frame_top)
 	turn_order_frame.custom_minimum_size = Vector2(
 		_vp.x - (margin - frame_pad) * 2.0, frame_bottom - frame_top)
 	add_child(turn_order_frame)
 
-	turn_order_header = Label.new()
-	turn_order_header.text = "TURN ORDER →"
+	turn_order_header = UiKit.make_label("Turn order →", "label")
 	turn_order_header.position = Vector2(_vp.x * 0.016, _vp.y * (TURN_ORDER_FRAME_TOP_FRAC + 0.01))
 	turn_order_header.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	turn_order_header.modulate = Palette.TEXT_DIM
 	add_child(turn_order_header)
 
 	for i in range(TURN_ORDER_COUNT):
@@ -1376,8 +1339,9 @@ func _build_turn_order_ui() -> void:
 		# since that made these cards' own text dark-on-dark).
 		var card_style := StyleBoxFlat.new()
 		card_style.bg_color = Palette.BG_PARCHMENT   # the plate: the vivid names need it to stay readable
-		card_style.border_color = Palette.BORDER_LEATHER
+		card_style.border_color = UiKit.SILVER_DIM
 		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(4)
 		if i == 0:
 			# Slot 0 always shows whoever's beat is currently resolving --
 			# _refresh_turn_order() is called right after a beat finishes,
@@ -1385,7 +1349,7 @@ func _build_turn_order_ui() -> void:
 			# logic step() itself uses, so by construction slot 0 stays
 			# accurate for the whole duration of that unit's animation. A
 			# permanent gold border here, set once, needs no per-beat toggling.
-			card_style.border_color = Palette.GOLD_LIGHT
+			card_style.border_color = UiKit.BAND
 			card_style.set_border_width_all(3)
 		panel.add_theme_stylebox_override("panel", card_style)
 		add_child(panel)

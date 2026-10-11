@@ -103,12 +103,7 @@ func _build_ui(parent: Node) -> void:
 	root_vbox.add_child(list_container)
 
 func _style_popup(p: PopupPanel) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.BORDER_LEATHER
-	style.set_border_width_all(2)
-	style.set_content_margin_all(10)
-	p.add_theme_stylebox_override("panel", style)
+	UiKit.style_popup(p)
 
 ## Called directly (GameController._open_catalogue(), dynamic dispatch --
 ## SettingsPanel's own "Catalogue" button routes through it) now that this
@@ -131,6 +126,7 @@ func _on_tab_pressed(tab: String) -> void:
 func _refresh() -> void:
 	for key in tab_buttons.keys():
 		tab_buttons[key].disabled = (key == current_tab)
+		UiKit.tab_selected(tab_buttons[key], key == current_tab, true)
 	for c in list_container.get_children():
 		c.queue_free()
 	match current_tab:
@@ -297,9 +293,7 @@ func _refresh_enemies() -> void:
 			list_container.add_child(_unknown_row())
 
 	# Ian: "Catalogue: needs entries for boss variants like Roadwarden."
-	var bheader := Label.new()
-	bheader.text = "Boss variants"
-	bheader.modulate = Palette.PARTY_BLUE
+	var bheader := UiKit.make_label("Boss variants", "label")
 	list_container.add_child(bheader)
 	for bv in BOSS_VARIANTS:
 		if seen.has(bv[0]):

@@ -147,6 +147,7 @@ static func _size_desktop_window() -> void:
 	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 func _ready() -> void:
+	UiKit.auto_top_light(get_tree())
 	# The PvP server is this same game started with "-- --server" (or a
 	# dedicated-server export): it swaps straight to the server scene.
 	# a look at the proposed UI kit: run the game with --ui-preview
@@ -315,6 +316,7 @@ const _MENU_DEFAULTS := {"current_tab": "", "current_sub_tab": "summary", "selec
 const _FIRST_TAB := {"shop": "marks", "catalogue": "units"}
 
 func _reset_menu(panel: Node) -> void:
+	UiKit.set_icon_active(panel.get("toggle_button"), false)
 	for c in panel.popup.get_children():
 		if c.has_meta("menu_overlay"):
 			c.queue_free()
@@ -996,31 +998,22 @@ func _build_road_button() -> void:
 	road_button.custom_minimum_size = Vector2(_vp.x * 0.96, _vp.y * ROAD_BAR_H)
 	road_button.clip_text = true
 	road_button.add_theme_font_size_override("font_size", maxi(10, int(_vp.y * ROAD_BAR_H * 0.5)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Palette.GOLD
-	normal_style.set_corner_radius_all(8)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Palette.GOLD_LIGHT
-	hover_style.set_corner_radius_all(8)
-	var disabled_style := StyleBoxFlat.new()
-	disabled_style.bg_color = Color(Palette.GOLD, 0.45)
-	disabled_style.set_corner_radius_all(8)
-	# no padding on any state: the theme's button padding would make this bar
-	# taller than its slot and push it down over the tab icons
-	for sb in [normal_style, hover_style, disabled_style]:
+	# the kit's primary capsule (bronze), no vertical padding so the bar keeps
+	# its slot and doesn't push down over the tab icons
+	var bar_h: float = _vp.y * ROAD_BAR_H
+	var states := {"normal": UiKit.PRIMARY, "hover": UiKit.PRIMARY.lightened(0.05),
+		"pressed": UiKit.PRIMARY.darkened(0.25), "disabled": Color(UiKit.PRIMARY, 0.45)}
+	for st in states:
+		var sb := UiKit.capsule_style(states[st], UiKit.SILVER if st == "hover" else UiKit.SILVER_DIM, bar_h)
 		sb.content_margin_top = 0.0
 		sb.content_margin_bottom = 0.0
 		sb.content_margin_left = 4.0
 		sb.content_margin_right = 4.0
-	road_button.add_theme_stylebox_override("normal", normal_style)
-	road_button.add_theme_stylebox_override("hover", hover_style)
-	road_button.add_theme_stylebox_override("pressed", hover_style)
-	road_button.add_theme_stylebox_override("disabled", disabled_style)
+		road_button.add_theme_stylebox_override(st, sb)
 	road_button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	road_button.add_theme_color_override("font_color", Color("1f1608"))
-	road_button.add_theme_color_override("font_hover_color", Color("1f1608"))
-	road_button.add_theme_color_override("font_pressed_color", Color("1f1608"))
-	road_button.add_theme_color_override("font_disabled_color", Color("e9dcc0"))
+	for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
+		road_button.add_theme_color_override(fc, UiKit.TEXT)
+	road_button.add_theme_color_override("font_disabled_color", UiKit.DISABLED_TEXT)
 	road_button.pressed.connect(_on_road_pressed)
 	add_child(road_button)
 
@@ -1576,6 +1569,7 @@ func _hide_open_panel() -> void:
 func _panel_opening(panel: Node) -> void:
 	_close_all_popups()
 	open_panel = panel
+	UiKit.set_icon_active(panel.get("toggle_button"), true)
 	# Ian: "When a menu screen is exited and returned to, have it reset to
 	# the top." Runs after the panel has rebuilt and shown its content.
 	_reset_scrolls.call_deferred(panel)
@@ -1751,13 +1745,9 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		_self_hosted_overlays.append(backdrop)
 		backdrop.tree_exiting.connect(func(): _self_hosted_overlays.erase(backdrop))
 
-	var box := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = border_color
-	style.set_border_width_all(2)
-	style.set_content_margin_all(int(_vp.y * 0.025))
-	box.add_theme_stylebox_override("panel", style)
+	var box := UiPanel.new(true)
+	(box.get_theme_stylebox("panel") as StyleBoxFlat).set_content_margin_all(int(_vp.y * 0.025))
+	(box.get_theme_stylebox("panel") as StyleBoxFlat).bg_color = Color(UiKit.PLATE, 1.0)
 	backdrop.add_child(box)
 
 	var scroll := ScrollContainer.new()
@@ -1812,16 +1802,7 @@ func _make_close_x(on_close: Callable) -> Button:
 	b.custom_minimum_size = Vector2(d, d)
 	b.size = b.custom_minimum_size
 	b.add_theme_font_size_override("font_size", int(d * 0.5))
-	var st := StyleBoxFlat.new()
-	st.bg_color = Palette.BTN_NORMAL
-	st.border_color = Palette.BORDER_LEATHER
-	st.set_border_width_all(2)
-	st.set_corner_radius_all(int(d / 2.0))
-	var hv := st.duplicate()
-	hv.bg_color = Palette.BTN_HOVER
-	b.add_theme_stylebox_override("normal", st)
-	b.add_theme_stylebox_override("hover", hv)
-	b.add_theme_stylebox_override("pressed", hv)
+	UiKit.round_style(b, d)
 	b.pressed.connect(on_close)
 	return b
 

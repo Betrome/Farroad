@@ -83,35 +83,10 @@ func _build_ui(parent: Node) -> void:
 var crystal_label: Label
 
 func _style_popup(p: PopupPanel) -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Palette.BG_PARCHMENT
-	style.border_color = Palette.BORDER_LEATHER
-	style.set_border_width_all(2)
-	style.set_content_margin_all(10)
-	p.add_theme_stylebox_override("panel", style)
+	UiKit.style_popup(p)
 
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	if icon != null:
-		btn.icon = icon
-		btn.expand_icon = true
-	btn.position = pos
-	btn.custom_minimum_size = Vector2(size, size)
-	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", maxi(9, int(size * 0.24)))
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = Palette.BTN_NORMAL
-	normal_style.set_corner_radius_all(int(size / 2.0))
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Palette.BTN_HOVER
-	hover_style.set_corner_radius_all(int(size / 2.0))
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.pressed.connect(callback)
-	parent.add_child(btn)
-	return btn
+	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
@@ -132,6 +107,7 @@ func _refresh() -> void:
 	crystal_label.text = "%d Crystal" % int(g.get("crystal", 0))
 	for key in tab_buttons.keys():
 		tab_buttons[key].disabled = (key == current_tab)
+		UiKit.tab_selected(tab_buttons[key], key == current_tab, true)
 	for c in list_container.get_children():
 		c.queue_free()
 	crystal_label.visible = current_tab != "marks"
@@ -159,24 +135,7 @@ func _rich_row(bbcode: String) -> RichTextLabel:
 ## screen in this project already uses (LorePanel/AetherPanel's own
 ## copies) -- duplicated here, different script, no shared base class.
 func _style_purchase_button(btn: Button, available: bool) -> void:
-	var bg := Color(0.10, 0.42, 0.46) if available else Color(0.18, 0.22, 0.23)
-	var bg_hover := Color(0.14, 0.55, 0.60) if available else Color(0.22, 0.26, 0.27)
-	var font := Color(0.82, 0.98, 1.0) if available else Color(0.55, 0.6, 0.6)
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = bg
-	normal_style.set_corner_radius_all(4)
-	normal_style.set_content_margin_all(6)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = bg_hover
-	hover_style.set_corner_radius_all(4)
-	hover_style.set_content_margin_all(6)
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.add_theme_stylebox_override("disabled", normal_style)
-	btn.add_theme_color_override("font_color", font)
-	btn.add_theme_color_override("font_disabled_color", font)
-	btn.add_theme_color_override("font_hover_color", font)
+	UiKit.purchase_button(btn, available)
 
 func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_method: String = "", info_arg: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()

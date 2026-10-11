@@ -406,13 +406,7 @@ func show_toast(text: String, near: Control) -> void:
 	if _toast != null and is_instance_valid(_toast):
 		_toast.queue_free()
 	_toast = PanelContainer.new()
-	var st := StyleBoxFlat.new()
-	st.bg_color = Palette.BG_PARCHMENT
-	st.border_color = Palette.PARTY_BLUE
-	st.set_border_width_all(2)
-	st.set_corner_radius_all(6)
-	st.set_content_margin_all(8)
-	_toast.add_theme_stylebox_override("panel", st)
+	_toast.add_theme_stylebox_override("panel", UiKit.note_style(8))
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var lbl := Label.new()
 	lbl.text = text
@@ -876,20 +870,14 @@ func _build_overlay() -> void:
 	_ring = Panel.new()
 	var rs := StyleBoxFlat.new()
 	rs.bg_color = Color(0, 0, 0, 0)
-	rs.border_color = Palette.GOLD_LIGHT
+	rs.border_color = UiKit.BAND
 	rs.set_border_width_all(3)
 	rs.set_corner_radius_all(8)
 	_ring.add_theme_stylebox_override("panel", rs)
 	_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(_ring)
 	_caption = PanelContainer.new()
-	var cs := StyleBoxFlat.new()
-	cs.bg_color = Palette.BG_PARCHMENT
-	cs.border_color = Palette.PARTY_BLUE
-	cs.set_border_width_all(2)
-	cs.set_corner_radius_all(6)
-	cs.set_content_margin_all(10)
-	_caption.add_theme_stylebox_override("panel", cs)
+	_caption.add_theme_stylebox_override("panel", UiKit.note_style(10))
 	_root.add_child(_caption)
 	var v := VBoxContainer.new()
 	_caption.add_child(v)

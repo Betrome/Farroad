@@ -120,24 +120,7 @@ func _rich_line(bbcode: String) -> RichTextLabel:
 ## both the available state AND the panel's default grey" reasoning
 ## AetherPanel._style_purchase_button established.
 func _style_purchase_button(btn: Button, available: bool) -> void:
-	var bg := Color(0.4, 0.22, 0.58) if available else Color(0.2, 0.16, 0.26)
-	var bg_hover := Color(0.5, 0.3, 0.7) if available else Color(0.24, 0.19, 0.3)
-	var font := Color(0.9, 0.82, 1.0) if available else Color(0.55, 0.5, 0.62)
-	var normal_style := StyleBoxFlat.new()
-	normal_style.bg_color = bg
-	normal_style.set_corner_radius_all(4)
-	normal_style.set_content_margin_all(6)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = bg_hover
-	hover_style.set_corner_radius_all(4)
-	hover_style.set_content_margin_all(6)
-	btn.add_theme_stylebox_override("normal", normal_style)
-	btn.add_theme_stylebox_override("hover", hover_style)
-	btn.add_theme_stylebox_override("pressed", hover_style)
-	btn.add_theme_stylebox_override("disabled", normal_style)
-	btn.add_theme_color_override("font_color", font)
-	btn.add_theme_color_override("font_disabled_color", font)
-	btn.add_theme_color_override("font_hover_color", font)
+	UiKit.purchase_button(btn, available)
 
 func _build_purchase_button(buy_text: String, cost: int, aid: String, callback: Callable, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC) -> Button:
 	var btn := Button.new()
