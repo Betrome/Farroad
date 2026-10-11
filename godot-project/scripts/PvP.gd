@@ -77,6 +77,18 @@ const RIVALS := [
 			{"id": "morwen", "slots": [["ally_hp_lte_50", "radiantmend"], ["foe_lacks_debuff", "curse"], ["none", "sanctumray"]]}],
 		"lore": {"infernocleaver": {"potent": 5, "piercing": 2}, "solarflare": {"potent": 5},
 			"radiantmend": {"potent": 3, "cleansing": 2}, "shadowrend": {"potent": 3}}},
+	# Ian: a Power ~1000 team for players to test their builds against. The
+	# Legends line-up at levels 103-106 adds up to exactly 1000.
+	{"id": "proving", "name": "The Proving Ground", "level": 104, "wave": 330, "rating": 1400,
+		"blurb": "A Power 1000 team to test your build against.",
+		"units": [
+			{"id": "kaldor", "level": 103, "slots": [["foe_hp_lte_30", "execute"], ["foe_lacks_debuff", "crushingblow"], ["none", "infernocleaver"]]},
+			{"id": "bastian", "level": 104, "slots": [["self_hp_lte_50", "ironwall"], ["foe_most_dangerous", "fortresscrush"], ["none", "shieldbash"]]},
+			{"id": "sorin", "level": 105, "slots": [["foe_lowest_hp", "shadowrend"], ["foe_weak_light", "dawnblade"], ["none", "stoneshatter"]]},
+			{"id": "seraphine", "level": 104, "slots": [["foe_2plus", "stormfront"], ["foe_lowest_hp", "solarflare"], ["none", "abyssalruin"]]},
+			{"id": "morwen", "level": 106, "slots": [["ally_hp_lte_50", "radiantmend"], ["foe_lacks_debuff", "curse"], ["none", "sanctumray"]]}],
+		"lore": {"infernocleaver": {"potent": 5, "piercing": 2}, "solarflare": {"potent": 5},
+			"radiantmend": {"potent": 3, "cleansing": 2}, "shadowrend": {"potent": 3}}},
 ]
 
 static func rival(id: String) -> Dictionary:
@@ -91,9 +103,10 @@ static func rival_team(r: Dictionary) -> Dictionary:
 	var total := 0.0
 	for spec in r["units"]:
 		var def = FarroadCore.roster_by_id(spec["id"])
-		var st := FarroadProgression.stats_at(spec["id"], def["stats"], def["hp"], int(r["level"]))
+		var lv: int = int(spec.get("level", r["level"]))
+		var st := FarroadProgression.stats_at(spec["id"], def["stats"], def["hp"], lv)
 		total += float(st["hp"] + st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"])
-		units.append({"id": spec["id"], "name": def["name"], "level": int(r["level"]), "stats": st,
+		units.append({"id": spec["id"], "name": def["name"], "level": lv, "stats": st,
 			"maxHp": float(st["hp"]), "affinity": def.get("affinity", {}),
 			"slots": (spec["slots"] as Array).map(func(s): return {"cond": s[0], "action": s[1]}),
 			"chargeAction": def.get("chargeAction"), "row": def.get("row"), "look": Appearance.look({}, spec["id"])})

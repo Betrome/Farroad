@@ -700,6 +700,24 @@ func _whats_new_if_updated() -> void:
 ## answers and always shows the window when there is a newer version; the
 ## automatic check at launch stays quiet unless there is one, and only
 ## mentions each version once. `on_done` gets a one-line result.
+## The newest released version ("" when it can't be found, and on the web,
+## which is always the latest).
+func _latest_release_version() -> String:
+	if OS.has_feature("web"):
+		return ""
+	var req := HTTPRequest.new()
+	req.timeout = 10.0
+	add_child(req)
+	if req.request(Updates.RELEASE_URL, PackedStringArray(["Accept: application/vnd.github+json", "User-Agent: Farroad"])) != OK:
+		req.queue_free()
+		return ""
+	var res: Array = await req.request_completed
+	req.queue_free()
+	if int(res[0]) != HTTPRequest.RESULT_SUCCESS or int(res[1]) != 200:
+		return ""
+	var rel = JSON.parse_string((res[3] as PackedByteArray).get_string_from_utf8())
+	return str(rel.get("tag_name", "")).trim_prefix("v") if rel is Dictionary else ""
+
 func _check_updates(manual: bool, on_done: Callable = Callable()) -> void:
 	if OS.has_feature("web"):
 		if on_done.is_valid():
@@ -2207,6 +2225,19 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 		return
 	var status := _wrap_label("Connecting to the Arena...", true)
 	box.add_child(status)
+	# Ian: the Arena needs the latest released version. The server also turns
+	# away any other build, but say so up front instead of at the first fight.
+	var newest := await _latest_release_version()
+	if not is_instance_valid(box):
+		return
+	if newest != "" and Updates.is_newer(newest, Updates.current_version()):
+		status.text = "Version %s is out. Update the game to use the Arena (you have %s)." % [newest, Updates.current_version()]
+		var upd := Button.new()
+		upd.text = "See the update"
+		UiKit.primary(upd)
+		upd.pressed.connect(func(): _check_updates(true))
+		box.add_child(upd)
+		return
 	var me_name: String = str(g["mc"].get("name", "Traveler")) if g.get("mc") != null else "Traveler"
 	var hello := await _ranked().call_api("/hello", {"name": me_name})
 	if not is_instance_valid(box):

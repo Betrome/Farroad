@@ -83,7 +83,7 @@ func _seed_rivals() -> void:
 			continue
 		var rec = await store.get_player(id)
 		if rec == null:
-			rec = {"id": id, "keyHash": "", "rival": true, "rating": 700 + int(r["level"]) * 10,
+			rec = {"id": id, "keyHash": "", "rival": true, "rating": int(r.get("rating", 700 + int(r["level"]) * 10)),
 				"wins": 0, "losses": 0, "defWins": 0, "defLosses": 0, "created": _now(),
 				"fightDay": 0, "fightsToday": 0, "history": [], "flags": []}
 		rec["name"] = str(r["name"])
@@ -95,7 +95,7 @@ func _rival_team(r: Dictionary) -> Dictionary:
 	var units: Array = []
 	for spec in r["units"]:
 		var def = FarroadCore.roster_by_id(spec["id"])
-		units.append({"id": spec["id"], "level": int(r["level"]), "equipped": {}, "statInvest": {}, "affinities": {},
+		units.append({"id": spec["id"], "level": int(spec.get("level", r["level"])), "equipped": {}, "statInvest": {}, "affinities": {},
 			"slots": (spec["slots"] as Array).map(func(s): return {"cond": s[0], "action": s[1]}),
 			"row": def.get("row", "front") if def else "front", "look": Appearance.look({}, spec["id"])})
 	return {"v": 2, "game": Ranked.game_version(), "units": units, "bonuses": (r["lore"] as Dictionary).duplicate(true)}
