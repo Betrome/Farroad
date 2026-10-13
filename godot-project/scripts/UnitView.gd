@@ -620,11 +620,28 @@ func update_name(new_name: String) -> void:
 ## `hp_override` (>= 0) shows that HP instead of the live one -- a beat shows
 ## the HP the unit had right after ITS action, even when later actions have
 ## already resolved (staggered same-side beats).
-func update_hp(hp_override: float = -1.0) -> void:
-	var hp_now: float = hp_override if hp_override >= 0.0 else float(unit["hp"])
+var _hp_seq := -1
+
+## `seq` orders staggered beats: a beat's animation can land AFTER a later
+## beat's already did (a slow hop vs a quick spell), and its older HP must
+## never overwrite the newer state -- that is how a dead enemy reappeared and
+## units got stuck hurt. A live refresh (no override) always wins and resets it.
+func update_hp(hp_override: float = -1.0, seq: int = -1) -> void:
+	var live_hp: float = float(unit["hp"])
+	if hp_override >= 0.0 and seq >= 0:
+		if seq < _hp_seq:
+			return                      # a newer beat already showed this unit's state
+		_hp_seq = seq
+	elif hp_override < 0.0:
+		_hp_seq = -1
+	# a unit that is dead now never comes back from an older, healthier snapshot
+	if hp_override > 0.0 and live_hp <= 0.0 and _played_dead_state:
+		return
+	var hp_now: float = hp_override if hp_override >= 0.0 else live_hp
 	var frac: float = clamp(hp_now / float(unit["maxHp"]), 0.0, 1.0)
 	_hp_bar.set_frac(frac)
 	if frac <= 0.0:
+		var already_dead := _played_dead_state
 		if not _played_dead_state:
 			_played_dead_state = true
 			play_state("dead")
@@ -637,8 +654,11 @@ func update_hp(hp_override: float = -1.0) -> void:
 		# vanishing party sprite would read as a bug, not a death.
 		if not unit["isParty"]:
 			if shape is AnimatedSprite2D:
-				modulate.a = 1.0
-				get_tree().create_timer(DEAD_HOLD_TIME).timeout.connect(func(): visible = false)
+				if not already_dead:
+					modulate.a = 1.0
+					get_tree().create_timer(DEAD_HOLD_TIME).timeout.connect(func():
+						if _played_dead_state:        # only if it is still dead
+							visible = false)
 			else:
 				visible = false
 			return
@@ -776,8 +796,12 @@ func fade_in_chrome(duration: float = 0.5) -> void:
 ## here would immediately stomp it, then stomp it AGAIN back to "idle" once
 ## this tween finishes -- checked once, up front, against the unit's own
 ## live (already-updated) hp.
+var _hurt_gen := 0
+
 func shake() -> void:
 	var is_dead: bool = float(unit["hp"]) <= 0.0
+	_hurt_gen += 1
+	var my_gen := _hurt_gen
 	if not is_dead:
 		play_state("hurt")
 	var base := shape.position
@@ -788,4 +812,7 @@ func shake() -> void:
 	tw.tween_property(shape, "position", base + Vector2(amt * 0.4, 0), 0.06)
 	tw.tween_property(shape, "position", base, 0.05)
 	if not is_dead:
-		tw.finished.connect(func(): play_state("idle"))
+		tw.finished.connect(func():
+			# back to idle only if nothing newer took over (another hit, a death)
+			if my_gen == _hurt_gen and float(unit["hp"]) > 0.0 and not _played_dead_state:
+				play_state("idle"))

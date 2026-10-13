@@ -155,10 +155,133 @@ func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_m
 	btn.disabled = not available
 	btn.custom_minimum_size.x = _vp.x * 0.24
 	btn.clip_text = true
-	btn.pressed.connect(callback)
+	btn.pressed.connect(func():
+		_pending_row = row
+		_pending_btn = btn
+		callback.call())
 	_style_purchase_button(btn, available)
 	row.add_child(btn)
 	return row
+
+## The row whose buy button was just pressed (for the purchase animation).
+var _pending_row: Control = null
+var _pending_btn: Button = null
+## True while a purchase animation plays (the menu must not rebuild under it).
+var _anim_busy := false
+
+## Ian: a bought row turns white; a gambit or unit then shrinks away and the
+## rows below slide up. Gear and actions flash the same way but stay put (they
+## can be bought again). Rebuilds the list once it is done.
+func _after_buy(remove: bool) -> void:
+	var row: Control = _pending_row
+	var pressed_btn: Button = _pending_btn
+	_pending_row = null
+	_pending_btn = null
+	if row == null or not is_instance_valid(row) or not row.is_inside_tree():
+		_refresh()
+		return
+	crystal_label.text = "%d Crystal" % int(g.get("crystal", 0))
+	_anim_busy = true
+	for ch in row.get_children():
+		if ch is Button:
+			(ch as Button).disabled = true
+	var list: Node = row.get_parent()
+	var idx: int = row.get_index()
+	var h: float = row.size.y
+	var w: float = row.size.x
+	var scroll: ScrollContainer = null
+	var p: Node = list
+	while p != null and scroll == null:
+		if p is ScrollContainer:
+			scroll = p
+		p = p.get_parent()
+	var keep: int = scroll.scroll_vertical if scroll != null else 0
+
+	# where the light starts: the middle of the button that was pressed
+	var origin := Vector2(w - 40.0, h / 2.0)
+	if pressed_btn != null and is_instance_valid(pressed_btn):
+		origin = pressed_btn.global_position + pressed_btn.size / 2.0 - row.global_position
+	var reach: float = maxf(origin.x, w - origin.x) * 1.25 + h
+
+	# The light: a soft glow that grows out of the button until it fills the
+	# row, in one clipped overlay outside the list's layout (top_level) so
+	# nothing is re-laid-out while it plays.
+	var light := Control.new()
+	light.top_level = true
+	light.clip_contents = true
+	light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	light.global_position = row.global_position
+	light.size = Vector2(w, h)
+	light.pivot_offset = Vector2.ZERO
+	light.z_index = 10
+	row.add_child(light)
+	var wash := ColorRect.new()
+	wash.color = Color(1, 1, 1, 0.0)
+	wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wash.size = Vector2(w, h)
+	light.add_child(wash)
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+	grad.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.8), Color(1, 1, 1, 0)])
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.0, 0.5)
+	gt.width = 128
+	gt.height = 128
+	var glow := TextureRect.new()
+	glow.texture = gt
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	light.add_child(glow)
+
+	# the rows below, to glide up into the gap (moved by transform only)
+	var below: Array = []
+	var below_y: Array = []
+	if remove:
+		var kids: Array = list.get_children()
+		for i in range(idx + 1, mini(kids.size(), idx + 41)):
+			if kids[i] is Control:
+				below.append(kids[i])
+				below_y.append((kids[i] as Control).position.y)
+		row.pivot_offset = Vector2.ZERO
+
+	var tw := create_tween()
+	# phase 1: the light expands out of the button
+	tw.tween_method(func(t: float):
+		var e: float = 1.0 - pow(1.0 - t, 2.0)
+		var r: float = reach * e
+		glow.size = Vector2(r * 2.0, r * 2.0)
+		glow.position = origin - Vector2(r, r)
+		wash.color.a = 0.9 * pow(t, 2.2), 0.0, 1.0, 0.17)
+	if remove:
+		# phase 2: the light shrinks with the row (easing out) as it disappears,
+		# and the rows below move up to take its place
+		tw.tween_method(func(t: float):
+			var e: float = 1.0 - pow(1.0 - t, 3.0)
+			var k: float = maxf(0.0001, 1.0 - e)
+			row.scale = Vector2(1.0, k)
+			light.scale = Vector2(1.0, k)
+			var fade: float = clampf((t - 0.55) / 0.45, 0.0, 1.0)
+			light.modulate.a = 1.0 - fade
+			for i in below.size():
+				if is_instance_valid(below[i]):
+					(below[i] as Control).position.y = below_y[i] - h * e, 0.0, 1.0, 0.26)
+	else:
+		# gear and Lore buys: the light eases away and the row stays
+		tw.tween_method(func(t: float):
+			var e: float = 1.0 - pow(1.0 - t, 3.0)
+			light.modulate.a = 1.0 - e, 0.0, 1.0, 0.2)
+	await tw.finished
+	_anim_busy = false
+	_refresh()
+	if scroll != null:
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if is_instance_valid(scroll):
+			scroll.scroll_vertical = keep
 
 ## Ian: "Shop: Filter for actions, gambits, and equipment." Same filters
 ## as Catalogue/Gambits (ActionFilter), plus rarity; kept while the Shop
@@ -195,7 +318,7 @@ func _refresh_gambits() -> void:
 func _on_buy_gambit(cid: String) -> void:
 	if FarroadProgression.buy_shop_gambit(g, cid):
 		_notify_currency_changed()
-		_refresh()
+		_after_buy(true)
 
 func _refresh_actions() -> void:
 	# Unowned actions first; owned ones stay buyable and turn into Lore.
@@ -219,13 +342,17 @@ func _refresh_actions() -> void:
 		var label: String = _rarity_name(act.get("name", aid), act.get("rarity", "common")) + (" ⚡" if is_charge else "")
 		if owned_ids.has(aid):
 			label += "
-[font_size=12][color=#%s]Owned -- buying again gives +1 Lore for this action[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
+[font_size=12][color=#%s]Purchase for +1 Lore[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
 		list_container.add_child(_build_buy_row(label, price, _on_buy_action.bind(aid), "_show_action_detail_popup", aid))
 
 func _on_buy_action(aid: String) -> void:
+	# the first purchase of an action moves like a gambit or unit (it leaves the
+	# list and reappears below as a Lore purchase); buying it again for Lore
+	# flashes like gear and stays
+	var was_owned: bool = FarroadProgression.shop_action_owned(g, aid)
 	if FarroadProgression.buy_shop_action(g, aid):
 		_notify_currency_changed()
-		_refresh()
+		_after_buy(not was_owned)
 
 func _refresh_units() -> void:
 	for def in FarroadCore.ROSTER:
@@ -242,7 +369,7 @@ func _on_buy_unit(uid: String) -> void:
 	if FarroadProgression.buy_shop_unit(g, uid):
 		_notify_currency_changed()
 		_notify_party_changed()
-		_refresh()
+		_after_buy(true)
 
 func _refresh_equipment() -> void:
 	_filter_row([
@@ -265,7 +392,7 @@ func _refresh_equipment() -> void:
 func _on_buy_equipment(iid: String) -> void:
 	if FarroadProgression.buy_shop_equipment(g, iid):
 		_notify_currency_changed()
-		_refresh()
+		_after_buy(false)
 
 func _empty_label(text: String) -> Label:
 	var lbl := Label.new()

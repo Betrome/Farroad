@@ -4,7 +4,8 @@ extends Control
 ## highlight, optional segment ticks (stepped gauges like charge) and a
 ## "recent damage" segment that waits ~0.4 s and then shrinks away.
 
-var frac := 1.0            # what the bar shows
+var frac := 1.0            # what the bar shows (the target)
+var shown := 1.0           # what is drawn: follows frac, easing up on a rise
 var lag := 1.0             # the pale segment trailing behind after a drop
 var color := UiKit.HP_GOOD
 var hp_style := false      # colour follows the fill (green -> yellow -> red)
@@ -19,19 +20,29 @@ func _init(bar_color: Color = UiKit.HP_GOOD, is_hp: bool = false, seg: int = 0) 
 
 func set_frac(f: float, animate: bool = true) -> void:
 	f = clampf(f, 0.0, 1.0)
-	if is_equal_approx(f, frac):
-		return          # repeated refreshes with the same value must not cancel a running trail
+	if is_equal_approx(f, frac) and is_equal_approx(shown, f):
+		return          # repeated refreshes with the same value must not cancel a running animation
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
 	if f < frac and animate:
+		# a hit: the fill drops at once, a pale trail shrinks away behind it
 		lag = maxf(lag, frac)
 		frac = f
+		shown = f
 		_tween = create_tween()
 		_tween.tween_interval(0.55)
 		_tween.tween_method(func(v: float): lag = v; queue_redraw(), lag, f, 0.45)
+	elif f > frac and animate:
+		# a heal / charge gain: the fill eases up to the new value
+		var from_v: float = shown
+		frac = f
+		lag = f
+		_tween = create_tween()
+		_tween.tween_method(func(v: float): shown = v; queue_redraw(), from_v, f, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	else:
 		frac = f
 		lag = f
+		shown = f
 	queue_redraw()
 
 func _draw() -> void:
@@ -55,8 +66,8 @@ func _draw() -> void:
 		var lw := inner.size.x * lag
 		draw_rect(Rect2(inner.position, Vector2(lw, inner.size.y)), Color(1, 1, 1, 0.8))
 	# fill
-	var fill_color := UiKit.hp_color(frac) if hp_style else color
-	var fw := inner.size.x * frac
+	var fill_color := UiKit.hp_color(shown) if hp_style else color
+	var fw := inner.size.x * shown
 	if fw > 0.0:
 		var fr := Rect2(inner.position, Vector2(fw, inner.size.y))
 		draw_rect(fr, fill_color)

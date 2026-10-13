@@ -21,7 +21,9 @@ signal battle_finished(outcome)
 
 ## Ian: damage over time (burning, poison) shows in purple.
 const DOT_COLOR := Color(0.74, 0.42, 0.98)
-const TURN_ORDER_COUNT := 5
+const TURN_ORDER_COUNT := 6      # five in full, the sixth running off the right edge
+const TURN_ORDER_FULL := 5
+const TURN_ORDER_PEEK := 0.35     # how much of the sixth card shows
 # Status/Log now sit just to the right of the enrage gauge (x 0.016-0.316)
 # as small square icon buttons -- placeholder squares (see _build_icon_tab)
 # until real art replaces them, a caption below each rather than text
@@ -100,7 +102,7 @@ var enemy_front_x: float
 var enemy_back_x: float
 
 func _recompute_field_fractions() -> void:
-	field_top = _vp.y * 0.11
+	field_top = _vp.y * 0.15
 	field_bottom = _vp.y * 0.58
 	# Back rows pulled in from the screen edges -- a back-row unit's own name
 	# label extends further left of its position than the unit itself (see
@@ -150,6 +152,11 @@ func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen:
 				view.visible = false
 	if stage_enemies_offscreen:
 		_stage_enemies_offscreen()
+		_stage_turn_cards_offscreen()
+	for card in turn_cards:
+		(card["panel"] as Control).visible = true
+	if turn_active_frame != null:
+		turn_active_frame.visible = true
 	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
@@ -197,15 +204,54 @@ func _stage_enemies_offscreen() -> void:
 		view.position = Vector2(_vp.x + view.size * 2.0, view.rest_position.y)
 		view.hide_chrome()
 
+## Ian: the turn order does not just appear -- its first five cards slide in
+## from the right, filling the strip, while the enemies come into the frame.
+var _cards_staged := false
+
+func _stage_turn_cards_offscreen() -> void:
+	_cards_staged = true
+	for card in turn_cards:
+		var panel: Control = card["panel"]
+		panel.position.x = float(card["home_x"]) + _vp.x
+
+func _slide_turn_cards_in() -> void:
+	if not _cards_staged:
+		return
+	_cards_staged = false
+	for i in turn_cards.size():
+		var panel: Control = turn_cards[i]["panel"]
+		var tw := create_tween()
+		if i > 0:
+			tw.tween_interval(0.09 * float(i))        # they fill the strip left to right
+		tw.tween_property(panel, "position:x", float(turn_cards[i]["home_x"]), ENEMY_RUN_IN_TIME * 0.8).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+func _snap_turn_cards_home() -> void:
+	if not _cards_staged:
+		return
+	_cards_staged = false
+	for card in turn_cards:
+		(card["panel"] as Control).position.x = float(card["home_x"])
+
 func run_enemies_entering() -> void:
+	_slide_turn_cards_in()
+	# Ian: each enemy runs in at a pace relative to its own speed (the slowest
+	# takes the full time, so combat still starts when everyone has arrived)
+	var slowest := INF
+	for v in unit_views_by_id.values():
+		if not v.unit["isParty"]:
+			slowest = minf(slowest, float(v.unit["base"]["spd"]))
+	if slowest == INF or slowest <= 0.0:
+		slowest = 1.0
 	for view in unit_views_by_id.values():
 		if view.unit["isParty"]:
 			continue
+		var ratio: float = clampf(slowest / maxf(1.0, float(view.unit["base"]["spd"])), 0.55, 1.0)
 		var tw := create_tween()
-		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_IN_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_IN_TIME * ratio).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.finished.connect(view.fade_in_chrome)
 
 func begin_combat() -> void:
+	_snap_turn_cards_home()
 	_run_battle_loop()
 
 ## Called by GameController when the viewport's real size changes (window
@@ -228,9 +274,12 @@ func reflow(new_vp: Vector2) -> void:
 	if log_icon_btn: log_icon_btn.queue_free()
 	if turn_order_header: turn_order_header.queue_free()
 	if turn_order_frame: turn_order_frame.queue_free()
+	if turn_active_frame: turn_active_frame.queue_free()
 	for card in turn_cards:
 		if card["panel"]: card["panel"].queue_free()
 	turn_cards.clear()
+	_cards_staged = false
+	_prev_first_key = ""
 	if wave_progress_label: wave_progress_label.queue_free()
 	for entry in wave_progress_circles:
 		if entry["panel"]: entry["panel"].queue_free()
@@ -647,6 +696,7 @@ func _build_status_ui() -> void:
 	scroll.add_child(status_container)
 
 func _on_status_pressed() -> void:
+	_clear_status_bars()
 	status_filter_uid = ""
 	_refresh_status_popup()
 	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
@@ -658,6 +708,7 @@ func _on_status_pressed() -> void:
 ## so the single card keeps tracking the fight for as long as it's open,
 ## same as the full list already did.
 func _on_unit_tapped(uid: String) -> void:
+	_clear_status_bars()
 	status_filter_uid = uid
 	_refresh_status_popup()
 	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
@@ -668,7 +719,35 @@ func _on_unit_tapped(uid: String) -> void:
 ## freezing at whatever the battle looked like the moment it was opened.
 ## status_filter_uid empty (the default, and what the Status button
 ## always resets it to) shows every unit; set, shows just that one.
+## The status card's HP and charge bars are kept per unit across the card's
+## rebuilds, so they animate (a hit's trail, a heal or charge gain easing up)
+## like the bars under the unit on the field instead of snapping each beat.
+var _status_bars: Dictionary = {}          # "uid:kind" -> UiBar
+
+func _status_bar(uid: String, kind: String, hp_style: bool, min_h: float) -> Array:
+	var key := "%s:%s" % [uid, kind]
+	var bar: UiBar = _status_bars.get(key)
+	var is_new := false
+	if bar == null or not is_instance_valid(bar):
+		bar = UiBar.new(UiKit.HP_GOOD if hp_style else UiKit.CHARGE, hp_style, 0 if hp_style else 4)
+		bar.custom_minimum_size = Vector2(0, min_h)
+		_status_bars[key] = bar
+		is_new = true
+	return [bar, is_new]
+
+func _clear_status_bars() -> void:
+	for k in _status_bars:
+		var b = _status_bars[k]
+		if is_instance_valid(b):
+			b.queue_free()
+	_status_bars.clear()
+
 func _refresh_status_popup() -> void:
+	# keep the bars out of the cards that are about to be freed
+	for k in _status_bars:
+		var b = _status_bars[k]
+		if is_instance_valid(b) and b.get_parent() != null:
+			b.get_parent().remove_child(b)
 	for c in status_container.get_children():
 		c.queue_free()
 	for u in battle["units"]:
@@ -706,9 +785,9 @@ func _build_status_card(u: Dictionary) -> Control:
 	header.add_child(hp_lbl)
 	box.add_child(header)
 
-	var hp_bar := UiBar.new(UiKit.HP_GOOD, true)
-	hp_bar.custom_minimum_size = Vector2(0, 10)
-	hp_bar.set_frac(clamp(float(u["hp"]) / float(u["maxHp"]), 0.0, 1.0), false)
+	var hb: Array = _status_bar(str(u["id"]), "hp", true, 10.0)
+	var hp_bar: UiBar = hb[0]
+	hp_bar.set_frac(clamp(float(u["hp"]) / float(u["maxHp"]), 0.0, 1.0), not hb[1])
 	box.add_child(hp_bar)
 
 	if u.get("chargeAction"):
@@ -721,13 +800,14 @@ func _build_status_card(u: Dictionary) -> Control:
 		var charge_num := Label.new()
 		charge_num.text = "%d/100" % roundi(u["charge"])
 		charge_row.add_child(charge_num)
+		charge_row.add_child(_info_btn(str(u["chargeAction"])))
 		box.add_child(charge_row)
 
 		# Matches the ORIGINAL UI's own display convention (farroad-ui.js:1711):
 		# clamped against a flat 100, not this unit's own real costOfCharge.
-		var ch_bar := UiBar.new(UiKit.CHARGE, false, 4)
-		ch_bar.custom_minimum_size = Vector2(0, 8)
-		ch_bar.set_frac(clamp(float(u["charge"]) / 100.0, 0.0, 1.0), false)
+		var cb: Array = _status_bar(str(u["id"]), "ch", false, 8.0)
+		var ch_bar: UiBar = cb[0]
+		ch_bar.set_frac(clamp(float(u["charge"]) / 100.0, 0.0, 1.0), not cb[1])
 		box.add_child(ch_bar)
 
 	# ATK/MAG/SPD and DEF/RES on one combined line -- DEF/RES still color the
@@ -796,13 +876,20 @@ func _build_status_card(u: Dictionary) -> Control:
 		# Ian: an Arena opponent's actions show their level (the Lore spent on them).
 		var lv := func(a) -> String: return (" Lv%d" % int(a.get("loreLevel", 0))) if (u.get("pvp", false) and a != null) else ""
 		if ch != null and FarroadCore.ACTIONS.has(ch):
-			lines.append("⚡ charge full → %s%s" % [FarroadCore.ACTIONS[ch]["name"], lv.call(FarroadCore.ACTIONS[ch])])
+			lines.append({"text": "⚡ charge full → %s%s" % [FarroadCore.ACTIONS[ch]["name"], lv.call(FarroadCore.ACTIONS[ch])], "aid": str(ch)})
 		for s in u.get("slots", []):
 			var a = FarroadCore.ACTIONS.get(str(s.get("action", "")))
-			lines.append("%s → %s%s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?")), lv.call(a)])
+			lines.append({"text": "%s → %s%s" % [FarroadCore.cond_label(str(s.get("cond", "none"))), a["name"] if a else str(s.get("action", "?")), lv.call(a)],
+				"aid": str(s.get("action", ""))})
 		box.add_child(_rich_line("[font_size=13][b][color=#f4f0e4]Gambits[/color][/b][/font_size]"))
 		for l in lines:
-			box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, l]))
+			var row := HBoxContainer.new()
+			var txt := _rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, l["text"]])
+			txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(txt)
+			if FarroadCore.ACTIONS.has(l["aid"]):
+				row.add_child(_info_btn(l["aid"]))
+			box.add_child(row)
 
 	return card
 
@@ -837,7 +924,11 @@ func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
 		if aid == current:
 			b.text = "▶ " + b.text
 		b.pressed.connect(_choose_next_action.bind(u["id"], aid))
-		flow.add_child(b)
+		var pick_row := HBoxContainer.new()
+		pick_row.add_theme_constant_override("separation", 2)
+		pick_row.add_child(b)
+		pick_row.add_child(_info_btn(aid))
+		flow.add_child(pick_row)
 	var auto := Button.new()
 	auto.text = "Auto" if manual else "▶ Auto (gambits)"
 	auto.disabled = not manual
@@ -1181,10 +1272,18 @@ func light_up_wave(w: int) -> void:
 	for entry in wave_progress_circles:
 		if entry["wave"] == w:
 			var style: StyleBoxFlat = entry["style"]
+			var dot: Panel = entry["panel"]
 			var from_color: Color = style.bg_color
 			var to_color: Color = _wave_circle_color(true)
+			# Ian: a yellow ripple comes out of the dot, and the dot turns from
+			# blue to yellow as it goes
+			var centre: Vector2 = dot.position + dot.size / 2.0
+			var reach: float = dot.size.x * 5.0
+			WaveRipple.play(self, centre, dot.size.x * 0.5, reach, 0.0, 0.75, 1.5)
+			WaveRipple.play(self, centre, dot.size.x * 0.5, reach * 0.8, 0.14, 0.7, 1.0)
 			var tw := create_tween()
-			tw.tween_method(func(c: Color): style.bg_color = c, from_color, to_color, 0.5)
+			tw.tween_interval(0.1)
+			tw.tween_method(func(c: Color): style.bg_color = c, from_color, to_color, 0.45)
 			return
 
 var enrage_bg: ColorRect
@@ -1229,6 +1328,26 @@ func _build_enrage_ui() -> void:
 	enrage_fg.color = Color(0.85, 0.2, 0.2)
 	add_child(enrage_fg)
 
+var _enrage_tween: Tween
+
+## Ian: the enrage fill slides to its next point instead of snapping.
+func _set_enrage_fill(frac: float) -> void:
+	if enrage_fg == null or not is_instance_valid(enrage_fg):
+		return
+	var target := Vector2(enrage_bg.size.x * frac, enrage_bg.size.y)
+	if enrage_fg.size.is_equal_approx(target):
+		return
+	if _enrage_tween != null and _enrage_tween.is_valid():
+		_enrage_tween.kill()
+	if target.x < enrage_fg.size.x:          # a new fight: reset at once
+		enrage_fg.size = target
+		return
+	# Ian: eases out, never in -- 0.4 s in all, about 90% of the way after 0.3 s
+	var from_w: float = enrage_fg.size.x
+	_enrage_tween = create_tween()
+	_enrage_tween.tween_method(func(t: float):
+		enrage_fg.size = Vector2(lerpf(from_w, target.x, WaveRipple.ease_out(t)), target.y), 0.0, 1.0, 0.4)
+
 func _refresh_enrage() -> void:
 	# Ian: waves 1-20 wiping too often -- enrage is now off entirely for the
 	# Road's own solo tutorial stretch (see FarroadProgression.start_wave).
@@ -1237,14 +1356,14 @@ func _refresh_enrage() -> void:
 	# genuinely misleading, since battle["enrageN"] stays 0 forever when
 	# battle["enrage"] is false (step() gates its own increment on it too).
 	if not battle.get("enrage", true):
-		enrage_fg.size = Vector2(0, enrage_bg.size.y)
+		_set_enrage_fill(0.0)
 		enrage_label.text = ("No enrage until wave %d" % FarroadProgression.ENRAGE_FROM_WAVE) \
 			if FarroadCore.current_wave < FarroadProgression.ENRAGE_FROM_WAVE else "Enrage off"
 		return
 	var beat: int = battle["beat"]
 	var gate: int = _enrage_after()
 	var frac: float = 1.0 if gate <= 0 else clamp(float(beat) / float(gate), 0.0, 1.0)
-	enrage_fg.size = Vector2(enrage_bg.size.x * frac, enrage_bg.size.y)
+	_set_enrage_fill(frac)
 	# Ian: "enrage should start at 20 turns, not 21" -- gate is now
 	# beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER), matching step()'s own
 	# corrected gate check exactly.
@@ -1297,7 +1416,7 @@ func _build_turn_order_ui() -> void:
 	# part of the width.
 	var margin: float = _vp.x * 0.016
 	var gap: float = _vp.x * 0.01
-	var card_w: float = (_vp.x - margin * 2.0 - gap * (TURN_ORDER_COUNT - 1)) / float(TURN_ORDER_COUNT)
+	var card_w: float = (_vp.x - margin - gap * float(TURN_ORDER_FULL)) / (float(TURN_ORDER_FULL) + TURN_ORDER_PEEK)
 	# Shorter than before, per direct request (also frees a little more room
 	# below for the bottom icon row).
 	var card_h: float = _vp.y * 0.06
@@ -1319,8 +1438,9 @@ func _build_turn_order_ui() -> void:
 	frame_style.set_corner_radius_all(UiKit.RADIUS)
 	turn_order_frame.add_theme_stylebox_override("panel", frame_style)
 	turn_order_frame.position = Vector2(margin - frame_pad, frame_top)
+	# the bar runs off the right edge of the screen
 	turn_order_frame.custom_minimum_size = Vector2(
-		_vp.x - (margin - frame_pad) * 2.0, frame_bottom - frame_top)
+		_vp.x - (margin - frame_pad) + card_w * 1.5, frame_bottom - frame_top)
 	add_child(turn_order_frame)
 
 	turn_order_header = UiKit.make_label("Turn order →", "label")
@@ -1342,17 +1462,11 @@ func _build_turn_order_ui() -> void:
 		card_style.border_color = UiKit.SILVER_DIM
 		card_style.set_border_width_all(1)
 		card_style.set_corner_radius_all(4)
-		if i == 0:
-			# Slot 0 always shows whoever's beat is currently resolving --
-			# _refresh_turn_order() is called right after a beat finishes,
-			# predicting the NEXT actor via the same pick_next()/chooseFrom
-			# logic step() itself uses, so by construction slot 0 stays
-			# accurate for the whole duration of that unit's animation. A
-			# permanent gold border here, set once, needs no per-beat toggling.
-			card_style.border_color = UiKit.BAND
-			card_style.set_border_width_all(3)
 		panel.add_theme_stylebox_override("panel", card_style)
 		add_child(panel)
+		# hidden until a battle is under way, so a new wave's cards can slide in
+		# without ever being seen in place first
+		panel.visible = not battle.is_empty()
 
 		var vbox := VBoxContainer.new()
 		panel.add_child(vbox)
@@ -1367,7 +1481,23 @@ func _build_turn_order_ui() -> void:
 		action_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.016))
 		vbox.add_child(action_lbl)
 
-		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl})
+		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl, "home_x": panel.position.x})
+
+	# Ian: the yellow outline marks the current action's spot and never moves;
+	# the queued actions slide into it. Drawn above the cards.
+	turn_active_frame = Panel.new()
+	var af := StyleBoxFlat.new()
+	af.bg_color = Color(0, 0, 0, 0)
+	af.border_color = UiKit.BAND
+	af.set_border_width_all(3)
+	af.set_corner_radius_all(4)
+	turn_active_frame.add_theme_stylebox_override("panel", af)
+	turn_active_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	turn_active_frame.position = Vector2(margin, top)
+	turn_active_frame.size = Vector2(card_w, card_h)
+	turn_active_frame.z_index = 5
+	turn_active_frame.visible = not battle.is_empty()
+	add_child(turn_active_frame)
 
 ## Ian: "I want actions to be locked in as soon as they appear on the
 ## turn order... charge actions should only enter the turn order once
@@ -1423,6 +1553,9 @@ func _preview_respecting_locks() -> Array:
 ## refreshes each card -- called once up front and again after every beat.
 func _refresh_turn_order() -> void:
 	var upcoming: Array = [] if battle["over"] != null else _preview_respecting_locks()
+	var first_key: String = "" if upcoming.is_empty() else "%s|%s" % [upcoming[0]["unitId"], upcoming[0]["actionId"]]
+	var advanced: bool = _prev_first_key != "" and first_key != "" and first_key != _prev_first_key
+	_prev_first_key = first_key
 	# a ranked fight replays the server's fight exactly: no locking ahead (it
 	# changes when actions are picked) and no manual choices
 	if not battle.get("ranked", false):
@@ -1450,6 +1583,24 @@ func _refresh_turn_order() -> void:
 		# acting and what the action is, per direct request. _action_glyph
 		# is still used by the Log popup's own per-beat entries, unchanged.
 		_fit_label_text(card["action"], p["actionName"], int(_vp.y * 0.016), max_w)
+	if advanced and not _cards_staged:
+		_shift_turn_cards_left()
+
+var _prev_first_key := ""
+var turn_active_frame: Panel
+var _shift_tween: Tween
+
+## Ian: as the queue moves on, the cards slide one slot to the left.
+func _shift_turn_cards_left() -> void:
+	if _shift_tween != null and _shift_tween.is_valid():
+		_shift_tween.kill()
+	var step: float = _turn_card_w + _vp.x * 0.01
+	_shift_tween = create_tween().set_parallel(true)
+	for card in turn_cards:
+		var panel: Control = card["panel"]
+		panel.position.x = float(card["home_x"]) + step
+		# quick enough that even a combo's next action is in place before it fires
+		_shift_tween.tween_property(panel, "position:x", float(card["home_x"]), 0.11).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 ## Post-Milestone-3 APK feedback (Group A2), redesigned again after
 ## further feedback ("I want actions to be locked in as soon as they
@@ -1707,6 +1858,20 @@ var recovery_lookup: Callable = Callable()
 ## Set by GameController: uid -> the unit's current title ("Fire Guardian"),
 ## so fight stats can show which titles win most.
 var title_lookup: Callable = Callable()
+## Opens an action's details: called with (action_id, host window). Set by
+## GameController, which owns the shared detail window.
+var action_info: Callable = Callable()
+
+## The small ⓘ beside an action in the unit status card.
+func _info_btn(aid: String) -> Button:
+	var b := Button.new()
+	b.text = "ⓘ"
+	b.custom_minimum_size = Vector2(26, 0)
+	UiKit.info_button(b, false)
+	b.pressed.connect(func():
+		if action_info.is_valid():
+			action_info.call(aid, status_popup))
+	return b
 var analytics_ctx := "road"
 var _fight_actions := {}   # party action id -> uses this fight (stats)
 ## Set by GameController: the Road wave / quest stage / dungeon wave /
@@ -1752,6 +1917,8 @@ func _run_battle_loop() -> void:
 		for su in battle["units"]:
 			snap[su["id"]] = [float(su["hp"]), float(su.get("charge", 0.0))]
 		e["_snap"] = snap
+		_event_seq += 1
+		e["_seq"] = _event_seq
 		active_unit_id = e["actorId"]
 		if status_popup.visible:
 			_refresh_status_popup()
@@ -1771,6 +1938,7 @@ func _run_battle_loop() -> void:
 		_refresh_turn_order()
 		_refresh_enrage()
 		if _beats_running == 0:      # bars/status sync to real state only once nothing is mid-animation
+			_refresh_hp_all()
 			_refresh_charge_bars()
 			if status_popup.visible:
 				_refresh_status_popup()
@@ -1812,6 +1980,15 @@ func _run_battle_loop() -> void:
 
 const SAME_SIDE_STAGGER := 0.25
 var _beats_running := 0
+var _event_seq := 0
+
+## Every unit shows its real, current HP: run once nothing is mid-animation so
+## a change no event listed (reflected damage, a heal) or an out-of-order beat
+## can never leave a unit looking dead, alive or hurt when it is not.
+func _refresh_hp_all() -> void:
+	for view in unit_views_by_id.values():
+		if is_instance_valid(view):
+			view.update_hp()
 
 func _run_beat_detached(e: Dictionary) -> void:
 	await _tracked_beat(e)
@@ -1823,10 +2000,18 @@ var chain_count := 0
 var phys_beats := 0
 var pop_count := 0          # test hook: attacks that began from home while the unit was still out
 
+const COMBO_RECOVERY := 0.07
+var _last_beat_actor := ""
+var _last_beat_end_ms := 0
+var _last_beat_phys := false
+
 func _tracked_beat(e: Dictionary) -> void:
 	_busy_units[e["actorId"]] = true
 	await _animate_beat(e)
 	_busy_units.erase(e["actorId"])
+	_last_beat_actor = str(e["actorId"])
+	_last_beat_end_ms = Time.get_ticks_msec()
+	_last_beat_phys = _is_phys_action(str(e.get("actionId", "")))
 
 ## True when the upcoming actor is a different unit on the same side as the
 ## one that just acted (so its beat can start 0.25 s after this one's).
@@ -1960,7 +2145,10 @@ func _animate_beat(e: Dictionary) -> void:
 		# branch is a no-op change for every unit without real art yet.
 		var use_run: bool = actor_view.prefers_run_approach()
 		var leg_time: float = maxf(MIN_BEAT_FLOOR * 0.5, (RUN_TIME if use_run else HOP_TIME) - speed_cut)
-		actor_view.play_state("run" if use_run else "jump")
+		# Ian: a unit acting again from where it already stands (same target) does
+		# not jump back in: it goes straight into the next strike, so physical
+		# attacks read as a combo.
+		var same_spot: bool = chain_start != Vector2.ZERO and chain_start.distance_to(approach_offset) < actor_view.size * 0.25
 		# Ian: start the attack's wind-up 3/4 of the way through the jump, so
 		# the blow lands right after touching down. The leg runs on its own;
 		# the attack animation takes over the sprite for the last quarter.
@@ -1971,7 +2159,11 @@ func _animate_beat(e: Dictionary) -> void:
 			else:
 				await _hop(actor_view, chain_start, approach_offset, leg_time)
 			leg_done[0] = true
-		leg.call()
+		if same_spot:
+			leg_done[0] = true
+		else:
+			actor_view.play_state("run" if use_run else "jump")
+			leg.call()
 		# Ian: the attack starts in the air so the HIT lands right after
 		# touching down: start it (time to its impact frame) before landing,
 		# plus a short beat. If the wind-up is longer than the jump allows,
@@ -1982,7 +2174,9 @@ func _animate_beat(e: Dictionary) -> void:
 		var start_at: float = leg_time + LAND_TO_HIT - to_impact
 		var min_start: float = leg_time * ATTACK_EARLIEST_IN_LEG
 		var attack_speed := 1.0
-		if to_impact > 0.0 and start_at < min_start:
+		if same_spot:
+			start_at = 0.0
+		elif to_impact > 0.0 and start_at < min_start:
 			attack_speed = to_impact / (leg_time + LAND_TO_HIT - min_start)
 			start_at = min_start
 		if start_at > 0.0:
@@ -1995,20 +2189,26 @@ func _animate_beat(e: Dictionary) -> void:
 			await get_tree().process_frame
 		await actor_view.wait_for_impact()
 		_apply_hit_effects(e)
-		await actor_view.wait_for_animation(0.6)
+		# Ian: when this unit acts again right away, cut the recovery short so the
+		# next strike follows at once (combo)
+		var combo_next := false
+		if float(actor_view.unit["hp"]) > 0.0 and battle["over"] == null:
+			var nx: Array = _preview_respecting_locks()
+			combo_next = not nx.is_empty() and nx[0]["unitId"] == e["actorId"] and _is_phys_action(nx[0]["actionId"])
+		if combo_next:
+			await get_tree().create_timer(COMBO_RECOVERY).timeout
+		else:
+			await actor_view.wait_for_animation(0.6)
 		# Ian: "sear triggers after the afflicted unit acts" -- _apply_hit_
 		# effects' own DOT handling can kill the ACTOR on their own turn.
 		# update_hp() already set "dead" for that case; don't stomp it back
 		# to jump/idle right after.
 		var actor_still_alive: bool = float(actor_view.unit["hp"]) > 0.0
 		var phys_gate: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
-		if actor_still_alive and battle["over"] == null:
-			var nxt: Array = _preview_respecting_locks()
-			if not nxt.is_empty() and nxt[0]["unitId"] == e["actorId"] and _is_phys_action(nxt[0]["actionId"]):
-				_chained[e["actorId"]] = use_run
-				actor_view.play_state("idle")
-				await get_tree().create_timer(maxf(0.05, phys_gate - leg_time)).timeout
-				return
+		if actor_still_alive and battle["over"] == null and combo_next:
+			_chained[e["actorId"]] = use_run
+			await get_tree().create_timer(0.02).timeout
+			return
 		if actor_still_alive:
 			actor_view.play_state("run" if use_run else "jump")
 		# Ian (Group B3): "have the next action take place while they are
@@ -2034,10 +2234,15 @@ func _animate_beat(e: Dictionary) -> void:
 		var fx := _new_cast_fx()
 		fx.unit_size = actor_view.size
 		fx.begin(el)
-		actor_view.play_state("cast")
+		# Ian: a unit casting again straight after its last action casts faster,
+		# so spells chain together
+		var combo_cast: bool = _last_beat_actor == e["actorId"] and not _last_beat_phys \
+			and Time.get_ticks_msec() - _last_beat_end_ms < 700
+		var cast_speed: float = 2.2 if combo_cast else 1.0
+		actor_view.play_state("cast", cast_speed)
 		var magic_total: float = maxf(MIN_BEAT_FLOOR, MAGIC_BEAT_TOTAL - speed_cut)
 		var to_release: float = actor_view.time_to_mark("cast", "release")
-		var gather_t: float = to_release if to_release > 0.0 else magic_total * 0.45
+		var gather_t: float = (to_release if to_release > 0.0 else magic_total * 0.45) / cast_speed
 		await fx.gather(actor_view.cast_hand_global(), gather_t)
 		var hit_at: Vector2 = dest_world if is_aoe else target_view.body_center_global()  # AoE: that side's centre
 		var live_target := func() -> Vector2:
@@ -2065,7 +2270,7 @@ func _animate_beat(e: Dictionary) -> void:
 ## snapshot taken in _run_battle_loop); falls back to live values.
 func _upd_hp(view: UnitView, e: Dictionary) -> void:
 	var sn = e.get("_snap", {}).get(view.unit["id"])
-	view.update_hp(sn[0] if sn != null else -1.0)
+	view.update_hp(sn[0] if sn != null else -1.0, int(e.get("_seq", -1)))
 
 func _upd_charge(view: UnitView, e: Dictionary) -> void:
 	var sn = e.get("_snap", {}).get(view.unit["id"])

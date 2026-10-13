@@ -148,6 +148,8 @@ static func _size_desktop_window() -> void:
 
 func _ready() -> void:
 	UiKit.auto_top_light(get_tree())
+	_apply_desktop_scaling()
+	get_window().size_changed.connect(_apply_desktop_scaling)
 	# The PvP server is this same game started with "-- --server" (or a
 	# dedicated-server export): it swaps straight to the server scene.
 	# a look at the proposed UI kit: run the game with --ui-preview
@@ -223,7 +225,13 @@ func _attach_touch_scroll(node) -> void:   # untyped: it may be freed by the tim
 ## _load_or_new_game() -- now shared by both boot paths (a resumed save,
 ## or a freshly confirmed character), run only once `g` is guaranteed
 ## fully built either way.
+const DEBUG_CRYSTAL := 5000
+
 func _start_game() -> void:
+	# Debug builds only: plenty of Crystal to test the Shop with (a release
+	# build never does this).
+	if OS.is_debug_build() and int(g.get("crystal", 0)) < DEBUG_CRYSTAL:
+		g["crystal"] = DEBUG_CRYSTAL
 	_start_cloud.call_deferred()
 	_build_background_layer()
 	_build_hud()
@@ -1052,6 +1060,10 @@ func _reflow_road_button() -> void:
 ## from the wave popup's gold and every tab panel's grey) to read as its
 ## own kind of moment.
 func _show_welcome_back_popup() -> void:
+	# at start-up the window may still be settling into its final shape
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_vp = get_viewport_rect().size
 	var s := _offline_summary
 	var elapsed_sec: float = s["elapsed_sec"]
 	var away_txt: String
@@ -1442,6 +1454,22 @@ func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 ## summary. QuestsPanel's own "_show_result" card (still called right
 ## after this from _resolve_side_battle) is UNCHANGED -- this popup is in
 ## addition to it, not a replacement.
+## Ian: what each pull gave, in a box -- cards revealed one by one, duplicates
+## converting into Lore or Aether in front of you (see PullResults.gd).
+func _show_pull_results(results: Array) -> void:
+	if results.is_empty():
+		return
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	vbox_title(o["vbox"], "Pull result" if results.size() == 1 else "%d pulls" % results.size())
+	PullResults.build(o["vbox"], results, _vp)
+	await _finish_detail_overlay(o)
+
+## Ian: a sparkly flourish when a unit levels up (called by the Aether screen).
+func _level_up_fx(uid: String, new_level: int) -> void:
+	var def = FarroadCore.roster_by_id(uid)
+	var nm: String = def["name"] if def else uid
+	LevelUpFx.play(self, _vp, Vector2(_vp.x * 0.5, _vp.y * 0.24), nm, new_level)
+
 func _show_quest_result_popup(event: Dictionary) -> void:
 	var kind: String = event["kind"]
 	var title_text: String
@@ -1518,6 +1546,14 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 		gained.modulate = Palette.GOLD_TEXT
 		vbox.add_child(gained)
+	var gear_id: String = str(event.get("gear", ""))
+	if gear_id != "" and FarroadCore.EQUIPMENT.has(gear_id):
+		var gear := Label.new()
+		var item: Dictionary = FarroadCore.EQUIPMENT[gear_id]
+		gear.text = "Found gear: %s" % str(item.get("name", gear_id))
+		gear.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+		gear.add_theme_color_override("font_color", RARITY_COLOR.get(str(item.get("rarity", "common")), UiKit.TEXT))
+		vbox.add_child(gear)
 
 	await _finish_detail_overlay(o)
 
@@ -1536,6 +1572,116 @@ func _refresh_hud() -> void:
 	# specifically because a per-hour/per-minute figure rounds to a
 	# misleading "0" at real depth long before the trickle actually stops).
 	idle_rate_label.text = "%.2f Aether/5min   %.2f Marks/5min" % [r["aether"] * 300.0, marks_rate * 300.0]
+	_live_refresh_menu()
+
+## Ian: gaining Aether (or a level) while a menu is open must update what the
+## menu shows -- what you can afford, the levels in the unit list -- without
+## closing and reopening it. Runs whenever the HUD refreshes; only acts when
+## the wallet or a level actually changed.
+var _wallet_key := ""
+var _last_input_ms := 0
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton or event is InputEventScreenTouch:
+		_last_input_ms = Time.get_ticks_msec()
+
+## Taps inside a menu window never reach _input here, so watch the pointer
+## itself: while it is down, the player is interacting.
+var _last_win_size := Vector2i.ZERO
+
+func _process(_delta: float) -> void:
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_last_input_ms = Time.get_ticks_msec()
+	# maximizing or snapping the window changes its size without always raising
+	# the signal in time: look every frame and re-apply the scaling when it moved
+	var ws: Vector2i = get_window().size
+	if ws != _last_win_size:
+		_last_win_size = ws
+		_apply_desktop_scaling()
+
+## ---- desktop and web windows ----
+## On a computer the window can be any shape. Up to a slightly wider portrait
+## (DESKTOP_MAX_ASPECT) the layout simply gets the extra width; wider than that
+## it stays that shape, centred, with bars at the sides. Phones are untouched.
+const DESKTOP_MAX_ASPECT := 0.7
+
+func _apply_desktop_scaling() -> void:
+	if OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		return
+	var win := get_window()
+	var aspect: float = float(win.size.x) / maxf(1.0, float(win.size.y))
+	var want_aspect: Window.ContentScaleAspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	var want_size := Vector2i(412, 915)
+	if aspect > DESKTOP_MAX_ASPECT:
+		want_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+		want_size = Vector2i(roundi(915.0 * DESKTOP_MAX_ASPECT), 915)
+	if win.content_scale_aspect != want_aspect:
+		win.content_scale_aspect = want_aspect
+	if win.content_scale_size != want_size:
+		win.content_scale_size = want_size
+
+## F11 or Alt+Enter: full screen on and off (on the web it needs a key press,
+## which this is).
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var k: InputEventKey = event
+	if k.keycode == KEY_F11 or (k.keycode == KEY_ENTER and k.alt_pressed):
+		var full: bool = DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		get_viewport().set_input_as_handled()
+
+func _wallet_signature() -> String:
+	var lv := 0
+	for v in (g.get("lvl", {}) as Dictionary).values():
+		lv += int(v)
+	var lore := 0.0
+	for v in (g.get("loreByAction", {}) as Dictionary).values():
+		lore += float(v)
+	return "%d|%d|%d|%d|%d" % [roundi(g.get("aether", 0.0)), roundi(g.get("marks", 0.0)), int(g.get("crystal", 0)), roundi(lore), lv]
+
+func _live_refresh_menu() -> void:
+	var key := _wallet_signature()
+	if key == _wallet_key:
+		return
+	_wallet_key = key
+	if open_panel == null or not is_instance_valid(open_panel) or not open_panel.popup.visible:
+		return
+	_apply_live_refresh.call_deferred(open_panel)
+
+func _apply_live_refresh(panel: Node) -> void:
+	if not is_instance_valid(panel) or panel != open_panel or not panel.popup.visible:
+		return
+	var pop: Window = panel.popup
+	if panel == shop_panel and bool(shop_panel.get("_anim_busy")):
+		return                                    # a purchase animation is playing
+	if panel == units_panel:
+		units_panel.call("_refresh_dropdown")     # levels in the list
+	# the player's own tap already refreshed what they pressed; only rebuild a
+	# menu that changed underneath them (Aether from a wave clear, say), and
+	# never while a dropdown is open or a field is being typed in
+	if Time.get_ticks_msec() - _last_input_ms < 700:
+		return
+	for pm in pop.find_children("*", "PopupMenu", true, false):
+		if (pm as PopupMenu).visible:
+			return
+	if pop.gui_get_focus_owner() is LineEdit:
+		return
+	var scrolls: Array = pop.find_children("*", "ScrollContainer", true, false)
+	var saved: Array = scrolls.map(func(sc): return (sc as ScrollContainer).scroll_vertical)
+	if panel == units_panel:
+		if units_panel.current_sub_tab == "gambits":
+			return
+		units_panel.call("_refresh_content")
+	elif panel == shop_panel:
+		shop_panel.call("_refresh")
+	else:
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for i in mini(scrolls.size(), saved.size()):
+		if is_instance_valid(scrolls[i]):
+			(scrolls[i] as ScrollContainer).scroll_vertical = saved[i]
 
 ## Called by GambitsPanel/AetherPanel (dynamic has_method()+call(), same
 ## pattern as _notify_currency_changed) when either popup opens/closes --
@@ -1749,6 +1895,8 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	backdrop.size = host_size
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	host.add_child(backdrop)
+	if host is CanvasLayer:
+		backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)   # always the whole screen, whatever its size
 	# Same z-order trick fade_overlay already uses -- draws on top of
 	# whatever content this window already had, since later-added
 	# siblings draw last. Also correctly layers a SECOND overlay (e.g. an
@@ -1815,12 +1963,22 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 ## A round "✕" close button (shared by every overlay and tab pop-up).
 func _make_close_x(on_close: Callable) -> Button:
 	var b := Button.new()
-	b.text = "✕"
+	# No text: the ✕ is drawn, so a font's own glyph width or height can never
+	# stretch the button into an oval -- it is always exactly d x d.
+	b.text = ""
 	var d: float = maxf(34.0, _vp.x * 0.085)
 	b.custom_minimum_size = Vector2(d, d)
 	b.size = b.custom_minimum_size
-	b.add_theme_font_size_override("font_size", int(d * 0.5))
+	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.clip_contents = true
 	UiKit.round_style(b, d)
+	b.draw.connect(func():
+		var c := b.size / 2.0
+		var r: float = minf(b.size.x, b.size.y) * 0.2
+		var col: Color = UiKit.TEXT
+		b.draw_line(c + Vector2(-r, -r), c + Vector2(r, r), col, 2.5, true)
+		b.draw_line(c + Vector2(-r, r), c + Vector2(r, -r), col, 2.5, true))
 	b.pressed.connect(on_close)
 	return b
 
@@ -2432,31 +2590,39 @@ func _show_leaderboard() -> void:
 	wait.queue_free()
 	var top: Array = res.get("top", [])
 	(o["scroll"] as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Ian: columns, so rating, wins and losses compare at a glance
+	# Ian: the rank number sits left of the name, the rating to the right of it
+	# (wins and losses between them, small), so a row reads left to right.
+	var me_name: String = str(g["mc"].get("name", "")) if g.get("mc") != null else ""
 	var grid := GridContainer.new()
-	grid.columns = 5
-	grid.add_theme_constant_override("h_separation", int(_vp.x * 0.03))
-	grid.add_theme_constant_override("v_separation", 4)
-	var cell := func(text: String, header: bool, right: bool, expand: bool) -> void:
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", int(_vp.x * 0.025))
+	grid.add_theme_constant_override("v_separation", 6)
+	var rank_colors := [Color("f2c94c"), Color("cfd6dc"), Color("d08a52")]
+	var cell := func(text: String, align: int, expand: bool, color: Color, min_w: float) -> void:
 		var l := Label.new()
 		l.text = text
 		l.clip_text = true
-		if right:
-			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		l.horizontal_alignment = align
 		if expand:
 			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		if header:
-			l.modulate = Palette.TEXT_DIM
+		if min_w > 0.0:
+			l.custom_minimum_size.x = min_w
+		l.add_theme_color_override("font_color", color)
 		grid.add_child(l)
-	for h in [["#", true], ["Name", false], ["Rating", true], ["Wins", true], ["Losses", true]]:
-		cell.call(h[0], true, h[1], h[0] == "Name")
+	var dim: Color = UiKit.TEXT_DIM
+	cell.call("#", HORIZONTAL_ALIGNMENT_LEFT, false, dim, _vp.x * 0.07)
+	cell.call("Name", HORIZONTAL_ALIGNMENT_LEFT, true, dim, 0.0)
+	cell.call("W–L", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.16)
+	cell.call("Rating", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.14)
 	for i in top.size():
 		var p: Dictionary = top[i]
-		cell.call(str(i + 1), false, true, false)
-		cell.call(str(p["name"]), false, false, true)
-		cell.call(str(int(p["rating"])), false, true, false)
-		cell.call(str(int(p["wins"])), false, true, false)
-		cell.call(str(int(p["losses"])), false, true, false)
+		var mine: bool = me_name != "" and str(p["name"]) == me_name
+		var name_col: Color = UiKit.BAND.lightened(0.25) if mine else UiKit.TEXT
+		var rank_col: Color = rank_colors[i] if i < 3 else UiKit.TEXT_DIM
+		cell.call(str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, false, rank_col, _vp.x * 0.07)
+		cell.call(str(p["name"]), HORIZONTAL_ALIGNMENT_LEFT, true, name_col, 0.0)
+		cell.call("%d–%d" % [int(p["wins"]), int(p["losses"])], HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.16)
+		cell.call(str(int(p["rating"])), HORIZONTAL_ALIGNMENT_RIGHT, false, name_col, _vp.x * 0.14)
 	o["vbox"].add_child(grid)
 
 ## Plays back a fight the server just decided: the same two teams and seed
@@ -3413,6 +3579,9 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
+	presenter.action_info = func(aid, host):
+		overlay_host_override = host
+		_show_action_detail_popup(str(aid))
 	add_child(presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
@@ -3471,11 +3640,14 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 		if not view.unit["isParty"] and view.unit["hp"] <= 0:
 			view.visible = false
 	var run_dx: float = _vp.x * 0.1
+	# Ian: each unit moves at a pace relative to its own speed -- the slowest
+	# takes the full time, faster ones get there sooner
+	var slowest: float = _slowest_party_spd(old_presenter)
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
 			view.hide_chrome()
 			var tw := create_tween()
-			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME)
+			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME * _spd_time_ratio(view, slowest))
 
 ## Ian follow-up: "the Background moves backwards with units when they
 ## stop. It should move forward still, and stop when the units are at
@@ -3499,13 +3671,25 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 ## then return to center" is just a framing trick; the background is what
 ## actually sells continuous forward travel down the road, so it should
 ## only ever move the one way.
+func _slowest_party_spd(old_presenter: Node) -> float:
+	var slowest := INF
+	for v in old_presenter.unit_views_by_id.values():
+		if v.unit["isParty"] and v.unit["hp"] > 0:
+			slowest = minf(slowest, float(v.unit["base"]["spd"]))
+	return slowest if slowest < INF and slowest > 0.0 else 1.0
+
+## 1.0 for the slowest unit, down to 0.55 for a much faster one.
+func _spd_time_ratio(view: Node, slowest: float) -> float:
+	return clampf(slowest / maxf(1.0, float(view.unit["base"]["spd"])), 0.55, 1.0)
+
 func _animate_wave_retreat(old_presenter: Node) -> void:
 	if old_presenter == null:
 		return
+	var slowest: float = _slowest_party_spd(old_presenter)
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
 			var tw := create_tween()
-			tw.tween_property(view, "position", view.rest_position, WAVE_RETREAT_TIME)
+			tw.tween_property(view, "position", view.rest_position, WAVE_RETREAT_TIME * _spd_time_ratio(view, slowest))
 	if background_layer != null:
 		var run_dx: float = _vp.x * 0.1
 		var bg_tw := create_tween()
@@ -3748,7 +3932,7 @@ func _icon_center(x_frac: float) -> Vector2:
 ## caller, matching the established "small reusable helper, no bespoke
 ## animation per reward kind" design.
 func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float, marks_before: float) -> void:
-	var start := Vector2(_vp.x / 2.0, _vp.y * (0.11 + 0.58) / 2.0)
+	var start := Vector2(_vp.x / 2.0, _vp.y * (0.15 + 0.58) / 2.0)
 	var delay := 0.0
 	var aether_delta: float = g.get("aether", 0.0) - aether_before
 	if aether_delta >= 1.0:
@@ -3853,6 +4037,9 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	side_presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	side_presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
+	side_presenter.action_info = func(aid, host):
+		overlay_host_override = host
+		_show_action_detail_popup(str(aid))
 	add_child(side_presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame

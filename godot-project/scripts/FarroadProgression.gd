@@ -359,7 +359,9 @@ static func pull_cost(w: float) -> int:
 
 ## Mirrors P.PULL_ODDS (farroad-ui.js:2286) -- equip is "about as rare as
 ## units" (Ian's own call in the real game's v2.14 changelog).
-const PULL_ODDS := {"unit": 0.05, "equip": 0.10, "action": 0.45, "cond": 0.40}
+## Ian: gear is no longer a Marks pull -- it comes from expeditions and quests.
+## Its old 10% went half to actions and half to gambits.
+const PULL_ODDS := {"unit": 0.05, "equip": 0.0, "action": 0.50, "cond": 0.45}
 ## Mirrors P.PULL_PITY_AT (farroad-ui.js:2294) -- a companion is guaranteed
 ## at least every 30 pulls regardless of the roll.
 const PULL_PITY_AT := 30
@@ -682,7 +684,7 @@ static func pull_odds_breakdown(g: Dictionary) -> Array:
 	var unit_pool: Array = unit_src.map(func(r): return r.get("rarity", "common"))
 	var action_pool: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).map(func(id): return FarroadCore.ACTIONS.get(id, {}).get("rarity", "common"))
 	var equip_pool: Array = random_equipment_ids().map(func(id): return FarroadCore.EQUIPMENT.get(id, {}).get("rarity", "common"))
-	for spec in [["unit", "Unit", unit_pool], ["action", "Action", action_pool], ["cond", "Gambit", []], ["equip", "Gear", equip_pool]]:
+	for spec in [["unit", "Unit", unit_pool], ["action", "Action", action_pool], ["cond", "Gambit", []]]:
 		var shares := {}
 		var total := 0.0
 		for r in spec[2]:
@@ -2714,10 +2716,10 @@ static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, si
 		text += " (%s)" % ", ".join(bits)
 	push_expedition_log(exp, text, sim_now)
 
-## Ian: pickups (gear, actions, gambits) start at 0% and gain 0.3% for every
+## Ian: pickups (gear, actions, gambits) start at 0% and gain 0.35% for every
 ## wave the party clears; the chance goes back to 0 whenever the party picks
 ## something up. Kept per expedition (exp["pickupChance"]).
-const EXPED_PICKUP_STEP := 0.003
+const EXPED_PICKUP_STEP := 0.0035   # Ian: 0.35% per wave cleared
 const EXPED_PICKUP_TEXT := {
 	"equip": ["{names} found a dented chest by the roadside with gear inside.", "{names} pried open a sealed crate in a ruined watchtower."],
 	"action": ["{names} learned a technique from a retired duelist.", "{names} found a battered tome of combat arts."],
@@ -2726,7 +2728,8 @@ const EXPED_PICKUP_TEXT := {
 static func roll_expedition_pickup(g: Dictionary, exp: Dictionary, sim_now: float) -> void:
 	var chance: float = float(exp.get("pickupChance", 0.0))
 	if g["rng"].next() < chance:
-		var kinds := ["equip", "action", "cond"]
+		# Ian: half the pickups are gear, a quarter actions, a quarter gambits
+		var kinds := ["equip", "equip", "action", "cond"]
 		var kind: String = kinds[g["rng"].next_int(kinds.size())]
 		var f := _roll_find(g, kind)
 		if not f.is_empty():
@@ -3494,6 +3497,35 @@ static func training_enemies(g: Dictionary) -> Array:
 ## function in this file already follows (see the EXPEDITIONS section's own
 ## comment for why). Only consumed by the dungeon-clear branch below, to
 ## stamp dungeon["lastClearedAt"] for the new once-per-day gate.
+## Ian: the last stage of a unit's quest line gives one RARE piece of gear that
+## fits the unit's affinity: rare gear carrying the unit's strongest affinity
+## (then its next one, and so on). A unit whose affinities no rare gear
+## carries yet gets a random rare piece instead. Returns its id.
+static func _grant_quest_gear(g: Dictionary, uid: String) -> String:
+	var def = FarroadCore.roster_by_id(uid)
+	var rare: Array = []
+	for id in FarroadCore.EQUIPMENT:
+		if str(FarroadCore.EQUIPMENT[id].get("rarity", "")) == "rare":
+			rare.append(id)
+	if rare.is_empty():
+		rare = FarroadCore.EQUIPMENT.keys()
+	var axes: Array = []
+	if def != null:
+		for ax in (def.get("affinity", {}) as Dictionary):
+			if float(def["affinity"][ax]) > 0.0:
+				axes.append(ax)
+		axes.sort_custom(func(a, b): return float(def["affinity"][a]) > float(def["affinity"][b]))
+	var pool: Array = []
+	for ax in axes:
+		pool = rare.filter(func(id): return float(FarroadCore.EQUIPMENT[id].get("affinity", {}).get(ax, 0.0)) > 0.0)
+		if not pool.is_empty():
+			break
+	if pool.is_empty():
+		pool = rare
+	var eid: String = pool[g["rng"].next_int(pool.size())]
+	g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
+	return eid
+
 static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now) -> Dictionary:
 	var sb: Dictionary = g["sideBattle"]
 	var meta: Dictionary = sb["meta"]
@@ -3554,8 +3586,12 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			# aether or marks, just crystals." Auto-credited on clear (no
 			# Collect step), QUEST_STAGE_CRYSTAL per stage.
 			g["crystal"] = int(g.get("crystal", 0)) + QUEST_STAGE_CRYSTAL
+			# Ian: only the final stage hands over gear -- one rare piece that
+			# fits the unit's own affinity
+			var q_gear: String = _grant_quest_gear(g, str(meta["uid"])) if int(q["stage"]) >= 5 else ""
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
-				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "crystal": QUEST_STAGE_CRYSTAL}
+				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "crystal": QUEST_STAGE_CRYSTAL,
+				"gear": q_gear}
 		elif gave_up:
 			return {"kind": "quest_abandoned", "name": meta["name"], "stageNum": int(meta["stage"]) + 1}
 		else:

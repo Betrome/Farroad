@@ -223,7 +223,7 @@ func _build_unlocked_card() -> void:
 
 	var explain_lbl := Label.new()
 	explain_lbl.text = ("Duplicate actions convert to Lore; duplicate gambits and units convert to Aether; " +
-		"duplicate gear just adds to your stock. You OWN every unit you pull — the party is the %d " +
+		"Gear isn't pulled here: find it on expeditions and quests. You OWN every unit you pull — the party is the %d " +
 		"you field, and extras stay benched but yours.") % FarroadProgression.PARTY_CAP
 	if g["party"].size() >= FarroadProgression.PARTY_CAP:
 		explain_lbl.text += " Party full — new units arrive benched."
@@ -283,6 +283,11 @@ func _on_pull_pressed() -> void:
 	if result["kind"] == "unit" and result.get("fielded"):
 		_notify_party_changed()
 	_refresh_card()
+	_show_results_box(last_pull_results)
+
+func _show_results_box(results: Array) -> void:
+	if _parent and _parent.has_method("_show_pull_results"):
+		_parent.call("_show_pull_results", results)
 
 func _on_pull_x10_pressed() -> void:
 	_on_pull_many_pressed(10)
@@ -306,6 +311,7 @@ func _on_pull_many_pressed(count: int) -> void:
 	if fielded_any:
 		_notify_party_changed()
 	_refresh_card()
+	_show_results_box(results)
 
 ## Single pull: reuses the existing per-kind description exactly. Batch
 ## pull: aggregate counts per kind (dedicated tallies for action/cond

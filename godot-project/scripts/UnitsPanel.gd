@@ -46,6 +46,12 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 	_vp = vp
 	_parent = parent
 	_build_ui(parent)
+	# the summary's numbers follow the game while it is open
+	var live := Timer.new()
+	live.wait_time = 0.5
+	live.autostart = true
+	live.timeout.connect(_live_summary)
+	add_child(live)
 
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
@@ -211,6 +217,77 @@ func _refresh_content() -> void:
 ## (works for ANY owned uid regardless of fielded/benched status, unlike a
 ## live BattlePresenter status card, which only exists for a currently-
 ## fielded unit mid-fight) -- name/rarity color/level/row/HP/base stats.
+## ---- live summary values ----
+var _sum: Dictionary = {}          # key -> {"node": Label, "f": Callable, "num": float}
+var _sum_uid := ""
+
+## The numbers the summary shows, by key.
+## The unit's current and maximum HP: the live values from the fight it is in
+## (so damage and healing show), or full if it is not in the current battle.
+func _live_hp(u: Dictionary) -> Array:
+	var battle = g.get("battle")
+	if battle is Dictionary:
+		for bu in (battle.get("units", []) as Array):
+			if str(bu.get("id", "")) == selected_uid:
+				return [float(roundi(maxf(0.0, float(bu["hp"])))), float(roundi(float(bu["maxHp"])))]
+	var mh: float = float(roundi(u["maxHp"]))
+	return [mh, mh]
+
+var _sum_max_hp := 0.0
+
+func _summary_numbers(u: Dictionary) -> Dictionary:
+	var base: Dictionary = u["base"]
+	var aff: Dictionary = u.get("affinity", {})
+	var hp_pair: Array = _live_hp(u)
+	_sum_max_hp = float(hp_pair[1])
+	var out := {"hp": float(hp_pair[0]), "atk": float(roundi(base["atk"])), "mag": float(roundi(base["mag"])),
+		"def": float(roundi(base["def"])), "res": float(roundi(base["res"])), "spd": float(roundi(base["spd"])),
+		"atkCrit": float(base.get("atkCrit", 0.0)) * 100.0, "magCrit": float(base.get("magCrit", 0.0)) * 100.0,
+		"evade": float(base.get("evade", 0.0)) * 100.0, "charge": float(base.get("chargeRate", 1.0)),
+		"recovery": FarroadProgression.recovery_of(g, selected_uid) * 100.0}
+	for ax in ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]:
+		out["aff_" + ax] = FarroadCore.affinity_mul(float(aff.get(ax, 0.0))) * 100.0
+	return out
+
+func _sum_label(key: String, nums: Dictionary, fmt: String, _unused: int, fn: Callable = Callable()) -> Label:
+	var l := Label.new()
+	var f: Callable = fn if fn.is_valid() else func(v: float): return fmt % v
+	l.text = f.call(float(nums[key]))
+	_sum[key] = {"node": l, "f": f, "num": float(nums[key])}
+	return l
+
+## Called a couple of times a second: when a value on the open summary has
+## changed (a level, an upgrade, gear), it updates in place -- a rise counts
+## up with an arrow.
+func _live_summary() -> void:
+	if popup == null or not popup.visible or current_sub_tab != "summary" or _sum.is_empty() or selected_uid == "":
+		return
+	_apply_live_summary()
+
+func _apply_live_summary() -> void:
+	if _sum.is_empty() or not is_instance_valid(_sum["hp"]["node"]):
+		return
+	var u: Dictionary = FarroadProgression.build_party_unit(g, selected_uid, 0)
+	var old_max: float = _sum_max_hp
+	var nums: Dictionary = _summary_numbers(u)
+	if not is_equal_approx(old_max, _sum_max_hp) and is_instance_valid(_sum["hp"]["node"]):
+		var hf: Callable = _sum["hp"]["f"]
+		(_sum["hp"]["node"] as Label).text = hf.call(float(_sum["hp"]["num"]))
+	for key in _sum:
+		var entry: Dictionary = _sum[key]
+		var node: Label = entry["node"]
+		var new_v: float = float(nums[key])
+		var old_v: float = float(entry["num"])
+		if not is_instance_valid(node) or is_equal_approx(new_v, old_v):
+			continue
+		var f: Callable = entry["f"]
+		var final_text: String = f.call(new_v)
+		if new_v > old_v:
+			ValueTick.animate(node, old_v, new_v, f, final_text)
+		else:
+			node.text = final_text
+		entry["num"] = new_v
+
 func _build_summary_card() -> void:
 	var def = FarroadCore.roster_by_id(selected_uid)
 	if def == null:
@@ -237,42 +314,44 @@ func _build_summary_card() -> void:
 				_parent.call("_start_mc_respec"))
 		content_container.add_child(remake)
 
-	var hp_lbl := Label.new()
-	hp_lbl.text = "HP %d / %d" % [roundi(u["hp"]), roundi(u["maxHp"])]
+	# Every number on the summary is registered so it can update live (see
+	# _live_summary): a value that goes up counts up with an arrow.
+	_sum.clear()
+	var nums: Dictionary = _summary_numbers(u)
+	var hp_lbl := _sum_label("hp", nums, "HP %d", 0, func(v: float): return "HP %d / %d" % [v, _sum_max_hp])
 	content_container.add_child(hp_lbl)
 
-	var stat_lbl := Label.new()
-	var base: Dictionary = u["base"]
-	stat_lbl.text = "ATK %d   MAG %d   DEF %d   RES %d   SPD %d" % [
-		roundi(base["atk"]), roundi(base["mag"]), roundi(base["def"]), roundi(base["res"]), roundi(base["spd"])]
-	# Same missing-autowrap overflow class as this batch's other reported
-	# popups (GameController's enemy-detail popup had the identical
-	# "ATK/MAG/DEF/RES/SPD" line) -- fixed-pixel-font text that doesn't
-	# shrink with a narrower _vp.x the way this container's fraction-based
-	# width does.
-	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	stat_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content_container.add_child(stat_lbl)
+	var stat_row := HFlowContainer.new()
+	stat_row.add_theme_constant_override("h_separation", 16)
+	stat_row.add_theme_constant_override("v_separation", 2)
+	for k in [["atk", "ATK"], ["mag", "MAG"], ["def", "DEF"], ["res", "RES"], ["spd", "SPD"]]:
+		stat_row.add_child(_sum_label(k[0], nums, k[1] + " %d", 0))
+	content_container.add_child(stat_row)
 
-	# Ian: "have Summary show all stats" -- crit, evade, charge rate,
-	# recovery, and every affinity as the % it changes damage by.
-	var more := Label.new()
-	more.text = "ATK crit %.0f%%   MAG crit %.0f%%   Evade %.0f%%   Charge ×%.2f   Recovery %.0f%%" % [
-		float(base.get("atkCrit", 0.0)) * 100.0, float(base.get("magCrit", 0.0)) * 100.0,
-		float(base.get("evade", 0.0)) * 100.0, float(base.get("chargeRate", 1.0)),
-		FarroadProgression.recovery_of(g, selected_uid) * 100.0]
-	more.autowrap_mode = TextServer.AUTOWRAP_WORD
-	more.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content_container.add_child(more)
-	var aff: Dictionary = u.get("affinity", {})
-	var bits: Array = []
+	# Ian: "have Summary show all stats" -- crit, evade on one row, and charge
+	# rate with recovery on the next.
+	var crit_row := HFlowContainer.new()
+	crit_row.add_theme_constant_override("h_separation", 16)
+	crit_row.add_theme_constant_override("v_separation", 2)
+	crit_row.add_child(_sum_label("atkCrit", nums, "ATK crit %.0f%%", 0))
+	crit_row.add_child(_sum_label("magCrit", nums, "MAG crit %.0f%%", 0))
+	crit_row.add_child(_sum_label("evade", nums, "Evade %.0f%%", 0))
+	content_container.add_child(crit_row)
+	var rec_row := HBoxContainer.new()
+	rec_row.add_theme_constant_override("separation", 16)
+	rec_row.add_child(_sum_label("charge", nums, "Charge ×%.2f", 0))
+	rec_row.add_child(_sum_label("recovery", nums, "Recovery %.0f%%", 0))
+	content_container.add_child(rec_row)
+
+	var aff_row := HFlowContainer.new()
+	aff_row.add_theme_constant_override("h_separation", 14)
+	aff_row.add_theme_constant_override("v_separation", 2)
+	var aff_title := Label.new()
+	aff_title.text = "Affinity:"
+	aff_row.add_child(aff_title)
 	for ax in ["fire", "water", "earth", "air", "light", "dark", "body", "spirit"]:
-		bits.append("%s %+.0f%%" % [ax.capitalize(), FarroadCore.affinity_mul(float(aff.get(ax, 0.0))) * 100.0])
-	var aff_lbl := Label.new()
-	aff_lbl.text = "Affinity: " + "   ".join(bits)
-	aff_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-	aff_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content_container.add_child(aff_lbl)
+		aff_row.add_child(_sum_label("aff_" + ax, nums, ax.capitalize() + " %+.0f%%", 0))
+	content_container.add_child(aff_row)
 
 	if def.get("chargeAction"):
 		var act = FarroadCore.ACTIONS.get(def["chargeAction"])

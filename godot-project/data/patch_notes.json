@@ -1,5 +1,25 @@
 [
   {
+    "version": "2.38",
+    "title": "Pull results, animations and wider windows",
+    "notes": [
+      "**Pulls:** each pull now shows what you got in a box: cards reveal one by one, rarer ones glow, and a duplicate converts in front of you into Lore or Aether. A Skip button sits at the top.",
+      "**Gear:** gear is no longer a Marks pull. Pulls give units (5%), actions (50%) and gambits (45%). Gear comes from expeditions (about half of what a party picks up on the road) and from the final stage of each companion quest, which gives one rare piece that suits the unit's affinity. Dungeons no longer give gear. Every affinity now has rare and legendary gear.",
+      "**Expeditions:** a party finds something about every 22 waves, and half of those finds are gear.",
+      "**Leveling:** a unit that levels up gets a sparkle and a banner. On the Aether screen the level and every stat count up to their new values with a green arrow, and so do Recovery, Evade, crit rates and affinities.",
+      "**Live menus:** gaining Aether or a level while a menu is open now updates what you can afford and the levels in the unit list. No need to close and reopen it.",
+      "**Summary:** Charge sits beside Recovery, and every number is live: HP shows the unit's real current HP in the fight, and values count up with an arrow when they rise.",
+      "**Shop:** buying plays a light that grows from the button. A bought gambit, unit or first copy of an action shrinks away and the rows below move up. Gear and Lore purchases flash and stay. The Lore line now reads \"Purchase for +1 Lore\".",
+      "**Battle:** the turn order slides in with the enemies and shows a sixth action running off the edge. The yellow outline stays put while the queue moves into it. The enrage bar and unit bars ease smoothly, a yellow ripple marks a cleared wave, allies and enemies move at a pace set by their own speed, and units now sit below the top bar.",
+      "**Combos:** when a unit acts twice in a row from the same spot, the second attack follows straight away and spells chain faster.",
+      "**Status:** actions in the status card have an info button, and its HP and charge bars animate like the ones on the field.",
+      "**Lore:** the action's details are behind a Details button next to its name, and the Lore text is blue.",
+      "**Leaderboard:** the rank is on the left of the name and the rating on the right, and your own row is highlighted.",
+      "**Windows and browser:** the window can be a little wider than a phone, F11 or Alt+Enter toggles full screen, and a window wider than that keeps the game centred with bars at the sides.",
+      "**Fixes:** a hurt or dead pose could get stuck or a dead enemy could come back when several attacks landed close together. The ✕ buttons are round again."
+    ]
+  },
+  {
     "version": "2.37.1",
     "title": "Shifted Reflection fix",
     "notes": [

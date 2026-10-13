@@ -303,21 +303,35 @@ func _refresh_card() -> void:
 	# v2.13: Lore became per-action -- this line now shows THIS action's own
 	# earned/free pool, not a global total, and each upgrade costs a FLAT
 	# price (no more "costs one more than its last" triangular scaling).
+	# Ian: the action's name with a Details button at the right edge; the full
+	# card lives in the usual pop-up instead of sitting open on the page
+	var name_row := HBoxContainer.new()
+	var name_lbl := Label.new()
+	name_lbl.text = "%s  Lv%d" % [act["name"], _action_level(aid)]
+	name_lbl.add_theme_font_size_override("font_size", 16)
+	name_lbl.add_theme_color_override("font_color", {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE,
+		"legendary": Palette.RARITY_LEGENDARY}.get(str(act.get("rarity", "common")), Palette.RARITY_COMMON))
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.clip_text = true
+	name_row.add_child(name_lbl)
+	var details_btn := Button.new()
+	details_btn.text = "ⓘ Details"
+	details_btn.pressed.connect(func():
+		if _parent and _parent.has_method("_show_action_detail_popup"):
+			_parent.call("_show_action_detail_popup", aid))
+	name_row.add_child(details_btn)
+	card_container.add_child(name_row)
+
 	var free := FarroadProgression.free_lore(g, aid)
 	card_container.add_child(_rich_line(
-		"[b][color=#c3a7e3]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
+		"[b][color=#709fe8]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var box := VBoxContainer.new()
 
-	# the same full detail card the info popup shows (cost, target, scaling,
-	# status effect, who uses it, every Lore upgrade bought)
-	if _parent and _parent.has_method("_fill_action_detail"):
-		_parent.call("_fill_action_detail", box, aid)
-
 	var summary := _bonus_total_summary(aid)
 	if summary != "":
-		box.add_child(_rich_line("[font_size=12][color=#c3a7e3]Lore total: %s[/color][/font_size]" % summary))
+		box.add_child(_rich_line("[font_size=12][color=#709fe8]Lore total: %s[/color][/font_size]" % summary))
 	card_container.add_child(box)
 
 	# v2.4: show ONLY bonuses that can do something to this action --

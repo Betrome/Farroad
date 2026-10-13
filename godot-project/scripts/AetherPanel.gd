@@ -59,7 +59,39 @@ func reflow(new_vp: Vector2) -> void:
 func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	selected_uid = uid
 	card_container = container
+	_shown.clear()           # opening the screen shows the numbers as they are; only changes animate
 	_refresh_card()
+
+## ---- values that tick up (Ian) ----
+## Every number the Aether screen shows (a stat, Recovery, Evade/crit, an
+## affinity) is registered as it is built. When a purchase raises one, it
+## counts up from its old value to the new one and a green arrow rises beside
+## it. `_shown` holds what was on screen last, per value.
+var _shown: Dictionary = {}
+var _shown_uid := ""
+var _ticks: Array = []
+
+func _track(key: String, number: float, node: Control, fmt: Callable) -> void:
+	_ticks.append({"key": key, "num": number, "node": node, "fmt": fmt, "final": node.text})
+
+func _run_ticks(uid: String) -> void:
+	if uid != _shown_uid:
+		_shown.clear()
+		_shown_uid = uid
+	for t in _ticks:
+		var key: String = t["key"]
+		var num: float = float(t["num"])
+		var node: Control = t["node"]
+		if _shown.has(key) and num > float(_shown[key]) + 0.0001 and is_instance_valid(node):
+			_animate_value(node, float(_shown[key]), num, t["fmt"], str(t["final"]))
+		_shown[key] = num
+	_ticks.clear()
+
+func _animate_value(node: Control, from_v: float, to_v: float, fmt: Callable, final_text: String) -> void:
+	ValueTick.animate(node, from_v, to_v, fmt, final_text)
+
+func _fmt_num(v: float) -> String:
+	return str(int(roundf(v))) if is_equal_approx(v, roundf(v)) else str(snappedf(v, 0.1))
 
 ## Ian: "Body and Spirit pop-up: mention physical attacks for body and
 ## buffs/debuffs for spirit, not the generic affinity text the others use."
@@ -159,6 +191,8 @@ func _add_stat_cell(grid: GridContainer, label: String, value, growth, cell_widt
 		cell.custom_minimum_size.x = cell_width
 	var val_lbl := _rich_line("[b]%s %s[/b]" % [label, value])
 	cell.add_child(val_lbl)
+	if str(value).is_valid_float():
+		_track("stat:" + label, float(str(value)), val_lbl, func(v: float): return "[b]%s %s[/b]" % [label, _fmt_num(v)])
 	var growth_lbl := Label.new()
 	growth_lbl.text = "+%s/lvl" % growth
 	growth_lbl.add_theme_font_size_override("font_size", 10)
@@ -212,7 +246,7 @@ func _add_purchase_cells(grid: GridContainer, desc: String, buy_text: String, co
 ## fits comfortably.
 func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: String, buy_text: String, cost: int, maxed: bool, callback: Callable,
 		font_size: int = 0, btn_width_frac: float = PURCHASE_BTN_WIDTH_FRAC, label_width_frac: float = 0.0, value_width_frac: float = 0.0,
-		info_text: String = "") -> void:
+		info_text: String = "", track_key: String = "", track_num: float = 0.0, track_fmt: Callable = Callable()) -> void:
 	var label_lbl := Label.new()
 	label_lbl.text = label
 	if label_width_frac > 0.0:
@@ -238,6 +272,8 @@ func _add_labeled_purchase_cells(grid: GridContainer, label: String, value: Stri
 	if font_size > 0:
 		value_lbl.add_theme_font_size_override("font_size", font_size)
 	grid.add_child(value_lbl)
+	if track_key != "" and track_fmt.is_valid():
+		_track(track_key, track_num, value_lbl, track_fmt)
 	grid.add_child(_build_purchase_button(buy_text, cost, maxed, callback, font_size, btn_width_frac))
 
 func _build_purchase_button(buy_text: String, cost: int, maxed: bool, callback: Callable, font_size: int, btn_width_frac: float, show_cost_in_button: bool = true) -> Button:
@@ -287,6 +323,7 @@ func _style_purchase_button(btn: Button, available: bool) -> void:
 	UiKit.purchase_button(btn, available)
 
 func _refresh_card() -> void:
+	_ticks.clear()
 	for c in card_container.get_children():
 		c.queue_free()
 	if selected_uid == "":
@@ -303,6 +340,10 @@ func _refresh_card() -> void:
 	header.text = "%s — %s — LV %d%s" % [def["name"], FarroadProgression.unit_title(g, uid), level, row_tag]
 	header.add_theme_font_size_override("font_size", 16)
 	card_container.add_child(header)
+	# Ian: the level itself ticks up too
+	var head_name: String = str(def["name"])
+	var head_title: String = FarroadProgression.unit_title(g, uid)
+	_track("level", float(level), header, func(v: float): return "%s — %s — LV %d%s" % [head_name, head_title, int(roundf(v)), row_tag])
 
 	var need := FarroadProgression.cost_next(g, uid)
 	var have := FarroadProgression.exp_of(g, uid)
@@ -377,7 +418,8 @@ func _refresh_card() -> void:
 		"%d%%" % roundi(FarroadProgression.recovery_of(g, uid) * 100),
 		"+%d%%" % roundi(FarroadProgression.REST_STEP * 100),
 		FarroadProgression.recovery_cost(g, uid), FarroadProgression.recovery_maxed(g, uid),
-		_on_recovery_pressed.bind(uid), 0, btn_col_frac, label_col_frac, value_col_frac, RECOVERY_INFO)
+		_on_recovery_pressed.bind(uid), 0, btn_col_frac, label_col_frac, value_col_frac, RECOVERY_INFO,
+		"recovery", FarroadProgression.recovery_of(g, uid) * 100.0, func(v: float): return "%d%%" % roundi(v))
 	card_container.add_child(recovery_grid)
 
 	# Evade / ATK-Crit / MAG-Crit -- one GridContainer, not 3 separate rows,
@@ -397,7 +439,8 @@ func _refresh_card() -> void:
 		_add_labeled_purchase_cells(pct_grid, PCT_STAT_LABELS[stat], "%s%%" % snapped(cur * 100.0, 0.1),
 			"+%s%%" % snapped(FarroadProgression.PCT_STAT[stat]["step"] * 100.0, 0.1),
 			cost, maxed, _on_pct_stat_pressed.bind(uid, stat), 0, btn_col_frac,
-			label_col_frac, value_col_frac, PCT_STAT_INFO[stat])
+			label_col_frac, value_col_frac, PCT_STAT_INFO[stat],
+			"pct:" + stat, cur * 100.0, func(v: float): return "%s%%" % snapped(v, 0.1))
 	card_container.add_child(pct_grid)
 
 	# Affinities -- two columns (left: fire/water/earth/air, right:
@@ -427,8 +470,10 @@ func _refresh_card() -> void:
 			# compact info icon sharing the label column (post-batch feedback)
 			# -- "+1 (999)" style button text stays comfortably short enough.
 			_add_labeled_purchase_cells(aff_grid, AFFINITY_AXIS_LABELS[axis], "%+.0f%%" % pct,
-				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08, _affinity_info(axis))
+				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08, _affinity_info(axis),
+				"aff:" + axis, pct, func(v: float): return "%+.0f%%" % v)
 	card_container.add_child(aff_grid)
+	_run_ticks(uid)
 
 ## GameController's own top-strip currency line (Aether/Lore/Marks) only
 ## refreshed on a wave transition -- fine for Marks (nothing spends it yet),
@@ -451,9 +496,13 @@ func _on_recovery_pressed(uid: String) -> void:
 func _on_feed_pressed(uid: String, amount: int) -> void:
 	if amount <= 0:
 		return
+	var lv_before: int = FarroadProgression.level_of(g, uid)
 	if FarroadProgression.spend_feed(g, uid, amount):
 		_notify_currency_changed()
 		FarroadProgression.refresh_live_stats(g)
+		var lv_after: int = FarroadProgression.level_of(g, uid)
+		if lv_after > lv_before and _parent and _parent.has_method("_level_up_fx"):
+			_parent.call("_level_up_fx", uid, lv_after)
 	_refresh_card()
 
 func _on_pct_stat_pressed(uid: String, stat: String) -> void:
