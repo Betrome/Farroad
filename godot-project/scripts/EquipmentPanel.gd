@@ -134,9 +134,19 @@ func _refresh_card() -> void:
 		FarroadProgression.refresh_live_stats(g)
 		_refresh_card()))
 
+	# wide windows: the five slots in two columns, so nothing scrolls
+	var slot_host: Container = card_container
+	if _parent != null and bool(_parent.get("wide")):
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 14)
+		grid.add_theme_constant_override("v_separation", 10)
+		card_container.add_child(grid)
+		slot_host = grid
 	for slot in FarroadCore.EQUIPMENT_SLOTS:
 		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 2)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 		var slot_lbl := Label.new()
 		slot_lbl.text = "%s %s" % [EQUIP_SLOT_ICON.get(slot, ""), EQUIP_SLOT_LABEL.get(slot, slot)]
@@ -175,7 +185,7 @@ func _refresh_card() -> void:
 			desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(desc_lbl)
 
-		card_container.add_child(row)
+		slot_host.add_child(row)
 
 ## Mirrors the per-slot <select> build (farroad-ui.js:1968-1980) -- lists
 ## "— empty —" first, then every OWNED item matching this slot's kind

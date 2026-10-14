@@ -200,6 +200,50 @@ func _on_auto_set_pressed() -> void:
 	FarroadProgression.auto_assign_loadout(g, selected_uid)
 	_refresh_slots()
 
+## Wide windows: a slot is one table row (no scrolling): number, IF, THEN, order.
+func _build_wide_slot_row(card: PanelContainer, i: int, s: Dictionary, count: int) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	card.add_child(row)
+	var num := Label.new()
+	num.text = "%d" % (i + 1)
+	num.custom_minimum_size = Vector2(24, 0)
+	row.add_child(num)
+	var cond_btn := Button.new()
+	cond_btn.text = FarroadCore.cond_label(s["cond"])
+	cond_btn.clip_text = true
+	cond_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cond_btn.size_flags_stretch_ratio = 1.0
+	cond_btn.pressed.connect(_open_condition_picker.bind(i, s["cond"]))
+	row.add_child(cond_btn)
+	var arrow := Label.new()
+	arrow.text = "→"
+	arrow.modulate = Palette.TEXT_DIM
+	row.add_child(arrow)
+	var cur_act = FarroadCore.ACTIONS.get(s["action"])
+	var action_btn := Button.new()
+	action_btn.text = cur_act["name"] if cur_act else s["action"]
+	action_btn.icon = _rarity_icon(cur_act.get("rarity", "common")) if cur_act else null
+	action_btn.clip_text = true
+	action_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	action_btn.pressed.connect(_open_action_picker.bind(i, s["action"]))
+	row.add_child(action_btn)
+	var info_btn := Button.new()
+	info_btn.text = "ⓘ"
+	info_btn.custom_minimum_size = Vector2(36, 0)
+	info_btn.pressed.connect(_on_action_info_pressed.bind(i))
+	row.add_child(info_btn)
+	var up_btn := Button.new()
+	up_btn.text = "▲"
+	up_btn.disabled = (i == 0)
+	up_btn.pressed.connect(_on_reorder.bind(i, -1))
+	row.add_child(up_btn)
+	var down_btn := Button.new()
+	down_btn.text = "▼"
+	down_btn.disabled = (i == count - 1)
+	down_btn.pressed.connect(_on_reorder.bind(i, 1))
+	row.add_child(down_btn)
+
 func _refresh_slots() -> void:
 	for c in slots_container.get_children():
 		c.queue_free()
@@ -213,6 +257,9 @@ func _refresh_slots() -> void:
 		card.add_theme_stylebox_override("panel", UiKit.card_style(10))
 		slots_container.add_child(card)
 
+		if _parent != null and bool(_parent.get("wide")):
+			_build_wide_slot_row(card, i, s, slots.size())
+			continue
 		var vbox := VBoxContainer.new()
 		card.add_child(vbox)
 

@@ -50,11 +50,25 @@ func setup(game: Dictionary) -> void:
 		add_child(_scheduler)
 		_scheduler.initialization_completed.connect(_on_android_ready)
 		_scheduler.initialize()
+		# The plugin starts once per process, but this node is rebuilt every time the
+		# scene reloads (coming back after a minute away does that). The completion
+		# signal may not come again then, which left alerts unscheduled for the rest of
+		# the session -- so treat it as ready right away when it has started before,
+		# and after a few seconds in any case.
+		if _plugin_started:
+			_on_android_ready.call_deferred()
+		else:
+			get_tree().create_timer(4.0).timeout.connect(_on_android_ready)
 	elif platform() == "windows" and bool(Analytics.state.get("winScheduled", false)):
 		cancel_scheduled()   # the game is open: nothing should still be waiting
 
+static var _plugin_started := false
+
 func _on_android_ready() -> void:
+	if _ready_android:
+		return   # the signal, the deferred call and the timer may each arrive
 	_ready_android = true
+	_plugin_started = true
 	var ch = load("res://addons/NotificationSchedulerPlugin/model/NotificationChannel.gd").new()
 	ch.set_id(CHANNEL_ID).set_name("Farroad").set_description("Idle rewards and expedition returns") \
 		.set_importance(3)
@@ -94,9 +108,10 @@ func cancel_scheduled() -> void:
 			for i in MAX_EXP:
 				_scheduler.cancel(ID_EXPEDITION_BASE + i)
 		"windows":
-			_win_run(_win_header())
-			Analytics.state["winScheduled"] = false
-			Analytics._dirty = true
+			if bool(Analytics.state.get("winScheduled", false)):
+				_win_run(_win_header())
+				Analytics.state["winScheduled"] = false
+				Analytics._dirty = true
 		"web":
 			_web_eval("(window.__frTimers||[]).forEach(clearTimeout); window.__frTimers=[];")
 

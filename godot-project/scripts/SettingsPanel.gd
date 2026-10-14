@@ -30,6 +30,8 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
@@ -44,14 +46,31 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	_populate_popup()
+
+var _body: Control
+var _built_wide := false
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+## Rebuilt in place when the window changes shape (the popup itself stays).
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	_built_wide = _is_wide()
 	# Ian: the same size as the other main menus (96% x 76%), scrolling
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
+	if _built_wide:
+		var fr: Rect2i = _parent.call("full_menu_rect")
+		popup_size = Vector2(fr.size.x, fr.size.y)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	popup.add_child(scroll)
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(popup_size.x - 40, 0)
+	vbox.custom_minimum_size = Vector2(popup_size.x - 40 - (70 if _built_wide else 0), 0)
 	vbox.add_theme_constant_override("separation", 14)
 	scroll.add_child(vbox)
 
@@ -230,10 +249,40 @@ func _build_ui(parent: Node) -> void:
 		id_btn.text = "ID: %s  (copied)" % Analytics.display_id())
 	vbox.add_child(id_btn)
 
+	if _built_wide:
+		_split_columns(vbox)
+
+	if confirm_dialog != null and is_instance_valid(confirm_dialog):
+		confirm_dialog.queue_free()
 	confirm_dialog = ConfirmationDialog.new()
 	confirm_dialog.dialog_text = "Erase all progress and start a brand new game? This cannot be undone."
 	confirm_dialog.confirmed.connect(_on_reset_confirmed)
 	popup.add_child(confirm_dialog)
+
+
+## Wide window: the buttons in one column, the settings in another.
+func _split_columns(vbox: VBoxContainer) -> void:
+	var kids: Array = vbox.get_children()
+	var cut := -1
+	for i in range(kids.size()):
+		if kids[i] is CheckButton:
+			cut = i
+			break
+	if cut <= 1:
+		return
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 40)
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_constant_override("separation", 5)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 5)
+	for i in range(kids.size()):
+		kids[i].reparent(left if i < cut else right)
+	cols.add_child(left)
+	cols.add_child(right)
+	vbox.add_child(cols)
 
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
@@ -248,7 +297,7 @@ func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String
 func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:

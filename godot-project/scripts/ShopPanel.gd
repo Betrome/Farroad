@@ -30,6 +30,10 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
+		if popup.visible:
+			_refresh()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
@@ -46,8 +50,28 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	_populate_popup()
+
+## The popup's body: the full-screen layout in a wide window (categories down
+## the left, the goods in a paged grid), the portrait list otherwise. Rebuilt in
+## place; the popup itself stays (the controller has hooked into it).
+var _body: Control
+var _built_wide := false
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	tab_buttons = {}
+	_built_wide = _is_wide()
+	if _built_wide:
+		_populate_wide()
+		return
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
 
@@ -82,6 +106,106 @@ func _build_ui(parent: Node) -> void:
 
 var crystal_label: Label
 
+const SIDE_W := 190.0
+
+func _populate_wide() -> void:
+	var r: Rect2i = _parent.call("full_menu_rect")
+	var root := HBoxContainer.new()
+	_body = root
+	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
+	root.add_theme_constant_override("separation", 16)
+	popup.add_child(root)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(SIDE_W, 0)
+	left.add_theme_constant_override("separation", 8)
+	root.add_child(left)
+	var title := Label.new()
+	title.text = "SHOP"
+	title.add_theme_font_size_override("font_size", 20)
+	left.add_child(title)
+	crystal_label = Label.new()
+	crystal_label.modulate = Palette.TEXT_DIM
+	left.add_child(crystal_label)
+	for entry in TABS:
+		var btn := Button.new()
+		btn.text = entry[1]
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.custom_minimum_size = Vector2(0, 42)
+		btn.pressed.connect(_on_tab_pressed.bind(entry[0]))
+		left.add_child(btn)
+		tab_buttons[entry[0]] = btn
+	var right := ScrollContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(right)
+	list_container = VBoxContainer.new()
+	list_container.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	list_container.custom_minimum_size = Vector2(r.size.x - SIDE_W - 24.0 - 16.0 - 70.0, 0)
+	list_container.add_theme_constant_override("separation", 8)
+	right.add_child(list_container)
+
+## Goods go into a paged grid (no scrolling) in a wide window.
+var _items: Array = []
+var _page := 0
+const PAGE_COLS := 3
+const PAGE_ROWS := 7
+
+func _add_item(row: Control) -> void:
+	if _built_wide:
+		_items.append(row)
+	else:
+		list_container.add_child(row)
+
+func _item_count() -> int:
+	return _items.size() if _built_wide else list_container.get_child_count()
+
+func _finish_list() -> void:
+	if not _built_wide:
+		return
+	var per: int = PAGE_COLS * PAGE_ROWS
+	var pages: int = maxi(1, ceili(_items.size() / float(per)))
+	_page = clampi(_page, 0, pages - 1)
+	var grid := GridContainer.new()
+	grid.columns = PAGE_COLS
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	list_container.add_child(grid)
+	for i in range(_items.size()):
+		var row: Control = _items[i]
+		if i >= _page * per and i < (_page + 1) * per:
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var cell := PanelContainer.new()
+			cell.add_theme_stylebox_override("panel", UiKit.card_style(6))
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			cell.add_child(row)
+			grid.add_child(cell)
+		else:
+			row.free()
+	_items.clear()
+	if pages > 1:
+		var pager := HBoxContainer.new()
+		pager.alignment = BoxContainer.ALIGNMENT_CENTER
+		pager.add_theme_constant_override("separation", 16)
+		var prev := Button.new()
+		prev.text = "‹ Prev"
+		prev.disabled = _page == 0
+		prev.pressed.connect(func():
+			_page -= 1
+			_refresh())
+		pager.add_child(prev)
+		var lbl := Label.new()
+		lbl.text = "Page %d of %d" % [_page + 1, pages]
+		pager.add_child(lbl)
+		var nxt := Button.new()
+		nxt.text = "Next ›"
+		nxt.disabled = _page >= pages - 1
+		nxt.pressed.connect(func():
+			_page += 1
+			_refresh())
+		pager.add_child(nxt)
+		list_container.add_child(pager)
+
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
@@ -92,7 +216,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:
@@ -101,6 +225,7 @@ func _notify_battle_paused(paused: bool) -> void:
 
 func _on_tab_pressed(tab: String) -> void:
 	current_tab = tab
+	_page = 0
 	_refresh()
 
 func _refresh() -> void:
@@ -114,11 +239,18 @@ func _refresh() -> void:
 	match current_tab:
 		"marks":   # Ian: Marks pulls live in the Shop now
 			if _parent and _parent.get("marks_panel") != null:
-				_parent.marks_panel.build_into(list_container)
+				var host: Container = list_container
+				if _built_wide:
+					host = VBoxContainer.new()
+					host.custom_minimum_size.x = 640.0
+					host.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+					list_container.add_child(host)
+				_parent.marks_panel.build_into(host)
 		"gambits": _refresh_gambits()
 		"actions": _refresh_actions()
 		"units": _refresh_units()
 		"equipment": _refresh_equipment()
+	_finish_list()
 
 func _rarity_name(display_name: String, rarity: String) -> String:
 	var color: Color = RARITY_COLOR.get(rarity, Color(1, 1, 1))
@@ -153,7 +285,7 @@ func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_m
 	var btn := Button.new()
 	btn.text = "%d Crystal" % price
 	btn.disabled = not available
-	btn.custom_minimum_size.x = _vp.x * 0.24
+	btn.custom_minimum_size.x = 104.0 if _built_wide else _vp.x * 0.24
 	btn.clip_text = true
 	btn.pressed.connect(func():
 		_pending_row = row
@@ -172,7 +304,8 @@ var _anim_busy := false
 ## Ian: a bought row turns white; a gambit or unit then shrinks away and the
 ## rows below slide up. Gear and actions flash the same way but stay put (they
 ## can be bought again). Rebuilds the list once it is done.
-func _after_buy(remove: bool) -> void:
+func _after_buy(remove_in: bool) -> void:
+	var remove: bool = remove_in and not _built_wide   # a grid cell just flashes
 	var row: Control = _pending_row
 	var pressed_btn: Button = _pending_btn
 	_pending_row = null
@@ -310,7 +443,7 @@ func _refresh_gambits() -> void:
 		if f_group != "any" and not cid.begins_with(f_group + "_"):
 			continue
 		shown += 1
-		list_container.add_child(_build_buy_row(FarroadCore.cond_label(cid),
+		_add_item(_build_buy_row(FarroadCore.cond_label(cid),
 			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid), "_show_gambit_detail_popup", cid))
 	if shown == 0:
 		list_container.add_child(_empty_label("No gambit conditions left to buy here."))
@@ -343,7 +476,7 @@ func _refresh_actions() -> void:
 		if owned_ids.has(aid):
 			label += "
 [font_size=12][color=#%s]Purchase for +1 Lore[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
-		list_container.add_child(_build_buy_row(label, price, _on_buy_action.bind(aid), "_show_action_detail_popup", aid))
+		_add_item(_build_buy_row(label, price, _on_buy_action.bind(aid), "_show_action_detail_popup", aid))
 
 func _on_buy_action(aid: String) -> void:
 	# the first purchase of an action moves like a gambit or unit (it leaves the
@@ -360,9 +493,9 @@ func _refresh_units() -> void:
 		if g["owned"].get(uid, false):
 			continue
 		var price: int = int(FarroadProgression.SHOP_UNIT_PRICE.get(def.get("rarity", "common"), 100))
-		list_container.add_child(_build_buy_row(_rarity_name(def["name"], def.get("rarity", "common")),
+		_add_item(_build_buy_row(_rarity_name(def["name"], def.get("rarity", "common")),
 			price, _on_buy_unit.bind(uid), "_show_unit_detail_popup", uid))
-	if list_container.get_child_count() == 0:
+	if _item_count() == 0:
 		list_container.add_child(_empty_label("Every unit is already owned."))
 
 func _on_buy_unit(uid: String) -> void:
@@ -386,7 +519,7 @@ func _refresh_equipment() -> void:
 		var price: int = int(FarroadProgression.SHOP_EQUIPMENT_PRICE.get(item.get("rarity", "common"), 10))
 		var owned: int = int(g["equipInv"].get(iid, 0))
 		var suffix: String = " (owned %d)" % owned if owned > 0 else ""
-		list_container.add_child(_build_buy_row(_rarity_name(item["name"], item.get("rarity", "common")) + suffix,
+		_add_item(_build_buy_row(_rarity_name(item["name"], item.get("rarity", "common")) + suffix,
 			price, _on_buy_equipment.bind(iid), "_show_equipment_detail_popup", iid))
 
 func _on_buy_equipment(iid: String) -> void:

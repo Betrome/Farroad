@@ -36,6 +36,13 @@ const EXPEDITION_POLL_SEC := 15.0
 
 var g: Dictionary
 var _vp: Vector2
+## Wide windows (see WideShell.gd): the ribbon on top, the battle column on the
+## left, the dock on the right. _vp stays the whole viewport; _bpos/_bvp are the
+## battle column (the whole viewport in a portrait layout).
+var wide := false
+var shell: Node
+var _bpos := Vector2.ZERO
+var _bvp := Vector2.ZERO
 var current_presenter: Node = null
 var gambits_panel: Node
 var units_panel: Node
@@ -177,6 +184,7 @@ func _ready() -> void:
 	for n in get_tree().root.find_children("*", "", true, false):
 		_on_node_added(n)
 	_vp = get_viewport_rect().size
+	_compute_regions()
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
 		return
@@ -234,46 +242,50 @@ func _start_game() -> void:
 		g["crystal"] = DEBUG_CRYSTAL
 	_start_cloud.call_deferred()
 	_build_background_layer()
+	_compute_regions()
+	shell = load("res://scripts/WideShell.gd").new()
+	add_child(shell)
+	shell.build(self)
 	_build_hud()
 	_refresh_hud()
 	if not _offline_summary.is_empty():
 		_show_welcome_back_popup()
 	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
 	add_child(gambits_panel)
-	gambits_panel.setup(g, _vp, self)
+	gambits_panel.setup(g, _units_content_vp(), self)
 	units_panel = load("res://scripts/UnitsPanel.gd").new()
 	add_child(units_panel)
-	units_panel.setup(g, _vp, self)
+	units_panel.setup(g, _menu_vp(), self)
 	catalogue_panel = load("res://scripts/CataloguePanel.gd").new()
 	add_child(catalogue_panel)
-	catalogue_panel.setup(g, _vp, self)
+	catalogue_panel.setup(g, _menu_vp(), self)
 	settings_panel = load("res://scripts/SettingsPanel.gd").new()
 	add_child(settings_panel)
-	settings_panel.setup(g, _vp, self)
+	settings_panel.setup(g, _menu_vp(), self)
 	party_panel = load("res://scripts/PartyPanel.gd").new()
 	add_child(party_panel)
-	party_panel.setup(g, _vp, self)
+	party_panel.setup(g, _menu_vp(), self)
 	aether_panel = load("res://scripts/AetherPanel.gd").new()
 	add_child(aether_panel)
-	aether_panel.setup(g, _vp, self)
+	aether_panel.setup(g, _units_content_vp(), self)
 	lore_panel = load("res://scripts/LorePanel.gd").new()
 	add_child(lore_panel)
-	lore_panel.setup(g, _vp, self)
+	lore_panel.setup(g, _units_content_vp(), self)
 	equipment_panel = load("res://scripts/EquipmentPanel.gd").new()
 	add_child(equipment_panel)
-	equipment_panel.setup(g, _vp, self)
+	equipment_panel.setup(g, _units_content_vp(), self)
 	marks_panel = load("res://scripts/MarksPanel.gd").new()
 	add_child(marks_panel)
-	marks_panel.setup(g, _vp, self)
+	marks_panel.setup(g, _menu_vp(), self)
 	expedition_panel = load("res://scripts/ExpeditionPanel.gd").new()
 	add_child(expedition_panel)
-	expedition_panel.setup(g, _vp, self)
+	expedition_panel.setup(g, _menu_vp(), self)
 	quests_panel = load("res://scripts/QuestsPanel.gd").new()
 	add_child(quests_panel)
-	quests_panel.setup(g, _vp, self)
+	quests_panel.setup(g, _menu_vp(), self)
 	shop_panel = load("res://scripts/ShopPanel.gd").new()
 	add_child(shop_panel)
-	shop_panel.setup(g, _vp, self)
+	shop_panel.setup(g, _menu_vp(), self)
 	_build_arena_button()
 	_start_analytics()
 	# Ian: idle income is earned while the game is open too (it used to be
@@ -309,6 +321,9 @@ func _start_game() -> void:
 		# before _reset_menu, so it sees the level the menu was on
 		p.popup.popup_hide.connect(_on_tab_hidden.bind(p))
 		p.popup.popup_hide.connect(_reset_menu.bind(p))
+	for p in [units_panel, party_panel, quests_panel, shop_panel, expedition_panel, settings_panel, catalogue_panel]:
+		p.popup.window_input.connect(_on_shortcut_event)
+	_layout_wide()
 	_begin_next_fight()
 	_whats_new_if_updated()
 	if Updates.check_enabled() and not OS.has_feature("web"):
@@ -392,6 +407,7 @@ func _on_expedition_tick() -> void:
 ## oversight.
 func _on_viewport_resized() -> void:
 	_vp = get_viewport_rect().size
+	_compute_regions()
 	# 24-item batch, Group D3: shifted down 5% from the old 0.015/0.043 --
 	# see _build_hud's own comment for the full history.
 	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
@@ -408,24 +424,28 @@ func _on_viewport_resized() -> void:
 	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
 	fade_overlay.size = _vp
 	if background_layer != null:
-		background_layer.position.x = 0.0
+		background_layer.position = Vector2(0.0, _bpos.y)
 		_rebuild_background_marks()
-	if current_presenter != null:
-		current_presenter.reflow(_vp)
-	gambits_panel.reflow(_vp)
-	units_panel.reflow(_vp)
-	catalogue_panel.reflow(_vp)
-	settings_panel.reflow(_vp)
-	party_panel.reflow(_vp)
-	aether_panel.reflow(_vp)
-	lore_panel.reflow(_vp)
-	equipment_panel.reflow(_vp)
-	marks_panel.reflow(_vp)
+	for pr in [current_presenter, side_presenter]:
+		if pr != null and is_instance_valid(pr):
+			_fit_presenter(pr)
+			pr.reflow(_bvp)
+			_dock_presenter(pr)
+	gambits_panel.reflow(_units_content_vp())
+	units_panel.reflow(_menu_vp())
+	catalogue_panel.reflow(_menu_vp())
+	settings_panel.reflow(_menu_vp())
+	party_panel.reflow(_menu_vp())
+	aether_panel.reflow(_units_content_vp())
+	lore_panel.reflow(_units_content_vp())
+	equipment_panel.reflow(_units_content_vp())
+	marks_panel.reflow(_menu_vp())
 	_build_arena_button()
-	expedition_panel.reflow(_vp)
-	quests_panel.reflow(_vp)
-	shop_panel.reflow(_vp)
+	expedition_panel.reflow(_menu_vp())
+	quests_panel.reflow(_menu_vp())
+	shop_panel.reflow(_menu_vp())
 	_reflow_road_button()
+	_layout_wide()
 
 ## Resumes user://save.json if one exists and parses cleanly. Mirrors
 ## tryResumeSave() (farroad-ui.js) -- applyCustomMC();startWave(...);
@@ -813,6 +833,7 @@ func _build_background_layer() -> void:
 	background_layer = Node2D.new()
 	add_child(background_layer)
 	move_child(background_layer, 0)
+	background_layer.position = Vector2(0.0, _bpos.y)
 	_rebuild_background_marks()
 
 ## Ian: "do a procedural polish pass" -- a soft vertical gradient (a warm
@@ -842,8 +863,8 @@ static func _get_sky_gradient_texture() -> Texture2D:
 func _rebuild_background_marks() -> void:
 	for c in background_layer.get_children():
 		c.queue_free()
-	var band_bottom: float = _vp.y * 0.58
-	var span: float = _vp.x * 3.0
+	var band_bottom: float = _bvp.y * (0.60 if wide else 0.58)
+	var span: float = _bvp.x * 3.0
 
 	var sky := Sprite2D.new()
 	sky.texture = _get_sky_gradient_texture()
@@ -852,7 +873,7 @@ func _rebuild_background_marks() -> void:
 	sky.scale = Vector2(span, band_bottom) / Vector2(1.0, float(_SKY_GRADIENT_TEX_H))
 	background_layer.add_child(sky)
 
-	var road_h: float = _vp.y * 0.02
+	var road_h: float = _bvp.y * 0.02
 	var road := ColorRect.new()
 	road.color = Palette.BORDER_LEATHER.lerp(Palette.BG_PARCHMENT_DEEP, 0.55)
 	road.size = Vector2(span, road_h)
@@ -861,9 +882,9 @@ func _rebuild_background_marks() -> void:
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260101   # fixed -- see comment above for why
-	var mark_w: float = _vp.x * 0.03
-	var mark_h: float = _vp.y * 0.012
-	var gap: float = _vp.x * 0.09
+	var mark_w: float = _bvp.x * 0.03
+	var mark_h: float = _bvp.y * 0.012
+	var gap: float = _bvp.x * 0.09
 	var x: float = -span / 2.0
 	while x < span / 2.0:
 		var j: float = rng.randf_range(-0.5, 0.5)
@@ -1564,7 +1585,7 @@ func _refresh_hud() -> void:
 	# Ian: the HUD's Power is the fielded party's, on the same scale the
 	# quest/dungeon/Arena recommendations use.
 	power_level_cell.text = "Power %d" % FarroadProgression.party_power(g)
-	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
+	var r := FarroadProgression.idle_per_sec_g(g)
 	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
 	# Ian: "idle rewards: show per 5 minutes, not per hour" -- matches the
 	# real JS reference's own already-established convention exactly
@@ -1572,6 +1593,9 @@ func _refresh_hud() -> void:
 	# specifically because a per-hour/per-minute figure rounds to a
 	# misleading "0" at real depth long before the trickle actually stops).
 	idle_rate_label.text = "%.2f Aether/5min   %.2f Marks/5min" % [r["aether"] * 300.0, marks_rate * 300.0]
+	var catchup: float = FarroadProgression.catchup_mul(g)
+	if catchup > 1.01:
+		idle_rate_label.text += "   Catch-up x%.1f" % catchup
 	_live_refresh_menu()
 
 ## Ian: gaining Aether (or a level) while a menu is open must update what the
@@ -1612,7 +1636,12 @@ func _apply_desktop_scaling() -> void:
 	var aspect: float = float(win.size.x) / maxf(1.0, float(win.size.y))
 	var want_aspect: Window.ContentScaleAspect = Window.CONTENT_SCALE_ASPECT_EXPAND
 	var want_size := Vector2i(412, 915)
-	if aspect > DESKTOP_MAX_ASPECT:
+	if aspect >= WIDE_MIN_ASPECT:
+		# a landscape window: 1280x720 and as much extra as the window has
+		want_size = Vector2i(1280, 720)
+		if aspect > 2.2:
+			want_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
+	elif aspect > DESKTOP_MAX_ASPECT:
 		want_aspect = Window.CONTENT_SCALE_ASPECT_KEEP
 		want_size = Vector2i(roundi(915.0 * DESKTOP_MAX_ASPECT), 915)
 	if win.content_scale_aspect != want_aspect:
@@ -1620,9 +1649,244 @@ func _apply_desktop_scaling() -> void:
 	if win.content_scale_size != want_size:
 		win.content_scale_size = want_size
 
+## ---- wide layout ----
+const WIDE_MIN_ASPECT := 1.3
+
+func _is_wide_window() -> bool:
+	if OS.has_feature("android") or OS.has_feature("ios") or OS.has_feature("web_android") or OS.has_feature("web_ios"):
+		return false
+	var win := get_window()
+	return float(win.size.x) / maxf(1.0, float(win.size.y)) >= WIDE_MIN_ASPECT
+
+func _compute_regions() -> void:
+	wide = _is_wide_window() and _vp.x > _vp.y
+	if wide:
+		var r: Rect2 = load("res://scripts/WideShell.gd").battle_rect(_vp)
+		_bpos = r.position
+		_bvp = r.size
+	else:
+		_bpos = Vector2.ZERO
+		_bvp = _vp
+
+## What the legacy tab panels are told the screen is: in a wide window, a virtual
+## screen sized so their usual 0.96 x 0.76 popup comes out as the menu rect.
+func _menu_vp() -> Vector2:
+	if not wide:
+		return _vp
+	var r: Rect2i = menu_popup_rect()
+	return Vector2(r.size.x / 0.96, r.size.y / 0.76)
+
+## Where a tab's menu window opens (the panels call this): the usual spot in
+## portrait; in a wide window, centred in the battle column below the ribbon so
+## the dock stays visible beside it.
+func menu_popup_rect() -> Rect2i:
+	if not wide:
+		return Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76))
+	var w: float = minf(640.0, _bvp.x - 24.0)
+	var h: float = _vp.y - _bpos.y - 24.0
+	return Rect2i(Vector2i(int((_bvp.x - w) / 2.0), int(_bpos.y + 8.0)), Vector2i(int(w), int(h)))
+
+## Full-screen menus (Units...): everything under the ribbon, dock included.
+func full_menu_rect() -> Rect2i:
+	var top: float = _bpos.y if wide else _vp.y * 0.125
+	return Rect2i(Vector2i(0, int(top)), Vector2i(int(_vp.x), int(_vp.y - top)))
+
+## What the Units sub-pages (Gambits, Aether, Lore, Gear) are told the screen is:
+## their usual 0.96-of-width popup should come out as the page area beside the list.
+func _units_content_vp() -> Vector2:
+	if not wide:
+		return _vp
+	var r: Rect2i = full_menu_rect()
+	var w: float = r.size.x - 250.0 - 24.0 - 16.0 - 40.0
+	return Vector2(w / 0.96, r.size.y / 0.76)
+
+## Puts the presenter in the battle column (before it is added to the tree).
+func _fit_presenter(pr) -> void:
+	pr.position = _bpos
+	pr.region_vp = _bvp
+	pr.call("set_wide", wide, 1.45 if wide else 1.0)
+
+func _dock_presenter(pr) -> void:
+	if pr == null or not is_instance_valid(pr) or not pr.is_inside_tree():
+		return
+	if not wide or shell == null:
+		pr.undock()
+		return
+	for other in [current_presenter, side_presenter]:
+		if other != null and other != pr and is_instance_valid(other) and other.docked:
+			other.undock()
+	pr.dock_into(shell.status_host, shell.log_host)
+
+## A panel that sends you into another fight (Quests...) opens in the dock in a
+## wide window: its popup's scroll is moved into the dock's page host.
+var _docked_panel: Node
+var _docked_scroll: Control
+
+func dock_open(panel: Node) -> bool:
+	if not wide or shell == null or panel.get("popup") == null:
+		return false
+	dock_close()
+	var scroll: Control = null
+	for c in panel.popup.get_children():
+		if c is ScrollContainer:
+			scroll = c
+			break
+	if scroll == null:
+		return false
+	_docked_panel = panel
+	_docked_scroll = scroll
+	scroll.set_meta("dock_min", scroll.custom_minimum_size)
+	var inner: Control = scroll.get_child(0)
+	inner.set_meta("dock_min", inner.custom_minimum_size)
+	scroll.reparent(shell.page_host)
+	scroll.custom_minimum_size = Vector2.ZERO
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	(scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	inner.custom_minimum_size = Vector2.ZERO
+	inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var title: String = str(panel.get_script().resource_path.get_file()).replace("Panel.gd", "")
+	shell.show_page(title, true)
+	if not shell.page_back.pressed.is_connected(_on_road_pressed):
+		shell.page_back.pressed.connect(_on_road_pressed)
+	return true
+
+func dock_close() -> void:
+	if _docked_panel == null:
+		return
+	var panel := _docked_panel
+	_docked_panel = null
+	if is_instance_valid(_docked_scroll) and is_instance_valid(panel):
+		var inner: Control = _docked_scroll.get_child(0)
+		_docked_scroll.reparent(panel.popup)
+		panel.popup.move_child(_docked_scroll, 0)
+		_docked_scroll.custom_minimum_size = _docked_scroll.get_meta("dock_min")
+		inner.custom_minimum_size = inner.get_meta("dock_min")
+		(_docked_scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_docked_scroll = null
+	if shell != null:
+		shell.show_page("", false)
+	if is_instance_valid(panel):
+		UiKit.set_icon_active(panel.get("toggle_button"), false)
+
+const RIBBON_ICON := 50.0
+
+func _ribbon_buttons() -> Array:
+	var out: Array = []
+	for pn in [units_panel, party_panel, expedition_panel, quests_panel]:
+		out.append(pn.toggle_button)
+	out.append(arena_button)
+	out.append(shop_panel.toggle_button)
+	out.append(settings_panel.toggle_button)
+	return out
+
+## Used by the reward flyers, which fly toward a tab's icon.
+func _ribbon_icon_for_frac(x_frac: float):
+	var b: Array = _ribbon_buttons()
+	if x_frac <= UNITS_ICON_X_FRAC + 0.01:
+		return b[0]
+	if x_frac <= PARTY_ICON_X_FRAC + 0.01:
+		return b[1]
+	return b[2]
+
+func _layout_wide() -> void:
+	if shell == null:
+		return
+	shell.set_shown(wide)
+	if not wide:
+		dock_close()
+		return
+	shell.layout(_vp)
+	var rh: float = shell.RIBBON_H
+	var x := 14.0
+	road_button.position = Vector2(x, (rh - 40.0) / 2.0)
+	road_button.custom_minimum_size = Vector2(92.0, 40.0)
+	road_button.size = Vector2(92.0, 40.0)
+	road_button.add_theme_font_size_override("font_size", 17)
+	x += 92.0 + 18.0
+	for btn in _ribbon_buttons():
+		if btn == null or not is_instance_valid(btn):
+			continue
+		btn.position = Vector2(x, (rh - RIBBON_ICON) / 2.0)
+		btn.custom_minimum_size = Vector2(RIBBON_ICON, RIBBON_ICON)
+		btn.size = Vector2(RIBBON_ICON, RIBBON_ICON)
+		btn.add_theme_font_size_override("font_size", 12)
+		x += RIBBON_ICON + 8.0
+	x += 16.0
+	var plate_w: float = clampf(_vp.x - x - 100.0, 200.0, 380.0)
+	hud_plate.position = Vector2(x, 6.0)
+	hud_plate.size = Vector2(plate_w, rh - 12.0)
+	currency_row.position = Vector2(x + 10.0, 9.0)
+	currency_row.add_theme_constant_override("separation", 14)
+	idle_row.position = Vector2(x + 10.0, 34.0)
+	idle_row.add_theme_constant_override("separation", 14)
+	for c in [aether_cell, marks_cell, crystal_cell]:
+		c.add_theme_font_size_override("font_size", 14)
+	idle_rate_label.add_theme_font_size_override("font_size", 12)
+	power_level_cell.add_theme_font_size_override("font_size", 12)
+	speed_toggle_btn.custom_minimum_size = Vector2(70.0, 34.0)
+	speed_toggle_btn.size = Vector2(70.0, 34.0)
+	speed_toggle_btn.position = Vector2(_vp.x - 84.0, (rh - 34.0) / 2.0)
+
+## ---- keyboard shortcuts (computers) ----
+## Esc goes back one level (and out of a menu); Q and E move to the previous and
+## next menu. Polled here because a menu is its own window and does not pass
+## its key presses up to this node. Never while a tutorial runs, or while a text
+## box has the keyboard.
+## Key presses arrive from the main window (_unhandled_key_input) and from each
+## menu's own window (window_input, hooked up in _start_game).
+func _on_shortcut_event(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	if OS.has_feature("android") or OS.has_feature("ios") or shell == null:
+		return
+	var k: int = (event as InputEventKey).keycode
+	if k == KEY_ESCAPE or k == KEY_Q or k == KEY_E:
+		_shortcut(k)
+
+func _typing() -> bool:
+	var wins: Array = [get_viewport()]
+	if open_panel != null and is_instance_valid(open_panel) and open_panel.get("popup") != null:
+		wins.append(open_panel.popup)
+	for w in wins:
+		var f = w.gui_get_focus_owner()
+		if f is LineEdit or f is TextEdit:
+			return true
+	return false
+
+func _shortcut(k: int) -> void:
+	if tutorial != null and tutorial.active != "":
+		return
+	var cur: Node = open_panel if open_panel != null and is_instance_valid(open_panel) else _docked_panel
+	var menu_open: bool = cur != null and (cur.get("popup") != null and (cur.popup.visible or cur == _docked_panel))
+	var arena_open: bool = shell != null and shell.page_box.visible and cur == null
+	if k == KEY_ESCAPE:
+		if menu_open and cur != _docked_panel:
+			_tab_close_or_back(cur)
+		elif menu_open or arena_open:
+			_on_road_pressed()
+		return
+	if _typing():
+		return
+	var btns: Array = _ribbon_buttons()
+	var idx := -1
+	if arena_open:
+		idx = btns.find(arena_button)
+	elif menu_open:
+		for i in range(btns.size()):
+			if btns[i] != null and is_instance_valid(btns[i]) and btns[i].has_meta("ui_active"):
+				idx = i
+	var n: int = btns.size()
+	var step_dir: int = 1 if k == KEY_E else -1
+	var nxt: int = (idx + step_dir + n) % n if idx >= 0 else (0 if k == KEY_E else n - 1)
+	var target: Button = btns[nxt]
+	if target != null and is_instance_valid(target):
+		target.pressed.emit()
+
 ## F11 or Alt+Enter: full screen on and off (on the web it needs a key press,
 ## which this is).
 func _unhandled_key_input(event: InputEvent) -> void:
+	_on_shortcut_event(event)
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	var k: InputEventKey = event
@@ -1698,6 +1962,7 @@ func _set_battle_paused(_paused: bool) -> void:
 ## the selected (including the road)." One place that dismisses everything
 ## closable: the open tab menu, the Arena, and the battle's Status/Log.
 func _close_all_popups() -> void:
+	dock_close()
 	_close_arena()
 	if open_panel != null and is_instance_valid(open_panel):
 		_hide_open_panel()
@@ -1709,6 +1974,7 @@ func _close_all_popups() -> void:
 ## (e.g. Units' Gambits -> Summary on top of the screen that replaced it,
 ## like the training setup opened from the Gambits editor's Test button).
 func _hide_open_panel() -> void:
+	dock_close()
 	if open_panel == null or not is_instance_valid(open_panel):
 		return
 	if open_panel == units_panel:
@@ -1731,13 +1997,33 @@ func _hide_open_panel() -> void:
 ## old popup's own dismiss handling), means the new popup still opens on
 ## the SAME tap that closed the old one.
 func _panel_opening(panel: Node) -> void:
-	_close_all_popups()
+	# Switching from one menu window straight to another: the old one stays up until
+	# the new one has shown, so the Road never flashes between them.
+	var old = open_panel
+	if wide and old != null and is_instance_valid(old) and old != panel and old.get("popup") != null 			and old.popup.visible and panel.get("popup") != null:
+		dock_close()
+		_close_arena()
+		for p in [current_presenter, side_presenter]:
+			if p != null and is_instance_valid(p) and p.has_method("close_popups"):
+				p.call("close_popups")
+		_hide_replaced_menu.call_deferred(old, panel)
+	else:
+		_close_all_popups()
 	open_panel = panel
 	UiKit.set_icon_active(panel.get("toggle_button"), true)
 	# Ian: "When a menu screen is exited and returned to, have it reset to
 	# the top." Runs after the panel has rebuilt and shown its content.
 	_reset_scrolls.call_deferred(panel)
 	_ensure_tab_close_x.call_deferred(panel)
+
+func _hide_replaced_menu(old: Node, new_panel: Node) -> void:
+	if not is_instance_valid(old) or old == new_panel:
+		return
+	if old == units_panel:
+		units_panel.current_sub_tab = "summary"
+	elif old == catalogue_panel:
+		catalogue_panel.set_meta("fromMenu", false)
+	old.popup.hide()
 
 ## Every tab menu gets the same always-visible top-right ✕ (top_level, so
 ## the PopupPanel doesn't stretch it and its own scrolling can't move it).
@@ -1966,7 +2252,7 @@ func _make_close_x(on_close: Callable) -> Button:
 	# No text: the ✕ is drawn, so a font's own glyph width or height can never
 	# stretch the button into an oval -- it is always exactly d x d.
 	b.text = ""
-	var d: float = maxf(34.0, _vp.x * 0.085)
+	var d: float = maxf(34.0, _menu_vp().x * 0.085)
 	b.custom_minimum_size = Vector2(d, d)
 	b.size = b.custom_minimum_size
 	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -2230,6 +2516,9 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 ## result to copy back, which carries your own code so they can answer.
 func _show_pvp_popup() -> void:
 	_close_arena()
+	if wide and shell != null:
+		_show_arena_in_dock()
+		return
 	var o := _build_detail_overlay(Palette.PARTY_BLUE, true)
 	o["backdrop"].set_meta("arena", true)
 	var vbox: VBoxContainer = o["vbox"]
@@ -2377,6 +2666,10 @@ func _ranked() -> RankedClient:
 
 ## The Ranked part of the Arena: uploads the fielded party, then shows your
 ## rating, opponents near it and the leaderboard.
+## Arena lists size their columns from this: the dock's width in a wide window.
+func _arena_vx() -> float:
+	return (360.0 / 0.96) if wide else _vp.x
+
 func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 	if not RankedClient.online():
 		box.add_child(_wrap_label("The Arena isn't online yet.", true))
@@ -2501,12 +2794,12 @@ func _fill_opponents(opp_box: VBoxContainer, list: Array, status: Label, backdro
 		opp_box.add_child(row)
 		var stats := GridContainer.new()
 		stats.columns = 2
-		stats.add_theme_constant_override("h_separation", int(_vp.x * 0.06))
+		stats.add_theme_constant_override("h_separation", int(_arena_vx() * 0.06))
 		for txt in ["Rating %d" % int(p["rating"]), "Power %d" % int(p["power"])]:
 			var c := Label.new()
 			c.text = txt
 			c.modulate = Palette.TEXT_DIM
-			c.custom_minimum_size = Vector2(_vp.x * 0.3, 0)
+			c.custom_minimum_size = Vector2(_arena_vx() * 0.3, 0)
 			stats.add_child(c)
 		opp_box.add_child(stats)
 
@@ -2543,7 +2836,7 @@ func _show_records() -> void:
 	# width (less the gaps between them), and the window never scrolls sideways
 	var rec_scroll: ScrollContainer = o["scroll"]
 	rec_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	var avail: float = float(o["vbox"].custom_minimum_size.x) - _vp.x * 0.03 * 2.0 - 4.0
+	var avail: float = float(o["vbox"].custom_minimum_size.x) - _arena_vx() * 0.03 * 2.0 - 4.0
 	var col_w: Array = [avail * 0.42, avail * 0.29, avail * 0.29]
 	var cell := func(grid: GridContainer, text: String, col: int, dim: bool, color = null) -> void:
 		var l := Label.new()
@@ -2562,7 +2855,7 @@ func _show_records() -> void:
 			o["vbox"].add_child(HSeparator.new())
 		var grid := GridContainer.new()
 		grid.columns = 3
-		grid.add_theme_constant_override("h_separation", int(_vp.x * 0.03))
+		grid.add_theme_constant_override("h_separation", int(_arena_vx() * 0.03))
 		grid.add_theme_constant_override("v_separation", 2)
 		var won: bool = bool(h.get("won"))
 		# line 1: opponent, their Power, when; line 2: Won/Lost with Offense/Defense
@@ -2595,7 +2888,7 @@ func _show_leaderboard() -> void:
 	var me_name: String = str(g["mc"].get("name", "")) if g.get("mc") != null else ""
 	var grid := GridContainer.new()
 	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", int(_vp.x * 0.025))
+	grid.add_theme_constant_override("h_separation", int(_arena_vx() * 0.025))
 	grid.add_theme_constant_override("v_separation", 6)
 	var rank_colors := [Color("f2c94c"), Color("cfd6dc"), Color("d08a52")]
 	var cell := func(text: String, align: int, expand: bool, color: Color, min_w: float) -> void:
@@ -2610,19 +2903,19 @@ func _show_leaderboard() -> void:
 		l.add_theme_color_override("font_color", color)
 		grid.add_child(l)
 	var dim: Color = UiKit.TEXT_DIM
-	cell.call("#", HORIZONTAL_ALIGNMENT_LEFT, false, dim, _vp.x * 0.07)
+	cell.call("#", HORIZONTAL_ALIGNMENT_LEFT, false, dim, _arena_vx() * 0.07)
 	cell.call("Name", HORIZONTAL_ALIGNMENT_LEFT, true, dim, 0.0)
-	cell.call("W–L", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.16)
-	cell.call("Rating", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.14)
+	cell.call("W–L", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _arena_vx() * 0.16)
+	cell.call("Rating", HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _arena_vx() * 0.14)
 	for i in top.size():
 		var p: Dictionary = top[i]
 		var mine: bool = me_name != "" and str(p["name"]) == me_name
 		var name_col: Color = UiKit.BAND.lightened(0.25) if mine else UiKit.TEXT
 		var rank_col: Color = rank_colors[i] if i < 3 else UiKit.TEXT_DIM
-		cell.call(str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, false, rank_col, _vp.x * 0.07)
+		cell.call(str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, false, rank_col, _arena_vx() * 0.07)
 		cell.call(str(p["name"]), HORIZONTAL_ALIGNMENT_LEFT, true, name_col, 0.0)
-		cell.call("%d–%d" % [int(p["wins"]), int(p["losses"])], HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _vp.x * 0.16)
-		cell.call(str(int(p["rating"])), HORIZONTAL_ALIGNMENT_RIGHT, false, name_col, _vp.x * 0.14)
+		cell.call("%d–%d" % [int(p["wins"]), int(p["losses"])], HORIZONTAL_ALIGNMENT_RIGHT, false, dim, _arena_vx() * 0.16)
+		cell.call(str(int(p["rating"])), HORIZONTAL_ALIGNMENT_RIGHT, false, name_col, _arena_vx() * 0.14)
 	o["vbox"].add_child(grid)
 
 ## Plays back a fight the server just decided: the same two teams and seed
@@ -2644,10 +2937,47 @@ var arena_button: Button
 func _build_arena_button() -> void:
 	if arena_button != null and is_instance_valid(arena_button):
 		arena_button.queue_free()
-	arena_button = shop_panel._build_icon_tab(self, Vector2(_vp.x * 0.5838, _vp.y * 0.93), _vp.x * 0.11, "Arena", _show_pvp_popup)
+	var mv: Vector2 = _menu_vp()
+	arena_button = shop_panel._build_icon_tab(self, Vector2(mv.x * 0.5838, mv.y * 0.93), mv.x * 0.11, "Arena", _show_pvp_popup)
+
+## Wide window: the Arena's opponent list sits in the dock beside the fight.
+func _show_arena_in_dock() -> void:
+	_close_all_popups()
+	open_panel = null
+	var scroll := ScrollContainer.new()
+	scroll.set_meta("arena", true)
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(vbox)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 6)
+	vbox.add_child(box)
+	shell.page_host.add_child(scroll)
+	shell.show_page("Arena", true)
+	if not shell.page_back.pressed.is_connected(_on_road_pressed):
+		shell.page_back.pressed.connect(_on_road_pressed)
+	scroll.tree_exited.connect(_arena_page_gone)
+	_fill_ranked.call_deferred(box, scroll)
+
+func _arena_page_gone() -> void:
+	if shell == null or _docked_panel != null:
+		return
+	for c in shell.page_host.get_children():
+		if c.has_meta("arena") and not c.is_queued_for_deletion():
+			return
+	shell.show_page("", false)
 
 ## Closes the Arena screen (another menu or the Road was tapped).
 func _close_arena() -> void:
+	if shell != null:
+		for c in shell.page_host.get_children():
+			if c.has_meta("arena"):
+				c.queue_free()
 	if _full_layer == null or not is_instance_valid(_full_layer):
 		return
 	for c in _full_layer.get_children():
@@ -3582,7 +3912,9 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	presenter.action_info = func(aid, host):
 		overlay_host_override = host
 		_show_action_detail_popup(str(aid))
+	_fit_presenter(presenter)
 	add_child(presenter)
+	_dock_presenter(presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	if g.get("sideBattle") != null:
@@ -3721,7 +4053,7 @@ func _on_idle_tick() -> void:
 	_idle_last_ms = now_ms
 	if g.is_empty() or dt <= 0.0:
 		return
-	var r := FarroadProgression.idle_per_sec(g.get("farthest", 1))
+	var r := FarroadProgression.idle_per_sec_g(g)
 	g["aether"] = float(g.get("aether", 0.0)) + r["aether"] * dt
 	g["marks"] = float(g.get("marks", 0.0)) + r["marks"] * FarroadProgression.marks_mul(g) * dt
 	_refresh_hud()
@@ -3918,6 +4250,10 @@ const REWARD_FLYER_TIME := 0.7
 const REWARD_FLYER_STAGGER := 0.12
 
 func _icon_center(x_frac: float) -> Vector2:
+	if wide:
+		var btn = _ribbon_icon_for_frac(x_frac)
+		if btn != null and is_instance_valid(btn):
+			return btn.global_position + btn.size / 2.0
 	var icon_size: float = _vp.x * ICON_SIZE_FRAC
 	return Vector2(_vp.x * x_frac + icon_size / 2.0, _vp.y * ICON_Y_FRAC + icon_size / 2.0)
 
@@ -3932,7 +4268,7 @@ func _icon_center(x_frac: float) -> Vector2:
 ## caller, matching the established "small reusable helper, no bespoke
 ## animation per reward kind" design.
 func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float, marks_before: float) -> void:
-	var start := Vector2(_vp.x / 2.0, _vp.y * (0.15 + 0.58) / 2.0)
+	var start := _bpos + Vector2(_bvp.x / 2.0, _bvp.y * (0.15 + 0.58) / 2.0)
 	var delay := 0.0
 	var aether_delta: float = g.get("aether", 0.0) - aether_before
 	if aether_delta >= 1.0:
@@ -4040,7 +4376,9 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter.action_info = func(aid, host):
 		overlay_host_override = host
 		_show_action_detail_popup(str(aid))
+	_fit_presenter(side_presenter)
 	add_child(side_presenter)
+	_dock_presenter(side_presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	var sp = side_presenter
@@ -4078,6 +4416,9 @@ func _side_battle_label_text(meta: Dictionary) -> String:
 func _open_training() -> void:
 	if g.get("sideBattle") != null:
 		return
+	if wide and shell != null:
+		_open_training_in_dock()
+		return
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true, true)
 	var setup := TrainingSetup.new()
 	setup.build(o["vbox"], g, func():
@@ -4085,6 +4426,30 @@ func _open_training() -> void:
 			o["backdrop"].queue_free()
 		_start_training())
 	await _finish_detail_overlay(o)
+
+## Wide window: the training setup sits in the dock beside the fight.
+func _open_training_in_dock() -> void:
+	_close_all_popups()
+	open_panel = null
+	var scroll := ScrollContainer.new()
+	scroll.set_meta("arena", true)   # closed the same way as the Arena page
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(vbox)
+	shell.page_host.add_child(scroll)
+	shell.show_page("Training", true)
+	if not shell.page_back.pressed.is_connected(_on_road_pressed):
+		shell.page_back.pressed.connect(_on_road_pressed)
+	scroll.tree_exited.connect(_arena_page_gone)
+	var setup := TrainingSetup.new()
+	setup.build(vbox, g, func():
+		if is_instance_valid(scroll):
+			scroll.queue_free()
+		_start_training())
 
 func _start_training() -> void:
 	if g.get("sideBattle") != null:
@@ -4095,8 +4460,8 @@ func _start_training() -> void:
 	# Ian: the buttons sit right next to the "Training" text above the enrage bar
 	await get_tree().process_frame
 	var title: Label = side_presenter.wave_progress_label if side_presenter != null and is_instance_valid(side_presenter) else null
-	var bx: float = (title.position.x + title.get_minimum_size().x + _vp.x * 0.025) if title != null else _vp.x * 0.30
-	var by: float = (title.position.y) if title != null else _vp.y * 0.60
+	var bx: float = (title.global_position.x + title.get_minimum_size().x + _bvp.x * 0.025) if title != null else _bvp.x * 0.30
+	var by: float = (title.global_position.y) if title != null else _bpos.y + _bvp.y * 0.60
 	var bh: float = (title.get_minimum_size().y if title != null else _vp.y * 0.03) + 4.0
 	training_end_btn = Button.new()
 	training_end_btn.text = "End training"
@@ -4208,6 +4573,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		side_presenter = null
 	if current_presenter != null:
 		current_presenter.show()
+		_dock_presenter(current_presenter)
 		current_presenter.call("set_loop_paused", false)
 	else:
 		# Recovery path for the race _begin_next_fight() guards against:

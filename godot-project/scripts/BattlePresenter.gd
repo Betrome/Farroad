@@ -94,6 +94,12 @@ var _turn_card_w: float = 0.0   # inner width available to each turn-order card'
 # rows sit closer to center (a visibly smaller gap than the first pass) so
 # hops/projectiles cover less empty ground and read faster/snappier.
 var _vp: Vector2
+## Wide windows: GameController hands the presenter just the battle column
+## (region_vp) and moves it there; wide switches on bigger units and a
+## field that starts higher, since the currency rows live in the ribbon.
+var region_vp := Vector2.ZERO
+var wide := false
+var unit_scale := 1.0
 var field_top: float
 var field_bottom: float
 var party_back_x: float
@@ -102,8 +108,8 @@ var enemy_front_x: float
 var enemy_back_x: float
 
 func _recompute_field_fractions() -> void:
-	field_top = _vp.y * 0.15
-	field_bottom = _vp.y * 0.58
+	field_top = _vp.y * (0.09 if wide else 0.15)
+	field_bottom = _vp.y * (0.60 if wide else 0.58)
 	# Back rows pulled in from the screen edges -- a back-row unit's own name
 	# label extends further left of its position than the unit itself (see
 	# UnitView.setup's -half-size*0.2 offset), so at the old 0.06/0.94 back-row
@@ -115,8 +121,8 @@ func _recompute_field_fractions() -> void:
 	enemy_back_x = _vp.x * 0.86
 
 func _ready() -> void:
-	_vp = get_viewport_rect().size
-	UnitView.name_ref_size = _vp.y * 0.05
+	_vp = region_vp if region_vp.x > 0.0 else get_viewport_rect().size
+	UnitView.name_ref_size = _vp.y * 0.05 * unit_scale
 	_bar_layer = Node2D.new()
 	add_child(_bar_layer)
 	# Needed for UnitView's own Area2D.input_event (tap-a-unit-for-stats,
@@ -160,6 +166,8 @@ func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen:
 	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
+	if docked:
+		_refresh_status_popup()
 	if auto_start_loop:
 		_run_battle_loop()
 
@@ -264,7 +272,7 @@ func begin_combat() -> void:
 ## the new visible area until the next wave, not just slightly offset.
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
-	UnitView.name_ref_size = _vp.y * 0.05
+	UnitView.name_ref_size = _vp.y * 0.05 * unit_scale
 	_recompute_field_fractions()
 
 	if enrage_bg: enrage_bg.queue_free()
@@ -329,13 +337,81 @@ func _reposition_units() -> void:
 ## identical to every unit's size before this change.
 const BOSS_SIZE_MUL := 1.5
 func _unit_size(u: Dictionary) -> float:
-	var base: float = _vp.y * 0.05
+	var base: float = _vp.y * 0.05 * unit_scale
 	var arch_mul: float = 1.0
 	var arch_key = u.get("arch")
 	if arch_key != null and FarroadCore.ARCH.has(arch_key):
 		arch_mul = float(FarroadCore.ARCH[arch_key].get("size", 1.0))
 	var boss_mul: float = BOSS_SIZE_MUL if u.get("isBoss", false) else 1.0
 	return base * arch_mul * boss_mul
+
+
+## ---- docked status and log (wide windows) ----
+## In a wide window the Status and Log live in GameController's dock instead of
+## popups: the same scroll contents are moved into the dock's hosts, and the
+## popup itself stays empty and unused.
+var docked := false
+var _dock_status_scroll: Control
+var _dock_log_box: Control
+
+func _status_open() -> bool:
+	return docked or (status_popup != null and status_popup.visible)
+
+func _log_open() -> bool:
+	return docked or (log_popup != null and log_popup.visible)
+
+func dock_into(status_host: Control, log_host: Control) -> void:
+	if docked or status_container == null or log_container == null:
+		return
+	docked = true
+	_dock_status_scroll = status_container.get_parent()
+	_dock_log_box = log_container.get_parent().get_parent()
+	_dock_status_scroll.reparent(status_host)
+	_dock_status_scroll.custom_minimum_size = Vector2.ZERO
+	_dock_status_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dock_status_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	(_dock_status_scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	status_container.custom_minimum_size = Vector2.ZERO
+	status_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dock_log_box.reparent(log_host)
+	_dock_log_box.custom_minimum_size = Vector2.ZERO
+	_dock_log_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_dock_log_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var log_scroll: Control = log_container.get_parent()
+	log_scroll.custom_minimum_size = Vector2.ZERO
+	(log_scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	log_container.custom_minimum_size = Vector2.ZERO
+	if status_icon_btn != null:
+		status_icon_btn.visible = false
+	if log_icon_btn != null:
+		log_icon_btn.visible = false
+	if battle.size() > 0:
+		_refresh_status_popup()
+	_rebuild_log_container()
+
+func undock() -> void:
+	if not docked:
+		return
+	docked = false
+	if _dock_status_scroll != null and is_instance_valid(_dock_status_scroll):
+		_dock_status_scroll.reparent(status_popup)
+		var popup_size := Vector2(_vp.x * 0.85, _vp.y * 0.85)
+		_dock_status_scroll.custom_minimum_size = popup_size - Vector2(20, 20)
+		status_container.custom_minimum_size = Vector2(popup_size.x - 40, 0)
+	if _dock_log_box != null and is_instance_valid(_dock_log_box):
+		_dock_log_box.reparent(log_popup)
+		var lsize := Vector2(_vp.x * 0.85, _vp.y * 0.75)
+		_dock_log_box.custom_minimum_size = lsize - Vector2(20, 20)
+		log_container.get_parent().custom_minimum_size = lsize - Vector2(20, 60)
+		log_container.custom_minimum_size = Vector2(lsize.x - 40, 0)
+	if status_icon_btn != null:
+		status_icon_btn.visible = true
+	if log_icon_btn != null:
+		log_icon_btn.visible = true
+
+func set_wide(on: bool, scale: float) -> void:
+	wide = on
+	unit_scale = scale
 
 const JOIN_HOP_TIME := 0.5
 
@@ -677,6 +753,7 @@ func _status_log_row_pos(slot: int) -> Vector2:
 func _build_status_icon() -> void:
 	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
 	status_icon_btn = _build_icon_tab(_status_log_row_pos(0), icon_size, "Status", _on_status_pressed)
+	status_icon_btn.visible = not docked
 
 func _build_status_ui() -> void:
 	_build_status_icon()
@@ -704,14 +781,15 @@ func _on_status_pressed() -> void:
 ## Ian: "tapping on a unit in the battle should show its stats page,
 ## live." Opens the SAME Status popup, just filtered down to the one
 ## tapped unit -- reuses _refresh_status_popup's existing per-beat live
-## refresh (_run_battle_loop's own `if status_popup.visible:` calls),
+## refresh (_run_battle_loop's own `if _status_open():` calls),
 ## so the single card keeps tracking the fight for as long as it's open,
 ## same as the full list already did.
 func _on_unit_tapped(uid: String) -> void:
 	_clear_status_bars()
 	status_filter_uid = uid
 	_refresh_status_popup()
-	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
+	if not docked:
+		status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 
 ## Rebuilds card(s) from LIVE battle data -- called on open, and then
 ## every beat for as long as it stays open (see _run_battle_loop), so HP/
@@ -750,6 +828,18 @@ func _refresh_status_popup() -> void:
 			b.get_parent().remove_child(b)
 	for c in status_container.get_children():
 		c.queue_free()
+	if docked:
+		# the dock always shows one unit: the tapped one, else the first of the party
+		var known := false
+		for u in battle["units"]:
+			if u["id"] == status_filter_uid:
+				known = true
+		if not known:
+			status_filter_uid = ""
+			for u in battle["units"]:
+				if u["isParty"]:
+					status_filter_uid = u["id"]
+					break
 	for u in battle["units"]:
 		if status_filter_uid != "" and u["id"] != status_filter_uid:
 			continue
@@ -899,7 +989,9 @@ func _build_status_card(u: Dictionary) -> Control:
 ## locked-in turn, so the turn order shows it straight away.
 func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
 	box.add_child(_rich_line("[font_size=13][b]Next turn:[/b][/font_size]"))
-	var flow := HFlowContainer.new()
+	# always two to a row, so the buttons stay put when the next action adds one
+	var flow := GridContainer.new()
+	flow.columns = 2
 	flow.add_theme_constant_override("h_separation", 6)
 	flow.add_theme_constant_override("v_separation", 6)
 	box.add_child(flow)
@@ -924,7 +1016,10 @@ func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
 		if aid == current:
 			b.text = "▶ " + b.text
 		b.pressed.connect(_choose_next_action.bind(u["id"], aid))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = true
 		var pick_row := HBoxContainer.new()
+		pick_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		pick_row.add_theme_constant_override("separation", 2)
 		pick_row.add_child(b)
 		pick_row.add_child(_info_btn(aid))
@@ -932,6 +1027,7 @@ func _add_next_action_picker(box: VBoxContainer, u: Dictionary) -> void:
 	var auto := Button.new()
 	auto.text = "Auto" if manual else "▶ Auto (gambits)"
 	auto.disabled = not manual
+	auto.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	auto.pressed.connect(_choose_next_action.bind(u["id"], ""))
 	flow.add_child(auto)
 
@@ -1029,6 +1125,7 @@ func _build_log_icon() -> void:
 	# Right of the Status icon, same row -- see _status_log_row_pos().
 	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
 	log_icon_btn = _build_icon_tab(_status_log_row_pos(1), icon_size, "Log", _on_log_pressed)
+	log_icon_btn.visible = not docked
 
 func _build_log_ui() -> void:
 	_build_log_icon()
@@ -1087,7 +1184,7 @@ func _on_clear_pressed() -> void:
 func _on_log_pause_toggled(paused: bool) -> void:
 	log_paused = paused
 	pause_log_btn.text = "Resume" if paused else "Pause"
-	if not paused and log_popup != null and log_popup.visible:
+	if not paused and _log_open():
 		_rebuild_log_container()
 
 ## Rebuilds every entry's Control block from scratch, newest first (mirrors
@@ -1803,7 +1900,7 @@ func _append_log(e: Dictionary) -> void:
 
 	log_lines.append({"head_bbcode": head, "dmg_text": dmg_text, "via_bbcode": via_bbcode,
 		"note_bbcodes": note_bbcodes, "calc": _calc_text(e), "expanded": false})
-	if log_popup != null and log_popup.visible and not log_paused:
+	if _log_open() and not log_paused:
 		_rebuild_log_container()
 
 ## A plain, non-event log line (e.g. "Battle over") -- same storage shape,
@@ -1811,7 +1908,7 @@ func _append_log(e: Dictionary) -> void:
 func _append_raw_log(bbcode: String) -> void:
 	log_lines.append({"head_bbcode": bbcode, "dmg_text": "", "via_bbcode": "",
 		"note_bbcodes": [], "calc": "", "expanded": false})
-	if log_popup != null and log_popup.visible and not log_paused:
+	if _log_open() and not log_paused:
 		_rebuild_log_container()
 
 ## Mirrors logEntry()'s `calc` string (farroad-ui.js:1783-1793) -- reuses
@@ -1920,7 +2017,7 @@ func _run_battle_loop() -> void:
 		_event_seq += 1
 		e["_seq"] = _event_seq
 		active_unit_id = e["actorId"]
-		if status_popup.visible:
+		if _status_open():
 			_refresh_status_popup()
 		# Ian: several actions in a row from the same side start 0.25 s after
 		# each other instead of waiting for each to finish. Only when the NEXT
@@ -1940,7 +2037,7 @@ func _run_battle_loop() -> void:
 		if _beats_running == 0:      # bars/status sync to real state only once nothing is mid-animation
 			_refresh_hp_all()
 			_refresh_charge_bars()
-			if status_popup.visible:
+			if _status_open():
 				_refresh_status_popup()
 	# Defensive: if the loop exited via the guard cap (a genuine stalemate
 	# running past 300 beats) or FarroadCore.step() returning null with
@@ -2465,3 +2562,11 @@ func close_popups() -> void:
 		status_popup.hide()
 	if log_popup != null and is_instance_valid(log_popup):
 		log_popup.hide()
+
+## A docked Status/Log live in the dock's hosts, not under this node: take them
+## along when the presenter goes (they would otherwise be left behind there).
+func _exit_tree() -> void:
+	if docked:
+		for n in [_dock_status_scroll, _dock_log_box]:
+			if n != null and is_instance_valid(n):
+				n.queue_free()

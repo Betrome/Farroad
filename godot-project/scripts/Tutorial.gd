@@ -130,7 +130,7 @@ func _try_start() -> void:
 	# wait for a quiet moment: no side battle, no menu, no pop-up
 	if g.get("sideBattle") != null or gc.current_presenter == null:
 		return
-	if gc.open_panel != null and is_instance_valid(gc.open_panel) and gc.open_panel.popup.visible:
+	if gc.open_panel != null and is_instance_valid(gc.open_panel) and (gc.open_panel.popup.visible or gc._docked_panel != null):
 		return
 	if gc._full_layer != null and is_instance_valid(gc._full_layer) and gc._full_layer.get_child_count() > 0:
 		return
@@ -239,9 +239,10 @@ func _end(skipped: bool) -> void:
 	steps = []
 	_hide_overlay()
 	_release_popups()
-	_hide_popup()
 	_close_battle_boxes()
-	if gc.current_presenter != null:
+	# the menu the tutorial was about stays open; the Road resumes when it closes
+	var menu_open: bool = gc._docked_panel != null or (gc.open_panel != null and is_instance_valid(gc.open_panel) and gc.open_panel.popup.visible)
+	if gc.current_presenter != null and not menu_open:
 		gc.current_presenter.call("set_loop_paused", false)
 	gc._refresh_hud()
 	gc._save_game()
@@ -343,6 +344,8 @@ func _apply_locks() -> void:
 	for b in [gc.road_button, gc.speed_toggle_btn]:
 		if b != null and is_instance_valid(b):
 			b.disabled = active != ""
+	if gc.shell != null and gc.shell.page_back != null:
+		gc.shell.page_back.disabled = active != ""
 
 const LOCKED_TINT := Color(0.35, 0.35, 0.38, 1)
 
@@ -439,7 +442,11 @@ func _needs(id: String) -> Array:
 
 # ================================================================ finders
 func _popup_open(panel) -> bool:
-	return panel != null and is_instance_valid(panel) and panel.popup.visible
+	return panel != null and is_instance_valid(panel) and (panel.popup.visible or gc._docked_panel == panel)
+
+## Where a panel's content lives right now: its pop-up, or the dock's page.
+func _root_of(panel) -> Node:
+	return gc.shell.page_host if gc._docked_panel == panel else panel.popup
 
 func _buttons(root: Node) -> Array:
 	if root == null or not is_instance_valid(root):
@@ -468,6 +475,14 @@ func _slot(i: int) -> Dictionary:
 func _slot_button(i: int, which: String) -> Control:
 	if not _popup_open(gc.units_panel) or gc.units_panel.current_sub_tab != "gambits":
 		return null
+	if gc.wide:
+		# wide windows: a slot is one row (number, IF button, arrow, THEN button...)
+		var sc: Container = gc.gambits_panel.slots_container
+		var idx: int = i + gc.gambits_panel.SLOT_CARD_OFFSET
+		if sc == null or idx >= sc.get_child_count() or sc.get_child(idx).get_child_count() == 0:
+			return null
+		var wrow: Node = sc.get_child(idx).get_child(0)
+		return wrow.get_child(1 if which == "if" else 3) as Control
 	var marks: Array = gc.units_panel.content_container.find_children("*", "Label", true, false).filter(
 		func(l): return l.text == ("IF" if which == "if" else "THEN") and l.is_visible_in_tree())
 	if i >= marks.size():
@@ -497,13 +512,14 @@ func _party_row_button(uid: String, prefix: String) -> Control:
 		return null
 	var name: String = FarroadCore.roster_by_id(uid)["name"]
 	for row in gc.party_panel.popup.find_children("*", "HBoxContainer", true, false):
-		if row.get_child_count() > 0 and row.get_child(0) is Label and row.get_child(0).text == name:
+		if row.get_child_count() > 0 and row.get_child(0) is Label and row.get_child(0).text.begins_with(name):
 			for b in row.get_children():
 				if b is Button and b.text.begins_with(prefix) and b.is_visible_in_tree():
 					return b
 	return null
 
 func _hide_popup() -> void:
+	gc.dock_close()
 	if gc.open_panel != null and is_instance_valid(gc.open_panel):
 		gc.open_panel.popup.hide()
 
@@ -563,7 +579,7 @@ func _steps_for(id: String) -> Array:
 	match id:
 		"road":
 			var p = gc.current_presenter
-			return [
+			var road_steps: Array = [
 				{"text": "Welcome to the Road! Your party travels it and fights on its own, wave after wave."},
 				{"text": "Your units stand on the left. Tap any unit to see its stats.", "rect": func(): return _side_rect(true)},
 				{"text": "Under each unit, the green bar is HP: at zero, the unit falls. The yellow bar is charge: it fills each time the unit acts, and when it's full the unit uses its charge action.",
@@ -587,11 +603,19 @@ func _steps_for(id: String) -> Array:
 				{"text": "The Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.", "back": 10,
 					"target": func(): return p.log_popup.get_child(0) if p.log_popup.visible else null},
 			]
+			if gc.wide:
+				# wide window: Status and Log live in the dock, so point at them
+				road_steps = road_steps.slice(0, 8)
+				road_steps.append({"text": "The dock shows the unit you pick: HP, charge, stats, and any buffs or debuffs, updated live. Tap a unit on the field to switch.",
+					"rect": func(): return gc.shell.status_host.get_global_rect()})
+				road_steps.append({"text": "Below it, the Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.",
+					"rect": func(): return gc.shell.log_host.get_global_rect()})
+			return road_steps
 		"units":
 			return [
 				{"text": "A new menu is open: Units. Tap it.", "target": units_icon, "done": units_open,
 					"gift": true, "enter": func(): _prepare_level_up()},
-				{"text": "Pick which unit to manage here.", "target": func(): return gc.units_panel.dropdown if _popup_open(gc.units_panel) else null, "back": 0},
+				{"text": "Pick which unit to manage here.", "target": func(): return gc.units_panel.unit_pick_target() if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Each unit has Summary, Gambits, Aether, Lore and Gear. Most unlock as you go.", "target": func(): return gc.units_panel.sub_tab_buttons.get("summary") if _popup_open(gc.units_panel) else null, "back": 0},
 				{"text": "Tap Aether.", "target": func(): return _units_tab("aether"), "back": 0,
 					"done": func(): return _popup_open(gc.units_panel) and gc.units_panel.current_sub_tab == "aether"},
@@ -628,7 +652,7 @@ func _steps_for(id: String) -> Array:
 				{"text": "Quests are open. Tap Quests.", "target": func(): return gc.quests_panel.toggle_button,
 					"done": func(): return _popup_open(gc.quests_panel)},
 				{"text": "This is your own quest line. Tap Attempt to fight its first stage.", "back": 0,
-					"target": func(): return _btn_text(gc.quests_panel.popup, "Attempt") if _popup_open(gc.quests_panel) else null,
+					"target": func(): return _btn_text(_root_of(gc.quests_panel), "Attempt") if _popup_open(gc.quests_panel) else null,
 					"act": true, "done": func(): return g.get("sideBattle") != null},
 				{"text": "Win the fight!", "quiet": true,
 					"enter": func(): gc.current_presenter.call("set_loop_paused", true),
@@ -835,6 +859,12 @@ func _move_up_button() -> Control:
 func _shop_row_buy(label: String) -> Control:
 	if not _popup_open(gc.shop_panel):
 		return null
+	# the wide shop pages its goods: narrow to the Self gambits so this one is on the first page
+	if gc.wide and gc.shop_panel.current_tab == "gambits" and gc.shop_panel.f_group != "self":
+		gc.shop_panel.f_group = "self"
+		gc.shop_panel._page = 0
+		gc.shop_panel._refresh()
+		return null
 	for row in gc.shop_panel.popup.find_children("*", "HBoxContainer", true, false):
 		if row.get_child_count() > 0 and row.get_child(0) is RichTextLabel and row.get_child(0).text == label:
 			var last: Button = null
@@ -919,6 +949,12 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	var host: Node = _layer
 	var host_size: Vector2 = gc._vp
 	var win: Window = target.get_window() if target != null else null
+	# While a menu is open its window covers the main screen, so the caption goes
+	# inside that window (on top of everything), with rects moved into its space.
+	var off := Vector2.ZERO
+	if target == null and gc.open_panel != null and is_instance_valid(gc.open_panel) 			and gc.open_panel.get("popup") != null and gc.open_panel.popup.visible:
+		win = gc.open_panel.popup
+		off = Vector2(win.position)
 	if win != null and win != get_tree().root:
 		host = win
 		host_size = Vector2(win.size)
@@ -938,8 +974,10 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	var hole := Rect2(Vector2.ZERO, Vector2.ZERO)
 	if target != null:
 		hole = target.get_global_rect().grow(4)
+		hole.position -= off
 	elif area.size != Vector2.ZERO:
 		hole = area.grow(4)
+		hole.position -= off
 	var a := 0.0 if quiet else 0.6
 	for r in _shades:
 		r.color = Color(0, 0, 0, a)
@@ -970,6 +1008,8 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	_blocker.size = hole.size
 	# caption above the hole if it's in the lower half, else below
 	var cw: float = minf(host_size.x - 20.0, gc._vp.x * 0.86)
+	if gc.wide:
+		cw = minf(cw, 640.0)
 	_caption_lbl.custom_minimum_size = Vector2(cw - 24.0, 0)   # wrap width known up front
 	_caption.custom_minimum_size = Vector2(cw, 0)
 	_caption.size = Vector2(cw, 0)
@@ -984,5 +1024,6 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 		cy = maxf(8.0, hole.position.y - ch - 12.0)
 	else:
 		cy = minf(host_size.y - ch - 8.0, hole.end.y + 12.0)
-	_caption.position = Vector2((host_size.x - cw) / 2.0, cy)
+	var mid_w: float = gc._bvp.x if gc.wide and host == _layer else host_size.x
+	_caption.position = Vector2((mid_w - cw) / 2.0, cy)
 	_caption.modulate.a = 0.0 if first_frame else 1.0

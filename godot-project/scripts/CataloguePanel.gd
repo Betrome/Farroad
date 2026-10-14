@@ -63,6 +63,10 @@ func reflow(new_vp: Vector2) -> void:
 	# _vp still needs to track resizes so a later _on_toggle_pressed()
 	# call sizes/positions the popup correctly.
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
+		if popup.visible:
+			_refresh()
 
 func _build_ui(parent: Node) -> void:
 	popup = PopupPanel.new()
@@ -70,8 +74,27 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	_populate_popup()
+
+var _body: Control
+var _built_wide := false
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+## Full-screen layout (categories down the left, a paged grid) in a wide
+## window, the portrait list otherwise; rebuilt in place.
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	tab_buttons = {}
+	_built_wide = _is_wide()
+	if _built_wide:
+		_populate_wide()
+		return
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
 
@@ -102,6 +125,101 @@ func _build_ui(parent: Node) -> void:
 	list_container.add_theme_constant_override("separation", 6)
 	root_vbox.add_child(list_container)
 
+const SIDE_W := 190.0
+
+func _populate_wide() -> void:
+	var r: Rect2i = _parent.call("full_menu_rect")
+	var root := HBoxContainer.new()
+	_body = root
+	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
+	root.add_theme_constant_override("separation", 16)
+	popup.add_child(root)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(SIDE_W, 0)
+	left.add_theme_constant_override("separation", 8)
+	root.add_child(left)
+	var title := Label.new()
+	title.text = "CATALOGUE"
+	title.add_theme_font_size_override("font_size", 20)
+	left.add_child(title)
+	for entry in TABS:
+		var btn := Button.new()
+		btn.text = entry[1]
+		btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		btn.custom_minimum_size = Vector2(0, 42)
+		btn.pressed.connect(_on_tab_pressed.bind(entry[0]))
+		left.add_child(btn)
+		tab_buttons[entry[0]] = btn
+	var right := ScrollContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(right)
+	list_container = VBoxContainer.new()
+	list_container.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	list_container.custom_minimum_size = Vector2(r.size.x - SIDE_W - 24.0 - 16.0 - 70.0, 0)
+	list_container.add_theme_constant_override("separation", 8)
+	right.add_child(list_container)
+
+## Entries go into a paged grid (no scrolling) in a wide window.
+var _items: Array = []
+var _page := 0
+const PAGE_COLS := 3
+const PAGE_ROWS := 8
+
+func _add_item(row: Control) -> void:
+	if _built_wide:
+		_items.append(row)
+	else:
+		list_container.add_child(row)
+
+func _finish_list() -> void:
+	if not _built_wide or _items.is_empty():
+		_items.clear()
+		return
+	var per: int = PAGE_COLS * PAGE_ROWS
+	var pages: int = maxi(1, ceili(_items.size() / float(per)))
+	_page = clampi(_page, 0, pages - 1)
+	var grid := GridContainer.new()
+	grid.columns = PAGE_COLS
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	list_container.add_child(grid)
+	for i in range(_items.size()):
+		var row: Control = _items[i]
+		if i >= _page * per and i < (_page + 1) * per:
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var cell := PanelContainer.new()
+			cell.add_theme_stylebox_override("panel", UiKit.card_style(6))
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			cell.add_child(row)
+			grid.add_child(cell)
+		else:
+			row.free()
+	_items.clear()
+	if pages > 1:
+		var pager := HBoxContainer.new()
+		pager.alignment = BoxContainer.ALIGNMENT_CENTER
+		pager.add_theme_constant_override("separation", 16)
+		var prev := Button.new()
+		prev.text = "‹ Prev"
+		prev.disabled = _page == 0
+		prev.pressed.connect(func():
+			_page -= 1
+			_refresh())
+		pager.add_child(prev)
+		var lbl2 := Label.new()
+		lbl2.text = "Page %d of %d" % [_page + 1, pages]
+		pager.add_child(lbl2)
+		var nxt := Button.new()
+		nxt.text = "Next ›"
+		nxt.disabled = _page >= pages - 1
+		nxt.pressed.connect(func():
+			_page += 1
+			_refresh())
+		pager.add_child(nxt)
+		list_container.add_child(pager)
+
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
@@ -112,7 +230,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:
@@ -121,6 +239,7 @@ func _notify_battle_paused(paused: bool) -> void:
 
 func _on_tab_pressed(tab: String) -> void:
 	current_tab = tab
+	_page = 0
 	_refresh()
 
 func _refresh() -> void:
@@ -135,6 +254,7 @@ func _refresh() -> void:
 		"gambits": _refresh_gambits()
 		"equipment": _refresh_equipment()
 		"enemies": _refresh_enemies()
+	_finish_list()
 
 func _unknown_row() -> Label:
 	var lbl := Label.new()
@@ -157,9 +277,9 @@ func _refresh_units() -> void:
 	for def in FarroadCore.ROSTER:
 		var uid: String = def["id"]
 		if g["owned"].has(uid):
-			list_container.add_child(_rich_row("%s -- %s row" % [_rarity_name(def["name"], def.get("rarity", "common")), def.get("row", "front")]))
+			_add_item(_rich_row("%s -- %s row" % [_rarity_name(def["name"], def.get("rarity", "common")), def.get("row", "front")]))
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 func _build_filter_dropdown(options: Array, current_value: String, on_change: Callable) -> OptionButton:
 	var opt := OptionButton.new()
@@ -208,9 +328,9 @@ func _refresh_actions() -> void:
 			info_btn.custom_minimum_size = Vector2(36, 0)
 			info_btn.pressed.connect(_on_action_info_pressed.bind(aid))
 			row.add_child(info_btn)
-			list_container.add_child(row)
+			_add_item(row)
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 func _on_action_info_pressed(action_id: String) -> void:
 	if _parent and _parent.has_method("_show_action_detail_popup"):
@@ -234,9 +354,9 @@ func _refresh_gambits() -> void:
 			lbl.text = FarroadCore.cond_label(cid)
 			lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			list_container.add_child(lbl)
+			_add_item(lbl)
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 func _refresh_equipment() -> void:
 	list_container.add_child(ActionFilter.gear_controls(_refresh))
@@ -260,9 +380,9 @@ func _refresh_equipment() -> void:
 			info_btn.custom_minimum_size = Vector2(36, 0)
 			info_btn.pressed.connect(_on_equip_info_pressed.bind(iid))
 			row.add_child(info_btn)
-			list_container.add_child(row)
+			_add_item(row)
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 func _on_equip_info_pressed(item_id: String) -> void:
 	if _parent and _parent.has_method("_show_equipment_detail_popup"):
@@ -288,11 +408,12 @@ func _refresh_enemies() -> void:
 			info_btn.custom_minimum_size = Vector2(36, 0)
 			info_btn.pressed.connect(_on_enemy_info_pressed.bind(key))
 			row.add_child(info_btn)
-			list_container.add_child(row)
+			_add_item(row)
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 	# Ian: "Catalogue: needs entries for boss variants like Roadwarden."
+	_finish_list()
 	var bheader := UiKit.make_label("Boss variants", "label")
 	list_container.add_child(bheader)
 	for bv in BOSS_VARIANTS:
@@ -310,9 +431,9 @@ func _refresh_enemies() -> void:
 				if _parent and _parent.has_method("_show_enemy_detail_popup"):
 					_parent.call("_show_enemy_detail_popup", arch, bname, true))
 			brow.add_child(bbtn)
-			list_container.add_child(brow)
+			_add_item(brow)
 		else:
-			list_container.add_child(_unknown_row())
+			_add_item(_unknown_row())
 
 ## [seen key, display name, archetype] -- bosses that are a stronger
 ## version of a normal enemy (the elemental bosses have their own entries).

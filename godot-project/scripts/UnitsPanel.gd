@@ -55,6 +55,10 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
+		if popup.visible:
+			_refresh()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
@@ -69,8 +73,31 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	_populate_popup()
+
+## The popup's body. A wide window gets the full-screen layout (a unit list on
+## the left, the tabs and their page on the right); otherwise the portrait one.
+## Rebuilt in place (never the popup itself, which the controller has hooked up).
+var _body: Control
+var _built_wide := false
+var unit_list: VBoxContainer
+var unit_list_scroll: ScrollContainer
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	sub_tab_buttons = {}
+	_sum.clear()
+	_built_wide = _is_wide()
+	if _built_wide:
+		_populate_wide()
+		return
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
 
@@ -110,6 +137,100 @@ func _build_ui(parent: Node) -> void:
 	content_container.add_theme_constant_override("separation", 10)
 	root_vbox.add_child(content_container)
 
+const LIST_W := 250.0
+
+func _populate_wide() -> void:
+	var r: Rect2i = _parent.call("full_menu_rect")
+	var root := HBoxContainer.new()
+	_body = root
+	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
+	root.add_theme_constant_override("separation", 16)
+	popup.add_child(root)
+	# left: the unit list
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(LIST_W, 0)
+	left.add_theme_constant_override("separation", 8)
+	root.add_child(left)
+	var title := Label.new()
+	title.text = "UNITS"
+	title.add_theme_font_size_override("font_size", 20)
+	left.add_child(title)
+	left.add_child(UnitFilter.controls(_refresh_dropdown))
+	unit_list_scroll = ScrollContainer.new()
+	unit_list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	unit_list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	left.add_child(unit_list_scroll)
+	unit_list = VBoxContainer.new()
+	unit_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	unit_list.add_theme_constant_override("separation", 4)
+	unit_list_scroll.add_child(unit_list)
+	# the dropdown still exists (hidden) so the rest of the panel keeps one code path
+	dropdown = OptionButton.new()
+	dropdown.visible = false
+	dropdown.item_selected.connect(_on_dropdown_selected)
+	left.add_child(dropdown)
+	# right: tabs, then the page
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 10)
+	root.add_child(right)
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 6)
+	tab_row.custom_minimum_size = Vector2(0, 44)
+	for entry in SUB_TABS:
+		var btn := Button.new()
+		btn.text = entry[1]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.clip_text = true
+		btn.add_theme_font_size_override("font_size", 15)
+		UiKit.compact_tab(btn)
+		btn.pressed.connect(_on_sub_tab_pressed.bind(entry[0]))
+		tab_row.add_child(btn)
+		sub_tab_buttons[entry[0]] = btn
+	# keep clear of the always-visible close button at the top right
+	var tab_wrap := MarginContainer.new()
+	tab_wrap.add_theme_constant_override("margin_right", 70)
+	tab_wrap.add_child(tab_row)
+	right.add_child(tab_wrap)
+	var page_scroll := ScrollContainer.new()
+	page_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	page_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(page_scroll)
+	content_container = VBoxContainer.new()
+	content_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_container.custom_minimum_size = Vector2(maxf(300.0, r.size.x - LIST_W - 24.0 - 16.0 - 40.0), 0)
+	content_container.add_theme_constant_override("separation", 10)
+	page_scroll.add_child(content_container)
+
+func _refresh_unit_list() -> void:
+	if unit_list == null or not is_instance_valid(unit_list):
+		return
+	for c in unit_list.get_children():
+		c.queue_free()
+	var uids: Array = UnitFilter.apply(g, FarroadProgression.owned_ids(g), [selected_uid])
+	for uid in uids:
+		var def = FarroadCore.roster_by_id(uid)
+		var label: String = def["name"] if def else uid
+		label += "   Lv %d" % int(g["lvl"].get(uid, 1))
+		if not g["party"].has(uid):
+			label += "  (bench)"
+		var b := Button.new()
+		b.text = label
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(0, 40)
+		UiKit.tab_selected(b, uid == selected_uid, false)
+		b.pressed.connect(func():
+			selected_uid = uid
+			_refresh_unit_list()
+			_refresh_content())
+		unit_list.add_child(b)
+
+## What the tutorial points at to pick a unit.
+func unit_pick_target() -> Control:
+	return unit_list_scroll if _built_wide else dropdown
+
 ## Same opaque-panel convention every sibling panel already established.
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
@@ -130,7 +251,7 @@ func _on_toggle_pressed() -> void:
 	selected_uid = "kesh" if g["owned"].has("kesh") else ""
 	current_sub_tab = "summary"
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 	_notify_battle_paused(true)
 
 func _notify_battle_paused(paused: bool) -> void:
@@ -151,6 +272,7 @@ func _refresh() -> void:
 	_refresh_content()
 
 func _refresh_dropdown() -> void:
+	_refresh_unit_list()
 	dropdown.clear()
 	var uids: Array = UnitFilter.apply(g, FarroadProgression.owned_ids(g), [selected_uid])
 	for idx in range(uids.size()):

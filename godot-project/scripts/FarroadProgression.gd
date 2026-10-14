@@ -303,6 +303,28 @@ static func pulls_unlocked(g: Dictionary) -> bool:
 static func marks_mul(g: Dictionary) -> float:
 	return 1.0 if pulls_unlocked(g) else PRE_UNLOCK_MARKS_MUL
 
+## Catch-up: a player whose farthest wave is well behind where long-time players
+## are earns more Aether and Marks from wave clears and from idle income, fading
+## out to nothing as they reach that depth. Linear in the gap: +CATCHUP_MAX_BONUS
+## at wave 1 (so x3 with 2.0), half of it halfway to the reference wave, none at it.
+## The depth the bonus fades out at is meant to be the average highest-cleared
+## boss wave across the player base. Until the server reports that, it is a fixed
+## number (just under where the main account is); a later server value can be
+## written to catchup_ref_wave without touching anything else.
+const CATCHUP_REF_WAVE_DEFAULT := 250.0
+static var catchup_ref_wave: float = CATCHUP_REF_WAVE_DEFAULT
+const CATCHUP_MAX_BONUS := 2.0
+
+static func catchup_mul(g: Dictionary) -> float:
+	var gap: float = clampf(1.0 - float(g.get("farthest", 1)) / maxf(1.0, catchup_ref_wave), 0.0, 1.0)
+	return 1.0 + CATCHUP_MAX_BONUS * gap
+
+## The idle trickle this player actually earns (catch-up included).
+static func idle_per_sec_g(g: Dictionary) -> Dictionary:
+	var r: Dictionary = idle_per_sec(g.get("farthest", 1))
+	var m: float = catchup_mul(g)
+	return {"aether": r["aether"] * m, "marks": r["marks"] * m}
+
 static func kill_reward(w: float, n: int) -> Dictionary:
 	var s: float = FarroadCore.wave_scale(w)
 	return {"aether": 14.0 * s * AETHER_RATE * n, "marks": 3.0 * s * MARKS_RATE * n}
@@ -676,11 +698,9 @@ const RARITY_PULL_WEIGHT := {"common": 3, "rare": 1, "legendary": 1}
 ## no rarity. Returns [{kind, label, chance, rarities: {rarity: share}}].
 static func pull_odds_breakdown(g: Dictionary) -> Array:
 	var out := []
-	# once every unit is owned, pulls still land on units (as duplicates), so
-	# the odds keep showing the whole roster
-	var unit_src: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false))
-	if unit_src.is_empty():
-		unit_src = FarroadCore.ROSTER
+	# the unit odds always list the whole roster: owned units still come up (as
+	# duplicates), and a rarity must not drop out of the table once its units are owned
+	var unit_src: Array = FarroadCore.ROSTER
 	var unit_pool: Array = unit_src.map(func(r): return r.get("rarity", "common"))
 	var action_pool: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).map(func(id): return FarroadCore.ACTIONS.get(id, {}).get("rarity", "common"))
 	var equip_pool: Array = random_equipment_ids().map(func(id): return FarroadCore.EQUIPMENT.get(id, {}).get("rarity", "common"))
@@ -2155,7 +2175,7 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	# win path (side battles, expedition fights, bonus fights).
 	g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + g["enemies"].size()
 	var r := kill_reward(g["wave"], g["enemies"].size())
-	var aether_mul: float = TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0
+	var aether_mul: float = (TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0) * catchup_mul(g)
 	# Ian (24-item batch, Group B5): "perhaps we need to have half rewards
 	# for clearing waves you've already cleared." first_clear was already
 	# computed above (line 1590) for the one-time boss events below, but
@@ -2165,7 +2185,7 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	# is completely unaffected.
 	var reclear_mul: float = 1.0 if first_clear else 0.5
 	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul * reclear_mul
-	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g) * reclear_mul
+	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g) * catchup_mul(g) * reclear_mul
 	if is_boss_wave(g["wave"]) and first_clear:
 		g["bossesCleared"] = g.get("bossesCleared", 0) + 1
 		var hoard := boss_aether(g["wave"]) * aether_mul
@@ -2943,7 +2963,7 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 	var aether_before: float = float(g["aether"])
 	var marks_before: float = float(g["marks"])
 	var capped: float = minf(elapsed_sec, OFFLINE_CAP_SEC)
-	var r := idle_per_sec(g.get("farthest", 1))
+	var r := idle_per_sec_g(g)
 	# Ian: "don't add rewards from... idle until collected." Only the FLAT
 	# idle-trickle gain is held back here -- banked into pendingIdleAether/
 	# pendingIdleMarks (accumulates across multiple uncollected resumes,

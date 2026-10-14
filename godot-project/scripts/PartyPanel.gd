@@ -35,6 +35,10 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 ## sibling panels' own reflow() (see GambitsPanel.reflow's comment).
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
+		if popup.visible:
+			_refresh_roster()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
@@ -56,13 +60,32 @@ func _build_ui(parent: Node) -> void:
 	parent.add_child(popup)
 	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
+	_populate_popup()
+
+var _body: Control
+var _built_wide := false
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+## Full-screen layout in a wide window, the portrait list otherwise; rebuilt in
+## place (the popup itself stays, the controller has hooked into it).
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	_built_wide = _is_wide()
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
+	if _built_wide:
+		var r: Rect2i = _parent.call("full_menu_rect")
+		popup_size = Vector2(r.size.x, r.size.y)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if _built_wide else ScrollContainer.SCROLL_MODE_AUTO
 	popup.add_child(scroll)
 
 	var root_vbox := VBoxContainer.new()
-	root_vbox.custom_minimum_size = Vector2(popup_size.x - 40, 0)
+	root_vbox.custom_minimum_size = Vector2(popup_size.x - 40 - (70 if _built_wide else 0), 0)
 	root_vbox.add_theme_constant_override("separation", 14)
 	scroll.add_child(root_vbox)
 
@@ -93,7 +116,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh_roster()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 	_notify_battle_paused(true)
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
@@ -122,9 +145,15 @@ func _notify_row_changed(uid: String) -> void:
 ## fielded units with a Bench button (disabled at 1 remaining), owned-and-
 ## benched units with a Field button (disabled at PARTY_CAP). Moved here
 ## unchanged from GambitsPanel, which used to own this section too.
+var _bench_page := 0
+const BENCH_PER_PAGE := 12
+
 func _refresh_roster() -> void:
 	for c in roster_container.get_children():
 		c.queue_free()
+	if _built_wide:
+		_refresh_roster_wide()
+		return
 
 	# Ian: what each row offers, at the top of the Party tab.
 	for line in FarroadCore.row_summary():
@@ -159,12 +188,92 @@ func _refresh_roster() -> void:
 	for uid in avail:
 		roster_container.add_child(_roster_row(uid, "Field", g["party"].size() >= FarroadProgression.PARTY_CAP, _on_field_pressed))
 
+## Wide windows: the party and the presets on the left, the bench as a paged
+## grid on the right, so nothing scrolls.
+func _refresh_roster_wide() -> void:
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 28)
+	roster_container.add_child(cols)
+	var left := VBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.size_flags_stretch_ratio = 1.0
+	left.add_theme_constant_override("separation", 8)
+	cols.add_child(left)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_stretch_ratio = 1.25
+	right.add_theme_constant_override("separation", 8)
+	cols.add_child(right)
+	for line in FarroadCore.row_summary():
+		var row_lbl := Label.new()
+		row_lbl.text = line
+		row_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		left.add_child(row_lbl)
+	var party_header := Label.new()
+	party_header.text = "PARTY"
+	party_header.modulate = Palette.PARTY_BLUE
+	left.add_child(party_header)
+	for uid in UnitFilter.apply(g, FarroadProgression.mc_first(g["party"])):
+		left.add_child(_roster_row(uid, "Bench", g["party"].size() <= 1, _on_bench_pressed, true))
+	_build_presets_section(left)
+
+	right.add_child(UnitFilter.controls(_refresh_roster))
+	var bench_header := Label.new()
+	bench_header.text = "BENCHED"
+	bench_header.modulate = Palette.PARTY_BLUE
+	right.add_child(bench_header)
+	var avail: Array = UnitFilter.apply(g, FarroadProgression.available_for_party(g))
+	if avail.is_empty():
+		var none_lbl := Label.new()
+		none_lbl.text = "(none)"
+		none_lbl.modulate = Palette.TEXT_DIM
+		right.add_child(none_lbl)
+		return
+	var pages: int = maxi(1, ceili(avail.size() / float(BENCH_PER_PAGE)))
+	_bench_page = clampi(_bench_page, 0, pages - 1)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 6)
+	right.add_child(grid)
+	for i in range(_bench_page * BENCH_PER_PAGE, mini(avail.size(), (_bench_page + 1) * BENCH_PER_PAGE)):
+		var cell := PanelContainer.new()
+		cell.add_theme_stylebox_override("panel", UiKit.card_style(6))
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cell.add_child(_roster_row(avail[i], "Field", g["party"].size() >= FarroadProgression.PARTY_CAP, _on_field_pressed))
+		grid.add_child(cell)
+	if pages > 1:
+		var pager := HBoxContainer.new()
+		pager.alignment = BoxContainer.ALIGNMENT_CENTER
+		pager.add_theme_constant_override("separation", 16)
+		var prev := Button.new()
+		prev.text = "‹ Prev"
+		prev.disabled = _bench_page == 0
+		prev.pressed.connect(func():
+			_bench_page -= 1
+			_refresh_roster())
+		pager.add_child(prev)
+		var lbl := Label.new()
+		lbl.text = "Page %d of %d" % [_bench_page + 1, pages]
+		pager.add_child(lbl)
+		var nxt := Button.new()
+		nxt.text = "Next ›"
+		nxt.disabled = _bench_page >= pages - 1
+		nxt.pressed.connect(func():
+			_bench_page += 1
+			_refresh_roster())
+		pager.add_child(nxt)
+		right.add_child(pager)
+
 func _roster_row(uid: String, action_text: String, disabled: bool, callback: Callable, show_row_toggle: bool = false) -> Control:
 	var row := HBoxContainer.new()
 	var name_lbl := Label.new()
 	var def = FarroadCore.roster_by_id(uid)
 	name_lbl.text = ("%s  Lv %d" % [def["name"], int(g["lvl"].get(uid, 1))]) if def else uid
-	name_lbl.custom_minimum_size = Vector2(_vp.x * 0.18, 0)
+	name_lbl.custom_minimum_size = Vector2(150.0 if _built_wide else _vp.x * 0.18, 0)
+	if _built_wide:
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(name_lbl)
 	# Front/Back toggle -- fielded units only (bench row placement has no
 	# effect until fielded anyway). `row` lives on the roster DEFINITION
@@ -231,11 +340,13 @@ func _on_row_toggle_pressed(uid: String) -> void:
 ## uses, so a mid-fight load updates the field immediately too.
 var preset_name_edit: LineEdit
 
-func _build_presets_section() -> void:
+func _build_presets_section(host: Container = null) -> void:
+	if host == null:
+		host = roster_container
 	var header := Label.new()
 	header.text = "PRESETS (%d/%d)" % [(g["partyPresets"] as Array).size(), FarroadProgression.PARTY_PRESET_CAP]
 	header.modulate = Palette.PARTY_BLUE
-	roster_container.add_child(header)
+	host.add_child(header)
 
 	var save_row := HBoxContainer.new()
 	preset_name_edit = LineEdit.new()
@@ -250,7 +361,7 @@ func _build_presets_section() -> void:
 		save_btn.tooltip_text = "Up to %d presets -- delete one to save another." % FarroadProgression.PARTY_PRESET_CAP
 	save_btn.pressed.connect(_on_save_preset_pressed)
 	save_row.add_child(save_btn)
-	roster_container.add_child(save_row)
+	host.add_child(save_row)
 
 	var presets: Array = g["partyPresets"]
 	for i in range(presets.size()):
@@ -276,7 +387,7 @@ func _build_presets_section() -> void:
 		del_btn.text = "Delete"
 		del_btn.pressed.connect(_on_delete_preset_pressed.bind(i))
 		row.add_child(del_btn)
-		roster_container.add_child(row)
+		host.add_child(row)
 
 func _on_save_preset_pressed() -> void:
 	var preset_name: String = preset_name_edit.text.strip_edges()

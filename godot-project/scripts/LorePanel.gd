@@ -348,8 +348,18 @@ func _refresh_card() -> void:
 			live_bids.append(bid)
 			can_buy[bid] = applies
 	var total_on_action: int = FarroadCore.action_bonus_total(b)
-	var bonus_list := VBoxContainer.new()
-	bonus_list.add_theme_constant_override("separation", 8)
+	var is_wide: bool = _parent != null and bool(_parent.get("wide"))
+	var bonus_list: Container
+	if is_wide:
+		# wide windows: the upgrades as a grid of small cards, so nothing scrolls
+		var grid := GridContainer.new()
+		grid.columns = 3
+		grid.add_theme_constant_override("h_separation", 10)
+		grid.add_theme_constant_override("v_separation", 10)
+		bonus_list = grid
+	else:
+		bonus_list = VBoxContainer.new()
+		bonus_list.add_theme_constant_override("separation", 8)
 	for bid in live_bids:
 		var info: Dictionary = FarroadCore.BONUSES[bid]
 		var n: int = int(b.get(bid, 0))
@@ -363,19 +373,29 @@ func _refresh_card() -> void:
 		var minus_btn := Button.new()
 		minus_btn.text = "−"
 		minus_btn.disabled = (n == 0)
-		minus_btn.custom_minimum_size = Vector2(_vp.x * 0.12, 0)
+		minus_btn.custom_minimum_size = Vector2(52 if is_wide else _vp.x * 0.12, 0)
 		minus_btn.pressed.connect(_on_remove_bonus.bind(aid, bid))
 		ctl.add_child(minus_btn)
 		var count_lbl := Label.new()
 		count_lbl.text = str(n)
 		ctl.add_child(count_lbl)
 		var plus_btn := _build_purchase_button("+ %d" % price, price, aid, _on_buy_bonus.bind(aid, bid), 0.18)
+		if is_wide:
+			plus_btn.custom_minimum_size.x = 100
 		if not can_buy[bid]:
 			plus_btn.disabled = true
 			plus_btn.tooltip_text = "At its maximum"
 		ctl.add_child(plus_btn)
 		row.add_child(ctl)
-		bonus_list.add_child(row)
+		if is_wide:
+			var cell := PanelContainer.new()
+			cell.add_theme_stylebox_override("panel", UiKit.card_style(8))
+			cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			cell.add_child(row)
+			bonus_list.add_child(cell)
+		else:
+			bonus_list.add_child(row)
 	card_container.add_child(bonus_list)
 
 	card_container.add_child(_rich_line(

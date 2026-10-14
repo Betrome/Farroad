@@ -89,7 +89,9 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	if _parent.has_method("dock_open") and _parent.call("dock_open", self):
+		return   # wide window: the quests list sits in the dock beside the fight
+	popup.popup(_parent.call("menu_popup_rect"))
 	_notify_battle_paused(true)
 
 ## Also called by GameController (dynamic has_method()+call()) after a

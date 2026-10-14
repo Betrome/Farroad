@@ -80,32 +80,37 @@ static func wealth(snap: Dictionary) -> float:
 ## The most Aether a player at `far` could earn in `sec` seconds: Road waves
 ## back to back at the fastest pace, idle income and eight expeditions, all
 ## with plenty of head room.
+## The largest catch-up multiplier a player could have earned under (see
+## FarroadProgression.catchup_mul), as head room.
+const CATCHUP_HEADROOM := 1.0 + FarroadProgression.CATCHUP_MAX_BONUS
+
 static func aether_ceiling(far: int, sec: float) -> float:
 	var per_wave: float = FarroadProgression.kill_reward(far, FarroadProgression.enemy_count(far))["aether"]
 	var road: float = per_wave * sec / MIN_WAVE_SEC
 	var idle: float = FarroadProgression.idle_per_sec(far)["aether"] * sec
 	var exped: float = 8.0 * per_wave * FarroadProgression.EXPED_REWARD_MUL * sec / 60.0
 	var bosses: float = float(FarroadProgression.boss_aether(far)) * (sec / (MIN_WAVE_SEC * 20.0) + 1.0)
-	return FLAT_AETHER + SLACK * (road + idle + exped + bosses)
+	return FLAT_AETHER + SLACK * CATCHUP_HEADROOM * (road + idle + exped + bosses)
 
 static func marks_ceiling(far: int, sec: float) -> float:
 	var per_wave: float = FarroadProgression.kill_reward(far, FarroadProgression.enemy_count(far))["marks"]
 	var road: float = per_wave * sec / MIN_WAVE_SEC
 	var idle: float = FarroadProgression.idle_per_sec(far)["marks"] * sec
 	var exped: float = 8.0 * per_wave * FarroadProgression.EXPED_REWARD_MUL * sec / 60.0
-	return FLAT_MARKS + SLACK * (road + idle + exped)
+	return FLAT_MARKS + SLACK * CATCHUP_HEADROOM * (road + idle + exped)
 
 ## Everything a game up to wave `far` could plausibly hold, for a first upload.
 static func lifetime_aether(far: int) -> float:
 	var t := 0.0
 	for w in range(1, far + 1):
-		t += FarroadProgression.kill_reward(w, FarroadProgression.enemy_count(w))["aether"]
+		var cu: float = FarroadProgression.catchup_mul({"farthest": w})
+		t += FarroadProgression.kill_reward(w, FarroadProgression.enemy_count(w))["aether"] * cu
 		if FarroadProgression.is_boss_wave(w):
-			t += float(FarroadProgression.boss_aether(w))
+			t += float(FarroadProgression.boss_aether(w)) * cu
 	return FLAT_AETHER * 5.0 + LIFETIME_MUL * t
 
 static func lifetime_marks(far: int) -> float:
 	var t := 0.0
 	for w in range(1, far + 1):
-		t += FarroadProgression.kill_reward(w, FarroadProgression.enemy_count(w))["marks"]
+		t += FarroadProgression.kill_reward(w, FarroadProgression.enemy_count(w))["marks"] * FarroadProgression.catchup_mul({"farthest": w})
 	return FLAT_MARKS * 5.0 + LIFETIME_MUL * t

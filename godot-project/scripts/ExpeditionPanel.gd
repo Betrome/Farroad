@@ -83,6 +83,10 @@ func _tick_live() -> void:
 ## GambitsPanel.reflow's comment.
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
+	if popup != null and _built_wide != _is_wide():
+		_populate_popup()
+		if popup.visible:
+			_refresh()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
@@ -102,8 +106,28 @@ func _build_ui(parent: Node) -> void:
 	_style_popup(popup)
 	parent.add_child(popup)
 
+	_populate_popup()
+
+var _body: Control
+var _built_wide := false
+var map_container: VBoxContainer
+
+func _is_wide() -> bool:
+	return _parent != null and bool(_parent.get("wide"))
+
+## Wide window: the map on the left, sending and the active expeditions on the
+## right, nothing to scroll past. Otherwise the portrait list. Rebuilt in place.
+func _populate_popup() -> void:
+	if _body != null and is_instance_valid(_body):
+		_body.queue_free()
+	_built_wide = _is_wide()
+	map_container = null
+	if _built_wide:
+		_populate_wide()
+		return
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
+	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
 	popup.add_child(scroll)
 
@@ -133,6 +157,53 @@ func _build_ui(parent: Node) -> void:
 	active_container.add_theme_constant_override("separation", 10)
 	root_vbox.add_child(active_container)
 
+const WIDE_MAP := 470.0
+
+func _populate_wide() -> void:
+	var r: Rect2i = _parent.call("full_menu_rect")
+	var root := HBoxContainer.new()
+	_body = root
+	# the height is fixed, so no amount of content can grow the window up over the top bar
+	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
+	root.clip_contents = true
+	root.add_theme_constant_override("separation", 24)
+	popup.add_child(root)
+	var map_size: float = minf(WIDE_MAP, float(r.size.y) - 110.0)
+	var left := VBoxContainer.new()
+	left.custom_minimum_size = Vector2(map_size, 0)
+	left.add_theme_constant_override("separation", 8)
+	root.add_child(left)
+	var title := Label.new()
+	title.text = "EXPEDITION"
+	title.add_theme_font_size_override("font_size", 20)
+	left.add_child(title)
+	map_container = VBoxContainer.new()
+	left.add_child(map_container)
+	# the right side scrolls as a whole, whatever it holds
+	var right_scroll := ScrollContainer.new()
+	right_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(right_scroll)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.custom_minimum_size = Vector2(r.size.x - map_size - 24.0 - 24.0 - 24.0 - 70.0, 0)
+	right.add_theme_constant_override("separation", 10)
+	right_scroll.add_child(right)
+	var send_label := Label.new()
+	send_label.text = "Send a party:"
+	right.add_child(send_label)
+	send_container = VBoxContainer.new()
+	send_container.add_theme_constant_override("separation", 8)
+	right.add_child(send_container)
+	var active_label := Label.new()
+	active_label.text = "On the road:"
+	right.add_child(active_label)
+	active_container = VBoxContainer.new()
+	active_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_container.add_theme_constant_override("separation", 10)
+	right.add_child(active_container)
+
 ## Same opaque-panel convention every sibling panel already established --
 ## the default theme's PopupPanel background isn't fully opaque.
 func _style_popup(p: PopupPanel) -> void:
@@ -151,7 +222,7 @@ func _on_toggle_pressed() -> void:
 	if _parent and _parent.has_method("_panel_opening"):
 		_parent.call("_panel_opening", self)
 	_refresh()
-	popup.popup(Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76)))
+	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
 
 func _notify_currency_changed() -> void:
 	if _parent and _parent.has_method("_refresh_hud"):
@@ -178,6 +249,14 @@ func _refresh_active() -> void:
 		active_container.add_child(none_lbl)
 		return
 	var now := _now()
+	var arrived: Array = g["expeditions"].filter(func(e): return e.get("arrivedAt") != null)
+	if arrived.size() > 1:
+		var all_btn := Button.new()
+		all_btn.text = "Collect all (%d)" % arrived.size()
+		all_btn.custom_minimum_size = Vector2(0, 44)
+		UiKit.primary(all_btn)
+		all_btn.pressed.connect(_on_collect_all_pressed)
+		active_container.add_child(all_btn)
 	for exp in g["expeditions"]:
 		active_container.add_child(_build_expedition_card(exp, now))
 
@@ -289,6 +368,15 @@ func _on_explore_pressed(id: String) -> void:
 	FarroadProgression.resume_expedition(g, id, _now())
 	_refresh()
 
+func _on_collect_all_pressed() -> void:
+	var any := false
+	for id in (g["expeditions"] as Array).filter(func(e): return e.get("arrivedAt") != null).map(func(e): return e["id"]):
+		if FarroadProgression.collect_expedition(g, id):
+			any = true
+	if any:
+		_notify_currency_changed()
+	_refresh()
+
 func _on_collect_pressed(id: String) -> void:
 	if FarroadProgression.collect_expedition(g, id):
 		_notify_currency_changed()
@@ -299,9 +387,19 @@ func _on_collect_pressed(id: String) -> void:
 ## direction icons, disabled if occupied -- see ExpeditionMap.gd), a
 ## "Send expedition (n/cap)" button. Shown whenever any sendable unit
 ## exists.
+func _wide_map_size() -> float:
+	var r: Rect2i = _parent.call("full_menu_rect")
+	return minf(WIDE_MAP, float(r.size.y) - 110.0)
+
+func _map_host() -> Container:
+	return map_container if _built_wide and map_container != null else send_container
+
 func _refresh_send_picker() -> void:
 	for c in send_container.get_children():
 		c.queue_free()
+	if _built_wide and map_container != null:
+		for c in map_container.get_children():
+			c.queue_free()
 	var avail: Array = FarroadProgression.available_for_party(g)
 	selected_uids = selected_uids.filter(func(uid): return avail.has(uid))
 	if avail.is_empty():
@@ -310,10 +408,10 @@ func _refresh_send_picker() -> void:
 		none_lbl.modulate = Palette.TEXT_DIM
 		send_container.add_child(none_lbl)
 		# the map still shows how far each direction has been explored
-		var idle_size: float = _vp.x * 0.96 - 40.0
+		var idle_size: float = _wide_map_size() if _built_wide else _vp.x * 0.96 - 40.0
 		var idle_map := ExpeditionMap.new()
 		idle_map.setup(g, Vector2(idle_size, idle_size), selected_direction, _on_direction_selected, _on_log_pressed)
-		send_container.add_child(idle_map)
+		_map_host().add_child(idle_map)
 		return
 
 	# Post-Milestone-3 APK feedback (Group B5): "increase their size" -- every
@@ -372,10 +470,10 @@ func _refresh_send_picker() -> void:
 	# end still wired to the SAME _on_direction_selected(dir) handler below
 	# -- no new selection logic, just a new visual hit-target. Square, sized
 	# off the same popup content width _build_ui computes (popup_size.x - 40).
-	var map_size: float = _vp.x * 0.96 - 40.0
+	var map_size: float = _wide_map_size() if _built_wide else _vp.x * 0.96 - 40.0
 	var exp_map := ExpeditionMap.new()
 	exp_map.setup(g, Vector2(map_size, map_size), selected_direction, _on_direction_selected, _on_log_pressed)
-	send_container.add_child(exp_map)
+	_map_host().add_child(exp_map)
 
 	var send_btn := Button.new()
 	send_btn.text = "Send expedition (%d/%d)" % [selected_uids.size(), FarroadProgression.PARTY_CAP]
