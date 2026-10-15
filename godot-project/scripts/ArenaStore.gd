@@ -48,6 +48,31 @@ func put_player(rec: Dictionary) -> bool:
 	DirAccess.rename_absolute(tmp, path)
 	return true
 
+## Small server-wide records (like the boss-wave average), by name; {} if none.
+func get_meta_doc(name: String) -> Dictionary:
+	await get_tree().process_frame
+	var fa := FileAccess.open(data_dir + "/meta_" + name + ".json", FileAccess.READ)
+	if fa == null:
+		return {}
+	var d = JSON.parse_string(fa.get_as_text())
+	fa.close()
+	return d if d is Dictionary else {}
+
+func put_meta_doc(name: String, doc: Dictionary) -> bool:
+	await get_tree().process_frame
+	DirAccess.make_dir_recursive_absolute(data_dir)
+	var fa := FileAccess.open(data_dir + "/meta_" + name + ".json", FileAccess.WRITE)
+	if fa == null:
+		return false
+	fa.store_string(JSON.stringify(doc))
+	fa.close()
+	return true
+
+## Every player on record (used once, to fill in a new server-wide total).
+func all_players() -> Array:
+	await get_tree().process_frame
+	return _players.values()
+
 ## Every player with a team for this game version.
 func with_team(version: String) -> Array:
 	await get_tree().process_frame

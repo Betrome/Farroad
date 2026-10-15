@@ -110,6 +110,24 @@ func put_player(rec: Dictionary) -> bool:
 		printerr("Farroad server: Firestore write failed (%d): %s" % [r["code"], r["text"].substr(0, 300)])
 	return r["code"] == 200
 
+func get_meta_doc(name: String) -> Dictionary:
+	var r := await _http("%s/meta/%s" % [_base, name.uri_encode()], await _auth_headers(), HTTPClient.METHOD_GET, "")
+	if r["code"] != 200:
+		return {}
+	var doc = JSON.parse_string(r["text"])
+	var d = JSON.parse_string(str(doc["fields"].get("data", {}).get("stringValue", ""))) if doc is Dictionary and doc.get("fields") is Dictionary else null
+	return d if d is Dictionary else {}
+
+func put_meta_doc(name: String, doc: Dictionary) -> bool:
+	var r := await _http("%s/meta/%s" % [_base, name.uri_encode()], await _auth_headers(), HTTPClient.METHOD_PATCH,
+		JSON.stringify({"fields": {"data": {"stringValue": JSON.stringify(doc)}}}))
+	if r["code"] != 200:
+		printerr("Farroad server: Firestore meta write failed (%d): %s" % [r["code"], r["text"].substr(0, 300)])
+	return r["code"] == 200
+
+func all_players() -> Array:
+	return await _query({"from": [{"collectionId": COLLECTION}], "limit": 5000})
+
 func with_team(version: String) -> Array:
 	return await _query({"from": [{"collectionId": COLLECTION}],
 		"where": {"fieldFilter": {"field": {"fieldPath": "game"}, "op": "EQUAL", "value": {"stringValue": version}}},

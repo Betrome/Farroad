@@ -24,6 +24,9 @@ extends Node
 ##   /fight     {id, key, opponent}        -> the fight's seed, both teams, result
 ##   /leaderboard {}                       -> the top players
 ##   /version   {}                         -> the game build fights need
+##   /stats     {}                         -> {bossAvg, players}: the average highest-cleared
+##                                            boss wave of players who have cleared one (the
+##                                            game's new-player catch-up fades out there)
 
 const DEFAULT_PORT := 8910
 const MAX_BODY := 65536
@@ -60,6 +63,7 @@ func _ready() -> void:
 		get_tree().quit(1)
 		return
 	await _seed_rivals()
+	await _backfill_boss_stats()
 	var bind := "127.0.0.1" if args.has("--local-only") else "*"
 	var err := server.listen(port, bind)
 	if err != OK:
@@ -189,6 +193,7 @@ func _route(req: Dictionary) -> Array:
 		return [400, {"error": "bad_json"}]
 	match req["path"]:
 		"/leaderboard": return [200, await _leaderboard()]
+		"/stats": return [200, await _stats()]
 		"/hello": return await _hello(body)
 		"/team": return await _team(body)
 		"/opponents": return await _opponents(body)
@@ -238,6 +243,9 @@ func _clean_name(n) -> String:
 	var s := str(n).strip_edges().substr(0, 20)
 	for ch in ["<", ">", "&", "\"", "'", "[", "]", "\n", "\r"]:
 		s = s.replace(ch, "")
+	# the game refuses these names too; this covers older or edited clients
+	if NameFilter.is_blocked(s):
+		return "Traveler"
 	return s if s != "" else "Traveler"
 
 func _hello(body: Dictionary) -> Array:
@@ -359,8 +367,78 @@ func _save_put(body: Dictionary) -> Array:
 	rec["saveAt"] = _now()
 	if snap.get("mc") is Dictionary:
 		rec["name"] = _clean_name(snap["mc"].get("name", rec["name"]))
+	await _count_boss_wave(rec, boss_wave_of(snap))
 	await store.put_player(rec)
 	return [200, {"at": rec["saveAt"]}]
+
+## ===== the average highest-cleared boss wave =====
+## One running total ({sum, count}) over every player who has cleared a boss.
+## Each player's own last counted value sits on their record ("bossWave"), so
+## an improving player changes the total by the difference instead of being
+## counted again -- the average stays exact. Requests are handled one at a
+## time and the server runs as one instance, so the total never races.
+
+const BOSS_STATS := "bossAvg"
+
+## The boss wave a save last cleared (0 if none yet).
+static func boss_wave_of(snap: Dictionary) -> int:
+	var n := int(snap.get("bossesCleared", 0))
+	return FarroadProgression.boss_wave_at(n - 1) if n > 0 else 0
+
+## Moves the total from this player's counted value to `bw`. Does not write
+## the player (the caller does).
+func _count_boss_wave(rec: Dictionary, bw: int) -> void:
+	var old := int(rec.get("bossWave", 0))
+	if old == bw:
+		return
+	var st: Dictionary = await store.get_meta_doc(BOSS_STATS)
+	var sum := int(st.get("sum", 0))
+	var count := int(st.get("count", 0))
+	if old > 0:
+		sum -= old
+		count -= 1
+	if bw > 0:
+		sum += bw
+		count += 1
+	rec["bossWave"] = bw
+	sum = maxi(0, sum)
+	count = maxi(0, count)
+	await store.put_meta_doc(BOSS_STATS, {"sum": sum, "count": count})
+	_sync_catchup_ref(sum, count)
+
+## SaveCheck's first-upload ceilings assume the same catch-up the players get,
+## so the server follows the average too -- with room for players whose game
+## hasn't refreshed it yet, and never below the starting value.
+func _sync_catchup_ref(sum: int, count: int) -> void:
+	var ref := FarroadProgression.CATCHUP_REF_WAVE_DEFAULT
+	if count >= CatchupRef.MIN_PLAYERS:
+		ref = maxf(ref, 1.5 * float(sum) / float(count))
+	FarroadProgression.catchup_ref_wave = ref
+
+## First start with this feature: totals up the saves already stored.
+func _backfill_boss_stats() -> void:
+	var st: Dictionary = await store.get_meta_doc(BOSS_STATS)
+	if not st.is_empty():
+		_sync_catchup_ref(int(st.get("sum", 0)), int(st.get("count", 0)))
+		return
+	var sum := 0
+	var count := 0
+	for p in await store.all_players():
+		var bw := boss_wave_of(p["save"]) if p.get("save") is Dictionary else 0
+		if int(p.get("bossWave", 0)) != bw:
+			p["bossWave"] = bw
+			await store.put_player(p)
+		if bw > 0:
+			sum += bw
+			count += 1
+	await store.put_meta_doc(BOSS_STATS, {"sum": sum, "count": count})
+	_sync_catchup_ref(sum, count)
+	print("Farroad server: boss-wave total filled in from %d players" % count)
+
+func _stats() -> Dictionary:
+	var st: Dictionary = await store.get_meta_doc(BOSS_STATS)
+	var count := int(st.get("count", 0))
+	return {"bossAvg": float(st.get("sum", 0)) / float(count) if count > 0 else 0.0, "players": count}
 
 func _save_get(body: Dictionary) -> Array:
 	var rec = await _auth(body)

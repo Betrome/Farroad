@@ -461,6 +461,7 @@ func _on_viewport_resized() -> void:
 ## JS has no "fresh game, no mc" path at all (showMcCreate() is
 ## unconditional whenever no save exists).
 func _try_resume_save() -> bool:
+	CatchupRef.apply_cached()   # before the offline catch-up works out its rewards
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
 		return false
@@ -2553,6 +2554,9 @@ func _start_cloud() -> void:
 	cloud = CloudSave.new()
 	add_child(cloud)
 	cloud.setup(_ranked(), func(): return FarroadSave.serialize(g, int(Time.get_unix_time_from_system())))
+	var catchup_ref := CatchupRef.new()
+	add_child(catchup_ref)
+	catchup_ref.setup(_ranked())
 	# a newer save from another device is offered before this one overwrites it
 	var remote := await cloud.fetch()
 	if not remote.is_empty() and int(remote.get("savedAt", 0)) > _local_saved_at + 60:
@@ -3350,6 +3354,10 @@ func _show_change_name_popup() -> void:
 	save_btn.text = "Save"
 	save_btn.pressed.connect(func():
 		var sanitized := _sanitize_mc_name(name_edit.text)
+		if NameFilter.is_blocked(sanitized):
+			name_edit.text = ""
+			name_edit.placeholder_text = NameFilter.MESSAGE
+			return
 		if sanitized != "":
 			var old_name: String = str(g["mc"].get("name", ""))
 			FarroadProgression.set_mc_name(g, sanitized)
@@ -3394,6 +3402,10 @@ func _show_change_body_popup() -> void:
 	save_name.text = "Rename"
 	save_name.pressed.connect(func():
 		var sanitized := _sanitize_mc_name(name_edit.text)
+		if NameFilter.is_blocked(sanitized):
+			name_edit.text = ""
+			name_edit.placeholder_text = NameFilter.MESSAGE
+			return
 		if sanitized == "":
 			return
 		var old_name: String = str(g["mc"].get("name", ""))
@@ -3536,7 +3548,7 @@ func _appearance_changed(uid: String) -> void:
 ## shared base class for a 3-line regex.
 func _sanitize_mc_name(raw: String) -> String:
 	var re := RegEx.new()
-	re.compile("[<>&\"']")
+	re.compile("[<>&\"'\\[\\]]")
 	return re.sub(raw, "", true).strip_edges().substr(0, 20)
 
 ## Ian: "say exactly what buffs and debuffs do." Every magnitude-based

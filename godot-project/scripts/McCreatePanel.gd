@@ -25,6 +25,7 @@ var body_buttons: Dictionary = {}
 
 var root: Control
 var name_edit: LineEdit
+var name_warning: Label
 var points_label: Label
 var stat_point_labels: Dictionary = {}    # k -> Label (current point value)
 var stat_display_labels: Dictionary = {}  # k -> Label (computed stat + growth)
@@ -181,6 +182,11 @@ func _build_name_block(parent: VBoxContainer) -> void:
 	name_edit.custom_minimum_size = Vector2(_vp.x * 0.6, 0)
 	name_edit.text_changed.connect(func(_t): _update_confirm_state())
 	parent.add_child(name_edit)
+	name_warning = Label.new()
+	name_warning.text = NameFilter.MESSAGE
+	name_warning.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
+	name_warning.visible = false
+	parent.add_child(name_warning)
 
 func _build_stats_block(parent: VBoxContainer) -> void:
 	var header := HBoxContainer.new()
@@ -322,14 +328,17 @@ func _charge_style(selected: bool) -> StyleBoxFlat:
 
 func _sanitize_name(raw: String) -> String:
 	var re := RegEx.new()
-	re.compile("[<>&\"']")
+	re.compile("[<>&\"'\\[\\]]")
 	return re.sub(raw, "", true).strip_edges().substr(0, 20)
 
 func _update_confirm_state() -> void:
 	if respec_mode:
 		confirm_btn.disabled = FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_points == _orig_points
 		return
-	var name_ok: bool = _sanitize_name(name_edit.text).length() > 0
+	var blocked: bool = NameFilter.is_blocked(name_edit.text)
+	if name_warning != null:
+		name_warning.visible = blocked
+	var name_ok: bool = _sanitize_name(name_edit.text).length() > 0 and not blocked
 	var points_ok: bool = FarroadProgression.mc_points_spent(mc_points) == FarroadProgression.MC_POINTS_TOTAL
 	confirm_btn.disabled = not (name_ok and points_ok and mc_charge_choice != "")
 
@@ -341,7 +350,7 @@ func _on_confirm_pressed() -> void:
 		_on_confirm.call(mc_points.duplicate())
 		return
 	var name := _sanitize_name(name_edit.text)
-	if name == "" or FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_charge_choice == "":
+	if name == "" or NameFilter.is_blocked(name) or FarroadProgression.mc_points_spent(mc_points) != FarroadProgression.MC_POINTS_TOTAL or mc_charge_choice == "":
 		return
 	var built: Dictionary = FarroadProgression.mc_build_stats(mc_points)
 	var mc := {"name": name, "stats": built["stats"], "hp": built["hp"], "growth": built["growth"], "points": mc_points.duplicate(),
