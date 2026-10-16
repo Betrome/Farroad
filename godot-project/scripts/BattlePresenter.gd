@@ -134,6 +134,16 @@ func _ready() -> void:
 	_build_wave_progress_ui()
 	_build_enrage_ui()
 	_build_turn_order_ui()
+	_raise_chrome()
+
+## The battle UI (wave dots, enrage bar, turn order, Status/Log buttons, unit bars) sits above
+## the forest's front trees, which are drawn above the unit sprites but below the UI.
+func _raise_chrome() -> void:
+	for c in get_children():
+		if c is Control:
+			(c as Control).z_index = 2
+	if _bar_layer != null:
+		_bar_layer.z_index = 2
 
 ## Entry point for a caller (GameController) that already built a real
 ## battle via FarroadProgression -- content is assumed already loaded and
@@ -151,6 +161,7 @@ func _ready() -> void:
 func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen: bool = false, cleared_waves: Dictionary = {}, hide_party_until_revealed: bool = false, auto_start_loop: bool = true) -> void:
 	battle = new_battle
 	_layout_units(units)
+	_raise_chrome()
 	if hide_party_until_revealed:
 		for view in unit_views_by_id.values():
 			if view.unit["isParty"]:
@@ -172,6 +183,27 @@ func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen:
 		_run_battle_loop()
 
 ## Reveals a party hidden by start_battle's hide_party_until_revealed --
+## Ian: "units should heal before they run forward." Fills each party unit's health bar from
+## where the fight left it up to `targets[id]` (what the wave's recovery gives it) over
+## `duration`, with a green +N over it. Returns whether anyone actually healed.
+func heal_party_to(targets: Dictionary, duration: float) -> bool:
+	var any := false
+	for view in unit_views_by_id.values():
+		var u: Dictionary = view.unit
+		if not u["isParty"] or not targets.has(str(u["id"])):
+			continue
+		var from_hp: float = maxf(0.0, float(u["hp"]))
+		var to_hp: float = float(targets[str(u["id"])])
+		if to_hp <= from_hp + 0.5:
+			continue
+		any = true
+		var tw := create_tween()
+		tw.tween_method(func(h: float):
+			u["hp"] = h
+			view.update_hp(), from_hp, to_hp, duration)
+		DamageNumber.spawn(self, view.damage_spawn_position(), "+%d" % roundi(to_hp - from_hp), Color(0.4, 0.95, 0.5), 0)
+	return any
+
 ## called by GameController once the OLD presenter's own retreat tween
 ## finishes. This party was never actually moving (already laid out at
 ## rest), but from the player's perspective it's the same party that just
@@ -240,23 +272,95 @@ func _snap_turn_cards_home() -> void:
 	for card in turn_cards:
 		(card["panel"] as Control).position.x = float(card["home_x"])
 
+## (Same rule as GameController.run_time_ratio, duplicated per this project's convention.)
+## Ian: more variance in how fast each unit runs, so some get ahead and others lag behind and they reach
+## their marks at different times. The time a unit takes, as a share of the slowest unit's: a steeper
+## speed curve than a straight ratio, a small fixed offset per unit (from its id, so it is the same every
+## time it is asked) so even equal-speed units don't arrive together, and never faster than MIN_RATIO or
+## slower than the slowest (1.0).
+const RUN_VARIANCE_EXP := 1.6
+const RUN_JITTER := 0.5           # +-25%
+const RUN_MIN_RATIO := 0.3
+
+static func run_time_ratio(uid: String, spd: float, slowest: float) -> float:
+	var base: float = pow(slowest / maxf(1.0, spd), RUN_VARIANCE_EXP)
+	var jitter: float = 1.0 + (float(absi(uid.hash()) % 1000) / 1000.0 - 0.5) * RUN_JITTER
+	return clampf(base * jitter, RUN_MIN_RATIO, 1.0)
+
+## Ian: a full second between the fastest and the slowest enemy arriving. The fastest takes ENEMY_RUN_MIN,
+## the slowest ENEMY_RUN_IN_TIME (so combat still starts once everyone has arrived).
+const ENEMY_RUN_MIN := 0.6
+
+static func pack_lags(ratios: Dictionary) -> Dictionary:
+	var lags := {}
+	if ratios.size() <= 1:
+		for id in ratios:
+			lags[id] = 1.0
+		return lags
+	var lo := INF
+	var hi := -INF
+	for id in ratios:
+		lo = minf(lo, float(ratios[id]))
+		hi = maxf(hi, float(ratios[id]))
+	for id in ratios:
+		lags[id] = clampf((float(ratios[id]) - lo) / maxf(0.05, hi - lo), 0.0, 1.0)
+	return lags
+
 func run_enemies_entering() -> void:
 	_slide_turn_cards_in()
-	# Ian: each enemy runs in at a pace relative to its own speed (the slowest
-	# takes the full time, so combat still starts when everyone has arrived)
 	var slowest := INF
 	for v in unit_views_by_id.values():
 		if not v.unit["isParty"]:
 			slowest = minf(slowest, float(v.unit["base"]["spd"]))
 	if slowest == INF or slowest <= 0.0:
 		slowest = 1.0
+	var ratios := {}
+	for view in unit_views_by_id.values():
+		if not view.unit["isParty"]:
+			ratios[str(view.unit["id"])] = run_time_ratio(str(view.unit["id"]), float(view.unit["base"]["spd"]), slowest)
+	var lags: Dictionary = pack_lags(ratios)
 	for view in unit_views_by_id.values():
 		if view.unit["isParty"]:
 			continue
-		var ratio: float = clampf(slowest / maxf(1.0, float(view.unit["base"]["spd"])), 0.55, 1.0)
+		var lag: float = float(lags.get(str(view.unit["id"]), 1.0))
 		var tw := create_tween()
-		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_IN_TIME * ratio).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_MIN + lag * (ENEMY_RUN_IN_TIME - ENEMY_RUN_MIN)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.finished.connect(view.fade_in_chrome)
+
+## Ian: enemies run in like the party runs on: the same spread in how fast each one is, so some arrive
+## ahead of the others. Run in over the given times: the fastest enemy takes `fast_time`, the slowest
+## `fast_time + variance`. (The next fight is built while the old one is still on screen, so its enemies
+## can be running in while the forest is still scrolling.)
+func run_enemies_in_pack(fast_time: float, variance: float) -> void:
+	var slowest := INF
+	for v in unit_views_by_id.values():
+		if not v.unit["isParty"]:
+			slowest = minf(slowest, float(v.unit["base"]["spd"]))
+	if slowest == INF or slowest <= 0.0:
+		slowest = 1.0
+	var ratios := {}
+	for view in unit_views_by_id.values():
+		if not view.unit["isParty"]:
+			ratios[str(view.unit["id"])] = run_time_ratio(str(view.unit["id"]), float(view.unit["base"]["spd"]), slowest)
+	var lags: Dictionary = pack_lags(ratios)
+	for view in unit_views_by_id.values():
+		if view.unit["isParty"]:
+			continue
+		var lag: float = float(lags.get(str(view.unit["id"]), 1.0))
+		var tw := create_tween()
+		tw.tween_property(view, "position", view.rest_position, fast_time + lag * variance).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.finished.connect(view.fade_in_chrome)
+
+## The battle UI (wave dots, enrage bar, turn order, Status/Log buttons, unit bars) can be held back while the
+## fight is built early, then shown when the picture is swapped; showing it also slides the turn cards in.
+func set_chrome_visible(on: bool) -> void:
+	for c in get_children():
+		if c is Control:
+			(c as Control).visible = on
+	if _bar_layer != null:
+		_bar_layer.visible = on
+	if on:
+		_slide_turn_cards_in()
 
 func begin_combat() -> void:
 	_snap_turn_cards_home()
@@ -302,6 +406,7 @@ func reflow(new_vp: Vector2) -> void:
 	_build_status_icon()
 	_build_log_icon()
 	_build_turn_order_ui()
+	_raise_chrome()
 	_reposition_units()
 	_refresh_turn_order()
 	_refresh_enrage()
@@ -601,12 +706,8 @@ func _unit_footprint_height(size: float) -> float:
 	var bar_h: float = max(4.0, size * 0.12)
 	var charge_h: float = max(2.0, bar_h * 0.5)
 	var gap: float = max(1.0, size * 0.05)
-	var probe := Label.new()
-	probe.add_theme_font_size_override("font_size", int(size * 0.25))
-	probe.text = "Wg"
-	var label_h: float = probe.get_minimum_size().y
-	probe.free()
-	return size + gap + bar_h + gap + charge_h + gap + label_h
+	# no name label under the bars any more, so the footprint ends with the charge bar
+	return size + gap + bar_h + charge_h
 
 ## Lays `views` out top-to-bottom across (field_top, field_bottom), each
 ## reserving a vertical band proportional to its own real footprint

@@ -247,6 +247,7 @@ func _start_game() -> void:
 	add_child(shell)
 	shell.build(self)
 	_build_hud()
+	_layer_hud_above_trees()
 	_refresh_hud()
 	if not _offline_summary.is_empty():
 		_show_welcome_back_popup()
@@ -425,6 +426,9 @@ func _on_viewport_resized() -> void:
 	fade_overlay.size = _vp
 	if background_layer != null:
 		background_layer.position = Vector2(0.0, _bpos.y)
+		if foreground_layer != null:
+			foreground_layer.position = Vector2(0.0, _bpos.y)
+			foreground_layer.size = _bvp
 		_rebuild_background_marks()
 	for pr in [current_presenter, side_presenter]:
 		if pr != null and is_instance_valid(pr):
@@ -835,6 +839,16 @@ func _build_background_layer() -> void:
 	add_child(background_layer)
 	move_child(background_layer, 0)
 	background_layer.position = Vector2(0.0, _bpos.y)
+	# The front trees live in a layer of their own, drawn above the units (z_index 1) but
+	# below the HUD (2), clipped to the battle area so trees queued off to the side never
+	# show over the dock.
+	foreground_layer = Control.new()
+	foreground_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	foreground_layer.clip_contents = true
+	foreground_layer.z_index = 1
+	add_child(foreground_layer)
+	foreground_layer.position = Vector2(0.0, _bpos.y)
+	foreground_layer.size = _bvp
 	_rebuild_background_marks()
 
 ## Ian: "do a procedural polish pass" -- a soft vertical gradient (a warm
@@ -861,12 +875,136 @@ static func _get_sky_gradient_texture() -> Texture2D:
 ## seed, not real randomness, so a rebuild -- e.g. on resize -- reproduces
 ## the exact same layout rather than reshuffling every time) so the row
 ## reads as varied ground clutter instead of one shape stamped on repeat.
+## Ian: the forest path replaces the test background. Three tileable layers
+## (art_src/forest_path, made with pxl): deep forest far back, trunk bases in
+## the middle, and the tall dirt path the units stand on. Each scrolls at its
+## own fraction of the travel distance (parallax); the far and middle strips
+## only fill the top of the band, the near layer is the whole band.
+const BG_DIR := "res://sprites/background/"
+const BG_ART_H := 544.0   # the near layer's height in art pixels = the whole battle area (the units stand in its top two thirds)
+const BG_TREE_L := "forest_tree_l.png"   # the front tree, cut in two: its left half ...
+const BG_TREE_R := "forest_tree_r.png"   # ... and its right half
+## speed = share of the scroll distance this layer moves
+const BG_LAYERS := [
+	{"tex": "forest_far.png", "speed": 0.25},
+	{"tex": "forest_mid.png", "speed": 0.84},
+	{"tex": "forest_near.png", "speed": 1.0},
+]
+var bg_scroll := 0.0                  # total distance travelled; layers wrap by their own tile width
+var _bg_nodes: Array = []             # [{node, speed, tile_w}]
+
+func _set_bg_scroll(v: float) -> void:
+	bg_scroll = v
+	for e in _bg_nodes:
+		if is_instance_valid(e["node"]):
+			e["node"].position.x = -fposmod(bg_scroll * float(e["speed"]), float(e["tile_w"]))
+
 func _rebuild_background_marks() -> void:
 	for c in background_layer.get_children():
 		c.queue_free()
+	_bg_nodes.clear()
 	var band_bottom: float = _bvp.y * (0.60 if wide else 0.58)
 	var span: float = _bvp.x * 3.0
+	var textures: Array = []
+	for l in BG_LAYERS:
+		var t = load(BG_DIR + str(l["tex"]))
+		if not (t is Texture2D):
+			textures.clear()
+			break
+		textures.append(t)
+	if textures.is_empty():
+		_rebuild_background_fallback(band_bottom, span)
+		return
+	var s: float = _bvp.y / BG_ART_H   # the forest fills the whole battle area, behind the chrome too
+	for i in BG_LAYERS.size():
+		var tex: Texture2D = textures[i]
+		# whole-pixel tile width, so neighbouring tiles never leave a seam
+		var tile_w: int = maxi(1, roundi(float(tex.get_width()) * s))
+		var layer := Node2D.new()
+		background_layer.add_child(layer)
+		var n: int = ceili(span / float(tile_w)) + 3
+		for k in n:
+			var sp := Sprite2D.new()
+			sp.texture = tex
+			sp.centered = false
+			sp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
+			sp.scale = Vector2(float(tile_w) / float(tex.get_width()), s)
+			sp.position = Vector2(-span / 2.0 - tile_w + k * tile_w, 0.0)
+			layer.add_child(sp)
+		_bg_nodes.append({"node": layer, "speed": float(BG_LAYERS[i]["speed"]), "tile_w": tile_w})
+	_set_bg_scroll(bg_scroll)
+	_rebuild_foreground(s)
 
+## The front trees: a tree at each screen edge when the party is standing, and a queue of
+## the next pair waiting off to the right. While the party travels they all slide left
+## (BG_FG_SPEED times as fast as the ground, so they parallax past the party): the right
+## tree crosses the screen in front of the party and leaves on the left, and the next pair
+## arrives and stops at the edges. One transition moves them exactly `_fg_travel`, which
+## puts the next pair where the first pair began, so the loop is seamless.
+const BG_FG_SPEED := 1.0   # Ian: the front trees move at the same rate as the road (they are so close together)
+## How many whole front trees cross the screen in one wave transition (Ian: just one).
+const BG_FG_TREES := 1
+## Ian: move the front trees down a little so they aren't so close to the path. The tree is stretched
+## this many art pixels taller from the top (so the canopy stays put and the base drops).
+const BG_TREE_STRETCH := 24.0
+const BG_FG_GAP := 0.0    # trees are exactly one screen apart; a tree's two halves touch
+var foreground_layer: Control
+var _fg_nodes: Array = []             # [{node, base_x}]
+var _fg_travel := 0.0                 # how far the front trees move in one wave transition
+var _fg_p := 0.0                      # 0 = standing, 1 = one full transition done
+
+func _rebuild_foreground(s: float) -> void:
+	_fg_nodes.clear()
+	if foreground_layer == null:
+		return
+	for c in foreground_layer.get_children():
+		c.queue_free()
+	var tex_l = load(BG_DIR + BG_TREE_L)
+	var tex_r = load(BG_DIR + BG_TREE_R)
+	if not (tex_l is Texture2D and tex_r is Texture2D):
+		return
+	# one whole-pixel width for both halves, so a tree's two halves always meet with no gap
+	var w: float = float(roundi(float(tex_l.get_width()) * s))
+	_fg_travel = _bvp.x * (1.0 + BG_FG_GAP) * float(BG_FG_TREES)   # N tree-spacings per transition
+	var right_rest: float = _bvp.x - w
+	# At rest: the right half of one tree at the left edge, the left half of the next at the right
+	# edge. Queued behind them are the rest of the trees that will cross during a transition: each
+	# tree is a left half and a right half exactly one tree-spacing from the next tree's.
+	var spacing: float = _bvp.x * (1.0 + BG_FG_GAP)
+	var specs: Array = []
+	for j in BG_FG_TREES + 1:
+		specs.append([tex_r, float(j) * spacing])                       # right half of tree j (its centre at j * spacing)
+		specs.append([tex_l, float(j + 1) * spacing - w])               # left half of tree j + 1
+	for spec in specs:
+		var e := Sprite2D.new()
+		e.texture = spec[0]
+		e.centered = false
+		e.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
+		e.scale = Vector2(w / float(tex_l.get_width()), s * (1.0 + BG_TREE_STRETCH / BG_ART_H))
+		foreground_layer.add_child(e)
+		_fg_nodes.append({"node": e, "base_x": float(spec[1])})
+	_set_fg_progress(_fg_p)
+
+func _set_fg_progress(p: float) -> void:
+	_fg_p = p
+	for e in _fg_nodes:
+		if is_instance_valid(e["node"]):
+			e["node"].position.x = float(e["base_x"]) - p * _fg_travel
+
+func _travel_step(p: float, from_scroll: float, ground_dist: float) -> void:
+	_set_bg_scroll(from_scroll + ground_dist * p)
+	_set_fg_progress(p)
+
+## Scrolls the whole forest one transition's worth over `duration`, at a steady speed.
+func _start_travel(duration: float) -> void:
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_LINEAR)   # Ian: no ease in or out -- the forest moves at one steady speed
+	tw.tween_method(_travel_step.bind(bg_scroll, _fg_travel / BG_FG_SPEED), 0.0, 1.0, duration)
+	tw.tween_callback(_set_fg_progress.bind(0.0))   # the next pair is now standing exactly where the first began
+
+## The old plain background (gradient sky, a road band, ground marks), used
+## only if the forest textures aren't available.
+func _rebuild_background_fallback(band_bottom: float, span: float) -> void:
 	var sky := Sprite2D.new()
 	sky.texture = _get_sky_gradient_texture()
 	sky.centered = false
@@ -911,6 +1049,17 @@ func _rebuild_background_marks() -> void:
 ## the same 0.04 that freed (0.083 -> 0.043) -- both then shifted back
 ## DOWN by 0.05 per the 24-item batch's Group D3 ("move top aether and
 ## marks down 5% to avoid running into the camera"), landing at 0.065/0.093.
+## The front trees sit above the units (z_index 1); the HUD text, the wipe fade and the
+## reward flyers must stay above the trees.
+func _layer_hud_above_trees() -> void:
+	# Ian: UI elements above all of the art layers -- every Control that is a direct child of
+	# the game (the HUD, the menu buttons, the Road button...) except the front trees' own layer.
+	for n in get_children():
+		if n is Control and n != foreground_layer:
+			(n as Control).z_index = 2
+	if fade_overlay != null:
+		fade_overlay.z_index = 10
+
 func _build_hud() -> void:
 	# Ian: "I want to replace some of the text like Aether and Marks with
 	# icons -- what do we need to do now to prepare for that?" Split what
@@ -3913,10 +4062,11 @@ func _sync_row_change(uid: String) -> void:
 ## visible "quests overlap with the road" bug this was written to fix.
 ## _resolve_side_battle's own restore path is what rebuilds the Road's
 ## presenter once it's actually safe again (see its own comment).
-func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_revealed: bool = false, auto_start_loop: bool = true) -> void:
+func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_revealed: bool = false, auto_start_loop: bool = true, defer_dock: bool = false) -> void:
 	if g.get("sideBattle") != null:
 		return
 	_check_respec_item()
+	_layer_hud_above_trees()   # catches any control built since the last wave
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
@@ -3926,7 +4076,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		_show_action_detail_popup(str(aid))
 	_fit_presenter(presenter)
 	add_child(presenter)
-	_dock_presenter(presenter)
+	if not defer_dock:   # built early (while the old fight is still on screen): the dock switches at the swap
+		_dock_presenter(presenter)
 	_raise_self_hosted_overlays()
 	await get_tree().process_frame
 	if g.get("sideBattle") != null:
@@ -3943,11 +4094,31 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	_road_wave_started_ms = Time.get_ticks_msec()
 
 const WAVE_RUN_TIME := 1.0
+## How far the party runs to the right, as a share of the screen width.
+const WAVE_RUN_DIST_FRAC := 0.12
 ## Piece G: "have them move back over .25 seconds" -- the party's own
 ## "stop and settle" beat (see _on_battle_finished's own sequencing
 ## comment for the full narrative this and ENEMY_RUN_IN_TIME together
 ## build).
 const WAVE_RETREAT_TIME := 0.25
+## Ian: units heal BEFORE they run, and the party runs past the front tree, so the forest
+## scrolls for a good while (the tree has to cross the whole screen) with the party running
+## in place; the party settles back to its stance in the last WAVE_RETREAT_TIME of it.
+const WAVE_HEAL_TIME := 0.7
+const WAVE_SCROLL_TIME := 1.8
+## Ian: the parallax starts as soon as the units start running and stops as soon as the first unit
+## is back at its stopping point. This is that whole span, counted from the start of the run.
+const WAVE_TRAVEL_TIME := 2.4
+## Ian: a full second of difference in how long the fastest and the slowest unit take to get to their
+## marks. The fastest unit's forward run takes WAVE_RUN_MIN; the slowest's takes WAVE_RUN_MIN + the variance.
+const WAVE_RUN_MIN := 0.4
+## Ian: the first enemy gets to its place just after the first ally gets to theirs; it runs in for this long
+## (the slowest enemy takes WAVE_RUN_VARIANCE longer).
+const ENEMY_AFTER_ALLY := 0.15
+const ENEMY_FAST_RUN_TIME := 1.0
+const WAVE_RUN_VARIANCE := 1.0
+## How far (as a share of the screen width) the slowest unit falls behind its place while the forest scrolls.
+const WAVE_FALL_BEHIND_FRAC := 0.12   # about 50 px on the phone layout (412 wide)
 ## Piece G: "move the background more as well" -- was 1.5x run_dx.
 const BG_RUN_MUL := 3.0
 ## Piece G: "fade in over .5 seconds when they stop moving."
@@ -3983,15 +4154,51 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 	for view in old_presenter.unit_views_by_id.values():
 		if not view.unit["isParty"] and view.unit["hp"] <= 0:
 			view.visible = false
-	var run_dx: float = _vp.x * 0.1
-	# Ian: each unit moves at a pace relative to its own speed -- the slowest
-	# takes the full time, faster ones get there sooner
-	var slowest: float = _slowest_party_spd(old_presenter)
+	var run_dx: float = _vp.x * WAVE_RUN_DIST_FRAC   # Ian: 20% further than the original 0.1
+	var lags: Dictionary = _unit_lags(old_presenter)  # each unit's place in the pack: 0 = fastest, 1 = slowest
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
+			var lag: float = float(lags.get(str(view.unit["id"]), 1.0))
 			view.hide_chrome()
+			view.hold_run = true     # nothing left over from the fight may change its animation now
+			view.play_state("run")   # a unit with no run animation just keeps its idle
+			# Everyone runs forward together; then each unit falls steadily further behind the fastest as the
+			# forest scrolls past (never closing the gap), and after the forest stops the slower ones run up
+			# to their marks, arriving up to WAVE_RUN_VARIANCE after the fastest.
+			var behind_max: float = minf(lag * WAVE_FALL_BEHIND_FRAC * _vp.x, maxf(0.0, view.rest_position.x - view.size * 0.2))   # a back-row unit may fall back nearly to the screen edge
+			var catch_up: float = lag * WAVE_RUN_VARIANCE
+			var total: float = WAVE_TRAVEL_TIME + catch_up
 			var tw := create_tween()
-			tw.tween_property(view, "position:x", view.position.x + run_dx, WAVE_RUN_TIME * _spd_time_ratio(view, slowest))
+			tw.tween_method(_move_in_pack.bind(view, view.rest_position, run_dx, behind_max, catch_up), 0.0, total, total)
+			tw.tween_callback(func():
+				if is_instance_valid(view):
+					view.hold_run = false
+					view.play_state("idle"))
+	if background_layer != null:
+		_start_travel(WAVE_TRAVEL_TIME)   # the forest scrolls from the first moment of the run, for as long as the FASTEST unit takes
+
+## Where a unit is `t` seconds into the run, as an offset from its mark (rest). All units share the forward
+## run and the drift home; on top of that each falls back by `behind_max` as the scroll goes on, growing
+## smoothly and never shrinking until the scroll has stopped (t = WAVE_TRAVEL_TIME), then runs up to its mark.
+func _move_in_pack(t: float, view: Node, rest: Vector2, run_dx: float, behind_max: float, catch_up: float) -> void:
+	if not is_instance_valid(view):
+		return
+	var d: float = WAVE_TRAVEL_TIME
+	var fwd: float = WAVE_RUN_MIN
+	var x_off: float
+	if t <= d:
+		var run_part: float
+		if t < fwd:
+			run_part = run_dx * sin(clampf(t / fwd, 0.0, 1.0) * PI / 2.0)                 # out to the running position
+		else:
+			var u: float = clampf((t - fwd) / maxf(0.01, d - fwd), 0.0, 1.0)
+			run_part = run_dx * (1.0 - (1.0 - cos(u * PI)) / 2.0)                       # eases home as the scroll ends
+		var fall_back: float = behind_max * (1.0 - cos(clampf(t / d, 0.0, 1.0) * PI)) / 2.0
+		x_off = run_part - fall_back
+	else:
+		var v: float = clampf((t - d) / maxf(0.01, catch_up), 0.0, 1.0) if catch_up > 0.0 else 1.0
+		x_off = -behind_max * (1.0 - (1.0 - cos(v * PI)) / 2.0)                          # run up to the mark
+	view.position = Vector2(rest.x + x_off, view.position.y)
 
 ## Ian follow-up: "the Background moves backwards with units when they
 ## stop. It should move forward still, and stop when the units are at
@@ -4022,22 +4229,69 @@ func _slowest_party_spd(old_presenter: Node) -> float:
 			slowest = minf(slowest, float(v.unit["base"]["spd"]))
 	return slowest if slowest < INF and slowest > 0.0 else 1.0
 
-## 1.0 for the slowest unit, down to 0.55 for a much faster one.
-func _spd_time_ratio(view: Node, slowest: float) -> float:
-	return clampf(slowest / maxf(1.0, float(view.unit["base"]["spd"])), 0.55, 1.0)
+## Ian: more variance in how fast each unit runs, so some get ahead and others lag behind and they reach
+## their marks at different times. The time a unit takes, as a share of the slowest unit's: a steeper
+## speed curve than a straight ratio, a small fixed offset per unit (from its id, so it is the same every
+## time it is asked) so even equal-speed units don't arrive together, and never faster than MIN_RATIO or
+## slower than the slowest (1.0).
+const RUN_VARIANCE_EXP := 1.6
+const RUN_JITTER := 0.5           # +-25%
+const RUN_MIN_RATIO := 0.3
 
-func _animate_wave_retreat(old_presenter: Node) -> void:
-	if old_presenter == null:
-		return
+static func run_time_ratio(uid: String, spd: float, slowest: float) -> float:
+	var base: float = pow(slowest / maxf(1.0, spd), RUN_VARIANCE_EXP)
+	var jitter: float = 1.0 + (float(absi(uid.hash()) % 1000) / 1000.0 - 0.5) * RUN_JITTER
+	return clampf(base * jitter, RUN_MIN_RATIO, 1.0)
+
+func _spd_time_ratio(view: Node, slowest: float) -> float:
+	return run_time_ratio(str(view.unit["id"]), float(view.unit["base"]["spd"]), slowest)
+
+## Each living party unit's place in the pack: 0 = the fastest runner, 1 = the slowest.
+func _unit_lags(old_presenter: Node) -> Dictionary:
 	var slowest: float = _slowest_party_spd(old_presenter)
+	var ratios := {}
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
-			var tw := create_tween()
-			tw.tween_property(view, "position", view.rest_position, WAVE_RETREAT_TIME * _spd_time_ratio(view, slowest))
-	if background_layer != null:
-		var run_dx: float = _vp.x * 0.1
-		var bg_tw := create_tween()
-		bg_tw.tween_property(background_layer, "position:x", background_layer.position.x - run_dx * BG_RUN_MUL, WAVE_RETREAT_TIME)
+			ratios[str(view.unit["id"])] = _spd_time_ratio(view, slowest)
+	return pack_lags(ratios)
+
+static func pack_lags(ratios: Dictionary) -> Dictionary:
+	var lags := {}
+	if ratios.size() <= 1:
+		for id in ratios:
+			lags[id] = 1.0
+		return lags
+	var lo := INF
+	var hi := -INF
+	for id in ratios:
+		lo = minf(lo, float(ratios[id]))
+		hi = maxf(hi, float(ratios[id]))
+	for id in ratios:
+		lags[id] = clampf((float(ratios[id]) - lo) / maxf(0.05, hi - lo), 0.0, 1.0)
+	return lags
+
+## From the start of the run until the last (slowest) unit has reached its mark: the scroll ends when the
+## fastest one does (WAVE_TRAVEL_TIME), and the slowest arrives WAVE_RUN_VARIANCE after that.
+func _wave_total_time(_old_presenter: Node) -> float:
+	return WAVE_TRAVEL_TIME + WAVE_RUN_VARIANCE
+
+## The units' whole run (forward, fall back, catch up) is now one path per unit started by
+## _animate_wave_transition, so there is nothing left to start here. Kept because callers still call it.
+func _animate_wave_retreat(_old_presenter: Node) -> void:
+	pass
+
+## Ian: "units should heal before they run forward." The party's health bars fill up to what
+## the wave's recovery gives them (start_wave has already worked that out on the new units),
+## with a green +N over each unit, while everyone is still standing where they fought.
+func _animate_wave_heal(old_presenter: Node) -> void:
+	if old_presenter == null:
+		return
+	var targets := {}
+	for u in g.get("units", []):
+		targets[str(u["id"])] = float(u["hp"])
+	var any = old_presenter.call("heal_party_to", targets, WAVE_HEAL_TIME)
+	if any:
+		await get_tree().create_timer(WAVE_HEAL_TIME + 0.2).timeout
 
 ## Mirrors the real doStep()'s post-battle branch (afterWaveCleared() on a
 ## win, onWipe() on a loss) -- on_wipe already rebuilds g["battle"] at the
@@ -4181,30 +4435,43 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		# entering" -- no held pause), (4) only once they've actually
 		# arrived does the battle loop start.
 		var old_presenter = current_presenter
+		await _animate_wave_heal(old_presenter)
 		_animate_wave_transition(old_presenter)
 		if old_presenter != null:
 			old_presenter.call("light_up_wave", cleared_wave)
-		await get_tree().create_timer(WAVE_RUN_TIME).timeout
-
 		_animate_wave_retreat(old_presenter)
-		await get_tree().create_timer(WAVE_RETREAT_TIME).timeout
-		if old_presenter != null:
-			old_presenter.queue_free()
-		current_presenter = null
-		# stage_enemies_offscreen=true (built hidden, not yet running in),
-		# hide_party_until_revealed=true (old presenter is already gone by
-		# now, so this is purely for the chrome fade-in polish, not to dodge
-		# an overlap), auto_start_loop=false (combat waits for step 5 below).
-		await _begin_next_fight(true, true, false)
-		# A quest/dungeon/Arena fight started during the run: the next Road
-		# fight is built (and started) when that fight ends instead, so this
-		# sequence stops here rather than also starting it.
+		# Every time below is in seconds from the moment the party starts running.
+		var total: float = _wave_total_time(old_presenter)       # the last ally has reached its mark
+		# Ian: enemies run in too, with the same spread. The next fight is built now, with its party and its
+		# on-screen UI held back, so its enemies can be running in while the forest is still scrolling.
+		await _begin_next_fight(true, true, false, true)
 		var next = current_presenter
-		if next == null:
+		if next == null or next == old_presenter:
+			# a quest/dungeon/Arena fight started during the run: finish the run, drop the old picture and stop
+			await get_tree().create_timer(total).timeout
+			if old_presenter != null and is_instance_valid(old_presenter):
+				old_presenter.queue_free()
+			if current_presenter == old_presenter:
+				current_presenter = null
 			return
+		next.call("set_chrome_visible", false)
+		# the first enemy arrives just after the first ally (who is at its mark when the scroll ends)
+		var first_arrival: float = WAVE_TRAVEL_TIME + ENEMY_AFTER_ALLY
+		var enemy_start: float = maxf(0.0, first_arrival - ENEMY_FAST_RUN_TIME)
+		await get_tree().create_timer(enemy_start).timeout
+		if is_instance_valid(next) and next == current_presenter:
+			next.call("run_enemies_in_pack", ENEMY_FAST_RUN_TIME, WAVE_RUN_VARIANCE)
+		await get_tree().create_timer(maxf(0.0, total - enemy_start)).timeout
+		# the allies are all at their marks: swap the old picture for the new one
+		if old_presenter != null and is_instance_valid(old_presenter):
+			old_presenter.queue_free()
+		if not (is_instance_valid(next) and next == current_presenter):
+			return
+		_dock_presenter(next)
+		next.call("set_chrome_visible", true)
 		next.call("reveal_party", CHROME_FADE_TIME)
-		next.call("run_enemies_entering")
-		await get_tree().create_timer(ENEMY_RUN_IN_TIME).timeout
+		# combat starts once the last enemy has arrived
+		await get_tree().create_timer(maxf(0.0, first_arrival + WAVE_RUN_VARIANCE - total)).timeout
 		if is_instance_valid(next) and next == current_presenter:
 			next.call("begin_combat")
 	else:
@@ -4345,6 +4612,7 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 	lbl.add_theme_color_override("font_outline_color", Color.BLACK)
 	lbl.add_theme_constant_override("outline_size", 5)
 	lbl.position = start
+	lbl.z_index = 5
 	add_child(lbl)
 	move_child(lbl, get_child_count() - 1)
 	var tw := create_tween()
@@ -4571,9 +4839,8 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		# the fight starts -- the Road's own sequence (_on_battle_finished).
 		var old_side = side_presenter
 		_animate_wave_transition(old_side)
-		await get_tree().create_timer(WAVE_RUN_TIME).timeout
 		_animate_wave_retreat(old_side)
-		await get_tree().create_timer(WAVE_RETREAT_TIME).timeout
+		await get_tree().create_timer(_wave_total_time(old_side)).timeout
 		if is_instance_valid(old_side):
 			old_side.queue_free()
 		if g.get("sideBattle") == null:

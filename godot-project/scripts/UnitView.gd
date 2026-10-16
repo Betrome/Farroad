@@ -300,6 +300,7 @@ func resize(unit_size: float) -> void:
 func _build(unit_size: float) -> void:
 	size = unit_size
 	_chrome = Node2D.new()
+	_chrome.z_index = 2   # the unit's bars and name stay above the front trees
 	add_child(_chrome)
 	var half := size / 2.0
 	var bar_h: float = max(9.0, size * 0.2)
@@ -396,7 +397,7 @@ func _build(unit_size: float) -> void:
 	# Thin charge bar, directly below the HP bar -- fills toward whichever
 	# charge action the unit itself has (costOfCharge), or the generic
 	# CHARGE_FULL if it has none, so it never visually overflows past full.
-	var charge_y: float = _hp_bar.position.y + bar_h + gap
+	var charge_y: float = _hp_bar.position.y + bar_h   # Ian: right under the HP bar, no space between
 	_charge_bar = UiBar.new(UiKit.CHARGE, false, 4)
 	_charge_bar.custom_minimum_size = Vector2.ZERO
 	_charge_bar.size = Vector2(size, charge_h)
@@ -522,7 +523,14 @@ func _is_low_hp() -> bool:
 	var hp := float(unit["hp"])
 	return hp > 0.0 and hp / float(unit["maxHp"]) < LOW_HP_FRAC
 
+## While the party travels between waves a unit's animation is held on "run": background work that
+## outlives the fight (a killing blow's return-to-position, its "land" and "idle") must not
+## overwrite it. GameController sets this at the start of the run and clears it once the unit stops.
+var hold_run := false
+
 func play_state(anim_name: String, speed: float = 1.0) -> void:
+	if hold_run and anim_name != "run":
+		return
 	if anim_name == "idle" and _is_low_hp() and has_animation("idle_low"):
 		anim_name = "idle_low"
 	if shape is AnimatedSprite2D:
@@ -761,7 +769,8 @@ func hide_chrome() -> void:
 ## Ian: enemies carry no name under them -- only bosses (and the player's
 ## own units) do.
 func _shows_name() -> bool:
-	return bool(unit.get("isParty", false)) or bool(unit.get("isBoss", false))
+	# Ian: no unit names on the field (the Status page and Log still name everyone).
+	return false
 
 func fade_in_chrome(duration: float = 0.5) -> void:
 	_hp_bg.visible = true
