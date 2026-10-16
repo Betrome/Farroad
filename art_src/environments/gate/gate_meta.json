@@ -1,0 +1,102 @@
+{
+  "note": "Farroad ascension gate v4, facing the lower left (right side nearer). Art pixels at the 544-tall battle scale. All gate pieces share the frame canvas origin. Draw order back to front: gate_glow (additive) < gate_doors (current frame) < gate_frame < gate_frame_runes + gate_doors_runes (fade in) < gate_arcs (additive) < stair steps (IN FRONT of the gate; top step first, each lower step over the one above). Everything stays behind the units.",
+  "gate_frame": {
+    "size": [
+      120,
+      250
+    ],
+    "doorway_base_left": [
+      40,
+      176
+    ],
+    "place_so_doorway_base_y": 205,
+    "frame_origin_for_base_y_205": [
+      null,
+      29
+    ],
+    "doorway_centre": [
+      63,
+      134
+    ]
+  },
+  "gate_frame_runes": {
+    "size": [
+      120,
+      250
+    ],
+    "same_origin_as": "gate_frame",
+    "use": "fade alpha 0->1 as the gate wakes"
+  },
+  "gate_doors": {
+    "strip_frames": 12,
+    "frame_size": [
+      120,
+      250
+    ],
+    "same_origin_as": "gate_frame",
+    "content": "portal light with the two doors over it; frame 0 shut, last frame fully open (portal only)",
+    "play": "once, about 1.2 s (10 fps), hold the last frame"
+  },
+  "gate_doors_runes": {
+    "strip_frames": 12,
+    "frame_size": [
+      120,
+      250
+    ],
+    "same_origin_as": "gate_frame",
+    "use": "play in step with gate_doors, alpha fading in"
+  },
+  "gate_arcs": {
+    "strip_frames": 12,
+    "frame_size": [
+      120,
+      250
+    ],
+    "fps": 12,
+    "loop": true,
+    "same_origin_as": "gate_frame",
+    "blend": "additive or normal",
+    "when": "start when the doors are half open; loop while the gate stays open"
+  },
+  "gate_glow": {
+    "size": [
+      160,
+      200
+    ],
+    "centre": [
+      80,
+      112
+    ],
+    "place_centre_on": "gate_frame doorway_centre",
+    "blend": "additive"
+  },
+  "stair_step": {
+    "size": [
+      48,
+      28
+    ],
+    "top_step_pos_in_frame": [
+      42,
+      175
+    ],
+    "step_i_offset": "x -18*i, y +11.5*i (i = 0..8, top step first)",
+    "draw": "in front of the gate; top step first so each lower (nearer) step overlaps the one above",
+    "appear": "top to bottom"
+  },
+  "stair_step_runes": {
+    "size": [
+      48,
+      28
+    ],
+    "same_origin_as": "stair_step"
+  },
+  "light2d_suggestion": {
+    "node": "PointLight2D at doorway_centre",
+    "texture": "GradientTexture2D radial, white centre -> transparent edge, about 512 px",
+    "color": "#ffd98a",
+    "energy": "0 -> 1.1 over the door slide; flicker +-0.08, small spikes when an arc fires",
+    "texture_scale": "about 1.5",
+    "blend_mode": "Add",
+    "extra": "second smaller PointLight2D (#fff4c4, energy 0.6) for the hot core"
+  }
+}

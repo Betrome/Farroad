@@ -849,6 +849,7 @@ func _build_background_layer() -> void:
 	add_child(foreground_layer)
 	foreground_layer.position = Vector2(0.0, _bpos.y)
 	foreground_layer.size = _bvp
+	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
 	_rebuild_background_marks()
 
 ## Ian: "do a procedural polish pass" -- a soft vertical gradient (a warm
@@ -882,14 +883,55 @@ static func _get_sky_gradient_texture() -> Texture2D:
 ## only fill the top of the band, the near layer is the whole band.
 const BG_DIR := "res://sprites/background/"
 const BG_ART_H := 544.0   # the near layer's height in art pixels = the whole battle area (the units stand in its top two thirds)
-const BG_TREE_L := "forest_tree_l.png"   # the front tree, cut in two: its left half ...
-const BG_TREE_R := "forest_tree_r.png"   # ... and its right half
-## speed = share of the scroll distance this layer moves
-const BG_LAYERS := [
-	{"tex": "forest_far.png", "speed": 0.25},
-	{"tex": "forest_mid.png", "speed": 0.84},
-	{"tex": "forest_near.png", "speed": 1.0},
-]
+## Which environment set is showing. Files are <set>_far/_mid/_near/_tree_l/_tree_r.png in BG_DIR
+## (cave also has cave_overhang.png, drawn in the foreground). A set missing its core files falls
+## back to the forest. "colosseum" is a static set: no front tree, nothing to scroll past.
+const BG_SETS := ["forest", "prairie", "mountains", "cave", "colosseum"]
+const BG_STATIC_SETS := ["colosseum"]
+const BG_SET_DEFAULT := "forest"
+## speed = share of the scroll distance each layer moves (far, mid, near)
+const BG_LAYER_SPEEDS := [0.25, 0.84, 1.0]
+const BG_LAYER_SUFFIX := ["_far.png", "_mid.png", "_near.png"]
+var bg_set := BG_SET_DEFAULT
+
+## The Road climbs: every ENV_WAVES waves the environment changes (ROAD_SETS in order; the last one
+## repeats until more are made). Dungeons are the cave, the Arena (PvP) is the colosseum.
+const ENV_WAVES := 100
+const ROAD_SETS := ["prairie", "forest", "mountains"]
+const SIDE_SETS := {"dungeon": "cave", "pvp": "colosseum"}
+
+func _road_set_for_wave(w: int) -> String:
+	var tier: int = clampi((maxi(1, w) - 1) / ENV_WAVES, 0, ROAD_SETS.size() - 1)
+	return ROAD_SETS[tier]
+
+## The set the screen should show right now: the side battle's, else the Road's for the current wave.
+func _desired_bg_set() -> String:
+	var sb = g.get("sideBattle") if not g.is_empty() else null
+	if sb != null:
+		var k: String = str((sb as Dictionary).get("meta", {}).get("kind", ""))
+		if SIDE_SETS.has(k):
+			return SIDE_SETS[k]
+	return _road_set_for_wave(int(g.get("wave", 1)))
+
+func _refresh_background() -> void:
+	set_background(_desired_bg_set())
+
+func _bg_set_complete(set_name: String) -> bool:
+	for suf in BG_LAYER_SUFFIX:
+		if not ResourceLoader.exists(BG_DIR + set_name + suf):
+			return false
+	return true
+
+## Switch the background set (e.g. by context: arena -> "colosseum"). Rebuilds the layers.
+func set_background(set_name: String) -> void:
+	if not BG_SETS.has(set_name) or not _bg_set_complete(set_name):
+		set_name = BG_SET_DEFAULT
+	if set_name == bg_set and not _bg_nodes.is_empty():
+		return
+	bg_set = set_name
+	if background_layer != null:
+		_rebuild_background_marks()
+
 var bg_scroll := 0.0                  # total distance travelled; layers wrap by their own tile width
 var _bg_nodes: Array = []             # [{node, speed, tile_w}]
 
@@ -906,8 +948,10 @@ func _rebuild_background_marks() -> void:
 	var band_bottom: float = _bvp.y * (0.60 if wide else 0.58)
 	var span: float = _bvp.x * 3.0
 	var textures: Array = []
-	for l in BG_LAYERS:
-		var t = load(BG_DIR + str(l["tex"]))
+	if not _bg_set_complete(bg_set):
+		bg_set = BG_SET_DEFAULT
+	for suf in BG_LAYER_SUFFIX:
+		var t = load(BG_DIR + bg_set + suf)
 		if not (t is Texture2D):
 			textures.clear()
 			break
@@ -916,12 +960,24 @@ func _rebuild_background_marks() -> void:
 		_rebuild_background_fallback(band_bottom, span)
 		return
 	var s: float = _bvp.y / BG_ART_H   # the forest fills the whole battle area, behind the chrome too
-	for i in BG_LAYERS.size():
+	for i in BG_LAYER_SPEEDS.size():
 		var tex: Texture2D = textures[i]
 		# whole-pixel tile width, so neighbouring tiles never leave a seam
 		var tile_w: int = maxi(1, roundi(float(tex.get_width()) * s))
 		var layer := Node2D.new()
 		background_layer.add_child(layer)
+		if BG_STATIC_SETS.has(bg_set):
+			# one picture, never scrolled or tiled; stretched sideways only if the screen is wider than it
+			var sx: float = maxf(s, _bvp.x / float(tex.get_width()))
+			var one := Sprite2D.new()
+			one.texture = tex
+			one.centered = false
+			one.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
+			one.scale = Vector2(sx, s)
+			one.position = Vector2((_bvp.x - float(tex.get_width()) * sx) / 2.0, 0.0)
+			layer.add_child(one)
+			_bg_nodes.append({"node": layer, "speed": 0.0, "tile_w": tile_w})
+			continue
 		var n: int = ceili(span / float(tile_w)) + 3
 		for k in n:
 			var sp := Sprite2D.new()
@@ -931,7 +987,7 @@ func _rebuild_background_marks() -> void:
 			sp.scale = Vector2(float(tile_w) / float(tex.get_width()), s)
 			sp.position = Vector2(-span / 2.0 - tile_w + k * tile_w, 0.0)
 			layer.add_child(sp)
-		_bg_nodes.append({"node": layer, "speed": float(BG_LAYERS[i]["speed"]), "tile_w": tile_w})
+		_bg_nodes.append({"node": layer, "speed": float(BG_LAYER_SPEEDS[i]), "tile_w": tile_w})
 	_set_bg_scroll(bg_scroll)
 	_rebuild_foreground(s)
 
@@ -959,9 +1015,14 @@ func _rebuild_foreground(s: float) -> void:
 		return
 	for c in foreground_layer.get_children():
 		c.queue_free()
-	var tex_l = load(BG_DIR + BG_TREE_L)
-	var tex_r = load(BG_DIR + BG_TREE_R)
+	_add_overhang(s)
+	if BG_STATIC_SETS.has(bg_set):
+		_fg_travel = 0.0
+		return
+	var tex_l = load(BG_DIR + bg_set + "_tree_l.png") if ResourceLoader.exists(BG_DIR + bg_set + "_tree_l.png") else null
+	var tex_r = load(BG_DIR + bg_set + "_tree_r.png") if ResourceLoader.exists(BG_DIR + bg_set + "_tree_r.png") else null
 	if not (tex_l is Texture2D and tex_r is Texture2D):
+		_fg_travel = _bvp.x
 		return
 	# one whole-pixel width for both halves, so a tree's two halves always meet with no gap
 	var w: float = float(roundi(float(tex_l.get_width()) * s))
@@ -984,6 +1045,21 @@ func _rebuild_foreground(s: float) -> void:
 		foreground_layer.add_child(e)
 		_fg_nodes.append({"node": e, "base_x": float(spec[1])})
 	_set_fg_progress(_fg_p)
+
+## Cave only: a stalactite overhang across the top of the screen (kept out of the units' band by the art).
+func _add_overhang(s: float) -> void:
+	var path: String = BG_DIR + bg_set + "_overhang.png"
+	if not ResourceLoader.exists(path):
+		return
+	var tex = load(path)
+	if not (tex is Texture2D):
+		return
+	var e := Sprite2D.new()
+	e.texture = tex
+	e.centered = false
+	e.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
+	e.scale = Vector2(_bvp.x / float(tex.get_width()), s)
+	foreground_layer.add_child(e)
 
 func _set_fg_progress(p: float) -> void:
 	_fg_p = p
@@ -1057,6 +1133,9 @@ func _layer_hud_above_trees() -> void:
 	for n in get_children():
 		if n is Control and n != foreground_layer:
 			(n as Control).z_index = 2
+	# the wide dock sits above the battle's chrome (its turn-order strip runs off the battle column)
+	if shell != null and shell.dock_bg != null:
+		shell.dock_bg.z_index = 3
 	if fade_overlay != null:
 		fade_overlay.z_index = 10
 
@@ -4434,6 +4513,9 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		# once the party's stopped (Ian: "immediately followed by enemies
 		# entering" -- no held pause), (4) only once they've actually
 		# arrived does the battle loop start.
+		if cleared_wave % ENV_WAVES == 0 and g.get("sideBattle") == null and current_presenter != null:
+			await _gate_ascension()
+			return
 		var old_presenter = current_presenter
 		await _animate_wave_heal(old_presenter)
 		_animate_wave_transition(old_presenter)
@@ -4487,10 +4569,85 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		if current_presenter != null:
 			current_presenter.queue_free()
 			current_presenter = null
+		_refresh_background()
 		await _begin_next_fight()
 		await _fade_in()
 
 const FADE_HALF_SEC := 0.5
+
+## ===== The ascent: after the wave 100, 200, ... boss =====
+## A glowing gate appears on the right and opens, stairs descend from it, the party runs up them and
+## through, and the next environment begins on the other side.
+const GATE_APPEAR_TIME := 0.9
+const GATE_OPEN_TIME := 0.8
+const GATE_STAIRS_TIME := 1.0
+const GATE_RUN_TO_STAIRS := 0.9
+const GATE_RUN_UP_STAIRS := 1.3
+const GATE_FADE_THROUGH := 0.35
+const GATE_RUN_STAGGER := 0.3   # seconds between one unit setting off and the next
+
+func _gate_ascension() -> void:
+	var old_presenter = current_presenter
+	await _animate_wave_heal(old_presenter)
+	var s: float = _bvp.y / BG_ART_H
+	var gate := AscensionGate.new()
+	# the doorway's base-left corner; the gate (120 art px wide) must stay on screen
+	var door := _bpos + Vector2(minf(_bvp.x * 0.85, _bvp.x - 82.0 * s), 205.0 * s)
+	var lowest_top := -1.0   # the stairs stop just short of the lowest party unit
+	for v in old_presenter.unit_views_by_id.values():
+		if v.unit["isParty"] and v.unit["hp"] > 0:
+			lowest_top = maxf(lowest_top, v.global_position.y - v.size * 0.5)
+	gate.setup(door, s, lowest_top)
+	add_child(gate)
+	move_child(gate, old_presenter.get_index())   # behind the units, above the background
+	for view in old_presenter.unit_views_by_id.values():
+		if not view.unit["isParty"] and view.unit["hp"] <= 0:
+			view.visible = false
+		elif view.unit["isParty"] and view.unit["hp"] > 0:
+			view.hide_chrome()
+	var tw := create_tween()
+	tw.tween_method(gate.set_appear, 0.0, 1.0, GATE_APPEAR_TIME)
+	tw.tween_method(gate.set_open, 0.0, 1.0, GATE_OPEN_TIME)
+	tw.tween_method(gate.set_stairs, 0.0, 1.0, GATE_STAIRS_TIME)
+	await tw.finished
+	# the party runs along the ground to the foot of the stairs, up them, and into the light
+	var foot: Vector2 = gate.stair_foot()
+	var top: Vector2 = gate.door_point()
+	# Ian: the closest unit to the stairs goes first, then the next, and so on; a unit waits (standing, not
+	# running in place) until it is its turn.
+	var order: Array = []
+	for view in old_presenter.unit_views_by_id.values():
+		if view.unit["isParty"] and view.unit["hp"] > 0:
+			order.append(view)
+	order.sort_custom(func(a, b): return a.global_position.distance_to(foot) < b.global_position.distance_to(foot))
+	var last := 0.0
+	for i in order.size():
+		var view = order[i]
+		var delay: float = float(i) * GATE_RUN_STAGGER
+		var lift := Vector2(0.0, -view.size * 0.3)
+		last = maxf(last, delay + GATE_RUN_TO_STAIRS + GATE_RUN_UP_STAIRS + GATE_FADE_THROUGH)
+		var ut := create_tween()
+		ut.tween_interval(delay)
+		ut.tween_callback(func():
+			if is_instance_valid(view):
+				view.hold_run = true
+				view.play_state("run"))
+		ut.tween_property(view, "global_position", foot + lift + Vector2(0.0, float(i) * 3.0), GATE_RUN_TO_STAIRS)
+		ut.tween_property(view, "global_position", top + lift, GATE_RUN_UP_STAIRS)
+		ut.tween_property(view, "modulate:a", 0.0, GATE_FADE_THROUGH)
+	await get_tree().create_timer(last + 0.2).timeout
+	# a flash of light as they pass through, then the new land
+	fade_overlay.color = Color(1.0, 0.96, 0.8, 0.0)
+	await _fade_out()
+	if is_instance_valid(gate):
+		gate.queue_free()
+	if current_presenter != null:
+		current_presenter.queue_free()
+		current_presenter = null
+	_refresh_background()
+	await _begin_next_fight()
+	await _fade_in()
+	fade_overlay.color = Color(0, 0, 0, 0)
 
 ## A ~1s fade to black and back, used on a wipe to hide the checkpoint jump
 ## (the actual battlefield swap happens while the screen is fully black,
@@ -4643,6 +4800,7 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary, prebuilt: D
 			current_presenter.log_popup.hide()
 		if current_presenter.status_popup.visible:
 			current_presenter.status_popup.hide()
+	_refresh_background()
 	await _spawn_side_presenter(false)
 
 ## A fresh presenter for the current side-battle wave; the enemies run in
@@ -4850,6 +5008,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 	if side_presenter != null:
 		side_presenter.queue_free()
 		side_presenter = null
+	_refresh_background()   # back to the Road's environment
 	if current_presenter != null:
 		current_presenter.show()
 		_dock_presenter(current_presenter)

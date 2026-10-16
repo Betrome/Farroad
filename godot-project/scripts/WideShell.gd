@@ -30,7 +30,9 @@ func build(host: Node) -> void:
 	dock_bg = Panel.new()
 	dock_bg.add_theme_stylebox_override("panel", _plate(UiKit.PLATE_DARK, 1, 0, 0, 0))
 	dock_bg.mouse_filter = Control.MOUSE_FILTER_STOP
-	dock_bg.z_index = 2   # above the battle, whose turn-order strip runs off the column's right edge
+	# Above the battle's chrome (z 2, added later so it would win a tie): its turn-order strip runs
+	# off the column's right edge. Everything hosted in the dock inherits this.
+	dock_bg.z_index = 3
 	host.add_child(dock_bg)
 	var box := VBoxContainer.new()
 	box.name = "DockBox"
