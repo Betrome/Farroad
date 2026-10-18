@@ -1,11 +1,10 @@
 class_name PvP
 extends RefCounted
-## Ian: PvP to give something shareable some interactivity. First version:
-## share codes and bragging rights. A player's fielded team (levels, gear,
-## gambits, affinities, Lore on the actions it uses, and the MC's look)
-## packs into a text code; anyone pastes it and fights that team, with the
-## game's own AI running both sides. No server yet, so a code can be edited
-## and wins pay nothing; a server can verify the same codes later.
+## Share codes and bragging rights. A player's fielded team (levels, gear,
+## gambits, affinities, Lore on the actions it uses, and the main character's
+## look) packs into a text code; anyone pastes it and fights that team, with
+## the game's own AI running both sides. A code can be edited and wins pay
+## nothing here; the server (ArenaServer) verifies teams from build inputs.
 ##
 ## Code: PREFIX + "<json byte size>.<deflated json, base64url>.<check>".
 ## The check only catches a code mangled in copy/paste, not tampering.
@@ -15,20 +14,20 @@ const MAX_UNITS := 5
 const MAX_STAT := 10000000.0
 const HISTORY_CAP := 20
 const ID_PREFIX := "pvp:"
-## Ian: in PvP only, healing (heals, regen, lifesteal) shrinks gradually
-## as enrage rises -- 1/(1 + enrage), so half at +100% enrage, but never
-## zero, so healers stay useful.
+## In PvP only, healing (heals, regen, lifesteal) shrinks gradually as enrage
+## rises: 1/(1 + enrage), so half at +100% enrage, but never zero, so healers
+## stay useful.
 const HEAL_DECAY := "inverse"
-## Ian: PvP fights should last no more than a minute -- both teams enrage
-## from the first turn, 5% per turn (normal fights: 2.5% from turn 20).
+## PvP fights should last no more than a minute: both teams enrage from the
+## first turn, 5% per turn (normal fights: 2.5% from turn 20).
 const ENRAGE_AFTER := 0
 const ENRAGE_PCT := 0.05   # opponent units, and their Lore'd action copies
 
-## Ian: ready-made rival teams in the Arena, at varying power and styles,
-## for anyone to fight without a code. Each is built like a shared team:
-## roster units at a level (stats from the same growth table), their own
-## charge actions, gambits from the player pool (no action twice in a team)
-## and some Lore. `wave` sets the Power shown, as a player's farthest does.
+## Ready-made rival teams in the Arena, at varying power and styles, for
+## anyone to fight without a code. Each is built like a shared team: roster
+## units at a level (stats from the same growth table), their own charge
+## actions, gambits from the player pool (no action twice in a team) and some
+## Lore. `wave` sets the Power shown, as a player's farthest does.
 const RIVALS := [
 	{"id": "rookies", "name": "Roadside Rookies", "level": 8, "wave": 30,
 		"blurb": "A fresh crew off the road: straightforward hitters and one healer.",
@@ -77,8 +76,8 @@ const RIVALS := [
 			{"id": "morwen", "slots": [["ally_hp_lte_50", "radiantmend"], ["foe_lacks_debuff", "curse"], ["none", "sanctumray"]]}],
 		"lore": {"infernocleaver": {"potent": 5, "piercing": 2}, "solarflare": {"potent": 5},
 			"radiantmend": {"potent": 3, "cleansing": 2}, "shadowrend": {"potent": 3}}},
-	# Ian: a Power ~1000 team for players to test their builds against. The
-	# Legends line-up at levels 103-106 adds up to exactly 1000.
+	# a Power ~1000 team for players to test their builds against; the Legends
+	# line-up at levels 103-106 adds up to exactly 1000
 	{"id": "proving", "name": "The Proving Ground", "level": 104, "wave": 330, "rating": 1400,
 		"blurb": "A Power 1000 team to test your build against.",
 		"units": [

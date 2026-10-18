@@ -1,8 +1,7 @@
 class_name ActionFilter
 extends RefCounted
-## The action filter shared by Catalogue, Gambits and the Shop (it used to
-## be copied into each). Ian: "Action Filter: remove 'elemental' and add in
-## each of the different affinities." An action's affinity is its element
+## The action filter shared by Catalogue, Gambits and the Shop. It filters by
+## each affinity: an action's affinity is its element
 ## (fire/water/earth/air/light/dark/spirit), and physical actions also use
 ## Body (FarroadCore.affinity_factor).
 
@@ -19,8 +18,8 @@ const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", 
 const GEAR_SLOT_OPTIONS := [["any", "Any slot"], ["head", "Head"], ["body", "Body"], ["legs", "Legs"], ["hand", "Hand"]]
 const RARITY_OPTIONS := [["any", "Any rarity"], ["common", "Common"], ["rare", "Rare"], ["legendary", "Legendary"]]
 
-## Ian: action lists can be sorted A-Z or by level. One choice shared by
-## every action list (Gambits, Lore, Catalogue, Shop) for the session.
+## Action lists can be sorted A-Z or by level. One choice is shared by every
+## action list (Gambits, Lore, Catalogue, Shop) for the session.
 const SORT_OPTIONS := [["default", "Default order"], ["alpha", "Sort: A–Z"], ["level", "Sort: Level"]]
 static var sort_mode: String = "default"
 
@@ -72,8 +71,8 @@ static func target_label(act: Dictionary) -> String:
 		"self": "self", "deadAlly": "a fallen ally"}.get(str(act.get("tk", "foe")), "one foe")
 
 ## Player-facing lines for what an action does beyond its damage/heal and
-## status, built from its real numbers (Ian: the CSV design notes were
-## internal and are no longer shown).
+## status, built from its real numbers (the CSV design notes are internal and
+## not shown).
 ## Power as shown to the player. Actions whose power depends on HP or turn
 ## count show their real low-high range (read from the engine's own
 ## formulas, so the text can't drift from what they actually do).
@@ -186,7 +185,7 @@ static func dropdown(options: Array, current_value: String, on_change: Callable)
 	opt.item_selected.connect(func(i): on_change.call(options[i][0]))
 	return UiKit.compact_dropdown(opt)
 
-## ===== gear filter + sort (Ian: "gear filtering and sorting by stat") =====
+## ===== gear filter + sort (by stat) =====
 const GEAR_SORT_OPTIONS := [["default", "Default order"], ["name", "Sort: A–Z"], ["rarity", "Sort: Rarity"],
 	["atk", "Sort: ATK"], ["mag", "Sort: MAG"], ["def", "Sort: DEF"], ["res", "Sort: RES"],
 	["spd", "Sort: SPD"], ["evade", "Sort: Evade"]]

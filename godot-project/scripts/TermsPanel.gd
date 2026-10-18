@@ -1,8 +1,8 @@
 extends Node
-## Ian: playing means agreeing to the terms (which cover the gameplay data
-## Analytics.gd sends) -- shown full-screen before the game starts, for new
-## and returning players alike, and again whenever Analytics.TERMS_VERSION
-## goes up. Same full-screen shape as McCreatePanel.
+## Playing means agreeing to the terms (which cover the gameplay data
+## Analytics.gd sends). Shown full-screen before the game starts, for new and
+## returning players alike, and again whenever Analytics.TERMS_VERSION goes
+## up. Same full-screen shape as McCreatePanel.
 
 var _vp: Vector2
 var root: Control

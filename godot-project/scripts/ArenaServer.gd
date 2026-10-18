@@ -1,5 +1,5 @@
 extends Node
-## The Farroad PvP server (Ian: option 2 -- the game itself, run headless).
+## The Farroad PvP server: the game itself, run headless.
 ## Start it with:  Farroad --headless -- --server [--port 8910] [--data DIR]
 ## (or any export with the "dedicated_server" feature). It speaks plain HTTP
 ## with JSON bodies; HTTPS comes from what's in front of it (Cloud Run).
@@ -72,7 +72,7 @@ func _ready() -> void:
 		return
 	print("Farroad server %s listening on port %d, players in %s" % [Ranked.game_version(), port, store.describe()])
 
-## ===== the ready-made rival teams (Ian: listed with everyone else) =====
+## ===== the ready-made rival teams (listed with everyone else) =====
 
 ## Each rival from PvP.RIVALS is a server player that only defends. Its team
 ## is rebuilt every start (so it follows the game version); its rating and
@@ -232,8 +232,8 @@ func _flag(rec: Dictionary, why: String) -> void:
 	f.append({"at": _now(), "why": why})
 	rec["flags"] = f.slice(-50)
 
-## Wins and losses count fights both made and defended (Ian: a team that
-## only ever defended used to show 0 wins).
+## Wins and losses count fights both made and defended (a team that only ever
+## defended would otherwise show 0 wins).
 func _public(rec: Dictionary) -> Dictionary:
 	return {"id": rec["id"], "name": rec["name"], "rating": int(rec["rating"]),
 		"wins": int(rec["wins"]) + int(rec.get("defWins", 0)), "losses": int(rec["losses"]) + int(rec.get("defLosses", 0)),
@@ -262,9 +262,9 @@ func _team(body: Dictionary) -> Array:
 	var rec = await _auth(body)
 	if rec == null:
 		return [403, {"error": "bad_key"}]
-	# with a cloud save, the team is built here from the last accepted save
-	# (Ian: so the Arena always matches the real game); a team sent in the
-	# request is only used by players who have never uploaded a save
+	# with a cloud save, the team is built here from the last accepted save (so
+	# the Arena always matches the real game); a team sent in the request is
+	# only used by players who have never uploaded a save
 	var team = Ranked.team_from_save(rec["save"]) if rec.get("save") is Dictionary else body.get("team")
 	var why := Ranked.validate(team)
 	if why != "":

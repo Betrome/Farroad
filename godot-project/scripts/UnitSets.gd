@@ -1,9 +1,8 @@
 class_name UnitSets
 extends RefCounted
-## The saved-sets section shared by the Gambits and Equipment screens
-## (Ian: "5 per unit gambit and gear sets in their tabs that can be saved and
-## loaded similar to parties"). Name it, save the unit's current gambits or
-## gear, load or delete it later; up to FarroadProgression.UNIT_SET_CAP each.
+## The saved-sets section shared by the Gambits and Equipment screens, saved
+## and loaded like parties. Name it, save the unit's current gambits or gear,
+## load or delete it later; up to FarroadProgression.UNIT_SET_CAP each.
 
 ## kind is "gambit" or "gear". `on_change` runs after a load/save/delete so
 ## the screen can rebuild. Returns a VBoxContainer to add to the screen.

@@ -1,19 +1,14 @@
 class_name Palette
 extends RefCounted
-## Ian: "change the color scheme to feel more fantasy and lighter." A single
-## shared source of truth for the whole reskin -- not a shared UI base class
-## (every panel still owns its own layout code, per this project's own
-## established convention), just a shared CONSTANTS namespace so a
-## coordinated palette change like this one doesn't drift into 15 subtly-
-## inconsistent copies. "Lighter" is taken literally: a warm parchment
-## background replacing the old near-black one, which means every text
-## color built for light-on-dark had to invert to dark-on-light too, not
-## just the background itself.
+## The shared color constants for the UI: one source of truth, so a palette
+## change doesn't drift into many slightly inconsistent copies. It is a
+## constants namespace, not a shared UI base class (every panel still owns its
+## own layout code).
 
 ## ===== backgrounds / chrome =====
-## Ian: the UI kit (UiKit.gd / UiKitMockup) -- dark brown plates with a silver
-## rim. The names below are the old parchment ones, kept so every screen picks
-## the new look up from here; BG_PARCHMENT is now the plate, and so on.
+## The UI kit (UiKit.gd / UiKitMockup): dark brown plates with a silver rim.
+## The names below are the old parchment ones, kept so every screen picks the
+## look up from here; BG_PARCHMENT is now the plate, and so on.
 const BG_PARCHMENT := Color("38332b")                   # main popup/panel background (plate)
 const BG_PARCHMENT_DEEP := Color("48423a")              # cards/rows nested a level deeper (raised)
 const BORDER_LEATHER := Color("767b82")                 # popup/card borders (silver, shaded)

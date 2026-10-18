@@ -1,8 +1,7 @@
 class_name TouchScroll
 extends Node
-## 24-item batch, Group F: "can't scroll when first touch is on an element:
-## drop-down, status area, text, etc. ... if long hold or drag, should
-## always be scrolling."
+## Lets a touch drag scroll a ScrollContainer even when the press started on
+## an element (a drop-down, status area, text, ...).
 ##
 ## Godot's own ScrollContainer only starts a touch-drag scroll when the
 ## PRESS itself reaches it -- a press landing on a Button, OptionButton,

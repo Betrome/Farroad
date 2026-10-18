@@ -1,7 +1,6 @@
 class_name Notifier
 extends Node
-## Ian: notifications when idle rewards are full or an expedition party is
-## back. Android: local notifications scheduled when the game is closed or
+## Notifications when idle rewards are full or an expedition party is back. Android: local notifications scheduled when the game is closed or
 ## sent to the background (NotificationScheduler plugin, addons/), cancelled
 ## when it's opened again. Windows: a system notification when a party gets
 ## home while the game is open but not focused. Players can turn them off
@@ -25,8 +24,8 @@ static func set_enabled(on: bool) -> void:
 	Analytics._dirty = true
 	Analytics.save()
 
-## Ian: each kind of alert has its own switch ("idle" = rewards full,
-## "expedition" = a party is home), under the master one.
+## Each kind of alert has its own switch ("idle" = rewards full, "expedition" =
+## a party is home), under the master one.
 static func kind_enabled(kind: String) -> bool:
 	return enabled() and (bool(Analytics.state.get("notify_" + kind, true)) if not Analytics.state.is_empty() else true)
 
@@ -78,17 +77,17 @@ func _on_android_ready() -> void:
 	if was_pending:
 		schedule_away()
 		return
-	# Ian: ask the first time the game is opened.
+	# ask the first time the game is opened
 	if not bool(Analytics.state.get("notifyAsked", false)):
 		Analytics.state["notifyAsked"] = true
 		Analytics._dirty = true
 		Analytics.save()
 		if not _scheduler.has_post_notifications_permission():
 			_scheduler.request_post_notifications_permission()
-	# Ian: "idle reward notifications trigger ~20 minutes late." Without the
-	# "Alarms & reminders" permission Android only lets the alarm go off
-	# roughly, and holds it back while the phone is idle. Ask once (opens the
-	# system screen), after the notification permission is sorted.
+	# Without the "Alarms & reminders" permission Android only lets the alarm go
+	# off roughly, and holds it back while the phone is idle (idle-reward
+	# notifications came ~20 minutes late). Ask once (opens the system screen),
+	# after the notification permission is sorted.
 	elif not bool(Analytics.state.get("exactAlarmAsked", false)):
 		Analytics.state["exactAlarmAsked"] = true
 		Analytics._dirty = true

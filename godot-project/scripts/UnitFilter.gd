@@ -1,9 +1,8 @@
 class_name UnitFilter
 extends RefCounted
 ## Filter + sort for lists of owned units (the Party tab's rosters and the
-## Units tab's unit picker). Ian: "filter and sort for units, including
-## physical or magic focus." One setting shared by both screens for the
-## session.
+## Units tab's unit picker), including physical or magic focus. One setting
+## is shared by both screens for the session.
 
 const FOCUS_OPTIONS := [["any", "Any focus"], ["physical", "Physical"], ["magic", "Magic"], ["hybrid", "Balanced"]]
 const RARITY_OPTIONS := [["any", "Any rarity"], ["common", "Common"], ["rare", "Rare"], ["legendary", "Legendary"]]

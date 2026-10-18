@@ -1,58 +1,36 @@
 class_name UnitView
 extends Node2D
-## One unit's on-field visual: a placeholder shape (no sprite art in the repo
-## yet -- Ian's own call), a name label, an HP bar, and a thin charge bar
-## just below it. Built entirely in code (setup()), not a hand-authored
-## .tscn sub-scene -- the battle field's unit count varies per fight, so
-## constructing views programmatically from FarroadCore's own unit dicts is
-## the natural fit, not just easier to author reliably by hand.
+## One unit's on-field visual: a sprite (or a placeholder shape), a name label,
+## an HP bar, and a thin charge bar just below it. Built entirely in code
+## (setup()), not a hand-authored .tscn sub-scene, because the number of units
+## on the field varies per fight and views are constructed from FarroadCore's
+## own unit dicts.
 ##
-## Sized from the caller's OWN viewport-relative size, not a fixed pixel
-## constant -- meant to run on phones, where the visible viewport varies by
-## device aspect ratio (see BattlePresenter's stretch/aspect="expand" note).
+## Sized from the caller's own viewport-relative size, not a fixed pixel
+## constant: it runs on phones, where the visible viewport varies by device
+## aspect ratio (see BattlePresenter's stretch/aspect="expand" note).
 ##
-## Ian: "I want to eventually replace the blocks with sprite assets... what
-## do we need to do now to prepare for that?" `shape` is a real Sprite2D
-## rather than a vector shape, so a real sprite sheet drops straight into
-## `shape.texture` later with no other code changes -- every hop/shake/run
-## animation already tweens `shape.position`/`.scale`, which work
-## identically on a Sprite2D.
-##
-## Ian: "do a procedural polish pass" (a stopgap ahead of real art) --
-## `shape.texture` is now one of a small set of PROCEDURALLY-DRAWN shape
-## textures (see _get_shape_texture), keyed by archetype/party-role, each
-## baked with its own tint and a soft vertical shade for a sense of volume
-## instead of one flat-colored square for every unit in the game. Still a
-## placeholder (still just `shape.texture`, still swapped for real art with
-## zero other code changes) -- just a more legible one.
-##
-## Ian: real animations, added "unit by unit" -- `shape` is now typed
-## Node2D (the nearest common ancestor) rather than strictly Sprite2D,
-## because it's built as ONE of two things depending on whether real art
-## exists for this specific unit yet:
-##   - a real AnimatedSprite2D, if a SpriteFrames resource exists at this
-##     unit's own expected path (see _sprite_frames_path_for) -- self-serve
-##     for Ian: drop a .tres at that exact path and it activates with no
-##     code change, per-unit or per-archetype.
-##   - otherwise the SAME procedural placeholder Sprite2D as before.
-## Every existing hop/shake/run tween already only touches
-## shape.position/.scale/.modulate, which both node types share as
-## Node2D/CanvasItem, so none of that needed to change. The one thing that
-## DOES differ is which named ANIMATION plays and when -- see play_state()
-## and prefers_run_approach() below, which are the only two entry points
-## BattlePresenter needs to know about; a fallback-shape unit's calls to
-## either are safe, cheap no-ops.
-## Named animations, when present: idle / hurt / dead / jump / run /
-## attack / cast. "jump" (a sine-arc hop, the existing default) and "run"
-## (a straight-line dash) are alternate styles for a physical action's
-## approach+return -- a unit uses "run" only if its own SpriteFrames
-## actually HAS a "run" animation (prefers_run_approach()), otherwise it
-## always falls back to "jump", exactly like today.
+## `shape` is a Node2D, built as one of two things depending on whether real
+## art exists for this unit:
+##   - an AnimatedSprite2D, if a SpriteFrames resource exists at the unit's
+##     expected path (see _sprite_frames_path_for). Dropping a .tres at that
+##     path activates it with no code change, per unit or per archetype.
+##   - otherwise a procedurally drawn placeholder Sprite2D (see
+##     _get_shape_texture): a small set of textures keyed by archetype or
+##     party role, each baked with its own tint and a soft vertical shade.
+## The hop / shake / run tweens only touch shape.position, .scale and
+## .modulate, which both node types share. What differs is which named
+## animation plays and when; play_state() and prefers_run_approach() are the
+## only two entry points BattlePresenter needs, and both are safe, cheap
+## no-ops for a placeholder shape.
+## Named animations, when present: idle / hurt / dead / jump / run / attack /
+## cast. "jump" (a sine-arc hop, the default) and "run" (a straight-line dash)
+## are alternate styles for a physical action's approach and return. A unit
+## uses "run" only if its SpriteFrames has a "run" animation
+## (prefers_run_approach()), otherwise it uses "jump".
 
-## Ian: "tapping on a unit in the battle should show its stats page,
-## live." Emitted on a real click/touch inside this unit's own bounding
-## square -- BattlePresenter connects one listener per view (at the same
-## two sites that already call setup()) and opens its Status popup
+## Emitted on a click or touch inside this unit's own bounding square.
+## BattlePresenter connects one listener per view and opens its Status popup
 ## filtered to just this unit.
 signal tapped
 
@@ -70,8 +48,8 @@ var _weapon_meta: Dictionary = {}
 var _impact_meta: Dictionary = {}
 var _fx: AttackFX
 # HP/charge bars and the name live on a separate node that BattlePresenter
-# puts in a layer drawn BEFORE every unit (Ian: sprites always above the
-# bars -- a raised z_index would also have drawn sprites over the pop-ups).
+# puts in a layer drawn BEFORE every unit, so sprites are always above the bars
+# (a raised z_index would also have drawn sprites over the pop-ups).
 var _chrome: Node2D
 var _chrome_layer: Node
 const UNIT_LIGHT_LAYER := AttackFX.UNIT_LIGHT_LAYER   # light-mask bit unit sprites add; attack lights target it
@@ -105,7 +83,7 @@ const _ENEMY_ARCH_STYLE := {
 	"ox": {"shape": ShapeKind.HEX, "tint": Color(0.45, 0.10, 0.10)},
 	"priest": {"shape": ShapeKind.DIAMOND, "tint": Color(0.65, 0.15, 0.35)},
 	"shrike": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.80, 0.20, 0.35)},
-	# Elemental batch -- tinted by element so weaknesses read at a glance.
+	# tinted by element so weaknesses read at a glance
 	"cinderimp": {"shape": ShapeKind.TRIANGLE_UP, "tint": Color(0.95, 0.40, 0.10)},
 	"tidewraith": {"shape": ShapeKind.DIAMOND, "tint": Color(0.15, 0.45, 0.90)},
 	"cragback": {"shape": ShapeKind.HEX, "tint": Color(0.55, 0.40, 0.20)},
@@ -118,7 +96,7 @@ const _ENEMY_ARCH_STYLE := {
 	"stormroc": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.80, 0.65)},
 	"dawnseraph": {"shape": ShapeKind.HEX, "tint": Color(0.95, 0.80, 0.30)},
 	"hollowking": {"shape": ShapeKind.HEX, "tint": Color(0.35, 0.12, 0.50)},
-	# Body / Spirit batch.
+	# Body and Spirit tints
 	"ironhide": {"shape": ShapeKind.SQUARE, "tint": Color(0.50, 0.46, 0.42)},
 	"hollowhusk": {"shape": ShapeKind.DIAMOND, "tint": Color(0.62, 0.50, 0.85)},
 	"carrion": {"shape": ShapeKind.TRIANGLE_DOWN, "tint": Color(0.45, 0.55, 0.22)},
@@ -276,15 +254,14 @@ func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
 	_build(unit_size)
 
-## Rebuilds this SAME UnitView at a new size, `unit` unchanged -- used by
-## BattlePresenter._place_weighted's overflow shrink (Group I, 20-item
-## batch: several large archetypes sharing one column can genuinely not
-## fit at their own natural size; shrinking the actual rendered size,
-## not just the reserved band, is what keeps the visual footprint honest).
-## Safe to call before this UnitView has ever been rendered a frame (the
-## normal case -- _layout_units/_place_weighted run synchronously before
-## the scene tree's first draw), since the old children's queue_free()
-## never gets a chance to show on screen either way.
+## Rebuilds this same UnitView at a new size, `unit` unchanged. Used by
+## BattlePresenter._place_weighted's overflow shrink: several large archetypes
+## sharing one column can fail to fit at their natural size, and shrinking the
+## rendered size (not just the reserved band) keeps the visual footprint
+## honest. Safe to call before this UnitView has ever been drawn (the normal
+## case: _layout_units and _place_weighted run before the scene tree's first
+## draw), since the old children's queue_free() never shows on screen either
+## way.
 func resize(unit_size: float) -> void:
 	for c in get_children():
 		c.queue_free()
@@ -305,10 +282,9 @@ func _build(unit_size: float) -> void:
 	var half := size / 2.0
 	var bar_h: float = max(9.0, size * 0.2)
 	var charge_h: float = max(4.0, bar_h * 0.6)
-	# Group I (20-item batch): tightened from the original bar_h-sized gaps
-	# (the bar's own height doubling as the gap between it and the next
-	# element) to a small, consistent gap -- shrinks each unit's total
-	# vertical footprint so adjacent units don't overlap at max occupancy.
+	# A small, consistent gap between elements (rather than the bar's own
+	# height) keeps each unit's total vertical footprint small, so adjacent
+	# units don't overlap at max occupancy.
 	var gap: float = max(1.0, size * 0.05)
 
 	var style: Dictionary = _style_for(unit)
@@ -406,15 +382,14 @@ func _build(unit_size: float) -> void:
 	_charge_bg = _charge_bar
 	_charge_fg = _charge_bar
 
-	# Group I: "space out units vertically so names aren't overlapping. Put
-	# names under the charge bar." -- moved from above the shape (its old
-	# spot) to directly below the charge bar, now the bottom-most element.
+	# The name sits directly below the charge bar (the bottom-most element),
+	# so names don't overlap neighbouring units.
 	_name_label = Label.new()
 	_name_label.text = unit["name"]
 	_name_label.position = Vector2(-half, charge_y + charge_h + gap)
 	_name_label.add_theme_font_size_override("font_size", int(name_ref_size * 0.36))
-	# Ian: names get an outline. The names sit on the pale sky, so light text with a
-	# thin black outline (thick outlines fill in the letters at this size).
+	# Names get an outline. They sit on the pale sky, so light text with a thin
+	# black outline (thick outlines fill in the letters at this size).
 	_name_label.add_theme_color_override("font_color", Color.WHITE)
 	_name_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	_name_label.add_theme_constant_override("outline_size", 4)
@@ -516,7 +491,7 @@ func _on_anim_frame() -> void:
 		_fx.swing(cur[0], cur[1], f == impact)
 
 ## Below this share of max HP a unit with an "idle_low" animation idles
-## hunched and wounded instead (Ian: low-HP idle).
+## hunched and wounded instead.
 const LOW_HP_FRAC := 0.25
 
 func _is_low_hp() -> bool:
@@ -590,8 +565,8 @@ func time_to_impact(anim_name: String) -> float:
 ## animations at all, so it always answers false (today's jump/hop,
 ## unchanged).
 func prefers_run_approach() -> bool:
-	# Ian: jumping stays the default; running is a per-unit choice (Party
-	# tab, g["approach"][uid]) for units whose art has a "run" animation.
+	# jumping is the default; running is a per-unit choice (Party tab,
+	# g["approach"][uid]) for units whose art has a "run" animation
 	if not has_animation("run") or not unit.get("isParty", false):
 		return false
 	return str((game_state.get("approach", {}) as Dictionary).get(unit["id"], "jump")) == "run"
@@ -612,7 +587,7 @@ func play_then_idle(anim_name: String, cap: float = 1.5) -> void:
 	if is_instance_valid(self) and float(unit["hp"]) > 0.0 and String((shape as AnimatedSprite2D).animation) == anim_name:
 		play_state("idle")
 
-## An attack that missed this unit: a quick dodge (Ian: evade animation).
+## An attack that missed this unit: a quick dodge.
 func evade() -> void:
 	if float(unit["hp"]) > 0.0:
 		play_then_idle("evade", 0.8)
@@ -677,9 +652,9 @@ func update_hp(hp_override: float = -1.0, seq: int = -1) -> void:
 	_played_dead_state = false
 	visible = true
 	modulate.a = 1.0
-	# Ian: revived units get up instead of popping straight to idle; and
-	# a unit idling crosses between the normal and the wounded idle as its
-	# HP moves past LOW_HP_FRAC.
+	# revived units get up instead of popping straight to idle; and a unit
+	# idling crosses between the normal and the wounded idle as its HP moves
+	# past LOW_HP_FRAC
 	if was_down:
 		play_then_idle("revive", 2.0)
 	elif shape is AnimatedSprite2D:
@@ -730,9 +705,9 @@ func _sync_chrome() -> void:
 	_chrome.visible = is_visible_in_tree()
 	_chrome.modulate = modulate
 
-## Ian: a unit's idle loop occasionally stopped (a frozen pose). Whatever
-## cuts an animation short, a living unit whose animation has been sitting
-## finished for a moment goes back to its idle loop.
+## Guards against a frozen pose: whatever cuts an animation short, a living
+## unit whose animation has been sitting finished for a moment goes back to its
+## idle loop.
 const IDLE_WATCHDOG_SEC := 1.2
 var _still_for: float = 0.0
 
@@ -764,17 +739,16 @@ func hide_chrome() -> void:
 	_charge_fg.visible = false
 	_name_label.visible = false
 
-## "...and fade in over .5 seconds when they stop moving." Called once a
-## view's own movement tween has finished. Respects update_charge()'s own
-## rule that a unit with no chargeAction never shows a charge bar at all --
-## fading one in for such a unit would contradict its normal (non-transition)
-## state.
-## Ian: enemies carry no name under them -- only bosses (and the player's
-## own units) do.
+## Enemies carry no name under them; only bosses (and the player's own units)
+## do.
 func _shows_name() -> bool:
-	# Ian: no unit names on the field, except under bosses (the Status page and Log still name everyone).
+	# no unit names on the field, except under bosses (the Status page and Log still name everyone)
 	return bool(unit.get("isBoss", false)) and not unit["isParty"]
 
+## Fades the HP bar, name and charge bar in over `duration` seconds. Called
+## once a view's own movement tween has finished. Respects update_charge()'s
+## rule that a unit with no chargeAction never shows a charge bar at all:
+## fading one in for such a unit would contradict its normal state.
 func fade_in_chrome(duration: float = 0.5) -> void:
 	_hp_bg.visible = true
 	_hp_fg.visible = true

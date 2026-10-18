@@ -1,16 +1,15 @@
 class_name Analytics
 extends RefCounted
-## Anonymous gameplay stats, sent about once a day (Ian: "track player
-## behaviors to help with balancing and creating new content"). Counters
-## build up locally in user://analytics.json while playing -- nothing goes
-## over the network until a daily report. Each report is the counters since
-## the last report plus a snapshot of the save (units, loadouts, Lore...),
-## posted to Ian's Google Sheet (an Apps Script web app); the in-house
+## Anonymous gameplay stats, sent about once a day to help with balancing and
+## new content. Counters build up locally in user://analytics.json while
+## playing; nothing goes over the network until a daily report. Each report is
+## the counters since the last report plus a snapshot of the save (units,
+## loadouts, Lore...), posted to a Google Sheet (an Apps Script web app); the
 ## parser in tools/analytics/ turns the rows into a dashboard.
 ##
 ## Reports carry no personal details: a random install id, game version,
-## platform and gameplay numbers only. Ian: required, not optional -- it's
-## part of the terms every player agrees to before playing (TermsPanel).
+## platform and gameplay numbers only. They are required, not optional: they
+## are part of the terms every player agrees to before playing (TermsPanel).
 ## A player can ask for their data to be deleted via Send Feedback, quoting
 ## the install id the terms screen shows.
 
@@ -86,7 +85,7 @@ static func install_id() -> String:
 	_ensure()
 	return str(state["id"])
 
-## Player IDs (Ian: standardized, shown in the Menu as "ID: XXX-XXX-XXX"):
+## Player IDs, shown in the Menu as "ID: XXX-XXX-XXX":
 ## 9 characters from an alphabet without look-alikes (no 0/O, 1/I/L, U),
 ## stored without dashes, shown in three groups. 30^9 ~ 2e13 possible IDs.
 const ID_ALPHABET := "23456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -112,7 +111,7 @@ static func display_id() -> String:
 	var id := install_id()
 	return "%s-%s-%s" % [id.substr(0, 3), id.substr(3, 3), id.substr(6, 3)]
 
-## DRAFT for Ian to review -- not legal advice; worth a check before release.
+## Draft text, not legal advice; have it reviewed before release.
 static func terms_bbcode() -> String:
 	return """[b]Farroad Terms of Service[/b]
 [i]Version %d[/i]
@@ -230,8 +229,8 @@ static func fight_end(ctx: String, won: bool, actions: Dictionary, units: Array,
 			add("fightTitles_" + res, str(t))
 			add("fightTitles_%s_%s" % [ctx, res], str(t))
 
-## Per-fight records (Ian: to relate actions/units/combinations to clear
-## time, specific waves and enemy types). Each is a short array:
+## Per-fight records, to relate actions, units and combinations to clear time,
+## specific waves and enemy types. Each is a short array:
 ##   [ctx, key, won 1/0, turns, seconds, fast 1/0, [units], {action: uses},
 ##    [enemy archetypes], [fallen units]]
 ## `key` is the Road wave, "uid#stage" for a quest, "dir#tN#wN" for a
