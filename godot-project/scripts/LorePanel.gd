@@ -1,3 +1,4 @@
+class_name LorePanel
 extends Node
 ## Milestone 3, Step 3e: the LORE tab -- Lore-bonus purchase/refund, per
 ## action. Engine math (apply_bonuses/bonus_price/bonus_applies/bonus_spend/
@@ -38,7 +39,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var selected_uid: String = ""
 var selected_action_id: String = ""
 
@@ -51,6 +52,12 @@ var card_container: Container
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
+
+## Clears the action picker's filters (the guided tutorial uses this so Sear isn't hidden by a leftover filter).
+func reset_filters() -> void:
+	action_filter_target = "any"
+	action_filter_camp = "any"
+	action_filter_effect = "any"
 const ACTION_TARGET_OPTIONS := ActionFilter.TARGET_OPTIONS
 ## "camp" in the name/var is legacy -- see GambitsPanel's own identical
 ## copy of this comment for the full reasoning.
@@ -80,7 +87,7 @@ static func _rarity_icon(rarity: String) -> Texture2D:
 	_rarity_icon_cache[rarity] = tex
 	return tex
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -268,7 +275,7 @@ func _refresh_card() -> void:
 		# ... a header at the top of the list you scroll through to pare it
 		# down some" -- replaces the OptionButton (which can't embed a
 		# filter control inside its own popup) with a trigger button that
-		# opens GameController's shared _show_picker_overlay, same shape
+		# opens GameController's shared show_picker_overlay, same shape
 		# GambitsPanel's own condition/action pickers now use.
 		var uneq_row := HBoxContainer.new()
 		var uneq_btn := Button.new()
@@ -317,8 +324,7 @@ func _refresh_card() -> void:
 	var details_btn := Button.new()
 	details_btn.text = "ⓘ Details"
 	details_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_action_detail_popup"):
-			_parent.call("_show_action_detail_popup", aid))
+		_parent.show_action_detail_popup(aid))
 	name_row.add_child(details_btn)
 	card_container.add_child(name_row)
 
@@ -348,7 +354,7 @@ func _refresh_card() -> void:
 			live_bids.append(bid)
 			can_buy[bid] = applies
 	var total_on_action: int = FarroadCore.action_bonus_total(b)
-	var is_wide: bool = _parent != null and bool(_parent.get("wide"))
+	var is_wide: bool = _parent != null and _parent.wide
 	var bonus_list: Container
 	if is_wide:
 		# wide windows: the upgrades as a grid of small cards, so nothing scrolls
@@ -410,9 +416,7 @@ func _on_action_selected(aid: String) -> void:
 ## overlay instead of a native OptionButton -- same shape GambitsPanel's
 ## own condition/action pickers use.
 func _open_unequipped_picker(candidate_ids: Array) -> void:
-	if not (_parent and _parent.has_method("_show_picker_overlay")):
-		return
-	_parent.call("_show_picker_overlay", "Choose an action", func(list_container: Container, backdrop: Node):
+	_parent.show_picker_overlay("Choose an action", func(list_container: Container, backdrop: Node):
 		_populate_unequipped_picker(list_container, backdrop, candidate_ids))
 
 ## Rebuilds the picker's scrollable list (filter row first, then rows) --
@@ -460,8 +464,7 @@ func _populate_unequipped_picker(list_container: Container, backdrop: Node, cand
 func _on_unequipped_info_pressed() -> void:
 	if selected_action_id == "":
 		return
-	if _parent and _parent.has_method("_show_action_detail_popup"):
-		_parent.call("_show_action_detail_popup", selected_action_id)
+	_parent.show_action_detail_popup(selected_action_id)
 
 func _action_passes_filter(act: Dictionary) -> bool:
 	return ActionFilter.passes(act, action_filter_target, action_filter_camp, action_filter_effect)

@@ -746,6 +746,9 @@ func _process(delta: float) -> void:
 			_still_for += delta
 			if _still_for >= IDLE_WATCHDOG_SEC:
 				_still_for = 0.0
+				# which animation stopped without anything following it: the clue to what cut it short
+				Analytics.add("features", "idleWatchdog:%s%s" % [str(asp.animation), ":holdRun" if hold_run else ""])
+				push_warning("Idle watchdog: %s stopped on '%s'%s" % [str(unit.get("name", "?")), str(asp.animation), " (hold_run set)" if hold_run else ""])
 				play_state("idle")
 	else:
 		_still_for = 0.0

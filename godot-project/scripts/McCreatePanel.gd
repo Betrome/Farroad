@@ -130,8 +130,8 @@ func _build_ui(parent: Node) -> void:
 	var recover_btn := Button.new()
 	recover_btn.text = "Continue a game from another device"
 	recover_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_account_popup"):
-			_parent.call("_show_account_popup"))
+		if _parent and _parent.has_method("show_account_popup"):
+			_parent.call("show_account_popup"))
 	root_vbox.add_child(recover_btn)
 
 	_refresh_stats()

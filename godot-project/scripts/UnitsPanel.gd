@@ -1,3 +1,4 @@
+class_name UnitsPanel
 extends Node
 ## Post-Milestone-3 APK feedback (Group B1, redesigned again after
 ## real-device testing): the "Units" tab -- a single dropdown-based unit
@@ -18,8 +19,7 @@ extends Node
 ##
 ## GAMBITS/AETHER/LORE/EQUIPMENT no longer own any popup of their own --
 ## each exposes build_into(container, uid, host_popup), called here via
-## GameController._build_unit_subpanel_content (dynamic dispatch, `_parent`
-## stays untyped per this project's convention). This is also the ONLY
+## GameController.build_unit_subpanel_content. This is also the ONLY
 ## popup any of that content now lives inside, so there's exactly one
 ## outer ScrollContainer for everything (dropdown+subtabs+content) -- no
 ## nested scroll containers to fight each other, directly addressing the
@@ -28,7 +28,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var selected_uid: String = ""
 var current_sub_tab: String = "summary"
 
@@ -41,7 +41,7 @@ var content_container: VBoxContainer
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 const SUB_TABS := [["summary", "Summary"], ["gambits", "Gambits"], ["aether", "Aether"], ["lore", "Lore"], ["equipment", "Gear"]]
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -62,16 +62,15 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", open_menu)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.0288, _vp.y * 0.93), icon_size, "Units", open_menu)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	_populate_popup()
 
@@ -84,7 +83,7 @@ var unit_list: VBoxContainer
 var unit_list_scroll: ScrollContainer
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 func _populate_popup() -> void:
 	if _body != null and is_instance_valid(_body):
@@ -112,7 +111,7 @@ func _populate_popup() -> void:
 	root_vbox.add_child(title)
 
 	# Ian: same unit filter/sort as the Party tab
-	root_vbox.add_child(UnitFilter.controls(_refresh_dropdown))
+	root_vbox.add_child(UnitFilter.controls(refresh_dropdown))
 	dropdown = OptionButton.new()
 	dropdown.item_selected.connect(_on_dropdown_selected)
 	root_vbox.add_child(dropdown)
@@ -140,7 +139,7 @@ func _populate_popup() -> void:
 const LIST_W := 250.0
 
 func _populate_wide() -> void:
-	var r: Rect2i = _parent.call("full_menu_rect")
+	var r: Rect2i = _parent.full_menu_rect()
 	var root := HBoxContainer.new()
 	_body = root
 	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
@@ -155,7 +154,7 @@ func _populate_wide() -> void:
 	title.text = "UNITS"
 	title.add_theme_font_size_override("font_size", 20)
 	left.add_child(title)
-	left.add_child(UnitFilter.controls(_refresh_dropdown))
+	left.add_child(UnitFilter.controls(refresh_dropdown))
 	unit_list_scroll = ScrollContainer.new()
 	unit_list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	unit_list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -224,7 +223,7 @@ func _refresh_unit_list() -> void:
 		b.pressed.connect(func():
 			selected_uid = uid
 			_refresh_unit_list()
-			_refresh_content())
+			refresh_content())
 		unit_list.add_child(b)
 
 ## What the tutorial points at to pick a unit.
@@ -244,19 +243,13 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
+func open_menu() -> void:
+	_parent.panel_opening(self)
 	# Ian: reopening Units starts back on the MC's summary
 	selected_uid = "kesh" if g["owned"].has("kesh") else ""
 	current_sub_tab = "summary"
 	_refresh()
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
-	_notify_battle_paused(true)
-
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 func _default_uid() -> String:
 	if not g["party"].is_empty():
@@ -267,11 +260,11 @@ func _default_uid() -> String:
 func _refresh() -> void:
 	if selected_uid == "" or not g["owned"].has(selected_uid):
 		selected_uid = _default_uid()
-	_refresh_dropdown()
+	refresh_dropdown()
 	_refresh_sub_tab_styles()
-	_refresh_content()
+	refresh_content()
 
-func _refresh_dropdown() -> void:
+func refresh_dropdown() -> void:
 	_refresh_unit_list()
 	dropdown.clear()
 	var uids: Array = UnitFilter.apply(g, FarroadProgression.owned_ids(g), [selected_uid])
@@ -294,7 +287,7 @@ func _on_dropdown_selected(idx: int) -> void:
 	if idx < 0 or idx >= uids.size():
 		return
 	selected_uid = uids[idx]
-	_refresh_content()
+	refresh_content()
 
 ## Ian: X / tapping outside goes up a level -- from a sub-tab to Summary.
 func can_go_back() -> bool:
@@ -305,23 +298,23 @@ func go_back() -> void:
 
 func _on_sub_tab_pressed(tab: String) -> void:
 	# a locked sub-tab says when it opens (Tutorial.gd)
-	if _parent and _parent.has_method("_tab_unlocked") and not _parent.call("_tab_unlocked", tab):
-		if _parent.get("tutorial") != null:
+	if not _parent.tab_unlocked(tab):
+		if _parent.tutorial != null:
 			_parent.tutorial.locked_tap(tab, sub_tab_buttons[tab])
 		return
 	current_sub_tab = tab
 	_refresh_sub_tab_styles()
-	_refresh_content()
+	refresh_content()
 
 func _refresh_sub_tab_styles() -> void:
 	for key in sub_tab_buttons.keys():
 		# Gambits, Lore and Gear unlock with their tutorials (Tutorial.gd)
-		var open: bool = not (_parent and _parent.has_method("_tab_unlocked")) or _parent.call("_tab_unlocked", key)
+		var open: bool = _parent.tab_unlocked(key)
 		sub_tab_buttons[key].disabled = key == current_sub_tab
 		UiKit.tab_selected(sub_tab_buttons[key], key == current_sub_tab, true)
 		sub_tab_buttons[key].modulate = Color(1, 1, 1, 1) if open else Tutorial.LOCKED_TINT
 
-func _refresh_content() -> void:
+func refresh_content() -> void:
 	for c in content_container.get_children():
 		c.queue_free()
 	if selected_uid == "":
@@ -332,8 +325,8 @@ func _refresh_content() -> void:
 		return
 	if current_sub_tab == "summary":
 		_build_summary_card()
-	elif _parent and _parent.has_method("_build_unit_subpanel_content"):
-		_parent.call("_build_unit_subpanel_content", current_sub_tab, content_container, selected_uid, popup)
+	else:
+		_parent.build_unit_subpanel_content(current_sub_tab, content_container, selected_uid, popup)
 
 ## A static summary card -- built via FarroadProgression.build_party_unit
 ## (works for ANY owned uid regardless of fielded/benched status, unlike a
@@ -432,8 +425,7 @@ func _build_summary_card() -> void:
 		var remake := Button.new()
 		remake.text = "Use the Shifted Reflection (x%d) — redo my stats" % int(g["mcRespecs"])
 		remake.pressed.connect(func():
-			if _parent and _parent.has_method("_start_mc_respec"):
-				_parent.call("_start_mc_respec"))
+			_parent.start_mc_respec())
 		content_container.add_child(remake)
 
 	# Every number on the summary is registered so it can update live (see
@@ -491,7 +483,6 @@ func _build_summary_card() -> void:
 		charge_info_btn.text = "ⓘ"
 		charge_info_btn.custom_minimum_size = Vector2(36, 0)
 		charge_info_btn.pressed.connect(func():
-			if _parent and _parent.has_method("_show_action_detail_popup"):
-				_parent.call("_show_action_detail_popup", charge_id))
+			_parent.show_action_detail_popup(charge_id))
 		charge_row.add_child(charge_info_btn)
 		content_container.add_child(charge_row)

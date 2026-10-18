@@ -1,3 +1,4 @@
+class_name GambitsPanel
 extends Node
 ## Milestone 3, Step 3c: the GAMBITS tab -- the loadout/AI-rule editor.
 ## Owns its own toggle button + popup (same "panel owns its whole UI
@@ -37,7 +38,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var selected_uid: String = ""
 
 var slots_container: Container
@@ -50,7 +51,7 @@ var slots_container: Container
 ## OptionButton can't embed a filter control inside its own popup at all,
 ## so the condition/action pickers are no longer OptionButtons: tapping
 ## the current-selection button now opens GameController's shared
-## _show_picker_overlay, whose scrollable list has the filter row as its
+## show_picker_overlay, whose scrollable list has the filter row as its
 ## own first entries, followed by the selectable rows -- one list you
 ## scroll through together. Filter STATE is still these same shared
 ## instance vars (persists across a unit swap or reopening the picker).
@@ -87,7 +88,7 @@ static func _rarity_icon(rarity: String) -> Texture2D:
 	_rarity_icon_cache[rarity] = tex
 	return tex
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -185,8 +186,7 @@ func _build_auto_set_row() -> void:
 	var test_btn := Button.new()
 	test_btn.text = "Test"
 	test_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_open_training"):
-			_parent.call("_open_training"))
+		_parent.open_training())
 	row.add_child(test_btn)
 	# one header block (auto-set + saved sets) so the slot cards below keep
 	# the same child offset
@@ -257,7 +257,7 @@ func _refresh_slots() -> void:
 		card.add_theme_stylebox_override("panel", UiKit.card_style(10))
 		slots_container.add_child(card)
 
-		if _parent != null and bool(_parent.get("wide")):
+		if _parent != null and _parent.wide:
 			_build_wide_slot_row(card, i, s, slots.size())
 			continue
 		var vbox := VBoxContainer.new()
@@ -374,7 +374,7 @@ func _refresh_slots() -> void:
 			slots_container.add_child(charge_row)
 
 ## Post-Milestone-3 APK feedback (round 5): opens a filterable picker
-## overlay (GameController._show_picker_overlay) instead of a native
+## overlay (GameController.show_picker_overlay) instead of a native
 ## OptionButton -- the filter row is the scrollable list's own first
 ## entry, everything scrolls together. `populate` is a self-referencing
 ## closure (declared, then assigned, so it can call itself from a filter
@@ -382,9 +382,7 @@ func _refresh_slots() -> void:
 ## closing the overlay) -- the same recursive-closure shape GDScript
 ## lambdas support natively.
 func _open_condition_picker(i: int, current_cond: String) -> void:
-	if not (_parent and _parent.has_method("_show_picker_overlay")):
-		return
-	_parent.call("_show_picker_overlay", "Choose condition", func(list_container: Container, backdrop: Node):
+	_parent.show_picker_overlay("Choose condition", func(list_container: Container, backdrop: Node):
 		_populate_condition_picker(list_container, backdrop, i, current_cond))
 
 ## Rebuilds the condition picker's scrollable list (filter row first, then
@@ -433,9 +431,7 @@ func _populate_condition_picker(list_container: Container, backdrop: Node, i: in
 ## if held elsewhere (same aid!==s.action guard the real code uses). Same
 ## picker-overlay shape as the condition picker above.
 func _open_action_picker(i: int, current_action: String) -> void:
-	if not (_parent and _parent.has_method("_show_picker_overlay")):
-		return
-	_parent.call("_show_picker_overlay", "Choose action", func(list_container: Container, backdrop: Node):
+	_parent.show_picker_overlay("Choose action", func(list_container: Container, backdrop: Node):
 		_populate_action_picker(list_container, backdrop, i, current_action))
 
 ## Same named-method-instead-of-self-referencing-closure reasoning as
@@ -474,7 +470,7 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		var row_btn := Button.new()
 		var level_tag: String = " Lv%d" % FarroadProgression.action_level(g, aid) if act != null else ""
 		# 24-item batch, Group D1: "(used by X)" moved out of this row's own
-		# label and into the ⓘ detail popup (_show_action_detail_popup) --
+		# label and into the ⓘ detail popup (show_action_detail_popup) --
 		# the row still reads as disabled, and its tooltip still says why.
 		row_btn.text = (act["name"] if act else aid) + level_tag
 		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
@@ -491,15 +487,12 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		row_info_btn.text = "ⓘ"
 		row_info_btn.custom_minimum_size = Vector2(36, 0)
 		row_info_btn.pressed.connect(func():
-			if _parent and _parent.has_method("_show_action_detail_popup"):
-				_parent.call("_show_action_detail_popup", aid))
+			_parent.show_action_detail_popup(aid))
 		row.add_child(row_info_btn)
 		list_container.add_child(row)
 
 func _open_charge_picker(acquired: Array, current: String) -> void:
-	if not (_parent and _parent.has_method("_show_picker_overlay")):
-		return
-	_parent.call("_show_picker_overlay", "Choose charge action", func(list_container: Container, backdrop: Node):
+	_parent.show_picker_overlay("Choose charge action", func(list_container: Container, backdrop: Node):
 		_populate_charge_picker(list_container, backdrop, acquired, current))
 
 func _populate_charge_picker(list_container: Container, backdrop: Node, acquired: Array, current: String) -> void:
@@ -541,8 +534,7 @@ func _populate_charge_picker(list_container: Container, backdrop: Node, acquired
 		info.text = "ⓘ"
 		info.custom_minimum_size = Vector2(36, 0)
 		info.pressed.connect(func():
-			if _parent and _parent.has_method("_show_action_detail_popup"):
-				_parent.call("_show_action_detail_popup", aid))
+			_parent.show_action_detail_popup(aid))
 		row.add_child(info)
 		list_container.add_child(row)
 
@@ -589,8 +581,7 @@ func _on_reorder(i: int, delta: int) -> void:
 ## action fresh at press-time (not a value bound at build-time).
 func _on_action_info_pressed(i: int) -> void:
 	var action_id: String = g["loadout"][selected_uid][i]["action"]
-	if _parent and _parent.has_method("_show_action_detail_popup"):
-		_parent.call("_show_action_detail_popup", action_id)
+	_parent.show_action_detail_popup(action_id)
 
 ## Post-Milestone-3 APK feedback (Group A4).
 func _on_charge_action_changed(action_id: String) -> void:
@@ -603,8 +594,7 @@ func _on_charge_info_pressed() -> void:
 	var uid_def = FarroadCore.roster_by_id(selected_uid)
 	if uid_def == null or not uid_def.get("chargeAction"):
 		return
-	if _parent and _parent.has_method("_show_action_detail_popup"):
-		_parent.call("_show_action_detail_popup", uid_def["chargeAction"])
+	_parent.show_action_detail_popup(uid_def["chargeAction"])
 
 func _on_cond_changed(i: int, cond_id: String) -> void:
 	g["loadout"][selected_uid][i]["cond"] = cond_id

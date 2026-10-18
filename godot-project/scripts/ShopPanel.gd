@@ -1,3 +1,4 @@
+class_name ShopPanel
 extends Node
 ## 24-item batch, Group C6: the new "Shop" tab -- spend Crystal (a new
 ## currency, see FarroadProgression.gd's own SHOP_*_PRICE constants) on a
@@ -11,7 +12,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var current_tab: String = "marks"
 
 var toggle_button: Button
@@ -22,7 +23,7 @@ var list_container: VBoxContainer
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 const TABS := [["marks", "Marks"], ["gambits", "Gambits"], ["actions", "Actions"], ["units", "Units"], ["equipment", "Gear"]]
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -33,22 +34,21 @@ func reflow(new_vp: Vector2) -> void:
 	if popup != null and _built_wide != _is_wide():
 		_populate_popup()
 		if popup.visible:
-			_refresh()
+			refresh()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", open_menu)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 -- 8th slot in the bottom row, see
 	# MarksPanel.gd's own copy of this comment for the full 8-slot layout.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", open_menu)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	_populate_popup()
 
@@ -59,7 +59,7 @@ var _body: Control
 var _built_wide := false
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 func _populate_popup() -> void:
 	if _body != null and is_instance_valid(_body):
@@ -109,7 +109,7 @@ var crystal_label: Label
 const SIDE_W := 190.0
 
 func _populate_wide() -> void:
-	var r: Rect2i = _parent.call("full_menu_rect")
+	var r: Rect2i = _parent.full_menu_rect()
 	var root := HBoxContainer.new()
 	_body = root
 	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
@@ -148,6 +148,10 @@ func _populate_wide() -> void:
 ## Goods go into a paged grid (no scrolling) in a wide window.
 var _items: Array = []
 var _page := 0
+
+## Back to the first page of the list (the guided tutorial opens the Shop on page one).
+func reset_page() -> void:
+	_page = 0
 const PAGE_COLS := 3
 const PAGE_ROWS := 7
 
@@ -192,7 +196,7 @@ func _finish_list() -> void:
 		prev.disabled = _page == 0
 		prev.pressed.connect(func():
 			_page -= 1
-			_refresh())
+			refresh())
 		pager.add_child(prev)
 		var lbl := Label.new()
 		lbl.text = "Page %d of %d" % [_page + 1, pages]
@@ -202,7 +206,7 @@ func _finish_list() -> void:
 		nxt.disabled = _page >= pages - 1
 		nxt.pressed.connect(func():
 			_page += 1
-			_refresh())
+			refresh())
 		pager.add_child(nxt)
 		list_container.add_child(pager)
 
@@ -212,23 +216,17 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
-	_refresh()
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
-	_notify_battle_paused(true)
-
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
+func open_menu() -> void:
+	_parent.panel_opening(self)
+	refresh()
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 func _on_tab_pressed(tab: String) -> void:
 	current_tab = tab
 	_page = 0
-	_refresh()
+	refresh()
 
-func _refresh() -> void:
+func refresh() -> void:
 	crystal_label.text = "%d Crystal" % int(g.get("crystal", 0))
 	for key in tab_buttons.keys():
 		tab_buttons[key].disabled = (key == current_tab)
@@ -238,7 +236,7 @@ func _refresh() -> void:
 	crystal_label.visible = current_tab != "marks"
 	match current_tab:
 		"marks":   # Ian: Marks pulls live in the Shop now
-			if _parent and _parent.get("marks_panel") != null:
+			if _parent.marks_panel != null:
 				var host: Container = list_container
 				if _built_wide:
 					host = VBoxContainer.new()
@@ -269,17 +267,17 @@ func _rich_row(bbcode: String) -> RichTextLabel:
 func _style_purchase_button(btn: Button, available: bool) -> void:
 	UiKit.purchase_button(btn, available)
 
-func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_method: String = "", info_arg: String = "") -> HBoxContainer:
+func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_callback: Callable = Callable()) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var lbl := _rich_row(label_bbcode)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(lbl)
 	# Ian: "Shop: inspection icon to see details of actions, units, etc"
-	if info_method != "" and _parent and _parent.has_method(info_method):
+	if info_callback.is_valid():
 		var info_btn := Button.new()
 		info_btn.text = "ⓘ"
 		info_btn.custom_minimum_size = Vector2(36, 0)
-		info_btn.pressed.connect(func(): _parent.call(info_method, info_arg))
+		info_btn.pressed.connect(info_callback)
 		row.add_child(info_btn)
 	var available: bool = int(g.get("crystal", 0)) >= price
 	var btn := Button.new()
@@ -311,7 +309,7 @@ func _after_buy(remove_in: bool) -> void:
 	_pending_row = null
 	_pending_btn = null
 	if row == null or not is_instance_valid(row) or not row.is_inside_tree():
-		_refresh()
+		refresh()
 		return
 	crystal_label.text = "%d Crystal" % int(g.get("crystal", 0))
 	_anim_busy = true
@@ -409,7 +407,7 @@ func _after_buy(remove_in: bool) -> void:
 			light.modulate.a = 1.0 - e, 0.0, 1.0, 0.2)
 	await tw.finished
 	_anim_busy = false
-	_refresh()
+	refresh()
 	if scroll != null:
 		await get_tree().process_frame
 		await get_tree().process_frame
@@ -435,7 +433,7 @@ func _filter_row(dropdowns: Array) -> HBoxContainer:
 	return row
 
 func _refresh_gambits() -> void:
-	_filter_row([ActionFilter.dropdown(ActionFilter.GAMBIT_GROUP_OPTIONS, f_group, func(v): f_group = v; _refresh())])
+	_filter_row([ActionFilter.dropdown(ActionFilter.GAMBIT_GROUP_OPTIONS, f_group, func(v): f_group = v; refresh())])
 	var shown := 0
 	for cid in FarroadCore.ALL_CONDITION_IDS:
 		if cid == "none" or g["conditions"].has(cid):
@@ -444,7 +442,7 @@ func _refresh_gambits() -> void:
 			continue
 		shown += 1
 		_add_item(_build_buy_row(FarroadCore.cond_label(cid),
-			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid), "_show_gambit_detail_popup", cid))
+			FarroadProgression.SHOP_GAMBIT_PRICE, _on_buy_gambit.bind(cid), _parent.show_gambit_detail_popup.bind(cid)))
 	if shown == 0:
 		list_container.add_child(_empty_label("No gambit conditions left to buy here."))
 
@@ -458,11 +456,11 @@ func _refresh_actions() -> void:
 	var all_ids: Array = (FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS).filter(
 		func(a): return FarroadProgression.shop_action_available(g, a))
 	_filter_row([
-		ActionFilter.dropdown(ActionFilter.TARGET_OPTIONS, f_target, func(v): f_target = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.STAT_OPTIONS, f_stat, func(v): f_stat = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.EFFECT_OPTIONS, f_effect, func(v): f_effect = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh()),
-		ActionFilter.sort_dropdown(_refresh)])
+		ActionFilter.dropdown(ActionFilter.TARGET_OPTIONS, f_target, func(v): f_target = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.STAT_OPTIONS, f_stat, func(v): f_stat = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.EFFECT_OPTIONS, f_effect, func(v): f_effect = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; refresh()),
+		ActionFilter.sort_dropdown(refresh)])
 	all_ids = ActionFilter.sort_ids(g, all_ids)
 	all_ids = all_ids.filter(func(a):
 		var ad: Dictionary = FarroadCore.ACTIONS.get(a, {})
@@ -476,7 +474,7 @@ func _refresh_actions() -> void:
 		if owned_ids.has(aid):
 			label += "
 [font_size=12][color=#%s]Purchase for +1 Lore[/color][/font_size]" % Palette.TEXT_DIM.to_html(false)
-		_add_item(_build_buy_row(label, price, _on_buy_action.bind(aid), "_show_action_detail_popup", aid))
+		_add_item(_build_buy_row(label, price, _on_buy_action.bind(aid), _parent.show_action_detail_popup.bind(aid)))
 
 func _on_buy_action(aid: String) -> void:
 	# the first purchase of an action moves like a gambit or unit (it leaves the
@@ -494,7 +492,7 @@ func _refresh_units() -> void:
 			continue
 		var price: int = int(FarroadProgression.SHOP_UNIT_PRICE.get(def.get("rarity", "common"), 100))
 		_add_item(_build_buy_row(_rarity_name(def["name"], def.get("rarity", "common")),
-			price, _on_buy_unit.bind(uid), "_show_unit_detail_popup", uid))
+			price, _on_buy_unit.bind(uid), _parent.show_unit_detail_popup.bind(uid)))
 	if _item_count() == 0:
 		list_container.add_child(_empty_label("Every unit is already owned."))
 
@@ -506,10 +504,10 @@ func _on_buy_unit(uid: String) -> void:
 
 func _refresh_equipment() -> void:
 	_filter_row([
-		ActionFilter.dropdown(ActionFilter.GEAR_SLOT_OPTIONS, f_slot, func(v): f_slot = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.GEAR_STAT_OPTIONS, ActionFilter.gear_stat, func(v): ActionFilter.gear_stat = v; _refresh()),
-		ActionFilter.dropdown(ActionFilter.GEAR_SORT_OPTIONS, ActionFilter.gear_sort, func(v): ActionFilter.gear_sort = v; _refresh())])
+		ActionFilter.dropdown(ActionFilter.GEAR_SLOT_OPTIONS, f_slot, func(v): f_slot = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.RARITY_OPTIONS, f_rarity, func(v): f_rarity = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.GEAR_STAT_OPTIONS, ActionFilter.gear_stat, func(v): ActionFilter.gear_stat = v; refresh()),
+		ActionFilter.dropdown(ActionFilter.GEAR_SORT_OPTIONS, ActionFilter.gear_sort, func(v): ActionFilter.gear_sort = v; refresh())])
 	for iid in ActionFilter.gear_ids(FarroadCore.EQUIPMENT.keys(), null, false):
 		var item: Dictionary = FarroadCore.EQUIPMENT[iid]
 		if f_slot != "any" and item.get("slot") != f_slot:
@@ -520,7 +518,7 @@ func _refresh_equipment() -> void:
 		var owned: int = int(g["equipInv"].get(iid, 0))
 		var suffix: String = " (owned %d)" % owned if owned > 0 else ""
 		_add_item(_build_buy_row(_rarity_name(item["name"], item.get("rarity", "common")) + suffix,
-			price, _on_buy_equipment.bind(iid), "_show_equipment_detail_popup", iid))
+			price, _on_buy_equipment.bind(iid), _parent.show_equipment_detail_popup.bind(iid)))
 
 func _on_buy_equipment(iid: String) -> void:
 	if FarroadProgression.buy_shop_equipment(g, iid):
@@ -535,13 +533,11 @@ func _empty_label(text: String) -> Label:
 	return lbl
 
 func _notify_currency_changed() -> void:
-	if _parent and _parent.has_method("_refresh_hud"):
-		_parent.call("_refresh_hud")
+	_parent.refresh_hud()
 
 ## A Shop unit purchase joins/fields a companion the same way a gacha pull
 ## can -- same live mid-fight party sync every other unit-acquiring action
 ## in this project already triggers (PartyPanel's own field/bench edits,
 ## MarksPanel's pulled-companion case).
 func _notify_party_changed() -> void:
-	if _parent and _parent.has_method("_sync_party_change"):
-		_parent.call("_sync_party_change")
+	_parent.sync_party_change()

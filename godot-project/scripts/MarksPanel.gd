@@ -1,3 +1,4 @@
+class_name MarksPanel
 extends Node
 ## Milestone 3, Step 3g: the MARKS tab -- gacha pulls. Structural sibling
 ## of EquipmentPanel.gd, but with no unit-tab row -- MARKS is a single
@@ -8,7 +9,7 @@ extends Node
 ## discipline) -- this panel is what notifies GameController after a pull:
 ## _notify_currency_changed() always (marks/aether/lore can all change),
 ## and -- only when the result actually fielded a new companion -- the
-## SAME _sync_party_change() PartyPanel already uses (a pulled-and-fielded
+## SAME sync_party_change() PartyPanel already uses (a pulled-and-fielded
 ## companion is functionally identical to a PartyPanel field action, no
 ## real-JS precedent either way, same class of Godot-only enhancement).
 ##
@@ -19,7 +20,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 
 var toggle_button: Button
 var popup: PopupPanel
@@ -29,7 +30,7 @@ var card_container: VBoxContainer
 ## many pulls at once without a separate single-vs-batch data path.
 var last_pull_results: Array = []
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -64,31 +65,17 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
+func open_menu() -> void:
+	_parent.panel_opening(self)
 	_refresh_card()
-	popup.popup(_parent.call("menu_popup_rect"))
-	_notify_battle_paused(true)
+	popup.popup(_parent.menu_popup_rect())
 
-## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
-## same pattern as every sibling panel's own copy (see
-## BattlePresenter.loop_paused's own comment for why this exists).
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
-
-## Same dynamic has_method()+call() pattern AetherPanel's own copy uses --
-## _parent is typed as a plain Node here, no compile-time GameController
-## dependency.
 func _notify_currency_changed() -> void:
-	if _parent and _parent.has_method("_refresh_hud"):
-		_parent.call("_refresh_hud")
+	_parent.refresh_hud()
 
 ## Same pattern PartyPanel's own _notify_party_changed uses.
 func _notify_party_changed() -> void:
-	if _parent and _parent.has_method("_sync_party_change"):
-		_parent.call("_sync_party_change")
+	_parent.sync_party_change()
 
 func _refresh_card() -> void:
 	for c in card_container.get_children():
@@ -286,8 +273,7 @@ func _on_pull_pressed() -> void:
 	_show_results_box(last_pull_results)
 
 func _show_results_box(results: Array) -> void:
-	if _parent and _parent.has_method("_show_pull_results"):
-		_parent.call("_show_pull_results", results)
+	_parent.show_pull_results(results)
 
 func _on_pull_x10_pressed() -> void:
 	_on_pull_many_pressed(10)

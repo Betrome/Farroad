@@ -1,3 +1,4 @@
+class_name PartyPanel
 extends Node
 ## The PARTY tab -- bench/field management, split out of GambitsPanel (which
 ## originally covered both loadout editing AND roster management together).
@@ -12,19 +13,18 @@ extends Node
 ## either), so this is a Godot-only enhancement:
 ## FarroadProgression.refresh_live_party(g) is called after every bench/
 ## field edit, then BattlePresenter.sync_live_party() is notified (through
-## GameController, the same dynamic has_method()+call() pattern
-## _notify_battle_paused already uses) so the change reaches the current
-## fight immediately instead of only the next wave.
+## GameController) so the change reaches the current fight immediately
+## instead of only the next wave.
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 
 var toggle_button: Button
 var popup: PopupPanel
 var roster_container: VBoxContainer
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -42,7 +42,7 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", open_menu)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed this to an 8-icon row (Shop
@@ -53,12 +53,11 @@ func _build_ui(parent: Node) -> void:
 	# recomputed for 8 slots instead of 7 (duplicated per-file, no shared
 	# base).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", open_menu)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	_populate_popup()
 
@@ -66,7 +65,7 @@ var _body: Control
 var _built_wide := false
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 ## Full-screen layout in a wide window, the portrait list otherwise; rebuilt in
 ## place (the popup itself stays, the controller has hooked into it).
@@ -76,7 +75,7 @@ func _populate_popup() -> void:
 	_built_wide = _is_wide()
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	if _built_wide:
-		var r: Rect2i = _parent.call("full_menu_rect")
+		var r: Rect2i = _parent.full_menu_rect()
 		popup_size = Vector2(r.size.x, r.size.y)
 	var scroll := ScrollContainer.new()
 	_body = scroll
@@ -112,34 +111,26 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
+func open_menu() -> void:
+	_parent.panel_opening(self)
 	_refresh_roster()
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
-	_notify_battle_paused(true)
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 ## Pauses BattlePresenter's beat-by-beat loop while this popup is open --
 ## same pattern as GambitsPanel/AetherPanel/LorePanel's own copy (see
 ## BattlePresenter.loop_paused's own comment for why this exists).
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
-
 ## Pushes a bench/field edit onto the CURRENT fight immediately -- see this
 ## file's own header comment for why this needs a dedicated Godot-only
 ## sync path (no real-JS precedent, unlike GAMBITS/AETHER's live-sync).
 func _notify_party_changed() -> void:
-	if _parent and _parent.has_method("_sync_party_change"):
-		_parent.call("_sync_party_change")
+	_parent.sync_party_change()
 
 ## Pushes a front/back row edit onto the CURRENT fight's on-field sprite
 ## immediately, animated -- see _on_row_toggle_pressed's own comment for
 ## why the "self-corrects within one wave" tradeoff was replaced with a
 ## real live hop (post-Milestone-3 APK feedback, Group A1).
 func _notify_row_changed(uid: String) -> void:
-	if _parent and _parent.has_method("_sync_row_change"):
-		_parent.call("_sync_row_change", uid)
+	_parent.sync_row_change(uid)
 
 ## Mirrors partyRosterHTML/wirePartyRoster (farroad-ui.js:2722-2746) --
 ## fielded units with a Bench button (disabled at 1 remaining), owned-and-

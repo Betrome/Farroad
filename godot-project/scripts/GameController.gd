@@ -1,3 +1,4 @@
+class_name GameController
 extends Node2D
 ## Milestone 3, Step 3b: the real game loop. Owns the live game-state
 ## Dictionary `g` (mirrors newGame()'s real field list -- see
@@ -35,33 +36,33 @@ const SaveStore := preload("res://scripts/SaveStore.gd")
 const EXPEDITION_POLL_SEC := 15.0
 
 var g: Dictionary
-var _vp: Vector2
+var vp: Vector2
 ## Wide windows (see WideShell.gd): the ribbon on top, the battle column on the
-## left, the dock on the right. _vp stays the whole viewport; _bpos/_bvp are the
+## left, the dock on the right. vp stays the whole viewport; _bpos/bvp are the
 ## battle column (the whole viewport in a portrait layout).
 var wide := false
 var shell: Node
 var _bpos := Vector2.ZERO
-var _bvp := Vector2.ZERO
-var current_presenter: Node = null
-var gambits_panel: Node
-var units_panel: Node
-var catalogue_panel: Node
-var settings_panel: Node
-var party_panel: Node
-var aether_panel: Node
-var lore_panel: Node
-var equipment_panel: Node
-var marks_panel: Node
-var expedition_panel: Node
+var bvp := Vector2.ZERO
+var current_presenter: BattlePresenter = null
+var gambits_panel: GambitsPanel
+var units_panel: UnitsPanel
+var catalogue_panel: CataloguePanel
+var settings_panel: SettingsPanel
+var party_panel: PartyPanel
+var aether_panel: AetherPanel
+var lore_panel: LorePanel
+var equipment_panel: EquipmentPanel
+var marks_panel: MarksPanel
+var expedition_panel: ExpeditionPanel
 var expedition_timer: Timer
-var quests_panel: Node
-var shop_panel: Node
+var quests_panel: QuestsPanel
+var shop_panel: ShopPanel
 var mc_panel: Node
 var road_button: Button
 var tutorial: Tutorial = null
 ## Tracks whichever panel's own popup is currently open -- see
-## _panel_opening()'s own comment for why this exists.
+## panel_opening()'s own comment for why this exists.
 var open_panel: Node = null
 ## Every currently-open self-hosted detail overlay (_build_detail_overlay's
 ## own backdrop, built when _overlay_host() resolves to `self` -- i.e. no
@@ -80,7 +81,7 @@ var _self_hosted_overlays: Array = []
 ## FarroadProgression.start_side_battle's own comment for why a SECOND,
 ## independent BattlePresenter instance is enough here, unlike the real
 ## JS's shared-tick-loop architecture).
-var side_presenter: Node = null
+var side_presenter: BattlePresenter = null
 
 var currency_row: HBoxContainer
 var aether_cell: Label
@@ -181,7 +182,7 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 	for n in get_tree().root.find_children("*", "", true, false):
 		_on_node_added(n)
-	_vp = get_viewport_rect().size
+	vp = get_viewport_rect().size
 	_compute_regions()
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
@@ -194,7 +195,7 @@ func _ready() -> void:
 	else:
 		var terms = load("res://scripts/TermsPanel.gd").new()
 		add_child(terms)
-		terms.setup(_vp, self, _boot_after_terms)
+		terms.setup(vp, self, _boot_after_terms)
 
 func _boot_after_terms() -> void:
 	if _try_resume_save():
@@ -206,7 +207,7 @@ func _boot_after_terms() -> void:
 	else:
 		mc_panel = load("res://scripts/McCreatePanel.gd").new()
 		add_child(mc_panel)
-		mc_panel.setup(_vp, self, _on_mc_confirmed)
+		mc_panel.setup(vp, self, _on_mc_confirmed)
 
 ## Group F: a ScrollContainer gets a TouchScroll helper child (drag scrolls
 ## even when the press started on a button/card/text), and a dropdown opens
@@ -250,43 +251,43 @@ func _start_game() -> void:
 	shell.build(self)
 	_build_hud()
 	_layer_hud_above_trees()
-	_refresh_hud()
+	refresh_hud()
 	if not _offline_summary.is_empty():
 		_show_welcome_back_popup()
-	gambits_panel = load("res://scripts/GambitsPanel.gd").new()
+	gambits_panel = GambitsPanel.new()
 	add_child(gambits_panel)
 	gambits_panel.setup(g, _units_content_vp(), self)
-	units_panel = load("res://scripts/UnitsPanel.gd").new()
+	units_panel = UnitsPanel.new()
 	add_child(units_panel)
 	units_panel.setup(g, _menu_vp(), self)
-	catalogue_panel = load("res://scripts/CataloguePanel.gd").new()
+	catalogue_panel = CataloguePanel.new()
 	add_child(catalogue_panel)
 	catalogue_panel.setup(g, _menu_vp(), self)
-	settings_panel = load("res://scripts/SettingsPanel.gd").new()
+	settings_panel = SettingsPanel.new()
 	add_child(settings_panel)
 	settings_panel.setup(g, _menu_vp(), self)
-	party_panel = load("res://scripts/PartyPanel.gd").new()
+	party_panel = PartyPanel.new()
 	add_child(party_panel)
 	party_panel.setup(g, _menu_vp(), self)
-	aether_panel = load("res://scripts/AetherPanel.gd").new()
+	aether_panel = AetherPanel.new()
 	add_child(aether_panel)
 	aether_panel.setup(g, _units_content_vp(), self)
-	lore_panel = load("res://scripts/LorePanel.gd").new()
+	lore_panel = LorePanel.new()
 	add_child(lore_panel)
 	lore_panel.setup(g, _units_content_vp(), self)
-	equipment_panel = load("res://scripts/EquipmentPanel.gd").new()
+	equipment_panel = EquipmentPanel.new()
 	add_child(equipment_panel)
 	equipment_panel.setup(g, _units_content_vp(), self)
-	marks_panel = load("res://scripts/MarksPanel.gd").new()
+	marks_panel = MarksPanel.new()
 	add_child(marks_panel)
 	marks_panel.setup(g, _menu_vp(), self)
-	expedition_panel = load("res://scripts/ExpeditionPanel.gd").new()
+	expedition_panel = ExpeditionPanel.new()
 	add_child(expedition_panel)
 	expedition_panel.setup(g, _menu_vp(), self)
-	quests_panel = load("res://scripts/QuestsPanel.gd").new()
+	quests_panel = QuestsPanel.new()
 	add_child(quests_panel)
 	quests_panel.setup(g, _menu_vp(), self)
-	shop_panel = load("res://scripts/ShopPanel.gd").new()
+	shop_panel = ShopPanel.new()
 	add_child(shop_panel)
 	shop_panel.setup(g, _menu_vp(), self)
 	_build_arena_button()
@@ -309,18 +310,19 @@ func _start_game() -> void:
 	tutorial = Tutorial.new()
 	add_child(tutorial)
 	tutorial.setup(self)
+	# The panels in lists like this one are called by duck typing (open_menu, can_go_back, go_back, close_popups)
+	# because they have no shared base class.
 	for p in [units_panel, party_panel, quests_panel, shop_panel, expedition_panel,
 			settings_panel, catalogue_panel]:
 		# before _reset_menu, so it sees the level the menu was on
 		p.popup.popup_hide.connect(_on_tab_hidden.bind(p))
 		p.popup.popup_hide.connect(_reset_menu.bind(p))
-	for p in [units_panel, party_panel, quests_panel, shop_panel, expedition_panel, settings_panel, catalogue_panel]:
 		p.popup.window_input.connect(_on_shortcut_event)
 	_layout_wide()
 	_begin_next_fight()
 	_whats_new_if_updated()
 	if Updates.check_enabled() and not OS.has_feature("web"):
-		get_tree().create_timer(6.0).timeout.connect(func(): _check_updates(false))
+		get_tree().create_timer(6.0).timeout.connect(func(): check_updates(false))
 
 ## Ian: "have menus reset to their default when closed" -- a closed menu
 ## drops any info/picker box left open inside it and goes back to its
@@ -353,10 +355,10 @@ func _reset_menu(panel: Node) -> void:
 			p.set(key, v.duplicate() if v is Array else v)
 
 ## Whether a tab or Units sub-tab is unlocked yet (Tutorial.unlocked).
-func _tab_unlocked(key: String) -> bool:
+func tab_unlocked(key: String) -> bool:
 	return tutorial == null or Tutorial.unlocked(g, key, tutorial.active)
 
-func _skip_tutorials() -> void:
+func skip_tutorials() -> void:
 	if tutorial != null:
 		tutorial.skip_all()
 
@@ -380,13 +382,13 @@ func _on_expedition_tick() -> void:
 			if e.get("arrivedAt") != null and out_ids.has(e["id"]):
 				notifier.on_expedition_arrived(e)   # Windows, when not focused
 	if expedition_panel.popup.visible:
-		expedition_panel.call("_refresh")
+		expedition_panel.refresh()
 	# resolve_all_expeditions can unlock a new dungeon (Step 3i,
 	# unlock_direction_dungeon called from inside resolve_expedition) --
 	# refresh a currently-open QUESTS popup so a new dungeon card appears
 	# without waiting for the player to close and reopen it.
 	if quests_panel.popup.visible:
-		quests_panel.call("_refresh")
+		quests_panel.refresh()
 
 ## A window resize (or, on a real device, a size Godot didn't report until
 ## just now) changes what get_viewport_rect().size actually is -- everything
@@ -399,30 +401,30 @@ func _on_expedition_tick() -> void:
 ## BattlePresenter.reflow()'s own comment for why that's safe, not an
 ## oversight.
 func _on_viewport_resized() -> void:
-	_vp = get_viewport_rect().size
+	vp = get_viewport_rect().size
 	_compute_regions()
 	# 24-item batch, Group D3: shifted down 5% from the old 0.015/0.043 --
 	# see _build_hud's own comment for the full history.
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
+	currency_row.position = Vector2(vp.x * 0.02, vp.y * 0.065)
 	_place_hud_plate()
-	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.022))
-	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	crystal_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
-	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
-	fade_overlay.size = _vp
+	currency_row.add_theme_constant_override("separation", int(vp.x * 0.022))
+	aether_cell.add_theme_font_size_override("font_size", int(vp.y * 0.0175))
+	marks_cell.add_theme_font_size_override("font_size", int(vp.y * 0.0175))
+	crystal_cell.add_theme_font_size_override("font_size", int(vp.y * 0.0175))
+	power_level_cell.add_theme_font_size_override("font_size", int(vp.y * 0.0175))
+	speed_toggle_btn.position = Vector2(vp.x * 0.86, vp.y * 0.015)
+	speed_toggle_btn.custom_minimum_size = Vector2(vp.x * 0.12, vp.y * 0.035)
+	fade_overlay.size = vp
 	if background_layer != null:
 		background_layer.position = Vector2(0.0, _bpos.y)
 		if foreground_layer != null:
 			foreground_layer.position = Vector2(0.0, _bpos.y)
-			foreground_layer.size = _bvp
+			foreground_layer.size = bvp
 		_rebuild_background_marks()
 	for pr in [current_presenter, side_presenter]:
 		if pr != null and is_instance_valid(pr):
 			_fit_presenter(pr)
-			pr.reflow(_bvp)
+			pr.reflow(bvp)
 			_dock_presenter(pr)
 	gambits_panel.reflow(_units_content_vp())
 	units_panel.reflow(_menu_vp())
@@ -453,6 +455,7 @@ func _on_viewport_resized() -> void:
 ## of silently falling back to a fresh mc=null game, matching how the real
 ## JS has no "fresh game, no mc" path at all (showMcCreate() is
 ## unconditional whenever no save exists).
+var _save_too_new := false        # the save was written by a newer build of the game than this one
 var _save_unreadable := false     # files exist but neither the save nor its backup can be read
 var _offline_state: Dictionary = {}
 var _resume_now: float = 0.0
@@ -469,6 +472,12 @@ func _try_resume_save() -> bool:
 	if rd["state"] == "restored":
 		Analytics.add("features", "saveRestoredFromBackup")
 	var parsed: Dictionary = rd["data"]
+	if FarroadSave.is_from_newer_build(parsed):
+		# loading it would drop what this build doesn't know and save that over it
+		_save_unreadable = true
+		_save_too_new = true
+		Analytics.add("features", "saveFromNewerBuild")
+		return false
 	g = FarroadSave.deserialize(parsed)
 	_local_saved_at = int(parsed.get("savedAt", 0))
 	FarroadProgression.apply_custom_mc(g)
@@ -494,11 +503,11 @@ func _run_offline_replay() -> void:
 	add_child(layer)
 	var bg := ColorRect.new()
 	bg.color = Color(0.06, 0.05, 0.08, 1.0)
-	bg.size = _vp
+	bg.size = vp
 	layer.add_child(bg)
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
-	lbl.size = _vp
+	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.03))
+	lbl.size = vp
 	lbl.position = Vector2.ZERO
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -522,7 +531,7 @@ func _finish_resume() -> void:
 	FarroadProgression.resolve_all_expeditions(g, _resume_now)
 	# Ian: the time away must be accurate next launch even after a very
 	# short session -- stamp the save now that this gap has been counted.
-	_save_game()
+	save_game()
 
 ## Shown when a save exists but neither it nor its backup can be read.
 func _show_save_recovery() -> void:
@@ -531,21 +540,23 @@ func _show_save_recovery() -> void:
 	add_child(layer)
 	var bg := ColorRect.new()
 	bg.color = Color(0.06, 0.05, 0.08, 1.0)
-	bg.size = _vp
+	bg.size = vp
 	layer.add_child(bg)
 	var vb := VBoxContainer.new()
-	vb.position = Vector2(_vp.x * 0.08, _vp.y * 0.2)
-	vb.custom_minimum_size = Vector2(_vp.x * 0.84, 0)
-	vb.add_theme_constant_override("separation", int(_vp.y * 0.02))
+	vb.position = Vector2(vp.x * 0.08, vp.y * 0.2)
+	vb.custom_minimum_size = Vector2(vp.x * 0.84, 0)
+	vb.add_theme_constant_override("separation", int(vp.y * 0.02))
 	layer.add_child(vb)
 	var title := Label.new()
-	title.text = "Your save could not be read"
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	title.text = "This save is from a newer version" if _save_too_new else "Your save could not be read"
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.035))
 	vb.add_child(title)
 	var body := Label.new()
-	body.text = "The save file and its backup are both damaged. Nothing has been changed or deleted.\n\nYou can try again (for example after restoring the files), or start a new game. A new game keeps the damaged files next to the save, renamed .corrupt."
+	body.text = ("This save was made by a newer version of Farroad. Update the game to keep playing it; nothing has been changed or deleted.
+
+Starting a new game keeps the save next to it, renamed .corrupt." if _save_too_new else "The save file and its backup are both damaged. Nothing has been changed or deleted.\n\nYou can try again (for example after restoring the files), or start a new game. A new game keeps the damaged files next to the save, renamed .corrupt.")
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
-	body.custom_minimum_size = Vector2(_vp.x * 0.84, 0)
+	body.custom_minimum_size = Vector2(vp.x * 0.84, 0)
 	vb.add_child(body)
 	var retry := Button.new()
 	retry.text = "Try again"
@@ -566,10 +577,11 @@ func _show_save_recovery() -> void:
 			return
 		SaveStore.set_aside_damaged()
 		_save_unreadable = false
+		_save_too_new = false
 		layer.queue_free()
 		mc_panel = load("res://scripts/McCreatePanel.gd").new()
 		add_child(mc_panel)
-		mc_panel.setup(_vp, self, _on_mc_confirmed))
+		mc_panel.setup(vp, self, _on_mc_confirmed))
 	vb.add_child(fresh)
 
 ## Mirrors boot(7,mc) (farroad-ui.js:3234, the real btnMcConfirm handler --
@@ -582,7 +594,7 @@ func _on_mc_confirmed(mc: Dictionary) -> void:
 	UnitView.mc_body = str(g["mc"].get("body", "male")) if g.get("mc") != null else "male"
 	UnitView.game_state = g
 	FarroadProgression.start_wave(g, 1)
-	_save_game()   # mirrors doSave() immediately after boot(7,mc)
+	save_game()   # mirrors doSave() immediately after boot(7,mc)
 	_start_game()
 
 ## ===== Shifted Reflection =====
@@ -596,17 +608,17 @@ func _check_respec_item() -> void:
 		return
 	g["mcRespecGranted"] = true
 	g["mcRespecs"] = int(g.get("mcRespecs", 0)) + 1
-	_save_game()
-	_show_tab_tutorial_popup("Shifted Reflection",
+	save_game()
+	show_tab_tutorial_popup("Shifted Reflection",
 		"You found a Shifted Reflection. Use it from Units, on your Main Character, to spread your stat points again. Your name, look and charge action stay as they are.")
 
-func _start_mc_respec() -> void:
+func start_mc_respec() -> void:
 	if g.get("mc") == null or int(g.get("mcRespecs", 0)) <= 0 or g.get("sideBattle") != null:
 		return
 	_close_all_popups()
 	var panel = load("res://scripts/McCreatePanel.gd").new()
 	add_child(panel)
-	panel.setup_respec(_vp, self, g["mc"], _on_mc_respec, func(): pass)
+	panel.setup_respec(vp, self, g["mc"], _on_mc_respec, func(): pass)
 
 func _on_mc_respec(points: Dictionary) -> void:
 	if g.get("mc") == null or int(g.get("mcRespecs", 0)) <= 0:
@@ -621,8 +633,8 @@ func _on_mc_respec(points: Dictionary) -> void:
 	FarroadProgression.apply_custom_mc(g)   # onto the roster entry and its growth
 	FarroadProgression.refresh_live_stats(g)
 	Analytics.add("features", "mcRespec")
-	_refresh_hud()
-	_save_game()
+	refresh_hud()
+	save_game()
 
 ## Ian: "Welcome back screen, when closed, should reset... when they open
 ## it, the time away should be accurate." Save whenever the app is closed
@@ -643,7 +655,7 @@ func _notification(what: int) -> void:
 				_hold_popups_open()
 				if notifier != null and Notifier.platform() == "web":
 					notifier.schedule_away()   # browser timers while the tab stays open in the background
-			_save_game()
+			save_game()
 			if what == NOTIFICATION_WM_CLOSE_REQUEST and notifier != null:
 				notifier.schedule_away()
 		NOTIFICATION_APPLICATION_FOCUS_IN:
@@ -651,7 +663,7 @@ func _notification(what: int) -> void:
 			if notifier != null and Notifier.platform() == "web":
 				notifier.cancel_scheduled()
 		NOTIFICATION_APPLICATION_PAUSED:
-			_save_game()
+			save_game()
 			if cloud != null:
 				cloud.upload()
 			_backgrounded_at = Time.get_unix_time_from_system()
@@ -690,7 +702,7 @@ func _release_popups() -> void:
 	var panel := _focus_panel
 	_focus_panel = null
 	if panel != null and is_instance_valid(panel) and open_panel == panel and not panel.popup.visible:
-		panel.call_deferred("_on_toggle_pressed")
+		panel.call_deferred("open_menu")
 
 ## ===== Gameplay stats (Analytics.gd) =====
 ## Counted locally while playing and sent about once a day; see Analytics.gd.
@@ -744,7 +756,7 @@ func _record_side_battle(meta: Dictionary, kind: String) -> void:
 	Analytics.add("sideBattleSeconds", str(meta.get("kind", "?")), secs)
 
 ## The terms, to read again from Settings.
-func _show_terms_popup() -> void:
+func show_terms_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 	var text := RichTextLabel.new()
@@ -762,7 +774,7 @@ func _show_terms_popup() -> void:
 ## The notes ship inside the game; the check asks GitHub for the latest release.
 
 ## The notes: one version (the "what's new" after an update) or all of them.
-func _show_patch_notes_popup(only_version: String = "") -> void:
+func show_patch_notes_popup(only_version: String = "") -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
@@ -783,7 +795,7 @@ func _show_patch_notes_popup(only_version: String = "") -> void:
 		all_btn.text = "All patch notes"
 		all_btn.pressed.connect(func():
 			o["backdrop"].queue_free()
-			_show_patch_notes_popup())
+			show_patch_notes_popup())
 		vbox.add_child(all_btn)
 	await _finish_detail_overlay(o)
 
@@ -801,7 +813,7 @@ func _whats_new_if_updated() -> void:
 		return
 	if Updates.has_notes_for(cur):
 		await get_tree().create_timer(2.5).timeout
-		_show_patch_notes_popup(cur)
+		show_patch_notes_popup(cur)
 
 ## Asks GitHub for the latest release. `manual` (the Settings button) always
 ## answers and always shows the window when there is a newer version; the
@@ -825,7 +837,7 @@ func _latest_release_version() -> String:
 	var rel = JSON.parse_string((res[3] as PackedByteArray).get_string_from_utf8())
 	return str(rel.get("tag_name", "")).trim_prefix("v") if rel is Dictionary else ""
 
-func _check_updates(manual: bool, on_done: Callable = Callable()) -> void:
+func check_updates(manual: bool, on_done: Callable = Callable()) -> void:
 	if OS.has_feature("web"):
 		if on_done.is_valid():
 			on_done.call("The browser version is always the latest one.")
@@ -887,7 +899,7 @@ func _show_update_popup(rel: Dictionary) -> void:
 		vbox.add_child(go)
 	await _finish_detail_overlay(o)
 
-func _save_game() -> void:
+func save_game() -> void:
 	var snap := FarroadSave.serialize(g, int(Time.get_unix_time_from_system()))
 	if not SaveStore.write(snap):
 		return   # the existing save is untouched; try again at the next save
@@ -918,7 +930,7 @@ func _build_background_layer() -> void:
 	foreground_layer.z_index = 1
 	add_child(foreground_layer)
 	foreground_layer.position = Vector2(0.0, _bpos.y)
-	foreground_layer.size = _bvp
+	foreground_layer.size = bvp
 	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
 	_rebuild_background_marks()
 
@@ -1015,8 +1027,8 @@ func _rebuild_background_marks() -> void:
 	for c in background_layer.get_children():
 		c.queue_free()
 	_bg_nodes.clear()
-	var band_bottom: float = _bvp.y * (0.60 if wide else 0.58)
-	var span: float = _bvp.x * 3.0
+	var band_bottom: float = bvp.y * (0.60 if wide else 0.58)
+	var span: float = bvp.x * 3.0
 	var textures: Array = []
 	if not _bg_set_complete(bg_set):
 		bg_set = BG_SET_DEFAULT
@@ -1029,7 +1041,7 @@ func _rebuild_background_marks() -> void:
 	if textures.is_empty():
 		_rebuild_background_fallback(band_bottom, span)
 		return
-	var s: float = _bvp.y / BG_ART_H   # the forest fills the whole battle area, behind the chrome too
+	var s: float = bvp.y / BG_ART_H   # the forest fills the whole battle area, behind the chrome too
 	for i in BG_LAYER_SPEEDS.size():
 		var tex: Texture2D = textures[i]
 		# whole-pixel tile width, so neighbouring tiles never leave a seam
@@ -1038,13 +1050,13 @@ func _rebuild_background_marks() -> void:
 		background_layer.add_child(layer)
 		if BG_STATIC_SETS.has(bg_set):
 			# one picture, never scrolled or tiled; stretched sideways only if the screen is wider than it
-			var sx: float = maxf(s, _bvp.x / float(tex.get_width()))
+			var sx: float = maxf(s, bvp.x / float(tex.get_width()))
 			var one := Sprite2D.new()
 			one.texture = tex
 			one.centered = false
 			one.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
 			one.scale = Vector2(sx, s)
-			one.position = Vector2((_bvp.x - float(tex.get_width()) * sx) / 2.0, 0.0)
+			one.position = Vector2((bvp.x - float(tex.get_width()) * sx) / 2.0, 0.0)
 			layer.add_child(one)
 			_bg_nodes.append({"node": layer, "speed": 0.0, "tile_w": tile_w})
 			continue
@@ -1092,16 +1104,16 @@ func _rebuild_foreground(s: float) -> void:
 	var tex_l = load(BG_DIR + bg_set + "_tree_l.png") if ResourceLoader.exists(BG_DIR + bg_set + "_tree_l.png") else null
 	var tex_r = load(BG_DIR + bg_set + "_tree_r.png") if ResourceLoader.exists(BG_DIR + bg_set + "_tree_r.png") else null
 	if not (tex_l is Texture2D and tex_r is Texture2D):
-		_fg_travel = _bvp.x
+		_fg_travel = bvp.x
 		return
 	# one whole-pixel width for both halves, so a tree's two halves always meet with no gap
 	var w: float = float(roundi(float(tex_l.get_width()) * s))
-	_fg_travel = _bvp.x * (1.0 + BG_FG_GAP) * float(BG_FG_TREES)   # N tree-spacings per transition
-	var right_rest: float = _bvp.x - w
+	_fg_travel = bvp.x * (1.0 + BG_FG_GAP) * float(BG_FG_TREES)   # N tree-spacings per transition
+	var right_rest: float = bvp.x - w
 	# At rest: the right half of one tree at the left edge, the left half of the next at the right
 	# edge. Queued behind them are the rest of the trees that will cross during a transition: each
 	# tree is a left half and a right half exactly one tree-spacing from the next tree's.
-	var spacing: float = _bvp.x * (1.0 + BG_FG_GAP)
+	var spacing: float = bvp.x * (1.0 + BG_FG_GAP)
 	var specs: Array = []
 	for j in BG_FG_TREES + 1:
 		specs.append([tex_r, float(j) * spacing])                       # right half of tree j (its centre at j * spacing)
@@ -1128,7 +1140,7 @@ func _add_overhang(s: float) -> void:
 	e.texture = tex
 	e.centered = false
 	e.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if s >= 1.0 else CanvasItem.TEXTURE_FILTER_LINEAR
-	e.scale = Vector2(_bvp.x / float(tex.get_width()), s)
+	e.scale = Vector2(bvp.x / float(tex.get_width()), s)
 	foreground_layer.add_child(e)
 
 func _set_fg_progress(p: float) -> void:
@@ -1158,7 +1170,7 @@ func _rebuild_background_fallback(band_bottom: float, span: float) -> void:
 	sky.scale = Vector2(span, band_bottom) / Vector2(1.0, float(_SKY_GRADIENT_TEX_H))
 	background_layer.add_child(sky)
 
-	var road_h: float = _bvp.y * 0.02
+	var road_h: float = bvp.y * 0.02
 	var road := ColorRect.new()
 	road.color = Palette.BORDER_LEATHER.lerp(Palette.BG_PARCHMENT_DEEP, 0.55)
 	road.size = Vector2(span, road_h)
@@ -1167,9 +1179,9 @@ func _rebuild_background_fallback(band_bottom: float, span: float) -> void:
 
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20260101   # fixed -- see comment above for why
-	var mark_w: float = _bvp.x * 0.03
-	var mark_h: float = _bvp.y * 0.012
-	var gap: float = _bvp.x * 0.09
+	var mark_w: float = bvp.x * 0.03
+	var mark_h: float = bvp.y * 0.012
+	var gap: float = bvp.x * 0.09
 	var x: float = -span / 2.0
 	while x < span / 2.0:
 		var j: float = rng.randf_range(-0.5, 0.5)
@@ -1232,8 +1244,8 @@ func _build_hud() -> void:
 	add_child(hud_plate)
 	_place_hud_plate()
 	currency_row = HBoxContainer.new()
-	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
-	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.022))
+	currency_row.position = Vector2(vp.x * 0.02, vp.y * 0.065)
+	currency_row.add_theme_constant_override("separation", int(vp.x * 0.022))
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
 	marks_cell = _build_currency_label(currency_row)
@@ -1251,8 +1263,8 @@ func _build_hud() -> void:
 	# pauses, wave-transition waits, UI fades) without touching any of
 	# their individual duration constants.
 	speed_toggle_btn = Button.new()
-	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
-	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
+	speed_toggle_btn.position = Vector2(vp.x * 0.86, vp.y * 0.015)
+	speed_toggle_btn.custom_minimum_size = Vector2(vp.x * 0.12, vp.y * 0.035)
 	speed_toggle_btn.pressed.connect(_on_speed_toggle_pressed)
 	add_child(speed_toggle_btn)
 	_refresh_speed_toggle()
@@ -1265,7 +1277,7 @@ func _build_hud() -> void:
 	fade_overlay = ColorRect.new()
 	fade_overlay.color = Color(0, 0, 0, 0)
 	fade_overlay.position = Vector2.ZERO
-	fade_overlay.size = _vp
+	fade_overlay.size = vp
 	fade_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fade_overlay.hide()
 	add_child(fade_overlay)
@@ -1277,8 +1289,8 @@ var hud_plate: Panel
 func _place_hud_plate() -> void:
 	if hud_plate == null:
 		return
-	hud_plate.position = Vector2(_vp.x * 0.01, _vp.y * 0.059)
-	hud_plate.size = Vector2(_vp.x * 0.98, _vp.y * 0.036)
+	hud_plate.position = Vector2(vp.x * 0.01, vp.y * 0.059)
+	hud_plate.size = Vector2(vp.x * 0.98, vp.y * 0.036)
 
 func _on_speed_toggle_pressed() -> void:
 	_speed_2x = not _speed_2x
@@ -1291,17 +1303,17 @@ func _refresh_speed_toggle() -> void:
 
 func _build_currency_label(parent: Container) -> Label:
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
+	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.0175))
 	parent.add_child(lbl)
 	return lbl
 
-## Called by SettingsPanel (dynamic has_method()+call()) after the player
+## Called by SettingsPanel after the player
 ## confirms the "Reset Game" prompt -- deletes the save file (first use of
 ## file-deletion anywhere in this codebase, a standard, low-risk Godot API)
 ## and reloads the scene, cleanly re-entering _ready()'s own existing boot
 ## gate (no save found -> character creation) rather than hand-rolling a
 ## manual in-place teardown/rebuild of every panel and timer.
-func _reset_game() -> void:
+func reset_game() -> void:
 	SaveStore.delete_all()   # the backup too, or it would bring the old game back
 	get_tree().reload_current_scene()
 
@@ -1321,13 +1333,13 @@ const ROAD_BAR_H := 0.034   # ends above the tab icons (0.93)
 func _build_road_button() -> void:
 	road_button = Button.new()
 	road_button.text = "Road"
-	road_button.position = Vector2(_vp.x * 0.02, _vp.y * ROAD_BAR_Y)
-	road_button.custom_minimum_size = Vector2(_vp.x * 0.96, _vp.y * ROAD_BAR_H)
+	road_button.position = Vector2(vp.x * 0.02, vp.y * ROAD_BAR_Y)
+	road_button.custom_minimum_size = Vector2(vp.x * 0.96, vp.y * ROAD_BAR_H)
 	road_button.clip_text = true
-	road_button.add_theme_font_size_override("font_size", maxi(10, int(_vp.y * ROAD_BAR_H * 0.5)))
+	road_button.add_theme_font_size_override("font_size", maxi(10, int(vp.y * ROAD_BAR_H * 0.5)))
 	# the kit's primary capsule (bronze), no vertical padding so the bar keeps
 	# its slot and doesn't push down over the tab icons
-	var bar_h: float = _vp.y * ROAD_BAR_H
+	var bar_h: float = vp.y * ROAD_BAR_H
 	var states := {"normal": UiKit.PRIMARY, "hover": UiKit.PRIMARY.lightened(0.05),
 		"pressed": UiKit.PRIMARY.darkened(0.25), "disabled": Color(UiKit.PRIMARY, 0.45)}
 	for st in states:
@@ -1345,8 +1357,8 @@ func _build_road_button() -> void:
 	add_child(road_button)
 
 func _reflow_road_button() -> void:
-	road_button.position = Vector2(_vp.x * 0.02, _vp.y * ROAD_BAR_Y)
-	road_button.custom_minimum_size = Vector2(_vp.x * 0.96, _vp.y * ROAD_BAR_H)
+	road_button.position = Vector2(vp.x * 0.02, vp.y * ROAD_BAR_Y)
+	road_button.custom_minimum_size = Vector2(vp.x * 0.96, vp.y * ROAD_BAR_H)
 
 ## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
 ## shown right after the HUD is built whenever a resumed save had a real
@@ -1364,7 +1376,7 @@ func _show_welcome_back_popup() -> void:
 	# at start-up the window may still be settling into its final shape
 	await get_tree().process_frame
 	await get_tree().process_frame
-	_vp = get_viewport_rect().size
+	vp = get_viewport_rect().size
 	var s := _offline_summary
 	var elapsed_sec: float = s["elapsed_sec"]
 	var away_txt: String
@@ -1394,8 +1406,8 @@ func _show_welcome_back_popup() -> void:
 	# content-independent minimum size, so nothing here needs its own
 	# margin arithmetic anymore) and, per Ian's own "reduce the height of
 	# informational pop-ups by 50% and center them" ask, replaces the old
-	# fixed _vp.y*0.65 height with content-driven sizing (capped at
-	# _vp.y*0.6, usually far less) -- already correctly centered by
+	# fixed vp.y*0.65 height with content-driven sizing (capped at
+	# vp.y*0.6, usually far less) -- already correctly centered by
 	# _finish_detail_overlay. This popup isn't triggered from inside an
 	# already-open tab popup (fires once at boot/resume), so it never had
 	# Group A1's sibling-Window bug, but gets the same overlay treatment
@@ -1405,19 +1417,19 @@ func _show_welcome_back_popup() -> void:
 
 	var title := Label.new()
 	title.text = "Welcome back!"
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "Away %s.\n%s%s" % [away_txt, progress_txt, wipe_txt]
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
 	var gained := Label.new()
 	gained.text = "+%d Aether, +%d Marks from wave clears" % [roundi(s["aether_gained"]), int(floor(s["marks_gained"]))]
-	gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	gained.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	gained.modulate = Palette.GOLD_TEXT
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(gained)
@@ -1471,7 +1483,7 @@ func _submit_feedback(fields: Dictionary, done: Callable) -> void:
 		http.queue_free()
 		done.call(false)
 
-func _show_feedback_popup() -> void:
+func show_feedback_popup() -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
@@ -1484,7 +1496,7 @@ func _show_feedback_popup() -> void:
 	vbox.add_child(kind)
 	var text := TextEdit.new()
 	text.placeholder_text = "What would you like to tell us? For bugs, what happened and what you expected."
-	text.custom_minimum_size = Vector2(0, _vp.y * 0.22)
+	text.custom_minimum_size = Vector2(0, vp.y * 0.22)
 	text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	vbox.add_child(text)
 	var note := Label.new()
@@ -1546,13 +1558,13 @@ func _show_tutorial_complete_popup() -> void:
 
 	var title := Label.new()
 	title.text = "Tutorial complete!"
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "You've beaten the first boss. From here, the Road only gets harder."
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
@@ -1561,7 +1573,7 @@ func _show_tutorial_complete_popup() -> void:
 	# (_show_enrage_intro_popup) right before the first fight it applies to.
 	var heads_up := Label.new()
 	heads_up.text = "Use the next stretch of the Road to level up and build your party -- something more dangerous is waiting past wave 30."
-	heads_up.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	heads_up.add_theme_font_size_override("font_size", int(vp.y * 0.022))
 	heads_up.modulate = Palette.TEXT_DIM
 	heads_up.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(heads_up)
@@ -1584,20 +1596,20 @@ func _show_enrage_intro_popup() -> void:
 
 	var title := Label.new()
 	title.text = "Enemies can now become ENRAGED"
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.035))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
 	var enrage_body := Label.new()
 	enrage_body.text = "Enemies that fight for a long time will grow ENRAGED -- hitting harder and moving faster the longer a battle drags on. Keep your fights short."
-	enrage_body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	enrage_body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	enrage_body.modulate = Palette.BAD_RED
 	enrage_body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(enrage_body)
 
 	var enrage_pointer := Label.new()
 	enrage_pointer.text = "Watch the red bar above the turn order -- once it fills, its label shows exactly how much stronger enemies have gotten."
-	enrage_pointer.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	enrage_pointer.add_theme_font_size_override("font_size", int(vp.y * 0.022))
 	enrage_pointer.modulate = Palette.TEXT_DIM
 	enrage_pointer.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(enrage_pointer)
@@ -1628,13 +1640,13 @@ func _show_companion_joined_popup(uid: String) -> void:
 
 	var title := Label.new()
 	title.text = "%s joins you!" % name
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = "You cut down the last of the danger just in time -- %s was caught in the middle of it. Grateful, and impressed, they choose to join you on the Road." % name
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
@@ -1673,7 +1685,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 
 	var title := Label.new()
 	title.text = "New gear: %s!" % item_name
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.04))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
@@ -1684,14 +1696,14 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	var rarity_color: Dictionary = {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 	var rarity_lbl := Label.new()
 	rarity_lbl.text = "%s %s -- %s" % [rarity.capitalize(), slot, stat_line]
-	rarity_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
+	rarity_lbl.add_theme_font_size_override("font_size", int(vp.y * 0.022))
 	rarity_lbl.modulate = rarity_color.get(rarity, Palette.TEXT_DIM)
 	rarity_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(rarity_lbl)
 
 	var body := Label.new()
 	body.text = "Gear gives a unit permanent stat bonuses for as long as it's worn -- head, body, legs, and two hand slots, each unit gearing up independently. Open Units > Gear to equip this on whoever needs it most."
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
@@ -1702,7 +1714,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
 
-func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
+func show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 	# Post-24-item-batch (Group A1/A2): same overlay migration as
 	# _show_tutorial_complete_popup above -- this one's the exact bug Ian
 	# actually reported ("clicking 'Got it' on the tutorial pop-ups closes
@@ -1714,13 +1726,13 @@ func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 
 	var title := Label.new()
 	title.text = title_text
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.035))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = body_text
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.024))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.024))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
@@ -1737,24 +1749,24 @@ func _show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 ## construction and post-add-one-frame-before-popup_centered fix as
 ## _show_welcome_back_popup above, just keyed off a
 ## FarroadProgression.finish_side_battle event instead of an offline
-## summary. QuestsPanel's own "_show_result" card (still called right
+## summary. QuestsPanel's own "show_result" card (still called right
 ## after this from _resolve_side_battle) is UNCHANGED -- this popup is in
 ## addition to it, not a replacement.
 ## Ian: what each pull gave, in a box -- cards revealed one by one, duplicates
 ## converting into Lore or Aether in front of you (see PullResults.gd).
-func _show_pull_results(results: Array) -> void:
+func show_pull_results(results: Array) -> void:
 	if results.is_empty():
 		return
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	vbox_title(o["vbox"], "Pull result" if results.size() == 1 else "%d pulls" % results.size())
-	PullResults.build(o["vbox"], results, _vp)
+	PullResults.build(o["vbox"], results, vp)
 	await _finish_detail_overlay(o)
 
 ## Ian: a sparkly flourish when a unit levels up (called by the Aether screen).
-func _level_up_fx(uid: String, new_level: int) -> void:
+func level_up_fx(uid: String, new_level: int) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	var nm: String = def["name"] if def else uid
-	LevelUpFx.play(self, _vp, Vector2(_vp.x * 0.5, _vp.y * 0.24), nm, new_level)
+	LevelUpFx.play(self, vp, Vector2(vp.x * 0.5, vp.y * 0.24), nm, new_level)
 
 func _show_quest_result_popup(event: Dictionary) -> void:
 	var kind: String = event["kind"]
@@ -1795,7 +1807,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 	# (predating _build_detail_overlay, from when it still needed the
 	# "nest inside whatever's already open" fix on its own). An
 	# auto-sizing vbox with no explicit size budget, combined with a large
-	# (_vp.y*0.04) title font, could apparently take more than the one
+	# (vp.y*0.04) title font, could apparently take more than the one
 	# awaited frame to fully converge on its real layout size -- box.size
 	# was then read for centering BEFORE it reflected the title's true
 	# rendered height, positioning the box as if it were smaller than it
@@ -1815,12 +1827,12 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 
 	var title := Label.new()
 	title.text = title_text
-	title.add_theme_font_size_override("font_size", int(_vp.y * 0.04))
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.04))
 	vbox.add_child(title)
 
 	var body := Label.new()
 	body.text = body_text
-	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+	body.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
@@ -1829,7 +1841,7 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 	if crystal_gained > 0:
 		var gained := Label.new()
 		gained.text = "+%d Crystal" % crystal_gained
-		gained.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+		gained.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 		gained.modulate = Palette.GOLD_TEXT
 		vbox.add_child(gained)
 	var gear_id: String = str(event.get("gear", ""))
@@ -1837,13 +1849,13 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		var gear := Label.new()
 		var item: Dictionary = FarroadCore.EQUIPMENT[gear_id]
 		gear.text = "Found gear: %s" % str(item.get("name", gear_id))
-		gear.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
+		gear.add_theme_font_size_override("font_size", int(vp.y * 0.025))
 		gear.add_theme_color_override("font_color", RARITY_COLOR.get(str(item.get("rarity", "common")), UiKit.TEXT))
 		vbox.add_child(gear)
 
 	await _finish_detail_overlay(o)
 
-func _refresh_hud() -> void:
+func refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
 	crystal_cell.text = "Crystal %d" % int(g.get("crystal", 0))
@@ -1913,20 +1925,20 @@ func _is_wide_window() -> bool:
 	return float(win.size.x) / maxf(1.0, float(win.size.y)) >= WIDE_MIN_ASPECT
 
 func _compute_regions() -> void:
-	wide = _is_wide_window() and _vp.x > _vp.y
+	wide = _is_wide_window() and vp.x > vp.y
 	if wide:
-		var r: Rect2 = load("res://scripts/WideShell.gd").battle_rect(_vp)
+		var r: Rect2 = load("res://scripts/WideShell.gd").battle_rect(vp)
 		_bpos = r.position
-		_bvp = r.size
+		bvp = r.size
 	else:
 		_bpos = Vector2.ZERO
-		_bvp = _vp
+		bvp = vp
 
 ## What the legacy tab panels are told the screen is: in a wide window, a virtual
 ## screen sized so their usual 0.96 x 0.76 popup comes out as the menu rect.
 func _menu_vp() -> Vector2:
 	if not wide:
-		return _vp
+		return vp
 	var r: Rect2i = menu_popup_rect()
 	return Vector2(r.size.x / 0.96, r.size.y / 0.76)
 
@@ -1935,30 +1947,30 @@ func _menu_vp() -> Vector2:
 ## the dock stays visible beside it.
 func menu_popup_rect() -> Rect2i:
 	if not wide:
-		return Rect2i(Vector2i(_vp.x * 0.02, _vp.y * 0.125), Vector2i(_vp.x * 0.96, _vp.y * 0.76))
-	var w: float = minf(640.0, _bvp.x - 24.0)
-	var h: float = _vp.y - _bpos.y - 24.0
-	return Rect2i(Vector2i(int((_bvp.x - w) / 2.0), int(_bpos.y + 8.0)), Vector2i(int(w), int(h)))
+		return Rect2i(Vector2i(vp.x * 0.02, vp.y * 0.125), Vector2i(vp.x * 0.96, vp.y * 0.76))
+	var w: float = minf(640.0, bvp.x - 24.0)
+	var h: float = vp.y - _bpos.y - 24.0
+	return Rect2i(Vector2i(int((bvp.x - w) / 2.0), int(_bpos.y + 8.0)), Vector2i(int(w), int(h)))
 
 ## Full-screen menus (Units...): everything under the ribbon, dock included.
 func full_menu_rect() -> Rect2i:
-	var top: float = _bpos.y if wide else _vp.y * 0.125
-	return Rect2i(Vector2i(0, int(top)), Vector2i(int(_vp.x), int(_vp.y - top)))
+	var top: float = _bpos.y if wide else vp.y * 0.125
+	return Rect2i(Vector2i(0, int(top)), Vector2i(int(vp.x), int(vp.y - top)))
 
 ## What the Units sub-pages (Gambits, Aether, Lore, Gear) are told the screen is:
 ## their usual 0.96-of-width popup should come out as the page area beside the list.
 func _units_content_vp() -> Vector2:
 	if not wide:
-		return _vp
+		return vp
 	var r: Rect2i = full_menu_rect()
 	var w: float = r.size.x - 250.0 - 24.0 - 16.0 - 40.0
 	return Vector2(w / 0.96, r.size.y / 0.76)
 
 ## Puts the presenter in the battle column (before it is added to the tree).
-func _fit_presenter(pr) -> void:
+func _fit_presenter(pr: BattlePresenter) -> void:
 	pr.position = _bpos
-	pr.region_vp = _bvp
-	pr.call("set_wide", wide, 1.45 if wide else 1.0)
+	pr.region_vp = bvp
+	pr.set_wide(wide, 1.45 if wide else 1.0)
 
 func _dock_presenter(pr) -> void:
 	if pr == null or not is_instance_valid(pr) or not pr.is_inside_tree():
@@ -1973,7 +1985,7 @@ func _dock_presenter(pr) -> void:
 
 ## A panel that sends you into another fight (Quests...) opens in the dock in a
 ## wide window: its popup's scroll is moved into the dock's page host.
-var _docked_panel: Node
+var docked_panel: Node
 var _docked_scroll: Control
 
 func dock_open(panel: Node) -> bool:
@@ -1987,7 +1999,7 @@ func dock_open(panel: Node) -> bool:
 			break
 	if scroll == null:
 		return false
-	_docked_panel = panel
+	docked_panel = panel
 	_docked_scroll = scroll
 	scroll.set_meta("dock_min", scroll.custom_minimum_size)
 	var inner: Control = scroll.get_child(0)
@@ -2006,10 +2018,10 @@ func dock_open(panel: Node) -> bool:
 	return true
 
 func dock_close() -> void:
-	if _docked_panel == null:
+	if docked_panel == null:
 		return
-	var panel := _docked_panel
-	_docked_panel = null
+	var panel := docked_panel
+	docked_panel = null
 	if is_instance_valid(_docked_scroll) and is_instance_valid(panel):
 		var inner: Control = _docked_scroll.get_child(0)
 		_docked_scroll.reparent(panel.popup)
@@ -2050,7 +2062,7 @@ func _layout_wide() -> void:
 	if not wide:
 		dock_close()
 		return
-	shell.layout(_vp)
+	shell.layout(vp)
 	var rh: float = shell.RIBBON_H
 	var x := 14.0
 	road_button.position = Vector2(x, (rh - 40.0) / 2.0)
@@ -2067,7 +2079,7 @@ func _layout_wide() -> void:
 		btn.add_theme_font_size_override("font_size", 12)
 		x += RIBBON_ICON + 8.0
 	x += 16.0
-	var plate_w: float = clampf(_vp.x - x - 100.0, 200.0, 500.0)
+	var plate_w: float = clampf(vp.x - x - 100.0, 200.0, 500.0)
 	hud_plate.position = Vector2(x, 6.0)
 	hud_plate.size = Vector2(plate_w, rh - 12.0)
 	currency_row.position = Vector2(x + 10.0, (rh - 22.0) / 2.0)
@@ -2076,7 +2088,7 @@ func _layout_wide() -> void:
 		c.add_theme_font_size_override("font_size", 14)
 	speed_toggle_btn.custom_minimum_size = Vector2(70.0, 34.0)
 	speed_toggle_btn.size = Vector2(70.0, 34.0)
-	speed_toggle_btn.position = Vector2(_vp.x - 84.0, (rh - 34.0) / 2.0)
+	speed_toggle_btn.position = Vector2(vp.x - 84.0, (rh - 34.0) / 2.0)
 
 ## ---- keyboard shortcuts (computers) ----
 ## Esc goes back one level (and out of a menu); Q and E move to the previous and
@@ -2107,11 +2119,11 @@ func _typing() -> bool:
 func _shortcut(k: int) -> void:
 	if tutorial != null and tutorial.active != "":
 		return
-	var cur: Node = open_panel if open_panel != null and is_instance_valid(open_panel) else _docked_panel
-	var menu_open: bool = cur != null and (cur.get("popup") != null and (cur.popup.visible or cur == _docked_panel))
+	var cur: Node = open_panel if open_panel != null and is_instance_valid(open_panel) else docked_panel
+	var menu_open: bool = cur != null and (cur.get("popup") != null and (cur.popup.visible or cur == docked_panel))
 	var arena_open: bool = shell != null and shell.page_box.visible and cur == null
 	if k == KEY_ESCAPE:
-		if menu_open and cur != _docked_panel:
+		if menu_open and cur != docked_panel:
 			_tab_close_or_back(cur)
 		elif menu_open or arena_open:
 			_on_road_pressed()
@@ -2170,7 +2182,7 @@ func _apply_live_refresh(panel: Node) -> void:
 	if panel == shop_panel and bool(shop_panel.get("_anim_busy")):
 		return                                    # a purchase animation is playing
 	if panel == units_panel:
-		units_panel.call("_refresh_dropdown")     # levels in the list
+		units_panel.refresh_dropdown()     # levels in the list
 	# the player's own tap already refreshed what they pressed; only rebuild a
 	# menu that changed underneath them (Aether from a wave clear, say), and
 	# never while a dropdown is open or a field is being typed in
@@ -2186,9 +2198,9 @@ func _apply_live_refresh(panel: Node) -> void:
 	if panel == units_panel:
 		if units_panel.current_sub_tab == "gambits":
 			return
-		units_panel.call("_refresh_content")
+		units_panel.refresh_content()
 	elif panel == shop_panel:
-		shop_panel.call("_refresh")
+		shop_panel.refresh()
 	else:
 		return
 	await get_tree().process_frame
@@ -2196,17 +2208,6 @@ func _apply_live_refresh(panel: Node) -> void:
 	for i in mini(scrolls.size(), saved.size()):
 		if is_instance_valid(scrolls[i]):
 			(scrolls[i] as ScrollContainer).scroll_vertical = saved[i]
-
-## Called by GambitsPanel/AetherPanel (dynamic has_method()+call(), same
-## pattern as _notify_currency_changed) when either popup opens/closes --
-## see BattlePresenter.loop_paused's own comment for why this exists. Only
-## one of these popups is ever open at a time in practice, so a single
-## shared pause flag is enough -- no need to track which panel asked.
-## Ian: "Don't have menu pause combat." Kept as the panels' shared hook,
-## but menus no longer stop the fight (side battles still park the Road
-## via set_loop_paused directly).
-func _set_battle_paused(_paused: bool) -> void:
-	pass
 
 ## Ian: "Selecting buttons at the bottom should close all pop-ups and open
 ## the selected (including the road)." One place that dismisses everything
@@ -2233,8 +2234,8 @@ func _hide_open_panel() -> void:
 		catalogue_panel.set_meta("fromMenu", false)
 	open_panel.popup.hide()
 
-## Called by every panel (dynamic has_method()+call()) at the very start
-## of its own _on_toggle_pressed, BEFORE opening its own popup -- closes
+## Called by every panel at the very start
+## of its own open_menu, BEFORE opening its own popup -- closes
 ## whichever OTHER panel's popup is currently open first. Godot's own
 ## PopupPanel auto-dismisses on an outside click, but that SAME click
 ## does not also pass through to whatever is underneath it -- tapping a
@@ -2246,7 +2247,7 @@ func _hide_open_panel() -> void:
 ## normal click on an always-visible sibling Control, never eaten by the
 ## old popup's own dismiss handling), means the new popup still opens on
 ## the SAME tap that closed the old one.
-func _panel_opening(panel: Node) -> void:
+func panel_opening(panel: Node) -> void:
 	# Switching from one menu window straight to another: the old one stays up until
 	# the new one has shown, so the Road never flashes between them.
 	var old = open_panel
@@ -2299,13 +2300,12 @@ func _reset_scrolls(panel: Node) -> void:
 
 ## Group H (20-item batch): Catalogue folded out of the bottom icon row --
 ## reached via a "Catalogue" button inside SettingsPanel's own popup
-## instead (dynamic dispatch, matching every other cross-panel trigger in
-## this project, e.g. _reset_game()). Just re-triggers Catalogue's own
-## existing open logic (_panel_opening + refresh + popup + battle-pause),
-## which already correctly closes Settings' own popup via _panel_opening.
-func _open_catalogue() -> void:
+## instead. Just re-triggers Catalogue's own
+## existing open logic (panel_opening + refresh + popup + battle-pause),
+## which already correctly closes Settings' own popup via panel_opening.
+func open_catalogue() -> void:
 	catalogue_panel.set_meta("fromMenu", true)
-	catalogue_panel.call("_on_toggle_pressed")
+	catalogue_panel.open_menu()
 
 ## Ian: "Clicking the x or the outside of a page should take you up one
 ## level." A menu with a level above it (Units on Gambits/Aether/Lore/Gear
@@ -2322,7 +2322,7 @@ func _tab_go_back(panel: Node) -> void:
 		catalogue_panel.set_meta("fromMenu", false)
 		if catalogue_panel.popup.visible:
 			catalogue_panel.popup.hide()
-		settings_panel.call("_on_toggle_pressed")
+		settings_panel.open_menu()
 	elif panel.has_method("go_back"):
 		panel.call("go_back")
 
@@ -2355,12 +2355,12 @@ func _reopen_one_level_up(panel: Node) -> void:
 	if panel == catalogue_panel:
 		_tab_go_back(panel)
 	else:
-		panel.call("_on_toggle_pressed")   # reopens at its top level
+		panel.call("open_menu")   # reopens at its top level
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 
 ## Post-Milestone-3 APK feedback: "closing the details of an action closes
-## all popups." Root cause: _show_action_detail_popup used to add_child() a
+## all popups." Root cause: show_action_detail_popup used to add_child() a
 ## brand new top-level PopupPanel directly onto GameController -- a SIBLING
 ## Window to whatever tab popup was already open (e.g. UnitsPanel's).
 ## Godot's embedded-window system only tracks ONE exclusive top-level popup
@@ -2391,7 +2391,7 @@ func _overlay_host() -> Array:
 		return [overlay_host_override, Vector2(overlay_host_override.size)]
 	if open_panel != null and is_instance_valid(open_panel) and open_panel.popup.visible:
 		return [open_panel.popup, Vector2(open_panel.popup.size)]
-	return [self, _vp]
+	return [self, vp]
 
 ## Shared construction for every "on top of the current view" detail
 ## overlay (action/equipment/enemy) -- builds the dim backdrop + bordered,
@@ -2401,7 +2401,7 @@ func _overlay_host() -> Array:
 ## content into (o["vbox"]) and later finishes via _finish_detail_overlay
 ## (adds the Close button, centers the box once its real size is known).
 ## Tapping the dim backdrop also dismisses it, same as an explicit Close.
-var _full_layer: CanvasLayer = null
+var full_layer: CanvasLayer = null
 ## `on_game`: shown on the game itself, closing any open menu first -- for
 ## the between-wave milestone pop-ups the next wave waits on (nested in a
 ## menu, closing the menu hid them unanswered and the Road never moved on).
@@ -2418,12 +2418,12 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		# full-size screens) goes on its own canvas layer: battle effects
 		# (trails, halos, lights) are top-level nodes that would otherwise
 		# draw over it, and combat keeps running behind pop-ups now.
-		if _full_layer == null or not is_instance_valid(_full_layer):
-			_full_layer = CanvasLayer.new()
-			_full_layer.layer = 5
-			add_child(_full_layer)
-		host = _full_layer
-		host_size = _vp
+		if full_layer == null or not is_instance_valid(full_layer):
+			full_layer = CanvasLayer.new()
+			full_layer.layer = 5
+			add_child(full_layer)
+		host = full_layer
+		host_size = vp
 
 	var backdrop := ColorRect.new()
 	backdrop.set_meta("menu_overlay", true)   # cleared when its menu closes
@@ -2443,12 +2443,12 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	# A self-hosted overlay (host==self -- no tab panel open to nest inside,
 	# the quest/dungeon-result popup's own case) can outlive the moment it
 	# was raised -- see _self_hosted_overlays' own comment.
-	if host == _full_layer:
+	if host == full_layer:
 		_self_hosted_overlays.append(backdrop)
 		backdrop.tree_exiting.connect(func(): _self_hosted_overlays.erase(backdrop))
 
 	var box := UiPanel.new(true)
-	(box.get_theme_stylebox("panel") as StyleBoxFlat).set_content_margin_all(int(_vp.y * 0.025))
+	(box.get_theme_stylebox("panel") as StyleBoxFlat).set_content_margin_all(int(vp.y * 0.025))
 	(box.get_theme_stylebox("panel") as StyleBoxFlat).bg_color = Color(UiKit.PLATE, 1.0)
 	backdrop.add_child(box)
 
@@ -2465,9 +2465,9 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		outer.add_child(scroll)
 	# `full` (Ian: "Make the window for customization and stats be full
 	# sized"): the box fills nearly the whole host instead of a small card.
-	var pad: float = _vp.y * 0.05
+	var pad: float = vp.y * 0.05
 	scroll.custom_minimum_size = (Vector2(host_size.x - pad * 1.2, host_size.y - pad * 2.6) if full
-		else Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, _vp.y * 0.6)))
+		else Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, vp.y * 0.6)))
 	if not full:
 		box.add_child(scroll)
 
@@ -2583,7 +2583,7 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 ## overlay; each selectable row's own press handler calls
 ## `backdrop.queue_free()` after applying the pick, closing the overlay
 ## the same way _finish_detail_overlay's own Close button does.
-func _show_picker_overlay(title: String, populate: Callable) -> void:
+func show_picker_overlay(title: String, populate: Callable) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -2610,7 +2610,7 @@ func _show_picker_overlay(title: String, populate: Callable) -> void:
 ## here already set, rather than a second top-level Window nested inside
 ## ExpeditionPanel's own already-open popup (which Godot would silently
 ## close -- see _overlay_host's own comment).
-func _show_expedition_log_popup(exp: Dictionary) -> void:
+func show_expedition_log_popup(exp: Dictionary) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -2643,7 +2643,7 @@ func _show_expedition_log_popup(exp: Dictionary) -> void:
 ## owned builder, same precedent _show_quest_result_popup/
 ## _show_welcome_back_popup already set, rather than duplicating this
 ## construction into every panel that needs it).
-func _show_action_detail_popup(action_id: String) -> void:
+func show_action_detail_popup(action_id: String) -> void:
 	if FarroadCore.ACTIONS.get(action_id) == null:
 		return
 	var o := _build_detail_overlay()
@@ -2774,9 +2774,9 @@ func _show_pvp_popup() -> void:
 	var vbox: VBoxContainer = o["vbox"]
 	# Ian: "Arena window needs to be the same size as the others" -- match the
 	# tab menus' 96% x 76% window instead of filling the whole screen.
-	var arena_m: float = _vp.y * 0.025
+	var arena_m: float = vp.y * 0.025
 	var arena_scroll: ScrollContainer = o["scroll"]
-	arena_scroll.custom_minimum_size = Vector2(_vp.x * 0.96 - arena_m * 2.0, _vp.y * 0.76 - arena_m * 2.0 - 8.0)
+	arena_scroll.custom_minimum_size = Vector2(vp.x * 0.96 - arena_m * 2.0, vp.y * 0.76 - arena_m * 2.0 - 8.0)
 	arena_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vbox.custom_minimum_size = Vector2(arena_scroll.custom_minimum_size.x - 16.0, 0)
 	var title := Label.new()
@@ -2796,6 +2796,8 @@ func _show_pvp_popup() -> void:
 var cloud: CloudSave = null
 ## When the save this session started from was written (0 for a new game).
 var _local_saved_at := 0
+## A cloud save the player hasn't decided about yet ({remote, further}); empty once they have.
+var _cloud_pending: Dictionary = {}
 
 func _start_cloud() -> void:
 	if not RankedClient.online():
@@ -2841,38 +2843,61 @@ func _show_cloud_choice(remote: Dictionary, further: bool = false) -> void:
 	vbox.add_child(_wrap_label("Your cloud save is further along than the one on this device." if further else "Your cloud save is newer than the one on this device."))
 	vbox.add_child(_wrap_label("Cloud: " + _cloud_line(remote)))
 	vbox.add_child(_wrap_label("This device: " + _cloud_line(FarroadSave.serialize(g, _local_saved_at)), true))
+	var too_new := FarroadSave.is_from_newer_build(remote)
 	var use_btn := Button.new()
-	use_btn.text = "Use the cloud save"
+	if too_new:
+		# this build can't read it, and writing it here would replace the local save with something unplayable
+		use_btn.text = "Update the game to use this save"
+		use_btn.disabled = true
+	else:
+		use_btn.text = "Use the cloud save"
 	use_btn.pressed.connect(func():
 		chosen[0] = true
 		_load_snapshot(remote))
 	vbox.add_child(use_btn)
 	var keep_btn := Button.new()
 	keep_btn.text = "Keep this device's save"
+	var keep_armed := [false]
 	keep_btn.pressed.connect(func():
+		if too_new and not keep_armed[0]:
+			keep_armed[0] = true
+			keep_btn.text = "Tap again: replace the newer-version cloud save"
+			return
 		chosen[0] = true
 		cloud.held = false   # the only thing that lifts the hold
 		o["backdrop"].queue_free()
 		cloud.upload())
 	vbox.add_child(keep_btn)
-	# closed without choosing (the X, Esc, ...): ask again, and the hold stays on meanwhile
+	# closed without choosing (the X, Esc, ...): decide later. The hold stays on for this run (nothing
+	# uploads), the choice stays available under Settings > Cloud save, and the next launch asks again.
+	_cloud_pending = {"remote": remote, "further": further}
 	o["backdrop"].tree_exited.connect(func():
-		if not chosen[0] and is_inside_tree() and cloud != null and is_instance_valid(cloud) and cloud.held:
-			_show_cloud_choice.call_deferred(remote, further))
+		if chosen[0]:
+			_cloud_pending = {})
 	await _finish_detail_overlay(o)
 
 ## Replaces the save on this device with `snap` and restarts from it.
-func _load_snapshot(snap: Dictionary) -> void:
-	if not SaveStore.write(snap):
-		return
+## Refuses (returns false, writes nothing) a save from a newer build of the game than this one.
+func _load_snapshot(snap: Dictionary) -> bool:
+	if FarroadSave.is_from_newer_build(snap) or not SaveStore.write(snap):
+		return false
 	get_tree().reload_current_scene()
+	return true
 
 ## The recovery code (to carry this game to another device) and the box to
 ## enter one from another device.
-func _show_account_popup() -> void:
+func show_account_popup() -> void:
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	var vbox: VBoxContainer = o["vbox"]
 	vbox_title(vbox, "Cloud save")
+	if not _cloud_pending.is_empty() and cloud != null and is_instance_valid(cloud) and cloud.held:
+		vbox.add_child(_wrap_label("Cloud sync is paused: a different save was found in the cloud and nothing has been uploaded. Choose which one to keep, or leave it and you will be asked again next launch."))
+		var choose_btn := Button.new()
+		choose_btn.text = "Choose which save to keep"
+		choose_btn.pressed.connect(func():
+			o["backdrop"].queue_free()
+			_show_cloud_choice.call_deferred(_cloud_pending["remote"], _cloud_pending["further"]))
+		vbox.add_child(choose_btn)
 	if not RankedClient.online():
 		vbox.add_child(_wrap_label("Cloud saves aren't online yet.", true))
 		await _finish_detail_overlay(o)
@@ -2884,7 +2909,7 @@ func _show_account_popup() -> void:
 		code_box.text = code
 		code_box.editable = false
 		code_box.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-		code_box.custom_minimum_size = Vector2(0, _vp.y * 0.07)
+		code_box.custom_minimum_size = Vector2(0, vp.y * 0.07)
 		vbox.add_child(code_box)
 		var copy_btn := Button.new()
 		copy_btn.text = "Copy recovery code"
@@ -2925,7 +2950,9 @@ func _show_account_popup() -> void:
 			note.text = "No cloud save was found for that code." if err in ["no_save", "bad_key"] else RankedClient.explain(err)
 			go.disabled = false
 			return
-		_load_snapshot(res["save"]))
+		if not _load_snapshot(res["save"]):
+			note.text = "That game is from a newer version of Farroad. Update this device first."
+			go.disabled = false)
 	await _finish_detail_overlay(o)
 
 ## ===== ranked PvP (the server decides; the game replays) =====
@@ -2941,7 +2968,7 @@ func _ranked() -> RankedClient:
 ## rating, opponents near it and the leaderboard.
 ## Arena lists size their columns from this: the dock's width in a wide window.
 func _arena_vx() -> float:
-	return (360.0 / 0.96) if wide else _vp.x
+	return (360.0 / 0.96) if wide else vp.x
 
 func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 	if not RankedClient.online():
@@ -2959,7 +2986,7 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 		var upd := Button.new()
 		upd.text = "See the update"
 		UiKit.primary(upd)
-		upd.pressed.connect(func(): _check_updates(true))
+		upd.pressed.connect(func(): check_updates(true))
 		box.add_child(upd)
 		return
 	var me_name: String = str(g["mc"].get("name", "Traveler")) if g.get("mc") != null else "Traveler"
@@ -3211,7 +3238,7 @@ func _build_arena_button() -> void:
 	if arena_button != null and is_instance_valid(arena_button):
 		arena_button.queue_free()
 	var mv: Vector2 = _menu_vp()
-	arena_button = shop_panel._build_icon_tab(self, Vector2(mv.x * 0.5838, mv.y * 0.93), mv.x * 0.11, "Arena", _show_pvp_popup)
+	arena_button = UiKit.icon_tab(self, Vector2(mv.x * 0.5838, mv.y * 0.93), mv.x * 0.11, "Arena", _show_pvp_popup)
 
 ## Wide window: the Arena's opponent list sits in the dock beside the fight.
 func _show_arena_in_dock() -> void:
@@ -3238,7 +3265,7 @@ func _show_arena_in_dock() -> void:
 	_fill_ranked.call_deferred(box, scroll)
 
 func _arena_page_gone() -> void:
-	if shell == null or _docked_panel != null:
+	if shell == null or docked_panel != null:
 		return
 	for c in shell.page_host.get_children():
 		if c.has_meta("arena") and not c.is_queued_for_deletion():
@@ -3251,9 +3278,9 @@ func _close_arena() -> void:
 		for c in shell.page_host.get_children():
 			if c.has_meta("arena"):
 				c.queue_free()
-	if _full_layer == null or not is_instance_valid(_full_layer):
+	if full_layer == null or not is_instance_valid(full_layer):
 		return
-	for c in _full_layer.get_children():
+	for c in full_layer.get_children():
 		if c.has_meta("arena"):
 			c.queue_free()
 
@@ -3277,14 +3304,14 @@ func _section_label(text: String) -> Label:
 const TUTORIAL_NAMES := {"road": "The Road", "units": "Units", "gambits": "Gambits", "quests": "Quests",
 	"lore": "Lore", "marks": "Marks", "shop": "Shop", "party": "Party", "gear": "Gear", "expedition": "Expedition"}
 
-func _show_tutorials_popup() -> void:
+func show_tutorials_popup() -> void:
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
 	title.text = "Tutorials"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
-	var due: Dictionary = tutorial._due() if tutorial != null else {}
+	var due: Dictionary = tutorial.due() if tutorial != null else {}
 	for t in Tutorial.TUTS:
 		var id: String = t["id"]
 		var status: String
@@ -3316,7 +3343,7 @@ func _show_tutorials_popup() -> void:
 	await _finish_detail_overlay(o)
 
 ## Whether a PvP fight is on (menus that change units are locked meanwhile).
-func _pvp_running() -> bool:
+func pvp_running() -> bool:
 	var sb = g.get("sideBattle")
 	return sb != null and str((sb as Dictionary).get("meta", {}).get("kind", "")) == "pvp"
 
@@ -3333,8 +3360,8 @@ func _start_pvp(team: Dictionary) -> void:
 		pvp_skip_btn.queue_free()
 	pvp_skip_btn = Button.new()
 	pvp_skip_btn.text = "Skip fight ⏭"
-	pvp_skip_btn.position = Vector2(_vp.x * 0.56, _vp.y * 0.015)
-	pvp_skip_btn.custom_minimum_size = Vector2(_vp.x * 0.28, _vp.y * 0.035)
+	pvp_skip_btn.position = Vector2(vp.x * 0.56, vp.y * 0.015)
+	pvp_skip_btn.custom_minimum_size = Vector2(vp.x * 0.28, vp.y * 0.035)
 	pvp_skip_btn.pressed.connect(_skip_pvp)
 	add_child(pvp_skip_btn)
 
@@ -3343,7 +3370,7 @@ func _start_pvp(team: Dictionary) -> void:
 var pvp_skip_btn: Button
 
 func _skip_pvp() -> void:
-	if not _pvp_running():
+	if not pvp_running():
 		return
 	Analytics.add("features", "pvpSkip")
 	if side_presenter != null and is_instance_valid(side_presenter):
@@ -3435,7 +3462,7 @@ func _ago(ts: int) -> String:
 
 ## Level 1: the list of wipes. Each opens level 2 on top; tapping outside
 ## or the X on any level closes just that level.
-func _show_wipes_popup(host: Window = null) -> void:
+func show_wipes_popup(host: Window = null) -> void:
 	overlay_host_override = host
 	var o := _build_detail_overlay()
 	vbox_title(o["vbox"], "Recent wipes")
@@ -3506,14 +3533,14 @@ func _show_wipe_enemy(e: Dictionary, wave: int) -> void:
 	for aid_s in seen_ids:
 		var ab := Button.new()
 		ab.text = ("⚡ " if FarroadCore.ACTIONS[aid_s].get("isCharge", false) else "") + str(FarroadCore.ACTIONS[aid_s]["name"])
-		ab.pressed.connect(_show_action_detail_popup.bind(aid_s))
+		ab.pressed.connect(show_action_detail_popup.bind(aid_s))
 		act_row.add_child(ab)
 	vbox.add_child(act_row)
 	if float(e.get("thorns", 0.0)) > 0.0:
 		vbox.add_child(_wrap_label("Thorns: reflects %d%% of max HP when hit" % roundi(float(e["thorns"]) * 100.0), true))
 	await _finish_detail_overlay(o)
 
-func _show_stats_popup() -> void:
+func show_stats_popup() -> void:
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
@@ -3582,7 +3609,7 @@ func _show_stats_popup() -> void:
 ## Ian: "change the inventory section in the settings to be a button."
 ## Same shared small-overlay shape every other detail popup already uses
 ## (nests inside Settings' own already-open popup via _overlay_host).
-func _show_inventory_popup() -> void:
+func show_inventory_popup() -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 	var title := Label.new()
@@ -3603,7 +3630,7 @@ func _show_inventory_popup() -> void:
 ## live g["units"] entry -- this also pushes the rename onto whichever
 ## BattlePresenter(s) are actually on screen right now (Road and/or a
 ## side battle), so it's visible immediately, not just next wave.
-func _show_change_name_popup() -> void:
+func show_change_name_popup() -> void:
 	if g.get("mc") == null:
 		return
 	var o := _build_detail_overlay()
@@ -3631,10 +3658,10 @@ func _show_change_name_popup() -> void:
 			var old_name: String = str(g["mc"].get("name", ""))
 			FarroadProgression.set_mc_name(g, sanitized)
 			if current_presenter != null:
-				current_presenter.call("sync_mc_name", old_name, sanitized)
+				current_presenter.sync_mc_name(old_name, sanitized)
 			if side_presenter != null:
-				side_presenter.call("sync_mc_name", old_name, sanitized)
-			_save_game()
+				side_presenter.sync_mc_name(old_name, sanitized)
+			save_game()
 		o["backdrop"].queue_free())
 	vbox.add_child(save_btn)
 
@@ -3646,7 +3673,7 @@ func _show_change_name_popup() -> void:
 ## the customization box" -- so this is the MC's one full-size customise
 ## screen: name, body, colours. Changes apply live, in battle too, and save
 ## straight away.
-func _show_change_body_popup() -> void:
+func show_change_body_popup() -> void:
 	if g.get("mc") == null:
 		return
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
@@ -3682,8 +3709,8 @@ func _show_change_body_popup() -> void:
 		name_edit.text = sanitized
 		for p in [current_presenter, side_presenter]:
 			if p != null:
-				p.call("sync_mc_name", old_name, sanitized)
-		_save_game())
+				p.sync_mc_name(old_name, sanitized)
+		save_game())
 	name_row.add_child(save_name)
 
 	var uid := "kesh"
@@ -3695,7 +3722,7 @@ func _show_change_body_popup() -> void:
 	preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	preview.custom_minimum_size = Vector2(_vp.x * 0.4, _vp.x * 0.4)
+	preview.custom_minimum_size = Vector2(vp.x * 0.4, vp.x * 0.4)
 	header.add_child(preview)
 	var scroll_node: ScrollContainer = o["scroll"]
 	scroll_node.custom_minimum_size.y -= header.get_combined_minimum_size().y + 8.0
@@ -3742,7 +3769,7 @@ func _show_change_body_popup() -> void:
 			row.add_child(orig)
 			for hex in Appearance.PRESETS[part]:
 				var sw := Button.new()
-				sw.custom_minimum_size = Vector2(_vp.x * 0.075, _vp.x * 0.075)
+				sw.custom_minimum_size = Vector2(vp.x * 0.075, vp.x * 0.075)
 				var st := StyleBoxFlat.new()
 				st.bg_color = Color(hex)
 				st.set_corner_radius_all(4)
@@ -3765,7 +3792,7 @@ func _show_change_body_popup() -> void:
 			body_box.add_child(grid)
 			var chip := ColorRect.new()
 			chip.color = start
-			chip.custom_minimum_size = Vector2(_vp.x * 0.06, _vp.x * 0.06)
+			chip.custom_minimum_size = Vector2(vp.x * 0.06, vp.x * 0.06)
 			var sliders := []
 			for ch in 3:
 				var cl := Label.new()
@@ -3777,11 +3804,11 @@ func _show_change_body_popup() -> void:
 				sl.step = 1
 				sl.value = roundi([start.r, start.g, start.b][ch] * 255.0)
 				sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				sl.custom_minimum_size = Vector2(0, _vp.y * 0.03)
+				sl.custom_minimum_size = Vector2(0, vp.y * 0.03)
 				grid.add_child(sl)
 				var vl := Label.new()
 				vl.text = str(int(sl.value))
-				vl.custom_minimum_size = Vector2(_vp.x * 0.09, 0)
+				vl.custom_minimum_size = Vector2(vp.x * 0.09, 0)
 				grid.add_child(vl)
 				if ch == 0:
 					grid.add_child(chip)
@@ -3809,8 +3836,8 @@ func _show_change_body_popup() -> void:
 func _appearance_changed(uid: String) -> void:
 	for p in [current_presenter, side_presenter]:
 		if p != null:
-			p.call("sync_appearance", uid)
-	_save_game()
+			p.sync_appearance(uid)
+	save_game()
 
 ## Same sanitize rule McCreatePanel._sanitize_name uses -- small per-file
 ## duplication (this project's own established convention) rather than a
@@ -3870,7 +3897,7 @@ func _status_description(status_id: String, potency: float = 1.0) -> String:
 ## affinity contribution needs a REAL unit's baseline to be well-defined;
 ## with no uid, this falls back to the item's raw affinity values instead
 ## of a computed %.
-func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
+func show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null:
 		return
@@ -3903,7 +3930,7 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 		# across this popup and the welcome-back/enemy-detail popups) was
 		# missing the same autowrap+expand-fill every SIBLING label here
 		# already had (aff_lbl, just below) -- its fixed-pixel-font text
-		# doesn't shrink with a narrower _vp.x the way this container's own
+		# doesn't shrink with a narrower vp.x the way this container's own
 		# fraction-based width does, so at the real portrait aspect ratio
 		# it was wider than its own available space, forcing an unwanted
 		# reflow that pushed the whole popup's content taller than it
@@ -3943,13 +3970,13 @@ func _show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 ## shape a unit's own loadout uses) -- resolved here into readable
 ## condition/action names via the same FarroadCore.cond_label/ACTIONS
 ## lookups every other panel already uses. Each listed action gets its own
-## info icon too, opening _show_action_detail_popup as a second overlay --
+## info icon too, opening show_action_detail_popup as a second overlay --
 ## nests correctly on top of this one since both are siblings under the
 ## same host popup, not nested inside each other (see
 ## _build_detail_overlay's own comment).
 ## Ian: "Shop: inspection icon to see details of actions, units, etc" --
 ## a roster unit's base stats, growth, affinities and charge action.
-func _show_unit_detail_popup(uid: String) -> void:
+func show_unit_detail_popup(uid: String) -> void:
 	var d = FarroadCore.roster_by_id(uid)
 	if d == null:
 		return
@@ -4011,13 +4038,13 @@ func _show_unit_detail_popup(uid: String) -> void:
 		var ib := Button.new()
 		ib.text = "ⓘ"
 		ib.custom_minimum_size = Vector2(36, 0)
-		ib.pressed.connect(_show_action_detail_popup.bind(cid))
+		ib.pressed.connect(show_action_detail_popup.bind(cid))
 		row.add_child(ib)
 		vbox.add_child(row)
 	_finish_detail_overlay(o)
 
 ## A gambit condition's full wording and which side it reads.
-func _show_gambit_detail_popup(cond_id: String) -> void:
+func show_gambit_detail_popup(cond_id: String) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
 	var title := RichTextLabel.new()
@@ -4033,7 +4060,7 @@ func _show_gambit_detail_popup(cond_id: String) -> void:
 	vbox.add_child(lbl)
 	_finish_detail_overlay(o)
 
-func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_variant: bool = false) -> void:
+func show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_variant: bool = false) -> void:
 	var a = FarroadCore.ARCH.get(arch_key)
 	if a == null:
 		return
@@ -4103,7 +4130,7 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 		var charge_info_btn := Button.new()
 		charge_info_btn.text = "ⓘ"
 		charge_info_btn.custom_minimum_size = Vector2(36, 0)
-		charge_info_btn.pressed.connect(_show_action_detail_popup.bind(charge_action_id))
+		charge_info_btn.pressed.connect(show_action_detail_popup.bind(charge_action_id))
 		charge_row.add_child(charge_info_btn)
 		vbox.add_child(charge_row)
 
@@ -4126,13 +4153,13 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 			var info_btn := Button.new()
 			info_btn.text = "ⓘ"
 			info_btn.custom_minimum_size = Vector2(36, 0)
-			info_btn.pressed.connect(_show_action_detail_popup.bind(action_id))
+			info_btn.pressed.connect(show_action_detail_popup.bind(action_id))
 			row.add_child(info_btn)
 			vbox.add_child(row)
 
 	await _finish_detail_overlay(o)
 
-## Called by UnitsPanel (dynamic has_method()+call()) whenever its
+## Called by UnitsPanel whenever its
 ## Gambits/Aether/Lore/Equipment sub-tab needs to (re)build its content --
 ## on first selecting that sub-tab, and again on every unit swap while it
 ## stays the active sub-tab. Dispatches to whichever panel's own
@@ -4143,12 +4170,12 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 ## through only so a panel with its OWN transient dialog (LorePanel's
 ## refund confirm) can nest it inside the SAME window this content lives
 ## in, rather than risking the identical sibling-Window bug.
-func _build_unit_subpanel_content(panel_key: String, container: Container, uid: String, host_popup: Window) -> void:
+func build_unit_subpanel_content(panel_key: String, container: Container, uid: String, host_popup: Window) -> void:
 	match panel_key:
-		"gambits": gambits_panel.call("build_into", container, uid, host_popup)
-		"aether": aether_panel.call("build_into", container, uid, host_popup)
-		"lore": lore_panel.call("build_into", container, uid, host_popup)
-		"equipment": equipment_panel.call("build_into", container, uid, host_popup)
+		"gambits": gambits_panel.build_into(container, uid, host_popup)
+		"aether": aether_panel.build_into(container, uid, host_popup)
+		"lore": lore_panel.build_into(container, uid, host_popup)
+		"equipment": equipment_panel.build_into(container, uid, host_popup)
 
 ## Post-Milestone-3 APK feedback (Group B4): full-screen popups (B2) would
 ## otherwise make the Road/combat view unreachable-looking while a tab is
@@ -4158,26 +4185,25 @@ func _on_road_pressed() -> void:
 	_close_all_popups()
 	open_panel = null
 
-## Called by PartyPanel (dynamic has_method()+call(), same pattern as
-## _set_battle_paused) right after a bench/field edit -- pushes the roster
+## Called by PartyPanel right after a bench/field edit -- pushes the roster
 ## change onto the live fight immediately (see
 ## FarroadProgression.refresh_live_party's own comment) rather than waiting
 ## for the next wave's build_party().
-func _sync_party_change() -> void:
-	_refresh_hud()   # the HUD's Power is the fielded party's
+func sync_party_change() -> void:
+	refresh_hud()   # the HUD's Power is the fielded party's
 	if current_presenter == null:
 		return
 	var result: Dictionary = FarroadProgression.refresh_live_party(g)
-	current_presenter.call("sync_live_party", result["added"], result["removed"])
+	current_presenter.sync_live_party(result["added"], result["removed"])
 
-## Called by PartyPanel (dynamic has_method()+call()) right after a
+## Called by PartyPanel right after a
 ## front/back row toggle (post-Milestone-3 APK feedback, Group A1) --
 ## pushes the row change onto the live fight's on-field sprite immediately,
 ## animated, rather than waiting for the next wave's build_party().
-func _sync_row_change(uid: String) -> void:
+func sync_row_change(uid: String) -> void:
 	if current_presenter == null:
 		return
-	current_presenter.call("hop_to_new_row", uid)
+	current_presenter.hop_to_new_row(uid)
 
 ## Guarded against a real race with side battles (Step 3i/3j fix): a Road
 ## win/wipe can already be mid-await (_animate_wave_transition's own
@@ -4192,18 +4218,21 @@ func _sync_row_change(uid: String) -> void:
 ## _resolve_side_battle's own restore path is what rebuilds the Road's
 ## presenter once it's actually safe again (see its own comment).
 func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_revealed: bool = false, auto_start_loop: bool = true, defer_dock: bool = false) -> void:
+	_crumb("beginNextFight")
 	if g.get("sideBattle") != null:
 		return
 	_check_respec_item()
 	_layer_hud_above_trees()   # catches any control built since the last wave
-	var presenter = load("res://scripts/BattlePresenter.gd").new()
+	var presenter := BattlePresenter.new()
+	presenter.crumb_sink = _crumb
+	presenter.wipes_lookup = show_wipes_popup
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
 	presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	presenter.action_info = func(aid, host):
 		overlay_host_override = host
-		_show_action_detail_popup(str(aid))
+		show_action_detail_popup(str(aid))
 	_fit_presenter(presenter)
 	add_child(presenter)
 	if not defer_dock:   # built early (while the old fight is still on screen): the dock switches at the swap
@@ -4214,7 +4243,7 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 		presenter.queue_free()
 		return
 	if tutorial != null and tutorial.holds_road():
-		presenter.set_loop_paused(true)   # the Road waits out a running (or due) tutorial
+		presenter.set_loop_paused(true, "tutorialDue")   # the Road waits out a running (or due) tutorial
 	# the wave's enemies as they were at the start (enrage changes them)
 	presenter.set_meta("enemySnap", (g.get("enemies", []) as Array).map(FarroadProgression.bake_enemy_snapshot))
 	presenter.analytics_key = str(int(g.get("wave", 1)))
@@ -4284,7 +4313,7 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 	for view in old_presenter.unit_views_by_id.values():
 		if not view.unit["isParty"] and view.unit["hp"] <= 0:
 			view.visible = false
-	var run_dx: float = _vp.x * WAVE_RUN_DIST_FRAC   # Ian: 20% further than the original 0.1
+	var run_dx: float = vp.x * WAVE_RUN_DIST_FRAC   # Ian: 20% further than the original 0.1
 	var lags: Dictionary = _unit_lags(old_presenter)  # each unit's place in the pack: 0 = fastest, 1 = slowest
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
@@ -4295,7 +4324,7 @@ func _animate_wave_transition(old_presenter: Node) -> void:
 			# Everyone runs forward together; then each unit falls steadily further behind the fastest as the
 			# forest scrolls past (never closing the gap), and after the forest stops the slower ones run up
 			# to their marks, arriving up to WAVE_RUN_VARIANCE after the fastest.
-			var behind_max: float = minf(lag * WAVE_FALL_BEHIND_FRAC * _vp.x, maxf(0.0, view.rest_position.x - view.size * 0.2))   # a back-row unit may fall back nearly to the screen edge
+			var behind_max: float = minf(lag * WAVE_FALL_BEHIND_FRAC * vp.x, maxf(0.0, view.rest_position.x - view.size * 0.2))   # a back-row unit may fall back nearly to the screen edge
 			var catch_up: float = lag * WAVE_RUN_VARIANCE
 			var total: float = WAVE_TRAVEL_TIME + catch_up
 			var tw := create_tween()
@@ -4419,7 +4448,7 @@ func _animate_wave_heal(old_presenter: Node) -> void:
 	var targets := {}
 	for u in g.get("units", []):
 		targets[str(u["id"])] = float(u["hp"])
-	var any = old_presenter.call("heal_party_to", targets, WAVE_HEAL_TIME)
+	var any = old_presenter.heal_party_to(targets, WAVE_HEAL_TIME)
 	if any:
 		await get_tree().create_timer(WAVE_HEAL_TIME + 0.2).timeout
 
@@ -4446,6 +4475,27 @@ func _on_battle_finished(outcome: String, from: Node = null) -> void:
 const ROAD_WATCHDOG_SEC := 3.0
 var _watchdog_strikes := 0
 
+## The last few things that happened to the Road, newest last. When the watchdog has to step in, these
+## say what led up to it (the watchdog hides the bug; this is how the bug gets found).
+const CRUMB_LIMIT := 16
+var _crumbs: Array = []
+
+func _crumb(what: String) -> void:
+	_crumbs.append("%.1fs %s" % [Time.get_ticks_msec() / 1000.0, what])
+	if _crumbs.size() > CRUMB_LIMIT:
+		_crumbs.pop_front()
+
+## One line describing the Road's state, for a watchdog report.
+func _road_state_text(p) -> String:
+	var bits: Array = ["wave %s" % str(g.get("wave", "?")),
+		"roadChanging %d" % _road_changing,
+		"openPanel %s" % (str(open_panel.name) if open_panel != null and is_instance_valid(open_panel) else "none")]
+	if p == null or not is_instance_valid(p):
+		bits.append("presenter none")
+	else:
+		bits.append("presenter visible=%s paused=%s started=%s over=%s" % [str(p.visible), str(p.loop_paused), str(p.loop_started()), str(p.battle.get("over"))])
+	return ", ".join(bits)
+
 func _road_watchdog() -> void:
 	if g.is_empty() or g.get("mc") == null or g.get("sideBattle") != null or _road_changing > 0:
 		_watchdog_strikes = 0
@@ -4461,7 +4511,7 @@ func _road_watchdog() -> void:
 		reason = "hidden"
 	elif p.loop_paused:
 		reason = "paused"
-	elif p._loop_started and p.battle.get("over") != null:
+	elif p.loop_started() and p.battle.get("over") != null:
 		reason = "overNotAdvanced"
 	if reason == "":
 		_watchdog_strikes = 0
@@ -4472,18 +4522,23 @@ func _road_watchdog() -> void:
 		return
 	_watchdog_strikes = 0
 	Analytics.add("features", "roadWatchdog:" + reason)
+	# which step it follows, as a short code (the first word of the newest breadcrumb)
+	var last: String = str(_crumbs[_crumbs.size() - 1]).get_slice(" ", 1) if not _crumbs.is_empty() else "none"
+	Analytics.add("features", "roadWatchdog:%s:after:%s" % [reason, last])
+	push_warning("Road watchdog (%s): %s | recent: %s" % [reason, _road_state_text(p), " > ".join(_crumbs.slice(maxi(0, _crumbs.size() - 8)))])
 	match reason:
 		"noFight":
 			_begin_next_fight()
 		"hidden":
 			p.show()
-			p.call("set_loop_paused", false)
+			p.set_loop_paused(false, "watchdogHidden")
 		"paused":
-			p.call("set_loop_paused", false)
+			p.set_loop_paused(false, "watchdogPaused")
 		"overNotAdvanced":
 			_on_battle_finished(str(p.battle["over"]), p)
 
 func _on_battle_finished_inner(outcome: String) -> void:
+	_crumb("battleFinished:%s" % outcome)
 	_record_road_wave(outcome == "party")
 	if outcome == "party":
 		# Captured BEFORE after_wave_cleared/start_wave advance g["wave"] --
@@ -4495,8 +4550,8 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		var marks_before: float = g.get("marks", 0.0)
 		var events: Array = FarroadProgression.after_wave_cleared(g)
 		events += FarroadProgression.start_wave(g, g["wave"] + 1)
-		_refresh_hud()
-		_save_game()
+		refresh_hud()
+		save_game()
 		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
 		# Ian: a one-time popup congratulating the player on finishing the
 		# tutorial and explaining enrage, shown exactly when the mechanic
@@ -4555,7 +4610,7 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		await _animate_wave_heal(old_presenter)
 		_animate_wave_transition(old_presenter)
 		if old_presenter != null:
-			old_presenter.call("light_up_wave", cleared_wave)
+			old_presenter.light_up_wave(cleared_wave)
 		_animate_wave_retreat(old_presenter)
 		# Every time below is in seconds from the moment the party starts running.
 		var total: float = _wave_total_time(old_presenter)       # the last ally has reached its mark
@@ -4571,13 +4626,13 @@ func _on_battle_finished_inner(outcome: String) -> void:
 			if current_presenter == old_presenter:
 				current_presenter = null
 			return
-		next.call("set_chrome_visible", false)
+		next.set_chrome_visible(false)
 		# the first enemy arrives just after the first ally (who is at its mark when the scroll ends)
 		var first_arrival: float = WAVE_TRAVEL_TIME + ENEMY_AFTER_ALLY
 		var enemy_start: float = maxf(0.0, first_arrival - ENEMY_FAST_RUN_TIME)
 		await get_tree().create_timer(enemy_start).timeout
 		if is_instance_valid(next) and next == current_presenter:
-			next.call("run_enemies_in_pack", ENEMY_FAST_RUN_TIME, WAVE_RUN_VARIANCE)
+			next.run_enemies_in_pack(ENEMY_FAST_RUN_TIME, WAVE_RUN_VARIANCE)
 		await get_tree().create_timer(maxf(0.0, total - enemy_start)).timeout
 		# the allies are all at their marks: swap the old picture for the new one
 		if old_presenter != null and is_instance_valid(old_presenter):
@@ -4585,17 +4640,17 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		if not (is_instance_valid(next) and next == current_presenter):
 			return
 		_dock_presenter(next)
-		next.call("set_chrome_visible", true)
-		next.call("reveal_party", CHROME_FADE_TIME)
+		next.set_chrome_visible(true)
+		next.reveal_party(CHROME_FADE_TIME)
 		# combat starts once the last enemy has arrived
 		await get_tree().create_timer(maxf(0.0, first_arrival + WAVE_RUN_VARIANCE - total)).timeout
 		if is_instance_valid(next) and next == current_presenter:
-			next.call("begin_combat")
+			next.begin_combat()
 	else:
 		_record_wipe()
 		FarroadProgression.on_wipe(g)
-		_refresh_hud()
-		_save_game()
+		refresh_hud()
+		save_game()
 		# A wipe hides the checkpoint jump behind a fade to black instead of
 		# announcing it with text -- the field swap happens while the screen
 		# is fully black, so the return to an earlier wave reads as a scene
@@ -4629,12 +4684,13 @@ func _no_living_enemies(pr: Node) -> bool:
 	return true
 
 func _gate_ascension() -> void:
+	_crumb("gateAscension")
 	var old_presenter = current_presenter
 	await _animate_wave_heal(old_presenter)
-	var s: float = _bvp.y / BG_ART_H
+	var s: float = bvp.y / BG_ART_H
 	var gate := AscensionGate.new()
 	# the doorway's base-left corner; the gate (120 art px wide) must stay on screen
-	var door := _bpos + Vector2(minf(_bvp.x * 0.85, _bvp.x - 82.0 * s), 205.0 * s)
+	var door := _bpos + Vector2(minf(bvp.x * 0.85, bvp.x - 82.0 * s), 205.0 * s)
 	var lowest_top := -1.0   # the stairs stop just short of the lowest party unit
 	for v in old_presenter.unit_views_by_id.values():
 		if v.unit["isParty"] and v.unit["hp"] > 0:
@@ -4732,8 +4788,8 @@ func _icon_center(x_frac: float) -> Vector2:
 		var btn = _ribbon_icon_for_frac(x_frac)
 		if btn != null and is_instance_valid(btn):
 			return btn.global_position + btn.size / 2.0
-	var icon_size: float = _vp.x * ICON_SIZE_FRAC
-	return Vector2(_vp.x * x_frac + icon_size / 2.0, _vp.y * ICON_Y_FRAC + icon_size / 2.0)
+	var icon_size: float = vp.x * ICON_SIZE_FRAC
+	return Vector2(vp.x * x_frac + icon_size / 2.0, vp.y * ICON_Y_FRAC + icon_size / 2.0)
 
 ## Snapshotted aether/lore/marks BEFORE after_wave_cleared/start_wave ran,
 ## diffed against the current (post-call) values -- covers every plain
@@ -4746,7 +4802,7 @@ func _icon_center(x_frac: float) -> Vector2:
 ## caller, matching the established "small reusable helper, no bespoke
 ## animation per reward kind" design.
 func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float, marks_before: float) -> void:
-	var start := _bpos + Vector2(_bvp.x / 2.0, _bvp.y * (0.15 + 0.58) / 2.0)
+	var start := _bpos + Vector2(bvp.x / 2.0, bvp.y * (0.15 + 0.58) / 2.0)
 	var delay := 0.0
 	var aether_delta: float = g.get("aether", 0.0) - aether_before
 	if aether_delta >= 1.0:
@@ -4805,7 +4861,7 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 		await get_tree().create_timer(delay).timeout
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.0196))
+	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.0196))
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	# Ian: an outline so rewards stand out against the field
 	lbl.add_theme_color_override("font_outline_color", Color.BLACK)
@@ -4832,11 +4888,13 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 ## hiding it since the side battle needs the same on-field real estate,
 ## not a small popup) is this port's whole equivalent.
 func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary, prebuilt: Dictionary = {}) -> void:
+	_crumb("sideBattleStart:%s" % str(meta.get("kind", "?")))
 	if not FarroadProgression.start_side_battle(g, enemies, wave, meta, prebuilt):
 		return
 	_side_started_ms = Time.get_ticks_msec()
 	if current_presenter != null:
-		current_presenter.call("set_loop_paused", true)
+		current_presenter.set_loop_paused(true, "sideBattle")
+		_crumb("hideRoad")
 		current_presenter.hide()
 		if current_presenter.log_popup.visible:
 			current_presenter.log_popup.hide()
@@ -4849,14 +4907,16 @@ func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary, prebuilt: D
 ## before the fight starts, like on the Road. `reveal_party` fades the
 ## party's bars back in after a between-wave run.
 func _spawn_side_presenter(reveal_party: bool) -> void:
-	side_presenter = load("res://scripts/BattlePresenter.gd").new()
+	side_presenter = BattlePresenter.new()
+	side_presenter.crumb_sink = _crumb
+	side_presenter.wipes_lookup = show_wipes_popup
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	side_presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	side_presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
 	side_presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	side_presenter.action_info = func(aid, host):
 		overlay_host_override = host
-		_show_action_detail_popup(str(aid))
+		show_action_detail_popup(str(aid))
 	_fit_presenter(side_presenter)
 	add_child(side_presenter)
 	_dock_presenter(side_presenter)
@@ -4872,11 +4932,11 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	sp.start_battle(g["battle"], g["battle"]["units"], true, {}, reveal_party, false)
 	sp.call("set_status_override", _side_battle_label_text(g["sideBattle"]["meta"]))
 	if reveal_party:
-		sp.call("reveal_party", CHROME_FADE_TIME)
+		sp.reveal_party(CHROME_FADE_TIME)
 	sp.call("run_enemies_entering")
 	await get_tree().create_timer(ENEMY_RUN_IN_TIME).timeout
 	if is_instance_valid(sp):
-		sp.call("begin_combat")
+		sp.begin_combat()
 
 ## Replaces the side presenter's own "Wave N" text (BattlePresenter.
 ## set_status_override) with the quest/dungeon's own name while a side
@@ -4894,7 +4954,7 @@ func _side_battle_label_text(meta: Dictionary) -> String:
 ## ===== Training dummies (TrainingSetup.gd) =====
 ## Opened from the Gambits editor's Test button and from the Quests tab --
 ## both call this, so it is one and the same screen.
-func _open_training() -> void:
+func open_training() -> void:
 	if g.get("sideBattle") != null:
 		return
 	if wide and shell != null:
@@ -4941,20 +5001,20 @@ func _start_training() -> void:
 	# Ian: the buttons sit right next to the "Training" text above the enrage bar
 	await get_tree().process_frame
 	var title: Label = side_presenter.wave_progress_label if side_presenter != null and is_instance_valid(side_presenter) else null
-	var bx: float = (title.global_position.x + title.get_minimum_size().x + _bvp.x * 0.025) if title != null else _bvp.x * 0.30
-	var by: float = (title.global_position.y) if title != null else _bpos.y + _bvp.y * 0.60
-	var bh: float = (title.get_minimum_size().y if title != null else _vp.y * 0.03) + 4.0
+	var bx: float = (title.global_position.x + title.get_minimum_size().x + bvp.x * 0.025) if title != null else bvp.x * 0.30
+	var by: float = (title.global_position.y) if title != null else _bpos.y + bvp.y * 0.60
+	var bh: float = (title.get_minimum_size().y if title != null else vp.y * 0.03) + 4.0
 	training_end_btn = Button.new()
 	training_end_btn.text = "End training"
 	training_end_btn.position = Vector2(bx, by - 2.0)
 	training_end_btn.custom_minimum_size = Vector2(0, bh)
-	training_end_btn.add_theme_font_size_override("font_size", int(_vp.y * 0.017))
+	training_end_btn.add_theme_font_size_override("font_size", int(vp.y * 0.017))
 	training_end_btn.pressed.connect(_end_training)
 	add_child(training_end_btn)
 	training_refill_btn = Button.new()
 	training_refill_btn.text = "Reset"
 	training_refill_btn.custom_minimum_size = Vector2(0, bh)
-	training_refill_btn.add_theme_font_size_override("font_size", int(_vp.y * 0.017))
+	training_refill_btn.add_theme_font_size_override("font_size", int(vp.y * 0.017))
 	training_refill_btn.pressed.connect(_refill_dummies)
 	add_child(training_refill_btn)
 	await get_tree().process_frame
@@ -4995,16 +5055,15 @@ func _refill_dummies() -> void:
 		for v in side_presenter.unit_views_by_id.values():
 			v.update_hp()
 
-## Called by QuestsPanel (dynamic has_method()+call(), same pattern as
-## every other panel-to-controller call in this project).
-func _attempt_quest(uid: String) -> void:
+## Called by QuestsPanel.
+func attempt_quest(uid: String) -> void:
 	var prep := FarroadProgression.prep_quest_attempt(g, uid)
 	if prep.is_empty():
 		return
 	quests_panel.popup.hide()
 	_enter_side_battle(prep["enemies"], prep["wave"], prep["meta"])
 
-func _enter_dungeon(id: String) -> void:
+func enter_dungeon(id: String) -> void:
 	var prep := FarroadProgression.prep_dungeon_attempt(g, id, Time.get_unix_time_from_system())
 	if prep.is_empty():
 		return
@@ -5021,7 +5080,7 @@ func _on_side_battle_finished(outcome: String) -> void:
 ## node it's bound to is freed mid-animation (the same unconditional
 ## queue_free() a Road wipe already relies on), so no BattlePresenter-side
 ## abort flag is needed.
-func _give_up_quest() -> void:
+func give_up_quest() -> void:
 	if g.get("sideBattle") == null or g["sideBattle"]["meta"]["kind"] != "quest":
 		return
 	side_presenter.battle_finished.disconnect(_on_side_battle_finished)
@@ -5030,6 +5089,7 @@ func _give_up_quest() -> void:
 	_resolve_side_battle("enemy", true)
 
 func _resolve_side_battle(result: String, gave_up: bool) -> void:
+	_crumb("sideBattleEnd:%s" % result)
 	var side_meta: Dictionary = (g["sideBattle"]["meta"] as Dictionary).duplicate() if g.get("sideBattle") != null else {}
 	var event := FarroadProgression.finish_side_battle(g, result, gave_up, Time.get_unix_time_from_system())
 	if event["kind"] != "dungeon_wave_advance" and event["kind"] != "training_done":
@@ -5053,9 +5113,10 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		side_presenter = null
 	_refresh_background()   # back to the Road's environment
 	if current_presenter != null:
+		_crumb("showRoad")
 		current_presenter.show()
 		_dock_presenter(current_presenter)
-		current_presenter.call("set_loop_paused", false)
+		current_presenter.set_loop_paused(false, "sideBattleEnd")
 	else:
 		# Recovery path for the race _begin_next_fight() guards against:
 		# a Road win/wipe that was already mid-await when this side battle
@@ -5070,7 +5131,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 			pvp_skip_btn.queue_free()
 		_show_pvp_result_popup(event)
 	else:
-		quests_panel.call("_show_result", event)
+		quests_panel.show_result(event)
 		_show_quest_result_popup(event)
-	_refresh_hud()
-	_save_game()
+	refresh_hud()
+	save_game()

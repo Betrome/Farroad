@@ -1,3 +1,4 @@
+class_name ExpeditionPanel
 extends Node
 ## Milestone 3, Step 3h: the EXPEDITION tab -- real-time idle sending.
 ## Structural sibling of MarksPanel.gd (no per-unit tab row -- this is a
@@ -8,7 +9,7 @@ extends Node
 ## directly (pure g-mutation, `now` always an explicit parameter -- see
 ## that file's own EXPEDITIONS section comment for why). Unlike every
 ## other panel this session, this one does NOT pause BattlePresenter's
-## beat loop while open, and does NOT need `_sync_party_change` --
+## beat loop while open, and does NOT need `sync_party_change` --
 ## expeditions only ever pull from the BENCH (is_on_expedition guards
 ## FarroadProgression.available_for_party, mirroring the real
 ## benchedUnits() filter exactly), so the currently-fielded Road party is
@@ -20,7 +21,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 
 var toggle_button: Button
 var popup: PopupPanel
@@ -29,7 +30,7 @@ var send_container: VBoxContainer
 var selected_uids: Array = []
 var selected_direction: String = ""
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -86,11 +87,11 @@ func reflow(new_vp: Vector2) -> void:
 	if popup != null and _built_wide != _is_wide():
 		_populate_popup()
 		if popup.visible:
-			_refresh()
+			refresh()
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", open_menu)
 	_update_badge.call_deferred()
 
 func _build_ui(parent: Node) -> void:
@@ -99,7 +100,7 @@ func _build_ui(parent: Node) -> void:
 	# full layout. This panel now sits at 0.3833 (moved earlier in the row
 	# so Road, right after it, stays close to true center).
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", open_menu)
 	_update_badge.call_deferred()
 
 	popup = PopupPanel.new()
@@ -113,7 +114,7 @@ var _built_wide := false
 var map_container: VBoxContainer
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 ## Wide window: the map on the left, sending and the active expeditions on the
 ## right, nothing to scroll past. Otherwise the portrait list. Rebuilt in place.
@@ -160,7 +161,7 @@ func _populate_popup() -> void:
 const WIDE_MAP := 470.0
 
 func _populate_wide() -> void:
-	var r: Rect2i = _parent.call("full_menu_rect")
+	var r: Rect2i = _parent.full_menu_rect()
 	var root := HBoxContainer.new()
 	_body = root
 	# the height is fixed, so no amount of content can grow the window up over the top bar
@@ -218,20 +219,18 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
-	_refresh()
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
+func open_menu() -> void:
+	_parent.panel_opening(self)
+	refresh()
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 func _notify_currency_changed() -> void:
-	if _parent and _parent.has_method("_refresh_hud"):
-		_parent.call("_refresh_hud")
+	_parent.refresh_hud()
 
 func _now() -> float:
 	return Time.get_unix_time_from_system()
 
-func _refresh() -> void:
+func refresh() -> void:
 	_refresh_active()
 	_refresh_send_picker()
 
@@ -305,7 +304,7 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 
 	# Ian: "give each expedition you send out its own button to pop up a
 	# log showing battle, events, and dungeons they encounter" -- opens the
-	# FULL exp["log"] history (GameController._show_expedition_log_popup),
+	# FULL exp["log"] history (GameController.show_expedition_log_popup),
 	# distinct from the single most-recent-entry preview line just above.
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
@@ -357,16 +356,15 @@ func _fmt_duration(sec: int) -> String:
 	return "%ds" % sec
 
 func _on_log_pressed(exp: Dictionary) -> void:
-	if _parent and _parent.has_method("_show_expedition_log_popup"):
-		_parent.call("_show_expedition_log_popup", exp)
+	_parent.show_expedition_log_popup(exp)
 
 func _on_recall_pressed(id: String) -> void:
 	FarroadProgression.recall_expedition(g, id, _now())
-	_refresh()
+	refresh()
 
 func _on_explore_pressed(id: String) -> void:
 	FarroadProgression.resume_expedition(g, id, _now())
-	_refresh()
+	refresh()
 
 func _on_collect_all_pressed() -> void:
 	var any := false
@@ -375,12 +373,12 @@ func _on_collect_all_pressed() -> void:
 			any = true
 	if any:
 		_notify_currency_changed()
-	_refresh()
+	refresh()
 
 func _on_collect_pressed(id: String) -> void:
 	if FarroadProgression.collect_expedition(g, id):
 		_notify_currency_changed()
-	_refresh()
+	refresh()
 
 ## Mirrors the send picker: click-to-toggle benched units up to
 ## PARTY_CAP, a compass-style ExpeditionMap for direction selection (8
@@ -388,7 +386,7 @@ func _on_collect_pressed(id: String) -> void:
 ## "Send expedition (n/cap)" button. Shown whenever any sendable unit
 ## exists.
 func _wide_map_size() -> float:
-	var r: Rect2i = _parent.call("full_menu_rect")
+	var r: Rect2i = _parent.full_menu_rect()
 	return minf(WIDE_MAP, float(r.size.y) - 110.0)
 
 func _map_host() -> Container:
@@ -507,7 +505,7 @@ func _on_send_pressed() -> void:
 	if FarroadProgression.send_expedition(g, selected_uids, selected_direction, _now()):
 		selected_uids = []
 		selected_direction = ""
-	_refresh()
+	refresh()
 
 ## Ian: an exclamation point in the corner of the Expedition button when a
 ## party is ready to be collected.

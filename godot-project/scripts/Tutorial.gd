@@ -34,7 +34,7 @@ const ALWAYS_OPEN := ["settings", "summary", "aether", "catalogue"]
 ## skipping tutorials doesn't open it early).
 const ARENA_WAVE := 50
 
-var gc: Node          # GameController
+var gc: GameController
 var g: Dictionary
 var active := ""      # tutorial id in progress
 var replay := false   # a finished tutorial run again from Menu > Tutorials
@@ -56,7 +56,7 @@ var _skip_btn: Button
 var _blocker: Control
 var _outer: ColorRect   # the screen around a menu the spotlight is in
 
-func setup(controller: Node) -> void:
+func setup(controller: GameController) -> void:
 	gc = controller
 	g = gc.g
 	migrate(g)
@@ -95,7 +95,7 @@ func _process(delta: float) -> void:
 	_apply_locks()
 	if active == "":
 		if holds_road() and gc.current_presenter != null and not gc.current_presenter.loop_paused:
-			gc.current_presenter.call("set_loop_paused", true)
+			gc.current_presenter.set_loop_paused(true, "tutorial")
 		_poll -= delta
 		if _poll <= 0.0:
 			_poll = 0.5
@@ -104,23 +104,23 @@ func _process(delta: float) -> void:
 	# the Road stays paused for the whole tutorial, including a wave that
 	# started after it began (each wave gets a fresh presenter)
 	if gc.current_presenter != null and not gc.current_presenter.loop_paused:
-		gc.current_presenter.call("set_loop_paused", true)
+		gc.current_presenter.set_loop_paused(true, "tutorial")
 	_hold_popups()
 	_run_step(delta)
 
 ## The Road waits while a tutorial runs or is due to start (Ian: no hits
 ## before the first one begins).
 func holds_road() -> bool:
-	return active != "" or (not g.get("tutorialSkip", false) and not _due().is_empty())
+	return active != "" or (not g.get("tutorialSkip", false) and not due().is_empty())
 
-func _due() -> Dictionary:
+func due() -> Dictionary:
 	for t in TUTS:
 		if not is_done(g, t["id"]) and int(g.get("farthest", 1)) > int(t["wave"]):
 			return t
 	return {}
 
 func _try_start() -> void:
-	var t := _due()
+	var t := due()
 	if t.is_empty():
 		return
 	if g.get("tutorialSkip", false):
@@ -130,9 +130,9 @@ func _try_start() -> void:
 	# wait for a quiet moment: no side battle, no menu, no pop-up
 	if g.get("sideBattle") != null or gc.current_presenter == null:
 		return
-	if gc.open_panel != null and is_instance_valid(gc.open_panel) and (gc.open_panel.popup.visible or gc._docked_panel != null):
+	if gc.open_panel != null and is_instance_valid(gc.open_panel) and (gc.open_panel.popup.visible or gc.docked_panel != null):
 		return
-	if gc._full_layer != null and is_instance_valid(gc._full_layer) and gc._full_layer.get_child_count() > 0:
+	if gc.full_layer != null and is_instance_valid(gc.full_layer) and gc.full_layer.get_child_count() > 0:
 		return
 	_begin(t["id"])
 
@@ -141,7 +141,7 @@ func _begin(id: String) -> void:
 	steps = _steps_for(id)
 	step = 0
 	_missing = 0.0
-	gc.current_presenter.call("set_loop_paused", true)
+	gc.current_presenter.set_loop_paused(true, "tutorial")
 	_enter_step()
 
 func _enter_step() -> void:
@@ -215,7 +215,7 @@ func start_replay(id: String) -> bool:
 	steps = list
 	step = 0
 	_missing = 0.0
-	gc.current_presenter.call("set_loop_paused", true)
+	gc.current_presenter.set_loop_paused(true, "tutorial")
 	_enter_step()
 	return true
 
@@ -223,10 +223,10 @@ func _finish() -> void:
 	var id := active
 	if replay:
 		_end(false)
-		gc._show_tab_tutorial_popup("Tutorial replayed", DONE_TEXT.get(id, ""))
+		gc.show_tab_tutorial_popup("Tutorial replayed", DONE_TEXT.get(id, ""))
 		return
 	_end(false)
-	gc._show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward_text(id, false)])
+	gc.show_tab_tutorial_popup("Tutorial complete!", "%s\n%s" % [DONE_TEXT.get(id, ""), reward_text(id, false)])
 
 ## Closes the running tutorial (done or skipped): rewards, overlay, any
 ## menu or Status/Log box it opened, and the Road starts again.
@@ -240,12 +240,13 @@ func _end(skipped: bool) -> void:
 	_hide_overlay()
 	_release_popups()
 	_close_battle_boxes()
-	# the menu the tutorial was about stays open; the Road resumes when it closes
-	var menu_open: bool = gc._docked_panel != null or (gc.open_panel != null and is_instance_valid(gc.open_panel) and gc.open_panel.popup.visible)
-	if gc.current_presenter != null and not menu_open:
-		gc.current_presenter.call("set_loop_paused", false)
-	gc._refresh_hud()
-	gc._save_game()
+	# the menu the tutorial was about stays open, but menus no longer pause the Road (nothing would
+	# resume it when they close), so it starts again right away
+	# not during a quest/dungeon fight: the Road is hidden and paused for it, and sideBattleEnd resumes it
+	if gc.current_presenter != null and is_instance_valid(gc.current_presenter) and g.get("sideBattle") == null:
+		gc.current_presenter.set_loop_paused(false, "tutorialEnd")
+	gc.refresh_hud()
+	gc.save_game()
 	_apply_locks()
 
 ## The caption's Skip: just this tutorial.
@@ -255,7 +256,7 @@ func skip_current() -> void:
 		var was_replay := replay
 		_end(true)
 		if not was_replay:
-			gc._show_tab_tutorial_popup("Tutorial skipped", reward_text(id, true))
+			gc.show_tab_tutorial_popup("Tutorial skipped", reward_text(id, true))
 
 ## The tutorial's rewards (also what a skipped tutorial grants on its wave).
 func _grant(id: String, skipped: bool) -> void:
@@ -279,7 +280,7 @@ func _grant(id: String, skipped: bool) -> void:
 				if not g["conditions"].has("self_hp_lte_50"):
 					g["conditions"].append("self_hp_lte_50")
 	g.erase("tutorialLoreGift")
-	gc._save_game()
+	gc.save_game()
 
 ## What a tutorial pays, for the "complete" / "skipped" pop-ups.
 func reward_text(id: String, skipped: bool) -> String:
@@ -295,8 +296,8 @@ func skip_all() -> void:
 	g["tutorialSkip"] = true
 	if active != "":
 		_end(true)
-	gc._refresh_hud()
-	gc._save_game()
+	gc.refresh_hud()
+	gc.save_game()
 	_apply_locks()
 
 # ================================================================ locks
@@ -322,7 +323,7 @@ func _apply_locks() -> void:
 			open = cur == b
 		# Ian: units can't be upgraded or edited during a PvP fight (Units,
 		# Party, and Marks/Shop, which can add a unit or action mid-fight)
-		if open and key in PVP_LOCKED and gc._pvp_running():
+		if open and key in PVP_LOCKED and gc.pvp_running():
 			open = false
 		# Ian: locked icons are darkened (not greyed out) and a tap on one
 		# says when it opens -- a clear button over the icon takes the tap
@@ -393,7 +394,7 @@ const PVP_LOCKED := ["units", "party", "shop"]
 
 ## A tap on a locked menu or sub-tab: say when it opens.
 func locked_tap(key: String, near: Control) -> void:
-	if key in PVP_LOCKED and gc._pvp_running():
+	if key in PVP_LOCKED and gc.pvp_running():
 		show_toast("Not during a PvP fight.", near)
 		return
 	var w := unlock_wave(key)
@@ -418,7 +419,7 @@ func show_toast(text: String, near: Control) -> void:
 	var host: Node = win if win != null and win != get_tree().root else _layer
 	host.add_child(_toast)
 	_toast.top_level = host != _layer
-	var host_size: Vector2 = Vector2(win.size) if host != _layer else gc._vp
+	var host_size: Vector2 = Vector2(win.size) if host != _layer else gc.vp
 	var sz := _toast.get_combined_minimum_size()
 	var r: Rect2 = near.get_global_rect() if near != null else Rect2(host_size / 2.0, Vector2.ZERO)
 	var y: float = r.position.y - sz.y - 6.0 if r.get_center().y > host_size.y * 0.5 else r.end.y + 6.0
@@ -442,11 +443,11 @@ func _needs(id: String) -> Array:
 
 # ================================================================ finders
 func _popup_open(panel) -> bool:
-	return panel != null and is_instance_valid(panel) and (panel.popup.visible or gc._docked_panel == panel)
+	return panel != null and is_instance_valid(panel) and (panel.popup.visible or gc.docked_panel == panel)
 
 ## Where a panel's content lives right now: its pop-up, or the dock's page.
 func _root_of(panel) -> Node:
-	return gc.shell.page_host if gc._docked_panel == panel else panel.popup
+	return gc.shell.page_host if gc.docked_panel == panel else panel.popup
 
 func _buttons(root: Node) -> Array:
 	if root == null or not is_instance_valid(root):
@@ -654,7 +655,7 @@ func _steps_for(id: String) -> Array:
 					"target": func(): return _btn_text(_root_of(gc.quests_panel), "Attempt") if _popup_open(gc.quests_panel) else null,
 					"act": true, "done": func(): return g.get("sideBattle") != null},
 				{"text": "Win the fight!", "quiet": true,
-					"enter": func(): gc.current_presenter.call("set_loop_paused", true),
+					"enter": func(): gc.current_presenter.set_loop_paused(true, "tutorial"),
 					"done": func():
 						if int(g["quests"].get("kesh", {}).get("stage", 0)) >= 1:
 							return true
@@ -698,7 +699,7 @@ func _steps_for(id: String) -> Array:
 					"gift": true, "enter": func():
 						g["marks"] = maxf(float(g.get("marks", 0.0)), 100.0)
 						g["forcedPull"] = "mend"
-						gc._refresh_hud(),
+						gc.refresh_hud(),
 					"done": func(): return _popup_open(gc.shop_panel)},
 				{"text": "Tap Marks.", "back": 0,
 					"target": func(): return gc.shop_panel.tab_buttons.get("marks") if _popup_open(gc.shop_panel) else null,
@@ -813,11 +814,11 @@ func _prepare_level_up() -> void:
 	var need: float = maxf(0.0, ceilf(FarroadProgression.cost_next(g, "kesh") - FarroadProgression.exp_of(g, "kesh")))
 	if need > float(g.get("aether", 0.0)):
 		g["aether"] = need
-		gc._refresh_hud()
+		gc.refresh_hud()
 	# the Aether page was drawn before the top-up: redraw it so the
 	# level-up button isn't left greyed out
 	if _popup_open(gc.units_panel):
-		gc.units_panel._refresh_content()
+		gc.units_panel.refresh_content()
 
 ## The Gambits tutorial has the player set Sear up themselves: if the top
 ## slot already holds it (an auto-equip), start it back at plain Strike.
@@ -829,9 +830,7 @@ func _reset_top_slot() -> void:
 
 ## So Sear isn't hidden by a filter left on in the Lore action picker.
 func _clear_lore_filters() -> void:
-	for f in ["action_filter_target", "action_filter_camp", "action_filter_effect"]:
-		if gc.lore_panel.get(f) != null:
-			gc.lore_panel.set(f, "any")
+	gc.lore_panel.reset_filters()
 
 func _gift_lore(aid: String) -> void:
 	g["tutorialLoreGift"] = true
@@ -861,8 +860,8 @@ func _shop_row_buy(label: String) -> Control:
 	# the wide shop pages its goods: narrow to the Self gambits so this one is on the first page
 	if gc.wide and gc.shop_panel.current_tab == "gambits" and gc.shop_panel.f_group != "self":
 		gc.shop_panel.f_group = "self"
-		gc.shop_panel._page = 0
-		gc.shop_panel._refresh()
+		gc.shop_panel.reset_page()
+		gc.shop_panel.refresh()
 		return null
 	for row in gc.shop_panel.popup.find_children("*", "HBoxContainer", true, false):
 		if row.get_child_count() > 0 and row.get_child(0) is RichTextLabel and row.get_child(0).text == label:
@@ -946,7 +945,7 @@ func _hide_overlay() -> void:
 ## caption beside it. With no target the screen dims fully, caption centred.
 func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	var host: Node = _layer
-	var host_size: Vector2 = gc._vp
+	var host_size: Vector2 = gc.vp
 	var win: Window = target.get_window() if target != null else null
 	# While a menu is open its window covers the main screen, so the caption goes
 	# inside that window (on top of everything), with rects moved into its space.
@@ -964,7 +963,7 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	host.move_child(_root, host.get_child_count() - 1)
 	_outer.visible = host != _layer
 	_outer.position = Vector2.ZERO
-	_outer.size = gc._vp
+	_outer.size = gc.vp
 	_outer.color = Color(0, 0, 0, 0.0 if quiet else 0.6)
 	var first_frame := not _root.visible
 	_root.visible = true
@@ -1006,7 +1005,7 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 	_blocker.position = hole.position
 	_blocker.size = hole.size
 	# caption above the hole if it's in the lower half, else below
-	var cw: float = minf(host_size.x - 20.0, gc._vp.x * 0.86)
+	var cw: float = minf(host_size.x - 20.0, gc.vp.x * 0.86)
 	if gc.wide:
 		cw = minf(cw, 640.0)
 	_caption_lbl.custom_minimum_size = Vector2(cw - 24.0, 0)   # wrap width known up front
@@ -1023,6 +1022,6 @@ func _show_spot(target: Control, quiet: bool, area := Rect2()) -> void:
 		cy = maxf(8.0, hole.position.y - ch - 12.0)
 	else:
 		cy = minf(host_size.y - ch - 8.0, hole.end.y + 12.0)
-	var mid_w: float = gc._bvp.x if gc.wide and host == _layer else host_size.x
+	var mid_w: float = gc.bvp.x if gc.wide and host == _layer else host_size.x
 	_caption.position = Vector2((mid_w - cw) / 2.0, cy)
 	_caption.modulate.a = 0.0 if first_frame else 1.0

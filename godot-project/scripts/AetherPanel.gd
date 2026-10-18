@@ -1,3 +1,4 @@
+class_name AetherPanel
 extends Node
 ## Milestone 3, Step 3d: the AETHER tab -- leveling (feed Aether), Recovery,
 ## Evade/ATK-Crit/MAG-Crit investment, and the 8-axis Affinity investment.
@@ -22,7 +23,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var selected_uid: String = ""
 
 var card_container: Container
@@ -45,7 +46,7 @@ const PCT_STAT_INFO := {
 # _style_purchase_button.
 const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -478,14 +479,9 @@ func _refresh_card() -> void:
 ## GameController's own top-strip currency line (Aether/Lore/Marks) only
 ## refreshed on a wave transition -- fine for Marks (nothing spends it yet),
 ## wrong for Aether, which every purchase below actually changes right now,
-## not next wave. _parent IS the GameController (setup()'s own `parent` arg
-## -- see GameController._ready()), but typed as plain Node here (this panel
-## has no compile-time dependency on it), so a dynamic has_method()+call()
-## is used rather than a direct method call, which static analysis would
-## reject against Node's own declared interface.
+## not next wave.
 func _notify_currency_changed() -> void:
-	if _parent and _parent.has_method("_refresh_hud"):
-		_parent.call("_refresh_hud")
+	_parent.refresh_hud()
 
 func _on_recovery_pressed(uid: String) -> void:
 	if FarroadProgression.spend_recovery(g, uid):
@@ -501,8 +497,8 @@ func _on_feed_pressed(uid: String, amount: int) -> void:
 		_notify_currency_changed()
 		FarroadProgression.refresh_live_stats(g)
 		var lv_after: int = FarroadProgression.level_of(g, uid)
-		if lv_after > lv_before and _parent and _parent.has_method("_level_up_fx"):
-			_parent.call("_level_up_fx", uid, lv_after)
+		if lv_after > lv_before:
+			_parent.level_up_fx(uid, lv_after)
 	_refresh_card()
 
 func _on_pct_stat_pressed(uid: String, stat: String) -> void:

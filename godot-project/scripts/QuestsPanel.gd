@@ -1,3 +1,4 @@
+class_name QuestsPanel
 extends Node
 ## Milestone 3, Step 3i: the QUESTS tab -- companion quest lines + direction
 ## dungeons. Structural sibling of MarksPanel.gd (single global screen, no
@@ -8,24 +9,23 @@ extends Node
 ##
 ## Unlike every other panel, entering a quest/dungeon doesn't mutate g and
 ## refresh a card in place -- it hands off to GameController's own
-## _attempt_quest/_enter_dungeon/_give_up_quest (dynamic has_method()+call(),
-## same pattern as every other panel-to-controller call), since actually
+## attempt_quest/enter_dungeon/give_up_quest, since actually
 ## RUNNING the fight means parking the Road's BattlePresenter and spinning
 ## up a second one -- machinery only GameController owns. This panel's own
 ## job is just: show the DUNGEONS/COMPANION QUESTS lists, forward button
 ## presses, and render whatever result GameController hands back via
-## _show_result() once a fight resolves.
+## show_result() once a fight resolves.
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 
 var toggle_button: Button
 var popup: PopupPanel
 var card_container: VBoxContainer
 var last_result: Dictionary = {}
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -38,19 +38,18 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", open_menu)
 
 func _build_ui(parent: Node) -> void:
 	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
 	# bottom row -- see MarksPanel.gd's own copy of this comment for the
 	# full layout. This panel now sits at 0.6300.
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", open_menu)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	var scroll := ScrollContainer.new()
@@ -85,20 +84,18 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
-	_refresh()
-	if _parent.has_method("dock_open") and _parent.call("dock_open", self):
+func open_menu() -> void:
+	_parent.panel_opening(self)
+	refresh()
+	if _parent.dock_open(self):
 		return   # wide window: the quests list sits in the dock beside the fight
-	popup.popup(_parent.call("menu_popup_rect"))
-	_notify_battle_paused(true)
+	popup.popup(_parent.menu_popup_rect())
 
-## Also called by GameController (dynamic has_method()+call()) after a
+## Also called by GameController after a
 ## background dungeon unlock (Step 3h's expedition tick, resolve_expedition
 ## calling unlock_direction_dungeon) so an open popup picks up a new
 ## dungeon card without the player having to close and reopen it.
-func _refresh() -> void:
+func refresh() -> void:
 	_refresh_card()
 
 ## Pauses the Road's BattlePresenter while this popup is open -- same
@@ -107,10 +104,6 @@ func _refresh() -> void:
 ## side battle already has the Road paused+hidden -- the player can still
 ## reopen this panel mid-side-battle (e.g. to hit Give Up), and
 ## re-pausing an already-paused Road changes nothing.
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
-
 ## Same real-wall-clock helper every sibling panel with a time-based gate
 ## already uses (ExpeditionPanel.gd's own copy).
 func _now() -> float:
@@ -138,8 +131,7 @@ func _refresh_card() -> void:
 	training_btn.text = "Open training dummies"
 	training_btn.disabled = busy
 	training_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_open_training"):
-			_parent.call("_open_training"))
+		_parent.open_training())
 	card_container.add_child(training_btn)
 
 	var dungeons_header := Label.new()
@@ -289,20 +281,16 @@ func _power_text(rec: int) -> String:
 	return "Recommended power %d (your party: %d)" % [rec, FarroadProgression.party_power(g)]
 
 func _on_enter_dungeon_pressed(id: String) -> void:
-	if _parent and _parent.has_method("_enter_dungeon"):
-		_parent.call("_enter_dungeon", id)
+	_parent.enter_dungeon(id)
 
 func _on_attempt_quest_pressed(uid: String) -> void:
-	if _parent and _parent.has_method("_attempt_quest"):
-		_parent.call("_attempt_quest", uid)
+	_parent.attempt_quest(uid)
 
 func _on_give_up_pressed() -> void:
-	if _parent and _parent.has_method("_give_up_quest"):
-		_parent.call("_give_up_quest")
+	_parent.give_up_quest()
 
 func _notify_currency_changed() -> void:
-	if _parent and _parent.has_method("_refresh_hud"):
-		_parent.call("_refresh_hud")
+	_parent.refresh_hud()
 
 ## Called by GameController once a side battle fully resolves -- stores the
 ## event and shows one plain text line at the top of the panel next time
@@ -310,7 +298,7 @@ func _notify_currency_changed() -> void:
 ## Marks already established (no new toast/banner system exists in this
 ## port). Does NOT force-reopen the popup -- same "silently refresh,
 ## player reopens to see it" precedent every other panel already follows.
-func _show_result(event: Dictionary) -> void:
+func show_result(event: Dictionary) -> void:
 	last_result = event
 
 func _describe_result(r: Dictionary) -> String:

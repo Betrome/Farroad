@@ -1,3 +1,4 @@
+class_name SettingsPanel
 extends Node
 ## Post-Milestone-3 APK feedback (Group C2): the new "Settings" tab (bottom-
 ## row label now "Menu", per Ian's own later ask -- the icon/button/popup
@@ -10,19 +11,19 @@ extends Node
 ## teardown/rebuild of every panel and timer.
 ##
 ## Post-batch feedback: the inline Inventory readout became a button
-## (opens GameController._show_inventory_popup, the same shared small-
+## (opens GameController.show_inventory_popup, the same shared small-
 ## overlay shape every other detail popup uses), and a "Change Name"
-## button was added (GameController._show_change_name_popup).
+## button was added (GameController.show_change_name_popup).
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 
 var toggle_button: Button
 var popup: PopupPanel
 var confirm_dialog: ConfirmationDialog
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -35,16 +36,15 @@ func reflow(new_vp: Vector2) -> void:
 	if toggle_button:
 		toggle_button.queue_free()
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", open_menu)
 
 func _build_ui(parent: Node) -> void:
 	var icon_size: float = _vp.x * 0.11
-	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", _on_toggle_pressed)
+	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.8613, _vp.y * 0.93), icon_size, "Menu", open_menu)
 
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	_populate_popup()
 
@@ -52,7 +52,7 @@ var _body: Control
 var _built_wide := false
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 ## Rebuilt in place when the window changes shape (the popup itself stays).
 func _populate_popup() -> void:
@@ -62,7 +62,7 @@ func _populate_popup() -> void:
 	# Ian: the same size as the other main menus (96% x 76%), scrolling
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	if _built_wide:
-		var fr: Rect2i = _parent.call("full_menu_rect")
+		var fr: Rect2i = _parent.full_menu_rect()
 		popup_size = Vector2(fr.size.x, fr.size.y)
 	var scroll := ScrollContainer.new()
 	_body = scroll
@@ -82,15 +82,14 @@ func _populate_popup() -> void:
 	# Ian: "add an inventory tab to show aether, marks, and future
 	# currencies" -- then later "change the inventory section to be a
 	# button." Opens the same shared small-overlay popup every other
-	# detail view uses (GameController._show_inventory_popup), which
+	# detail view uses (GameController.show_inventory_popup), which
 	# builds its own live readout fresh each time it's opened -- no local
 	# label to keep refreshed here anymore.
 	# Ian: cloud saves -- the recovery code that moves this game to another device
 	var account_btn := Button.new()
 	account_btn.text = "Cloud save & recovery code"
 	account_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_account_popup"):
-			_parent.call("_show_account_popup"))
+		_parent.show_account_popup())
 	vbox.add_child(account_btn)
 
 	var inventory_btn := Button.new()
@@ -99,13 +98,12 @@ func _populate_popup() -> void:
 	vbox.add_child(inventory_btn)
 
 	# 24-item batch: "add a Stats button in the menu" -- opens
-	# GameController._show_stats_popup, same shared detail-overlay shape
+	# GameController.show_stats_popup, same shared detail-overlay shape
 	# Inventory already uses.
 	var stats_btn := Button.new()
 	stats_btn.text = "Stats"
 	stats_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_stats_popup"):
-			_parent.call("_show_stats_popup"))
+		_parent.show_stats_popup())
 	vbox.add_child(stats_btn)
 
 	# (Ian: the name now lives in the Customize screen.)
@@ -113,8 +111,7 @@ func _populate_popup() -> void:
 	var body_btn := Button.new()
 	body_btn.text = "Customize Character"
 	body_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_change_body_popup"):
-			_parent.call("_show_change_body_popup"))
+		_parent.show_change_body_popup())
 	vbox.add_child(body_btn)
 
 	# Group H (20-item batch): Catalogue folded in here so it no longer
@@ -127,8 +124,7 @@ func _populate_popup() -> void:
 	var tuts_btn := Button.new()
 	tuts_btn.text = "Tutorials"
 	tuts_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_tutorials_popup"):
-			_parent.call("_show_tutorials_popup"))
+		_parent.show_tutorials_popup())
 	vbox.add_child(tuts_btn)
 
 	# Ian: "allow players to skip tutorials" -- unlocks every menu now (a
@@ -137,8 +133,7 @@ func _populate_popup() -> void:
 	skip_btn.text = "Skip all tutorials"
 	skip_btn.disabled = bool(g.get("tutorialSkip", false))
 	skip_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_skip_tutorials"):
-			_parent.call("_skip_tutorials")
+		_parent.skip_tutorials()
 		skip_btn.disabled = true)
 	vbox.add_child(skip_btn)
 
@@ -146,8 +141,7 @@ func _populate_popup() -> void:
 	var feedback_btn := Button.new()
 	feedback_btn.text = "Send Feedback"
 	feedback_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_feedback_popup"):
-			_parent.call("_show_feedback_popup"))
+		_parent.show_feedback_popup())
 	vbox.add_child(feedback_btn)
 
 	# Ian: notifications for idle rewards full / an expedition back.
@@ -193,7 +187,7 @@ func _populate_popup() -> void:
 	test_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	test_note.modulate = Palette.TEXT_DIM
 	test_btn.pressed.connect(func():
-		var n = _parent.get("notifier") if _parent else null
+		var n = _parent.notifier
 		test_note.text = n.send_test() if n != null else "Not ready yet.")
 	notify_sub.add_child(test_btn)
 	notify_sub.add_child(test_note)
@@ -202,8 +196,7 @@ func _populate_popup() -> void:
 	var notes_btn := Button.new()
 	notes_btn.text = "Patch notes"
 	notes_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_patch_notes_popup"):
-			_parent.call("_show_patch_notes_popup"))
+		_parent.show_patch_notes_popup())
 	vbox.add_child(notes_btn)
 	var update_btn := Button.new()
 	update_btn.text = "Check for updates"
@@ -214,8 +207,7 @@ func _populate_popup() -> void:
 	update_note.text = "You have version %s." % Updates.current_version()
 	update_btn.pressed.connect(func():
 		update_note.text = "Checking..."
-		if _parent and _parent.has_method("_check_updates"):
-			_parent.call("_check_updates", true, func(msg: String): update_note.text = msg))
+		_parent.check_updates(true, func(msg: String): update_note.text = msg))
 	vbox.add_child(update_btn)
 	vbox.add_child(update_note)
 	if not OS.has_feature("web"):
@@ -229,8 +221,7 @@ func _populate_popup() -> void:
 	var terms_btn := Button.new()
 	terms_btn.text = "Terms of Service"
 	terms_btn.pressed.connect(func():
-		if _parent and _parent.has_method("_show_terms_popup"):
-			_parent.call("_show_terms_popup"))
+		_parent.show_terms_popup())
 	vbox.add_child(terms_btn)
 
 	var reset_btn := Button.new()
@@ -245,7 +236,7 @@ func _populate_popup() -> void:
 	id_btn.flat = true
 	id_btn.tooltip_text = "Your player ID -- tap to copy"
 	id_btn.pressed.connect(func():
-		if _parent: _parent.call("copy_text", Analytics.display_id())
+		_parent.copy_text(Analytics.display_id())
 		id_btn.text = "ID: %s  (copied)" % Analytics.display_id())
 	vbox.add_child(id_btn)
 
@@ -294,31 +285,21 @@ func _style_popup(p: PopupPanel) -> void:
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
-	_notify_battle_paused(true)
-
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
+func open_menu() -> void:
+	_parent.panel_opening(self)
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 func _on_catalogue_pressed() -> void:
-	if _parent and _parent.has_method("_open_catalogue"):
-		_parent.call("_open_catalogue")
+	_parent.open_catalogue()
 
 func _on_inventory_pressed() -> void:
-	if _parent and _parent.has_method("_show_inventory_popup"):
-		_parent.call("_show_inventory_popup")
+	_parent.show_inventory_popup()
 
 func _on_change_name_pressed() -> void:
-	if _parent and _parent.has_method("_show_change_name_popup"):
-		_parent.call("_show_change_name_popup")
+	_parent.show_change_name_popup()
 
 func _on_reset_pressed() -> void:
 	confirm_dialog.popup_centered()
 
 func _on_reset_confirmed() -> void:
-	if _parent and _parent.has_method("_reset_game"):
-		_parent.call("_reset_game")
+	_parent.reset_game()

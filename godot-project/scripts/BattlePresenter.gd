@@ -1,3 +1,4 @@
+class_name BattlePresenter
 extends Node2D
 ## Milestone 2, Step 2a: the battle view. Drives FarroadCore.step() beat by
 ## beat and animates each event -- FarroadCore.gd itself is never modified,
@@ -71,7 +72,9 @@ var _bar_layer: Node2D   # every unit's HP/charge bars and name, drawn under all
 var unit_views_by_name: Dictionary = {}
 var active_unit_id: String = ""   # whichever unit's beat is currently animating -- drives the gold border in the Status popup too
 var status_filter_uid: String = ""   # "" shows every unit's card; set (via a battlefield tap) shows just one
-var log_lines: Array = []   # each entry: {head_bbcode, dmg_text, via_bbcode, note_bbcodes, calc, expanded}
+## Only the newest LOG_MAX beats are kept (a long fight or a training session would otherwise grow without limit).
+const LOG_MAX := 400
+var log_lines: Array = []   # each entry: {head_bbcode, dmg_text, via_bbcode, note_bbcodes, has_calc, ev, calc, expanded}
 var log_popup: PopupPanel
 var log_container: VBoxContainer
 var pause_log_btn: Button
@@ -1280,8 +1283,8 @@ func _build_log_ui() -> void:
 	var wipes_btn := Button.new()
 	wipes_btn.text = "Wipes"
 	wipes_btn.pressed.connect(func():
-		if get_parent() and get_parent().has_method("_show_wipes_popup"):
-			get_parent().call("_show_wipes_popup", log_popup))
+		if wipes_lookup.is_valid():
+			wipes_lookup.call(log_popup))
 	header.add_child(wipes_btn)
 
 	var scroll := ScrollContainer.new()
@@ -1318,10 +1321,32 @@ func _on_log_pause_toggled(paused: bool) -> void:
 ## does that reliably.
 func _rebuild_log_container() -> void:
 	for c in log_container.get_children():
+		log_container.remove_child(c)   # so the child count is exact right away
 		c.queue_free()
 	for i in range(log_lines.size() - 1, -1, -1):
 		log_container.add_child(_build_log_entry_node(log_lines[i]))
 		log_container.add_child(HSeparator.new())
+
+## A new entry was appended: drop the oldest beyond LOG_MAX, and if the log is on screen add just the
+## new entry's block at the top (newest first) instead of rebuilding every entry.
+func _log_added() -> void:
+	while log_lines.size() > LOG_MAX:
+		log_lines.pop_front()
+	if not _log_open() or log_paused:
+		return
+	if log_container.get_child_count() != (log_lines.size() - 1) * 2 and log_container.get_child_count() != LOG_MAX * 2:
+		_rebuild_log_container()   # the on-screen list was out of step (first beat, after a clear...)
+		return
+	var box := _build_log_entry_node(log_lines[log_lines.size() - 1])
+	var sep := HSeparator.new()
+	log_container.add_child(box)
+	log_container.add_child(sep)
+	log_container.move_child(box, 0)
+	log_container.move_child(sep, 1)
+	while log_container.get_child_count() > LOG_MAX * 2:
+		var old: Node = log_container.get_child(log_container.get_child_count() - 1)
+		log_container.remove_child(old)
+		old.queue_free()
 
 func _rich_line(bbcode: String) -> RichTextLabel:
 	var r := RichTextLabel.new()
@@ -1331,6 +1356,13 @@ func _rich_line(bbcode: String) -> RichTextLabel:
 	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	r.text = bbcode
 	return r
+
+## The damage breakdown for an entry, worked out the first time it is wanted and kept after that.
+func _entry_calc(entry: Dictionary) -> String:
+	if entry["calc"] == null:
+		entry["calc"] = _calc_text(entry["ev"]) if entry["ev"] != null else ""
+		entry["ev"] = null
+	return str(entry["calc"])
 
 func _build_log_entry_node(entry: Dictionary) -> Control:
 	var box := VBoxContainer.new()
@@ -1345,7 +1377,7 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 
 	box.add_child(_rich_line(entry["via_bbcode"]))
 
-	if entry["calc"] != "":
+	if entry["has_calc"]:
 		var btn := Button.new()
 		btn.flat = true
 		btn.text = "tap for the damage breakdown"
@@ -1354,7 +1386,9 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 		btn.add_theme_color_override("font_color", Palette.TEXT_DIM)
 		btn.add_theme_color_override("font_hover_color", Palette.TEXT_INK)
 		box.add_child(btn)
-		var calc_line := _rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, entry["calc"]])
+		var calc_line := _rich_line("")
+		if entry["expanded"]:
+			calc_line.text = "[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, _entry_calc(entry)]
 		calc_line.visible = entry["expanded"]
 		box.add_child(calc_line)
 		# Captures `entry` (a Dictionary -- a reference type in GDScript) by
@@ -1369,6 +1403,8 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 		# to whatever accumulated in the background since.
 		btn.pressed.connect(func():
 			entry["expanded"] = not entry["expanded"]
+			if entry["expanded"]:
+				calc_line.text = "[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, _entry_calc(entry)]
 			calc_line.visible = entry["expanded"])
 
 	for note_bbcode in entry["note_bbcodes"]:
@@ -2028,18 +2064,17 @@ func _append_log(e: Dictionary) -> void:
 	for note in e["notes"]:
 		note_bbcodes.append("[color=#%s]· %s[/color]" % [NOTE_COLOR, str(note)])
 
+	# the damage breakdown text is built only when its entry is expanded (see _build_log_entry_node)
 	log_lines.append({"head_bbcode": head, "dmg_text": dmg_text, "via_bbcode": via_bbcode,
-		"note_bbcodes": note_bbcodes, "calc": _calc_text(e), "expanded": false})
-	if _log_open() and not log_paused:
-		_rebuild_log_container()
+		"note_bbcodes": note_bbcodes, "has_calc": not e["hits"].is_empty(), "ev": e, "calc": null, "expanded": false})
+	_log_added()
 
 ## A plain, non-event log line (e.g. "Battle over") -- same storage shape,
 ## no calc breakdown to expand.
 func _append_raw_log(bbcode: String) -> void:
 	log_lines.append({"head_bbcode": bbcode, "dmg_text": "", "via_bbcode": "",
-		"note_bbcodes": [], "calc": "", "expanded": false})
-	if _log_open() and not log_paused:
-		_rebuild_log_container()
+		"note_bbcodes": [], "has_calc": false, "ev": null, "calc": "", "expanded": false})
+	_log_added()
 
 ## Mirrors logEntry()'s `calc` string (farroad-ui.js:1783-1793) -- reuses
 ## resolveHit()'s OWN already-computed fields off the first real hit, no
@@ -2059,9 +2094,7 @@ func _calc_text(e: Dictionary) -> String:
 	s += "\n→ floor %d" % h["damage"]
 	return s
 
-## Set by GameController (via a dynamic has_method()+call(), same pattern
-## AetherPanel/GambitsPanel already use to reach back into it) while the
-## GAMBITS popup is open. Without this, the loop below keeps resolving beats
+## Set by GameController while the GAMBITS popup is open. Without this, the loop below keeps resolving beats
 ## in the background at its normal ~1s/beat cadence WHILE the player is
 ## navigating that popup -- a loadout edit's engine-level effect is already
 ## immediate (FarroadProgression.sync_loadout reaches the live unit right
@@ -2071,13 +2104,24 @@ func _calc_text(e: Dictionary) -> String:
 ## (not mid-animation -- see the wait's placement below) gives an edit a
 ## real chance to be observed within the CURRENT fight.
 var loop_paused: bool = false
-func set_loop_paused(p: bool) -> void:
+## Set by GameController: every pause/resume (and who asked) is logged as a breadcrumb for the Road watchdog.
+## Set by GameController: opens the recent-wipes popup over the given window.
+var wipes_lookup: Callable = Callable()
+var crumb_sink: Callable = Callable()
+
+func set_loop_paused(p: bool, why: String = "") -> void:
+	if loop_paused != p and crumb_sink.is_valid():
+		crumb_sink.call("%s:%s" % ["pause" if p else "resume", why if why != "" else "?"])
 	loop_paused = p
 
 ## Set once the loop has started -- a presenter only ever runs one loop, so
 ## a second start (e.g. begin_combat after start_battle already auto-started)
 ## can't step the same battle twice and finish it twice.
 var _loop_started := false
+
+## Whether the fight loop has begun (read by GameController's Road watchdog).
+func loop_started() -> bool:
+	return _loop_started
 ## Where this fight is, for the gameplay stats (road/quest/dungeon/pvp).
 ## Set by GameController: uid -> between-wave Recovery fraction (the Status
 ## screen shows the real value, not a placeholder 0%).
@@ -2291,7 +2335,10 @@ func _side_center(party_side: bool, body: bool) -> Vector2:
 	return sum / n if n > 0 else _field_center()
 
 func _is_phys_action(action_id: String) -> bool:
-	var a = FarroadCore.ACTIONS.get(action_id)
+	return _is_phys_act(FarroadCore.ACTIONS.get(action_id))
+
+## A physical strike that hops to its target (not a heal, not a self-cast). `a` may be null.
+func _is_phys_act(a) -> bool:
 	return a != null and a.get("camp") == "atk" and not a.get("heal") and a.get("tk") != "self"
 
 ## Ian: "If a character has multiple physical attacks in a row, have them
@@ -2324,7 +2371,7 @@ func _animate_beat(e: Dictionary) -> void:
 	var target_view: UnitView = unit_views_by_name.get(e["targetName"])
 	# a self-targeted action (e.g. a hound's Quickened Howl) has nowhere to
 	# hop to: it plays as a cast on the spot instead of hopping home
-	var is_phys: bool = act != null and act.get("camp") == "atk" and not act.get("heal") 		and act.get("tk") != "self" and target_view != actor_view
+	var is_phys: bool = _is_phys_act(act) and target_view != actor_view
 
 	if target_view == null:
 		await get_tree().create_timer(IDLE_PAUSE).timeout

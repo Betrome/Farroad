@@ -1,3 +1,4 @@
+class_name EquipmentPanel
 extends Node
 ## Milestone 3, Step 3f: the EQUIPMENT tab -- per-unit gear management.
 ## Structural sibling of GambitsPanel.gd specifically (a per-unit editor,
@@ -24,7 +25,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var selected_uid: String = ""
 
 var card_container: Container
@@ -56,7 +57,7 @@ const AFFINITY_AXIS_LABELS := {"fire": "Fire", "water": "Water", "earth": "Earth
 const EQUIP_SLOT_ICON := {"head": "🪖", "body": "🛡️", "legs": "🥾", "hand1": "🖐️", "hand2": "🖐️"}
 const EQUIP_SLOT_LABEL := {"head": "Head", "body": "Body", "legs": "Legs", "hand1": "Hand (left)", "hand2": "Hand (right)"}
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -136,7 +137,7 @@ func _refresh_card() -> void:
 
 	# wide windows: the five slots in two columns, so nothing scrolls
 	var slot_host: Container = card_container
-	if _parent != null and bool(_parent.get("wide")):
+	if _parent != null and _parent.wide:
 		var grid := GridContainer.new()
 		grid.columns = 2
 		grid.add_theme_constant_override("h_separation", 14)
@@ -233,8 +234,7 @@ func _on_equip_info_pressed(slot: String) -> void:
 	var item_id = g.get("equipped", {}).get(selected_uid, {}).get(slot)
 	if item_id == null:
 		return
-	if _parent and _parent.has_method("_show_equipment_detail_popup"):
-		_parent.call("_show_equipment_detail_popup", item_id, selected_uid)
+	_parent.show_equipment_detail_popup(item_id, selected_uid)
 
 func _on_slot_selected(uid: String, slot: String, item_id: String) -> void:
 	if item_id == "":

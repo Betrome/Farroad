@@ -1,22 +1,25 @@
 class_name FarroadSave
 extends RefCounted
-## Ported save/load layer -- GDScript counterpart to src/farroad-save.js.
-## Headless by design, like the two scripts it sits alongside: serialize/
-## deserialize never touch the filesystem themselves (`now` and the parsed
-## snapshot are passed in by the caller), so they stay pure and testable the
-## same way the real module's own smoke-test round-trip works. Reading and
-## writing the actual save FILE (Godot's `user://` -- see MODULES.md's
-## localStorage-equivalent note) is GameController's job (Step 3b), the same
-## way farroad-ui.js (not farroad-save.js) owns localStorage in the real game.
+## Turns the live game state into a plain snapshot (serialize) and back (deserialize).
+## Neither touches the filesystem: the caller passes in the time and the parsed JSON,
+## so both stay pure and testable. SaveStore.gd reads and writes the actual file.
 
-const VERSION := 1
+## Save format version, stored as "v" in every snapshot.
+##   1  everything up to the versioned-migration change (the "v" was never read back)
+##   2  one-off migrations below run once, for saves older than this
+## To change the format: bump VERSION, add a `_migrate_to_N(g)` step and call it from `_migrate`
+## for saves with from_v < N. Plain "this field didn't exist yet" defaults need no step; the
+## default-fill in deserialize() covers them for any old save.
+const VERSION := 2
 
-## Plain fields copied as-is -- mirrors FIELDS (farroad-save.js:25-102)
-## exactly, field-for-field, same order. v2.13: "lore" (a single global
-## earned total) became "loreByAction" (one earned total PER action) --
-## an old save's legacy global total is deliberately NOT migrated into any
-## action's new pool (this project is still dev/test-only, a "Reset Game"
-## button already exists) -- every action just starts fresh at 0.
+## True when the snapshot was written by a newer build than this one. Loading it here would
+## silently drop fields this build doesn't know and then save the result over it.
+static func is_from_newer_build(snap: Dictionary) -> bool:
+	return int(snap.get("v", 1)) > VERSION
+
+## The fields saved as-is. Anything not listed (the live battle, units, enemies) is rebuilt on load.
+## "lore" (one global total) was replaced by "loreByAction" (one total per action); an old
+## global total is not carried over, every action starts at 0.
 const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "crystal", "wipes", "enemiesDefeated",
 	"party", "partyPresets", "loadoutSets", "gearSets", "rows", "wipeLog", "appearance", "approach", "pvp", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
 	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
@@ -26,9 +29,7 @@ const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "l
 	"superBossQuests", "superBossesUnlocked", "superBossesCleared",
 	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup"]
 
-## JSON round-trip is Godot's own equivalent of JS's `JSON.parse(JSON.stringify(v))`
-## deep-clone -- values here are always plain Dictionaries/Arrays/primitives
-## (game-state fields, never a live RNG/Battle object), so this is safe.
+## Deep copy through JSON. Safe because saved fields are only plain Dictionaries, Arrays and numbers/strings.
 static func _clone(v: Variant) -> Variant:
 	if v == null:
 		return null
@@ -42,26 +43,50 @@ static func serialize(g: Dictionary, now: int) -> Dictionary:
 		"rngState": g["rng"].a if g.get("rng") else 0}
 	for k in FIELDS:
 		snap[k] = _clone(g.get(k))
-	# Post-Milestone-3 APK feedback (Group C1): Catalogue's own "seen enemy
-	# archetypes" tracking -- deliberately NOT added to FIELDS above, since
-	# that list mirrors farroad-save.js's own FIELDS field-for-field and
-	# Catalogue has no real-JS equivalent to mirror. Handled as its own
-	# top-level key instead, same pattern v/savedAt/seed/rngCalls already use.
+	# Fields only this version of the game has (the web version never had them), kept out of
+	# FIELDS and saved as their own top-level keys: the Catalogue's seen enemies, which tab
+	# tutorials were shown, the guided tutorials' progress, and a forced next pull.
 	snap["seenArch"] = _clone(g.get("seenArch"))
-	# Same Godot-only pattern as seenArch above -- see new_game()'s own
-	# comment on seenTabTutorial.
 	snap["seenTabTutorial"] = _clone(g.get("seenTabTutorial"))
 	snap["tutorials"] = _clone(g.get("tutorials"))
 	snap["tutorialSkip"] = g.get("tutorialSkip", false)
 	snap["forcedPull"] = g.get("forcedPull")
 	return snap
 
-## @param snap parsed snapshot Dictionary (caller does the JSON parse)
-##
-## RNG NOTE: RNG's internal state is a plain field here (unlike JS's closure),
-## but it's reseeded and fast-forwarded the same way regardless -- reaching
-## the identical internal state because the generator is a pure function of
-## (seed, call count), matching farroad-save.js's own documented approach.
+## Runs the one-off format migrations a snapshot written at version `from_v` still needs.
+static func _migrate(g: Dictionary, from_v: int) -> void:
+	if from_v < 2:
+		_migrate_to_2(g)
+
+## v1 -> v2: the migrations that used to run on every load, now run once.
+static func _migrate_to_2(g: Dictionary) -> void:
+	# Magibolt replaced Ember as the starter: older saves gain it, and every
+	# loadout slot still on Ember switches to it (Ember stays owned, so any
+	# Lore in it isn't lost -- and it's no longer shared between units).
+	if not g["actions"].has("magibolt"):
+		g["actions"].append("magibolt")
+		for uid in (g.get("loadout", {}) as Dictionary).keys():
+			for sl in g["loadout"][uid]:
+				if sl.get("action") == "ember":
+					sl["action"] = "magibolt"
+	# Keen (crit) was removed from Lore: refund the difference its removal makes to that action's
+	# price into the action's own Lore pool, then strip it.
+	for aid in g["bonuses"].keys():
+		var b: Dictionary = g["bonuses"][aid]
+		if not b or not b.get("keen"):
+			continue
+		var without := {}
+		for k in b.keys():
+			if k != "keen":
+				without[k] = b[k]
+		var refund: int = FarroadCore.bonus_spend({"x": b}) - FarroadCore.bonus_spend({"x": without})
+		g["loreByAction"][aid] = float(g["loreByAction"].get(aid, 0.0)) + float(refund)
+		b.erase("keen")
+
+
+## Rebuilds the live game state from a parsed snapshot, filling in anything an older save lacks.
+## The random generator is restored from its saved state (rngState); a save from before that
+## existed only has a draw count, so it is replayed that many draws from the seed.
 static func deserialize(snap: Dictionary) -> Dictionary:
 	if snap.is_empty():
 		return {}
@@ -86,43 +111,18 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		g["party"] = ["kesh"]
 	if not g.get("actions") or g["actions"].is_empty():
 		g["actions"] = ["strike", "magibolt"]
-	# Magibolt replaced Ember as the starter: older saves gain it, and every
-	# loadout slot still on Ember switches to it (Ember stays owned, so any
-	# Lore in it isn't lost -- and it's no longer shared between units).
-	if not g["actions"].has("magibolt"):
-		g["actions"].append("magibolt")
-		for uid in (g.get("loadout", {}) as Dictionary).keys():
-			for sl in g["loadout"][uid]:
-				if sl.get("action") == "ember":
-					sl["action"] = "magibolt"
 	if not g.get("conditions") or g["conditions"].is_empty():
 		g["conditions"] = ["none"]
 	for k in ["actionCounts", "condCounts", "bonuses", "recovery", "loadout", "hpCarry", "chargeCarry", "touched",
 		"clearedWaves", "lvl", "bank", "owned"]:
 		g[k] = g.get(k) if g.get(k) != null else {}
 
-	# v2.11 MIGRATION: Keen (crit) retired from Lore entirely -- refund the
-	# difference this action's own price drops by once keen no longer counts
-	# toward its stack total, then strip it. v2.13: the refund now credits
-	# THAT ACTION's own loreByAction pool (Lore is per-action now), not a
-	# global total.
 	if not g.get("loreByAction"):
 		g["loreByAction"] = {}
-	for aid in g["bonuses"].keys():
-		var b: Dictionary = g["bonuses"][aid]
-		if not b or not b.get("keen"):
-			continue
-		var without := {}
-		for k in b.keys():
-			if k != "keen":
-				without[k] = b[k]
-		var refund: int = FarroadCore.bonus_spend({"x": b}) - FarroadCore.bonus_spend({"x": without})
-		g["loreByAction"][aid] = float(g["loreByAction"].get(aid, 0.0)) + float(refund)
-		b.erase("keen")
+	_migrate(g, int(snap.get("v", 1)))
 
-	# v2.9: dropsGranted is a stricter gate than clearedWaves -- seed it from
-	# clearedWaves for a save from before this field existed, so an
-	# already-cleared wave isn't granted its drop again.
+	# dropsGranted is stricter than clearedWaves: an old save without it is seeded from clearedWaves,
+	# so an already-cleared wave doesn't drop its reward again
 	if not g.get("dropsGranted"):
 		g["dropsGranted"] = _clone(g.get("clearedWaves")) if g.get("clearedWaves") else {}
 	if not g["lvl"].get("kesh"):
@@ -155,10 +155,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["tutorialSkip"] = bool(snap.get("tutorialSkip", false))
 	g["forcedPull"] = snap.get("forcedPull")
 
-	# v2.9 MIGRATION: pre-multi-expedition saves aren't handled here (that
-	# legacy 'expedition'/'expeditionLog' shape predates this whole feature
-	# on the Godot side -- nothing to migrate FROM yet) -- a genuinely new or
-	# post-this-feature save just default-fills [].
+	# saves from before expeditions existed just get an empty list
 	if not g.get("expeditions"):
 		g["expeditions"] = []
 	if not g.get("rows"):

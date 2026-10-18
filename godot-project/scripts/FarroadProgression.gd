@@ -1632,7 +1632,7 @@ static func free_lore(g: Dictionary, action_id: String) -> float:
 	return maxf(0.0, earned - float(spent))
 
 ## Sum of every action's own Lore pool -- the simple aggregate the top HUD
-## shows (GameController._refresh_hud), distinct from any one action's own
+## shows (GameController.refresh_hud), distinct from any one action's own
 ## detail-view pool (free_lore above).
 static func total_lore(g: Dictionary) -> float:
 	var t := 0.0
@@ -3065,7 +3065,7 @@ static func collect_idle_reward(g: Dictionary) -> Dictionary:
 	return {"aether": aether, "marks": marks}
 
 ## ===== POWER LEVEL (Step 3i, re-established + rescaled per later feedback) =====
-## Displayed in the HUD next to Aether/Marks (GameController._refresh_hud),
+## Displayed in the HUD next to Aether/Marks (GameController.refresh_hud),
 ## and also used to scale companion quest difficulty (questStageWave below)
 ## rather than reading G.wave directly, so a late-acquired companion's quest
 ## line doesn't face the "wall" a fixed wave-equivalent would create (the

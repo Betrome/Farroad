@@ -106,7 +106,7 @@ const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "empowered": 0.25, "burning": BURN_PCT,
 	"inspired": 0.25, "resolute": 0.40, "keen": 0.15, "dazed": -0.15, "drained": -0.50,
 	"vulnerable": 0.25, "wounded": -0.50,
-	"boon_fire": 30.0, "boon_water": 30.0, "boon_earth": 30.0, "boon_air": 30.0, "boon_light": 30.0, "boon_dark": 30.0, "boon_body": 10.0, "boon_spirit": 20.0,
+	"boon_fire": 25.0, "boon_water": 25.0, "boon_earth": 25.0, "boon_air": 25.0, "boon_light": 25.0, "boon_dark": 25.0, "boon_body": 10.0, "boon_spirit": 20.0,
 	"bane_fire": -20.0, "bane_water": -20.0, "bane_earth": -20.0, "bane_air": -20.0, "bane_light": -20.0, "bane_dark": -20.0, "bane_body": -10.0, "bane_spirit": -15.0,
 	"regen": REGEN_PCT, "poisoned": POISON_PCT, "exposed": -0.20}
 ## Ian: Magibolt (Spirit) replaces Ember as the default magic action.

@@ -1,3 +1,4 @@
+class_name CataloguePanel
 extends Node
 ## Post-Milestone-3 APK feedback (Group C1): the new "Catalogue" tab -- 5
 ## sub-tabs (Units/Actions/Gambits/Equipment/Enemies), each a scrollable
@@ -19,7 +20,7 @@ extends Node
 
 var g: Dictionary
 var _vp: Vector2
-var _parent: Node
+var _parent: GameController
 var current_tab: String = "units"
 
 var popup: PopupPanel
@@ -50,7 +51,7 @@ const ACTION_CAMP_OPTIONS := ActionFilter.STAT_OPTIONS
 const ACTION_EFFECT_OPTIONS := ActionFilter.EFFECT_OPTIONS
 const GAMBIT_GROUP_OPTIONS := [["any", "Any group"], ["self", "Self"], ["ally", "Ally"], ["foe", "Foe"]]
 
-func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
+func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
 	_vp = vp
 	_parent = parent
@@ -59,8 +60,8 @@ func setup(new_g: Dictionary, vp: Vector2, parent: Node) -> void:
 func reflow(new_vp: Vector2) -> void:
 	# Group H (20-item batch): Catalogue no longer owns a bottom-row icon
 	# of its own -- it's reached via a "Catalogue" button inside
-	# SettingsPanel's popup (GameController._open_catalogue()) instead.
-	# _vp still needs to track resizes so a later _on_toggle_pressed()
+	# SettingsPanel's popup (GameController.open_catalogue()) instead.
+	# _vp still needs to track resizes so a later open_menu()
 	# call sizes/positions the popup correctly.
 	_vp = new_vp
 	if popup != null and _built_wide != _is_wide():
@@ -72,7 +73,6 @@ func _build_ui(parent: Node) -> void:
 	popup = PopupPanel.new()
 	_style_popup(popup)
 	parent.add_child(popup)
-	popup.popup_hide.connect(func(): _notify_battle_paused(false))
 
 	_populate_popup()
 
@@ -80,7 +80,7 @@ var _body: Control
 var _built_wide := false
 
 func _is_wide() -> bool:
-	return _parent != null and bool(_parent.get("wide"))
+	return _parent != null and _parent.wide
 
 ## Full-screen layout (categories down the left, a paged grid) in a wide
 ## window, the portrait list otherwise; rebuilt in place.
@@ -128,7 +128,7 @@ func _populate_popup() -> void:
 const SIDE_W := 190.0
 
 func _populate_wide() -> void:
-	var r: Rect2i = _parent.call("full_menu_rect")
+	var r: Rect2i = _parent.full_menu_rect()
 	var root := HBoxContainer.new()
 	_body = root
 	root.custom_minimum_size = Vector2(r.size.x - 24, r.size.y - 24)
@@ -223,19 +223,13 @@ func _finish_list() -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Called directly (GameController._open_catalogue(), dynamic dispatch --
+## Called directly by GameController.open_catalogue() (
 ## SettingsPanel's own "Catalogue" button routes through it) now that this
 ## panel has no bottom-row icon of its own to click.
-func _on_toggle_pressed() -> void:
-	if _parent and _parent.has_method("_panel_opening"):
-		_parent.call("_panel_opening", self)
+func open_menu() -> void:
+	_parent.panel_opening(self)
 	_refresh()
-	popup.popup(_parent.call("full_menu_rect" if _is_wide() else "menu_popup_rect"))
-	_notify_battle_paused(true)
-
-func _notify_battle_paused(paused: bool) -> void:
-	if _parent and _parent.has_method("_set_battle_paused"):
-		_parent.call("_set_battle_paused", paused)
+	popup.popup((_parent.full_menu_rect() if _is_wide() else _parent.menu_popup_rect()))
 
 func _on_tab_pressed(tab: String) -> void:
 	current_tab = tab
@@ -333,8 +327,7 @@ func _refresh_actions() -> void:
 			_add_item(_unknown_row())
 
 func _on_action_info_pressed(action_id: String) -> void:
-	if _parent and _parent.has_method("_show_action_detail_popup"):
-		_parent.call("_show_action_detail_popup", action_id)
+	_parent.show_action_detail_popup(action_id)
 
 func _refresh_gambits() -> void:
 	var filter_row := HBoxContainer.new()
@@ -385,11 +378,10 @@ func _refresh_equipment() -> void:
 			_add_item(_unknown_row())
 
 func _on_equip_info_pressed(item_id: String) -> void:
-	if _parent and _parent.has_method("_show_equipment_detail_popup"):
-		# No specific unit context here -- Catalogue browses items outside
-		# any one unit's build, so the popup falls back to raw affinity
-		# values instead of a per-unit marginal % (see its own comment).
-		_parent.call("_show_equipment_detail_popup", item_id, "")
+	# No specific unit context here -- Catalogue browses items outside
+	# any one unit's build, so the popup falls back to raw affinity
+	# values instead of a per-unit marginal % (see its own comment).
+	_parent.show_equipment_detail_popup(item_id, "")
 
 func _refresh_enemies() -> void:
 	var seen: Dictionary = g.get("seenArch", {})
@@ -399,7 +391,7 @@ func _refresh_enemies() -> void:
 			var row := HBoxContainer.new()
 			# Ian: "don't list enemy stats on the main page, just when
 			# inspected" -- name (+ rarity color) only; the full stat/growth
-			# breakdown lives in _show_enemy_detail_popup now.
+			# breakdown lives in show_enemy_detail_popup now.
 			var lbl := _rich_row(_rarity_name(a["name"], a.get("rarity", "common")))
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)
@@ -428,8 +420,7 @@ func _refresh_enemies() -> void:
 			var arch: String = bv[2]
 			var bname: String = bv[1]
 			bbtn.pressed.connect(func():
-				if _parent and _parent.has_method("_show_enemy_detail_popup"):
-					_parent.call("_show_enemy_detail_popup", arch, bname, true))
+				_parent.show_enemy_detail_popup(arch, bname, true))
 			brow.add_child(bbtn)
 			_add_item(brow)
 		else:
@@ -440,5 +431,4 @@ func _refresh_enemies() -> void:
 const BOSS_VARIANTS := [["roadwarden", "Warden", "ox"]]
 
 func _on_enemy_info_pressed(arch_key: String) -> void:
-	if _parent and _parent.has_method("_show_enemy_detail_popup"):
-		_parent.call("_show_enemy_detail_popup", arch_key)
+	_parent.show_enemy_detail_popup(arch_key)
