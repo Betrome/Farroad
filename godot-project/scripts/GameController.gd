@@ -1,38 +1,23 @@
 class_name GameController
 extends Node2D
-## Milestone 3, Step 3b: the real game loop. Owns the live game-state
-## Dictionary `g` (mirrors newGame()'s real field list -- see
-## FarroadProgression.gd) and drives BattlePresenter wave after wave using
-## FarroadProgression's real build_party/build_enemies/grant_drops/
-## after_wave_cleared/on_wipe -- the existing battle view (Milestone 2) is
-## reused exactly as-is, only the "where does the battle come from" seam
-## changed (BattlePresenter.start_battle(), not its own hardcoded demo
-## scenario).
+## The game controller. It owns the live game-state Dictionary `g` (the field
+## list is in FarroadProgression.new_game) and drives BattlePresenter wave
+## after wave using FarroadProgression's build_party / build_enemies /
+## grant_drops / after_wave_cleared / on_wipe. The tab panels are
+## GambitsPanel, AetherPanel, LorePanel, EquipmentPanel (all shown inside
+## UnitsPanel), PartyPanel, MarksPanel (shown in the Shop), ExpeditionPanel,
+## QuestsPanel (side battles, see _enter_side_battle() below) and the
+## character-creation screen McCreatePanel.
 ##
-## Step 3c added the GAMBITS tab (loadout editor + party bench/field, see
-## GambitsPanel.gd); Step 3d added AETHER (leveling/Recovery/Evade-Crit/
-## Affinity investment, see AetherPanel.gd); Step 3e added LORE (per-action
-## bonus purchase/refund, see LorePanel.gd); Step 3f added EQUIPMENT
-## (per-unit gear management, see EquipmentPanel.gd); Step 3g added MARKS
-## (gacha pulls, see MarksPanel.gd); Step 3h added EXPEDITION (real-time
-## idle sending + offline catch-up, see ExpeditionPanel.gd); Step 3i added
-## QUESTS (companion quest lines + direction dungeons, a real interactive
-## side battle -- see QuestsPanel.gd and _enter_side_battle() below);
-## Step 3j (the last roadmap item) added character creation (MC point-buy
-## + charge-action picker, see McCreatePanel.gd) -- `_ready()` now gates
-## the whole HUD/panels/first-fight sequence (moved into `_start_game()`)
-## behind EITHER a resumed save (`_try_resume_save()`) OR a confirmed new
-## character (`_on_mc_confirmed()`), matching the real `tryResumeSave()`/
-## `showMcCreate()`/`boot()` boot gate exactly -- there is no more
-## "fresh game, no mc" fallback, since the real JS has no such path either
-## (character creation is unconditional whenever no save exists).
+## _ready() gates the whole HUD / panels / first-fight sequence (_start_game())
+## behind either a resumed save (_try_resume_save()) or a confirmed new
+## character (_on_mc_confirmed()). Character creation is unconditional
+## whenever no save exists; there is no "fresh game, no main character" path.
 
 const SaveStore := preload("res://scripts/SaveStore.gd")
-## How often expeditions get a chance to resolve while the game is
-## running (mirrors the real farroad-ui.js's own 15s setInterval poll --
-## see _on_expedition_tick()). Offline catch-up (a much bigger, one-shot
-## time gap) is handled separately, once, at boot -- see
-## _try_resume_save().
+## How often expeditions get a chance to resolve while the game is running
+## (see _on_expedition_tick()). Offline catch-up (a much bigger, one-shot time
+## gap) is handled separately, once, at boot; see _try_resume_save().
 const EXPEDITION_POLL_SEC := 15.0
 
 var g: Dictionary
@@ -75,12 +60,10 @@ var open_panel: Node = null
 ## _raise_self_hosted_overlays() can re-raise them every time a new
 ## presenter is added, instead of a one-time raise at build time.
 var _self_hosted_overlays: Array = []
-## The side battle currently running (a quest attempt or a dungeon
-## crawl), or null when none is active -- GameController's own equivalent
-## of the real JS's reassignable G.battle pointer (see
-## FarroadProgression.start_side_battle's own comment for why a SECOND,
-## independent BattlePresenter instance is enough here, unlike the real
-## JS's shared-tick-loop architecture).
+## The side battle currently running (a quest attempt or a dungeon crawl), or
+## null when none is active. It is a second, independent BattlePresenter
+## instance (see FarroadProgression.start_side_battle); the Road's presenter
+## is parked and hidden meanwhile.
 var side_presenter: BattlePresenter = null
 
 var currency_row: HBoxContainer
@@ -92,9 +75,9 @@ var speed_toggle_btn: Button
 var _speed_2x: bool = false
 var fade_overlay: ColorRect
 var background_layer: Node2D
-## Captured by _try_resume_save() (empty {} when no save existed, or the
-## real 5s no-op floor wasn't met) -- consumed once by _start_game() to
-## show the welcome-back popup (Group J, post-Milestone-3 batch).
+## Captured by _try_resume_save() (empty {} when no save existed, or the 5 s
+## no-op floor wasn't met); consumed once by _start_game() to show the
+## welcome-back popup.
 var _offline_summary: Dictionary = {}
 
 ## Symbols and emoji (✕ ⏩ ⓘ ⚡ 🔥 ...) come from bundled Noto fonts (SIL
@@ -131,11 +114,10 @@ static func _add_symbol_fonts() -> void:
 			list.append(f)
 	base.fallbacks = list
 
-## Ian: "for now, I want the desktop version to be similar dimensions as
-## the phone version." On a PC the window opens phone-shaped (the game's
-## 412:915 proportions) at 90% of the screen's usable height, centred --
-## sized to the actual screen, so it reads the same on 1080p, 1440p or a
-## scaled display. Once per run (not again on a scene reload).
+## On a PC the window opens phone-shaped (the game's 412:915 proportions) at
+## 90% of the screen's usable height, centred. It is sized to the actual
+## screen, so it reads the same on 1080p, 1440p or a scaled display. Once per
+## run (not again on a scene reload).
 static var _window_sized := false
 
 static func _size_desktop_window() -> void:
@@ -167,18 +149,16 @@ func _ready() -> void:
 		return
 	_add_symbol_fonts()
 	_size_desktop_window()
-	# Ian: "can we add a 2x speed button?" Engine.time_scale is a global
-	# engine property, NOT reset by a scene reload alone (e.g. Settings'
-	# own "Reset Game" button) -- defensively reset here so every fresh
-	# boot of this scene always starts at normal speed regardless of
-	# whatever a previous session left it at.
+	# Engine.time_scale is a global engine property, not reset by a scene reload
+	# alone (e.g. Settings' "Reset Game"), so it is reset here: every fresh
+	# boot of this scene starts at normal speed whatever a previous session
+	# left it at.
 	Engine.time_scale = 1.0
 	_speed_2x = false
-	# 24-item batch, Group F: touch-drag scrolling that works no matter what
-	# the first touch lands on -- see TouchScroll.gd's own header comment.
-	# Hooked on node_added (every ScrollContainer/OptionButton anywhere in
-	# the game, including ones built later inside popups/overlays), plus one
-	# pass over whatever already exists.
+	# Touch-drag scrolling that works no matter what the first touch lands on
+	# (see TouchScroll.gd). Hooked on node_added (every ScrollContainer /
+	# OptionButton anywhere in the game, including ones built later inside
+	# popups and overlays), plus one pass over whatever already exists.
 	get_tree().node_added.connect(_on_node_added)
 	for n in get_tree().root.find_children("*", "", true, false):
 		_on_node_added(n)
@@ -187,9 +167,9 @@ func _ready() -> void:
 	if not FarroadCore.load_real_content():
 		push_error("GameController: failed to load res://data/content.json")
 		return
-	# Ian: playing means agreeing to the terms (they cover the gameplay
-	# data Analytics.gd sends) -- asked before anything else, every launch
-	# until agreed, and again when the terms change.
+	# Playing means agreeing to the terms (they cover the gameplay data
+	# Analytics.gd sends): asked before anything else, every launch until
+	# agreed, and again when the terms change.
 	if Analytics.terms_accepted():
 		_boot_after_terms()
 	else:
@@ -209,10 +189,10 @@ func _boot_after_terms() -> void:
 		add_child(mc_panel)
 		mc_panel.setup(vp, self, _on_mc_confirmed)
 
-## Group F: a ScrollContainer gets a TouchScroll helper child (drag scrolls
-## even when the press started on a button/card/text), and a dropdown opens
-## on RELEASE instead of on press -- OptionButton defaults to press, which
-## would open it the instant a scroll gesture's first touch landed on it.
+## A ScrollContainer gets a TouchScroll helper child (drag scrolls even when
+## the press started on a button, card or text), and a dropdown opens on
+## release instead of on press (OptionButton defaults to press, which would
+## open it the instant a scroll gesture's first touch landed on it).
 func _on_node_added(n: Node) -> void:
 	if n is ScrollContainer:
 		# Deferred: node_added fires mid-add_child, when the container can
@@ -306,7 +286,7 @@ func _start_game() -> void:
 	expedition_timer.timeout.connect(_on_expedition_tick)
 	add_child(expedition_timer)
 	get_viewport().size_changed.connect(_on_viewport_resized)
-	# Ian: guided onboarding (Tutorial.gd) -- unlocks menus at fixed waves
+	# guided onboarding (Tutorial.gd): unlocks menus at fixed waves
 	tutorial = Tutorial.new()
 	add_child(tutorial)
 	tutorial.setup(self)
@@ -324,10 +304,10 @@ func _start_game() -> void:
 	if Updates.check_enabled() and not OS.has_feature("web"):
 		get_tree().create_timer(6.0).timeout.connect(func(): check_updates(false))
 
-## Ian: "have menus reset to their default when closed" -- a closed menu
-## drops any info/picker box left open inside it and goes back to its
-## first tab with no filters or selections, so it always reopens the same
-## way (a leftover info box hid the Lore tutorial's target).
+## A closed menu resets to its default: it drops any info / picker box left
+## open inside it and goes back to its first tab with no filters or selections,
+## so it always reopens the same way (a leftover info box hid the Lore
+## tutorial's target).
 const _MENU_DEFAULTS := {"current_tab": "", "current_sub_tab": "summary", "selected_action_id": "", "selected_uids": [],
 	"selected_direction": "", "action_filter_target": "any", "action_filter_camp": "any",
 	"action_filter_effect": "any", "cond_filter_group": "any", "gambit_filter_group": "any"}
@@ -362,13 +342,11 @@ func skip_tutorials() -> void:
 	if tutorial != null:
 		tutorial.skip_all()
 
-## The live equivalent of the offline catch-up below -- while the game
-## keeps running, an active expedition still needs a chance to resolve
-## progress without requiring a full app restart. Mirrors the real JS's
-## own periodic poll (setInterval, farroad-ui.js:3249-3251); Godot's Timer
-## node is the natural equivalent (nothing like this existed anywhere in
-## this port before this step). Only refreshes expedition_panel's own
-## popup if it's actually open -- no point rebuilding UI nobody can see.
+## The live equivalent of the offline catch-up below: while the game keeps
+## running, an active expedition still gets a chance to resolve progress
+## without a full app restart. It runs on a Timer. It only refreshes
+## expedition_panel's popup if that is open, since there is no point
+## rebuilding UI nobody can see.
 var notifier: Notifier = null
 
 func _on_expedition_tick() -> void:
@@ -383,10 +361,10 @@ func _on_expedition_tick() -> void:
 				notifier.on_expedition_arrived(e)   # Windows, when not focused
 	if expedition_panel.popup.visible:
 		expedition_panel.refresh()
-	# resolve_all_expeditions can unlock a new dungeon (Step 3i,
-	# unlock_direction_dungeon called from inside resolve_expedition) --
-	# refresh a currently-open QUESTS popup so a new dungeon card appears
-	# without waiting for the player to close and reopen it.
+	# resolve_all_expeditions can unlock a new dungeon (unlock_direction_dungeon,
+	# called from inside resolve_expedition), so refresh a currently open QUESTS
+	# popup: a new dungeon card appears without the player closing and
+	# reopening it.
 	if quests_panel.popup.visible:
 		quests_panel.refresh()
 
@@ -403,8 +381,7 @@ func _on_expedition_tick() -> void:
 func _on_viewport_resized() -> void:
 	vp = get_viewport_rect().size
 	_compute_regions()
-	# 24-item batch, Group D3: shifted down 5% from the old 0.015/0.043 --
-	# see _build_hud's own comment for the full history.
+	# positioned 5% lower than the original 0.015 / 0.043 (see _build_hud)
 	currency_row.position = Vector2(vp.x * 0.02, vp.y * 0.065)
 	_place_hud_plate()
 	currency_row.add_theme_constant_override("separation", int(vp.x * 0.022))
@@ -442,19 +419,15 @@ func _on_viewport_resized() -> void:
 	_reflow_road_button()
 	_layout_wide()
 
-## Resumes user://save.json if one exists and parses cleanly. Mirrors
-## tryResumeSave() (farroad-ui.js) -- applyCustomMC();startWave(...);
-## simulateOfflineProgress(snap);resolveAllExpeditions(); same exact call
-## order, including calling apply_custom_mc unconditionally (a no-op when
-## g["mc"] is null, e.g. a legacy pre-MC save -- matches the real
-## tryResumeSave()'s own applyCustomMC() call). `saved_at` comes from the
-## save envelope's own top-level "savedAt" field (sibling to the
-## FIELDS-derived content deserialize() reads), not from anything inside
-## `g` itself. Returns false (doing nothing else) when no save exists or
-## it fails to parse -- the caller then shows character creation instead
-## of silently falling back to a fresh mc=null game, matching how the real
-## JS has no "fresh game, no mc" path at all (showMcCreate() is
-## unconditional whenever no save exists).
+## Resumes user://save.json if one exists and parses cleanly: apply_custom_mc,
+## start_wave, simulate_offline_progress, resolve_all_expeditions, in that
+## order. apply_custom_mc is called unconditionally (a no-op when g["mc"] is
+## null, e.g. a legacy save from before character creation). `saved_at` comes
+## from the save envelope's own top-level "savedAt" field (a sibling of the
+## FIELDS-derived content deserialize() reads), not from anything inside `g`.
+## Returns false (doing nothing else) when no save exists or it fails to
+## parse; the caller then shows character creation instead of silently falling
+## back to a fresh game without a main character.
 var _save_too_new := false        # the save was written by a newer build of the game than this one
 var _save_unreadable := false     # files exist but neither the save nor its backup can be read
 var _offline_state: Dictionary = {}
@@ -526,11 +499,11 @@ func _finish_resume() -> void:
 		Analytics.add("offline", "seconds", float(_offline_summary.get("elapsed_sec", 0.0)))
 		Analytics.add("offline", "returns")
 		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
-		# Ian: wipes (and clears) fought while the game was closed count in the wave stats too
+		# wipes (and clears) fought while the game was closed count in the wave stats too
 		Analytics.waves_offline(_offline_summary.get("wave_results", {}))
 	FarroadProgression.resolve_all_expeditions(g, _resume_now)
-	# Ian: the time away must be accurate next launch even after a very
-	# short session -- stamp the save now that this gap has been counted.
+	# the time away must be accurate next launch even after a very short
+	# session, so the save is stamped now that this gap has been counted
 	save_game()
 
 ## Shown when a save exists but neither it nor its backup can be read.
@@ -584,10 +557,8 @@ Starting a new game keeps the save next to it, renamed .corrupt." if _save_too_n
 		mc_panel.setup(vp, self, _on_mc_confirmed))
 	vb.add_child(fresh)
 
-## Mirrors boot(7,mc) (farroad-ui.js:3234, the real btnMcConfirm handler --
-## fresh games always seed 7 in the real game; there is no real-JS
-## equivalent of a time-based seed, since a fresh mc=null game was never
-## a real path there). Called by McCreatePanel once the player confirms.
+## Starts a new game from the confirmed main character. A fresh game always
+## uses seed 7. Called by McCreatePanel once the player confirms.
 func _on_mc_confirmed(mc: Dictionary) -> void:
 	g = FarroadProgression.new_game(7, mc)
 	FarroadProgression.apply_custom_mc(g)
@@ -598,7 +569,7 @@ func _on_mc_confirmed(mc: Dictionary) -> void:
 	_start_game()
 
 ## ===== Shifted Reflection =====
-## Ian: after a player hits wave 100, an item that lets them redo their Main
+## After a player hits wave 100, an item lets them redo their Main
 ## Character's stats. One is given the first time they reach it (a save that
 ## is already past 100 gets it the next time a fight starts).
 const RESPEC_WAVE := 100
@@ -636,11 +607,10 @@ func _on_mc_respec(points: Dictionary) -> void:
 	refresh_hud()
 	save_game()
 
-## Ian: "Welcome back screen, when closed, should reset... when they open
-## it, the time away should be accurate." Save whenever the app is closed
-## or sent to the background; coming back after a real break reloads the
-## game so the welcome-back catch-up runs fresh from that save (a side
-## battle in progress is simply abandoned, same as closing the app).
+## Save whenever the app is closed or sent to the background; coming back
+## after a real break reloads the game so the welcome-back catch-up runs fresh
+## from that save, so the time away is accurate (a side battle in progress is
+## simply abandoned, same as closing the app).
 const RESUME_RELOAD_SEC := 60.0
 var _backgrounded_at: float = -1.0
 
@@ -678,11 +648,10 @@ func _notification(what: int) -> void:
 			else:
 				_backgrounded_at = -1.0
 
-## Ian: "clicking off the browser while the menu is open and coming back
-## closes the menu" -- Godot closes every popup window when the app loses
-## focus. This node hears that first (it's their parent), so it turns the
-## popup behaviour off for the ones showing and puts it back when focus
-## returns. If a menu closed anyway, it's reopened.
+## Godot closes every popup window when the app loses focus. This node hears
+## that first (it is their parent), so it turns the popup behaviour off for the
+## ones showing and puts it back when focus returns. If a menu closed anyway,
+## it is reopened.
 var _held_popups: Array = []
 var _focus_panel: Node = null
 
@@ -770,7 +739,7 @@ func show_terms_popup() -> void:
 	await _finish_detail_overlay(o)
 
 ## ===== Patch notes and updates (Updates.gd) =====
-## Ian: patch notes in the game, and a way to see that a newer version is out.
+## Patch notes in the game, and a way to see that a newer version is out.
 ## The notes ship inside the game; the check asks GitHub for the latest release.
 
 ## The notes: one version (the "what's new" after an update) or all of them.
@@ -907,14 +876,9 @@ func save_game() -> void:
 	if cloud != null:
 		cloud.mark_dirty()
 
-## Ian (batch): "I want to eventually replace the blank background with
-## illustrations and locales along the road... what do we need to do now
-## to prepare for that?" -- this IS that preparation: a dedicated Node2D
-## layer, added first (drawn behind the battle field/HUD), spanning a
-## band 3x screen width so a wave-transition scroll never reveals a bare
-## edge. Placeholder content only (simple ground marks, no art yet) --
-## real illustration/locale sprites drop in as children of this SAME node
-## later with no other code changes needed. Also what
+## The scrolling backdrop: a dedicated Node2D layer, added first (drawn behind
+## the battle field and HUD), spanning a band 3x the screen width so a
+## wave-transition scroll never reveals a bare edge. It is also what
 ## _animate_wave_transition scrolls during the post-wave-clear "run".
 func _build_background_layer() -> void:
 	background_layer = Node2D.new()
@@ -934,11 +898,8 @@ func _build_background_layer() -> void:
 	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
 	_rebuild_background_marks()
 
-## Ian: "do a procedural polish pass" -- a soft vertical gradient (a warm
-## "sky" tone fading into the existing parchment tone) generated once and
-## shared by every rebuild, standing in for real illustrated background
-## art (same "still just a texture swap later" placeholder discipline
-## UnitView's own procedural shapes follow).
+## A soft vertical gradient (a warm "sky" tone fading into the existing
+## parchment tone), generated once and shared by every rebuild.
 const _SKY_GRADIENT_TEX_H := 64
 static var _sky_gradient_texture: Texture2D
 
@@ -952,17 +913,15 @@ static func _get_sky_gradient_texture() -> Texture2D:
 		_sky_gradient_texture = ImageTexture.create_from_image(img)
 	return _sky_gradient_texture
 
-## Ian: "do a procedural polish pass." Was a single flat-colored row of
-## identical rects -- now a soft sky gradient behind everything, a "road"
-## band along the bottom, and per-mark size/tone/spacing jitter (a FIXED
-## seed, not real randomness, so a rebuild -- e.g. on resize -- reproduces
-## the exact same layout rather than reshuffling every time) so the row
-## reads as varied ground clutter instead of one shape stamped on repeat.
-## Ian: the forest path replaces the test background. Three tileable layers
-## (art_src/forest_path, made with pxl): deep forest far back, trunk bases in
-## the middle, and the tall dirt path the units stand on. Each scrolls at its
-## own fraction of the travel distance (parallax); the far and middle strips
-## only fill the top of the band, the near layer is the whole band.
+## The background art: a soft sky gradient behind everything, a "road" band
+## along the bottom, and per-mark size / tone / spacing jitter (from a fixed
+## seed, not real randomness, so a rebuild, e.g. on resize, reproduces the
+## same layout) so the row reads as varied ground clutter instead of one shape
+## stamped on repeat. The forest path is three tileable layers
+## (art_src/forest_path): deep forest far back, trunk bases in the middle, and
+## the tall dirt path the units stand on. Each scrolls at its own fraction of
+## the travel distance (parallax); the far and middle strips only fill the top
+## of the band, the near layer is the whole band.
 const BG_DIR := "res://sprites/background/"
 const BG_ART_H := 544.0   # the near layer's height in art pixels = the whole battle area (the units stand in its top two thirds)
 ## Which environment set is showing. Files are <set>_far/_mid/_near/_tree_l/_tree_r.png in BG_DIR
@@ -1080,10 +1039,11 @@ func _rebuild_background_marks() -> void:
 ## arrives and stops at the edges. One transition moves them exactly `_fg_travel`, which
 ## puts the next pair where the first pair began, so the loop is seamless.
 const BG_FG_SPEED := 1.0   # Ian: the front trees move at the same rate as the road (they are so close together)
-## How many whole front trees cross the screen in one wave transition (Ian: just one).
+## How many whole front trees cross the screen in one wave transition.
 const BG_FG_TREES := 1
-## Ian: move the front trees down a little so they aren't so close to the path. The tree is stretched
-## this many art pixels taller from the top (so the canopy stays put and the base drops).
+## The front trees are moved down a little so they aren't so close to the
+## path: the tree is stretched this many art pixels taller from the top (so
+## the canopy stays put and the base drops).
 const BG_TREE_STRETCH := 24.0
 const BG_FG_GAP := 0.0    # trees are exactly one screen apart; a tree's two halves touch
 var foreground_layer: Control
@@ -1192,26 +1152,20 @@ func _rebuild_background_fallback(band_bottom: float, span: float) -> void:
 		background_layer.add_child(mark)
 		x += gap * (0.8 + 0.4 * (j + 0.5))
 
-## A minimal top strip (currency purse) above the existing battle view --
-## not a full tab bar yet, since there's only one screen to navigate to
-## until Step 3c. Between waves, the field itself now carries the wave
-## transition (party runs right, next wave's enemies run in -- see
-## _animate_wave_transition/BattlePresenter.run_enemies_entering),
-## no popup needed.
+## The top strip (currencies and Power) above the battle view. Between waves
+## the field itself carries the wave transition (party runs right, next wave's
+## enemies run in; see _animate_wave_transition / BattlePresenter.
+## run_enemies_entering), so no popup is needed.
 ##
-## Ian: "remove the Wave x from the top... move the total Aether and mark
-## text up to where the Wave x text was." wave_label is gone entirely --
-## BattlePresenter's own wave-progress row (just above its enrage bar)
-## now carries the current-wave text instead. currency_row moved up to
-## the old wave_label position (0.015, was 0.055); idle_row shifted up by
-## the same 0.04 that freed (0.083 -> 0.043) -- both then shifted back
-## DOWN by 0.05 per the 24-item batch's Group D3 ("move top aether and
-## marks down 5% to avoid running into the camera"), landing at 0.065/0.093.
-## The front trees sit above the units (z_index 1); the HUD text, the wipe fade and the
-## reward flyers must stay above the trees.
+## There is no wave label here: BattlePresenter's wave-progress row (just above
+## its enrage bar) carries the current-wave text. currency_row sits at the top
+## (y 0.065), lowered a little so it doesn't run into a phone camera cutout.
+## The front trees sit above the units (z_index 1); the HUD text, the wipe fade
+## and the reward flyers must stay above the trees.
 func _layer_hud_above_trees() -> void:
-	# Ian: UI elements above all of the art layers -- every Control that is a direct child of
-	# the game (the HUD, the menu buttons, the Road button...) except the front trees' own layer.
+	# UI elements above all of the art layers: every Control that is a direct
+	# child of the game (the HUD, the menu buttons, the Road button...) except
+	# the front trees' own layer.
 	for n in get_children():
 		if n is Control and n != foreground_layer:
 			(n as Control).z_index = 2
@@ -1222,16 +1176,12 @@ func _layer_hud_above_trees() -> void:
 		fade_overlay.z_index = 10
 
 func _build_hud() -> void:
-	# Ian: "I want to replace some of the text like Aether and Marks with
-	# icons -- what do we need to do now to prepare for that?" Split what
-	# used to be one combined "Aether N   Marks N" Label into two separate
-	# cells in a row -- an icon can be inserted in front of just ONE
-	# currency's text later by changing only _build_currency_label (or
-	# just one cell's own build site) instead of hunting down a combined
-	# string. Each cell also gets its own real screen position, so a
-	# reward flyer can fly to the EXACT currency it's for (see
-	# _spawn_reward_drops) instead of a single shared combined-label spot.
-	# Ian (UI kit): every word sits on a plate -- the currency and idle lines get
+	# The currencies are separate cells in a row (not one combined "Aether N
+	# Marks N" Label), so an icon can later be put in front of just one
+	# currency's text by changing only _build_currency_label (or one cell's
+	# build site). Each cell also has its own real screen position, so a reward
+	# flyer can fly to the exact currency it is for (see _spawn_reward_drops).
+	# Every word sits on a plate (the UI kit): the currency and idle lines get
 	# one, since the road behind them is the pale sky.
 	hud_plate = Panel.new()
 	var plate_style := StyleBoxFlat.new()
@@ -1249,19 +1199,17 @@ func _build_hud() -> void:
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
 	marks_cell = _build_currency_label(currency_row)
-	# 24-item batch, Group C4: "Crystal needs listed at the top" -- third
-	# cell in the same row as Aether/Marks.
+	# Crystal is the third cell in the same row as Aether / Marks.
 	crystal_cell = _build_currency_label(currency_row)
 
-	# Ian: idle rewards are gone; Power sits in the same row as the currencies.
+	# Power sits in the same row as the currencies.
 	power_level_cell = _build_currency_label(currency_row)
 
-	# Ian: "can we add a 2x speed button?" Top-right corner, mirroring
-	# currency_row's own top-left placement. Toggles Engine.time_scale
-	# globally -- the simplest way to uniformly speed up every tween/timer
-	# already scattered across this codebase (hops, projectiles, beat
-	# pauses, wave-transition waits, UI fades) without touching any of
-	# their individual duration constants.
+	# The speed toggle, top-right, mirroring currency_row's top-left placement.
+	# It toggles Engine.time_scale globally, the simplest way to uniformly speed
+	# up every tween and timer already scattered across this codebase (hops,
+	# projectiles, beat pauses, wave-transition waits, UI fades) without
+	# touching any of their individual duration constants.
 	speed_toggle_btn = Button.new()
 	speed_toggle_btn.position = Vector2(vp.x * 0.86, vp.y * 0.015)
 	speed_toggle_btn.custom_minimum_size = Vector2(vp.x * 0.12, vp.y * 0.035)
@@ -1317,16 +1265,9 @@ func reset_game() -> void:
 	SaveStore.delete_all()   # the backup too, or it would bring the old game back
 	get_tree().reload_current_scene()
 
-## Post-Milestone-3 APK feedback (Group B4) -- center of the bottom icon
-## row (same 0.11*vp.x icon size/0.93*vp.y row every tab panel's own icon
-## uses), styled distinctly (a gold fill, not the flat grey every tab icon
-## uses) so it reads as a different KIND of control, not just another tab.
-## Recomputed by the 24-item batch's own Group C6 (Shop added, now an
-## 8-icon row) -- moved next to Expedition to stay close to true center
-## (0.5067 vs the ideal 0.5) -- see MarksPanel.gd's own comment for the
-## full 8-slot layout.
-## Ian: "Move 'Road' button to be a screen wide rectangular button just
-## above the other menu buttons."
+## The Road button: a screen-wide rectangular button just above the other menu
+## buttons, styled distinctly (a gold fill, not the flat grey every tab icon
+## uses) so it reads as a different kind of control, not just another tab.
 const ROAD_BAR_Y := 0.893   # just below the turn-order frame (ends 0.89)
 const ROAD_BAR_H := 0.034   # ends above the tab icons (0.93)
 
@@ -1360,18 +1301,14 @@ func _reflow_road_button() -> void:
 	road_button.position = Vector2(vp.x * 0.02, vp.y * ROAD_BAR_Y)
 	road_button.custom_minimum_size = Vector2(vp.x * 0.96, vp.y * ROAD_BAR_H)
 
-## Group J (post-Milestone-3 batch): a one-time "welcome back" summary,
-## shown right after the HUD is built whenever a resumed save had a real
-## offline gap (_offline_summary is non-empty -- simulate_offline_progress's
-## own 5s no-op floor already filters out a trivial gap, so no further
-## threshold check is needed here). A genuine step back toward a real
-## separate modal versus the real JS's current pushDrop()-banner approach --
-## a deliberate, Ian-requested choice for this port specifically, not a
-## "fix" to match current real-JS behavior (see this batch's own Group J
-## plan). Same opaque-panel styling convention every sibling panel's own
-## _style_popup already uses, just with its own border tint (blue, distinct
-## from the wave popup's gold and every tab panel's grey) to read as its
-## own kind of moment.
+## A one-time "welcome back" summary, shown right after the HUD is built
+## whenever a resumed save had a real offline gap (_offline_summary is
+## non-empty; simulate_offline_progress's own 5 s no-op floor already filters
+## out a trivial gap, so no further threshold check is needed here). It is a
+## separate modal rather than a banner. It uses the same opaque-panel styling
+## as every tab panel's _style_popup, with its own border tint (blue, distinct
+## from the wave popup's gold and every tab panel's grey) to read as its own
+## kind of moment.
 func _show_welcome_back_popup() -> void:
 	# at start-up the window may still be settling into its final shape
 	await get_tree().process_frame
@@ -1399,19 +1336,11 @@ func _show_welcome_back_popup() -> void:
 	if wipes_gained > 0:
 		wipe_txt = "\nWiped %d time%s — back to checkpoint." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
 
-	# Post-24-item-batch (Group A2): migrated off a raw PopupPanel onto
-	# _build_detail_overlay -- fixes the same width-overflow class of bug
-	# this popup used to have its own bespoke fix for (that fix is now
-	# subsumed: _build_detail_overlay's scroll container has an explicit,
-	# content-independent minimum size, so nothing here needs its own
-	# margin arithmetic anymore) and, per Ian's own "reduce the height of
-	# informational pop-ups by 50% and center them" ask, replaces the old
-	# fixed vp.y*0.65 height with content-driven sizing (capped at
-	# vp.y*0.6, usually far less) -- already correctly centered by
-	# _finish_detail_overlay. This popup isn't triggered from inside an
-	# already-open tab popup (fires once at boot/resume), so it never had
-	# Group A1's sibling-Window bug, but gets the same overlay treatment
-	# for consistency and the height/centering win.
+	# Built on _build_detail_overlay: its scroll container has an explicit,
+	# content-independent minimum size, so nothing here needs its own margin
+	# arithmetic, and sizing is content-driven (capped at vp.y * 0.6, usually far
+	# less) and centered by _finish_detail_overlay. This popup fires once at
+	# boot / resume, not from inside an already-open tab popup.
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1436,10 +1365,9 @@ func _show_welcome_back_popup() -> void:
 
 	await _finish_detail_overlay(o)
 
-## Ian: "a feedback button in the menu that lets players make suggestions
-## and report bugs" -- submitted straight to Ian's Google Form (no email
-## app, no keys in the game; he reviews every response himself). The
-## entry ids are the form's own question ids.
+## Feedback from the menu: suggestions and bug reports, submitted straight to a
+## Google Form (no email app, no keys in the game). The entry ids are the
+## form's own question ids.
 const FEEDBACK_FORM := "https://docs.google.com/forms/d/e/1FAIpQLSeAe9dcoP59Nfq_dUxY70iEHJ9NUfmjOUg9oeOX5QyoOAtfdA/formResponse"
 const FEEDBACK_FIELDS := {"type": "entry.1138442964", "text": "entry.1220989861", "wave": "entry.16782905",
 	"power": "entry.1284231246", "party": "entry.804742323", "device": "entry.145143319"}
@@ -1528,31 +1456,22 @@ func show_feedback_popup() -> void:
 	vbox.add_child(send)
 	await _finish_detail_overlay(o)
 
-## Ian: a one-time popup shown exactly when enrage first turns on (clearing
-## the wave-20 boss -- see the "tutorial_complete" event, FarroadProgression.
-## after_wave_cleared) -- congratulates the player on finishing the
-## tutorial, warns the Road only gets harder from here, and explains the
-## enrage mechanic + points at its own bar/label so it isn't a total
-## surprise the first time it fires for real. Same raw-PopupPanel
-## construction as _show_welcome_back_popup (a big milestone announcement,
-## not a small in-flow result like _show_quest_result_popup below) --
-## AWAITABLE, unlike that one, since the caller (_on_battle_finished) needs
-## to hold the wave-transition animation until the player has actually read
-## and dismissed it.
+## A one-time popup shown when the tutorial ends (clearing the wave-20 boss;
+## see the "tutorial_complete" event, FarroadProgression.after_wave_cleared). It
+## congratulates the player on finishing the tutorial and warns the Road only
+## gets harder from here. It is a big milestone announcement, not a small
+## in-flow result like _show_quest_result_popup below. It is awaitable, because
+## the caller (_on_battle_finished) holds the wave-transition animation until
+## the player has read and dismissed it.
 func _show_tutorial_complete_popup() -> void:
-	# Post-24-item-batch (Group A1/A2): migrated off a raw PopupPanel onto
-	# _build_detail_overlay/_finish_detail_overlay -- this used to
-	# add_child() a SECOND top-level Window while a tab popup could
-	# already be open (see the big comment on _build_detail_overlay's own
-	# declaration for the full root-cause writeup), silently closing it
-	# the instant this popup appeared. Nesting inside whichever popup is
-	# already open (or GameController itself when none is) fixes that,
-	# and its content-driven sizing also satisfies "reduce the height of
-	# informational pop-ups by 50% and center them" for free. Still
-	# genuinely blocks the caller until dismissed (backdrop.tree_exiting
-	# fires from either the Close button or a backdrop tap) -- the win
-	# branch that calls this needs to hold the wave-transition animation
-	# until the player has actually read and dismissed it.
+	# Built on _build_detail_overlay / _finish_detail_overlay. A second top-level
+	# Window opened while a tab popup was already open would silently close it
+	# the instant it appeared (see the comment on _build_detail_overlay);
+	# nesting inside whichever popup is open (or GameController itself when none
+	# is) avoids that, and content-driven sizing keeps it compact. It still
+	# blocks the caller until dismissed (backdrop.tree_exiting fires from the
+	# Close button or a backdrop tap): the win branch that calls this holds the
+	# wave-transition animation until the player has read and dismissed it.
 	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1568,9 +1487,9 @@ func _show_tutorial_complete_popup() -> void:
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
 
-	# Post-24-item-batch balance pass: enrage now starts at wave 31, so this
-	# popup only foreshadows it -- the full explanation is its own popup
-	# (_show_enrage_intro_popup) right before the first fight it applies to.
+	# Enrage starts at wave 31, so this popup only foreshadows it; the full
+	# explanation is its own popup (_show_enrage_intro_popup) right before the
+	# first fight it applies to.
 	var heads_up := Label.new()
 	heads_up.text = "Use the next stretch of the Road to level up and build your party -- something more dangerous is waiting past wave 30."
 	heads_up.add_theme_font_size_override("font_size", int(vp.y * 0.022))
@@ -1585,11 +1504,11 @@ func _show_tutorial_complete_popup() -> void:
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
 
-## Post-24-item-batch balance pass: the enrage explanation that used to be
-## part of the tutorial-complete popup, now shown on its own on the first
-## clear of wave ENRAGE_FROM_WAVE-1 -- right before the first fight that can
-## actually enrage (the "enrage_intro" event, FarroadProgression.
-## after_wave_cleared). Same awaited overlay shape as the popup above.
+## The enrage explanation, shown on the first clear of wave ENRAGE_FROM_WAVE-1,
+## right before the first fight that can actually enrage (the "enrage_intro"
+## event, FarroadProgression.after_wave_cleared). It explains the mechanic and
+## points at its own bar and label. Same awaited overlay shape as the popup
+## above.
 func _show_enrage_intro_popup() -> void:
 	var o := _build_detail_overlay(Palette.BAD_RED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
@@ -1621,20 +1540,17 @@ func _show_enrage_intro_popup() -> void:
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
 
-## Ian: "add a pop-up when she joins... you save her from the enemies and
-## she chooses to join you" -- fires whenever a milestone companion
-## actually joins (the "boss_companion" event, see after_wave_cleared's own
-## comment -- despite the name, no longer boss-exclusive). Same raw-
-## PopupPanel/awaited-"Got it" shape as _show_tutorial_complete_popup
-## above; generic enough in its wording to read naturally for any of the
-## 4 roster companions this can fire for (ansa/dorrek/vey/mirel), not just
-## Ansa's own wave-10 case.
+## Fires whenever a milestone companion joins (the "boss_companion" event, see
+## after_wave_cleared; despite the name it is no longer boss-exclusive): you
+## save her from the enemies and she chooses to join you. Same
+## awaited-"Got it" shape as _show_tutorial_complete_popup above, with wording
+## generic enough for any of the roster companions this can fire for
+## (ansa / dorrek / vey / mirel), not just Ansa's wave-10 case.
 func _show_companion_joined_popup(uid: String) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	var name: String = def["name"] if def != null else uid
 
-	# Post-24-item-batch (Group A1/A2): same overlay migration as
-	# _show_tutorial_complete_popup above -- see its comment.
+	# Built on _build_detail_overlay, like _show_tutorial_complete_popup above.
 	var o := _build_detail_overlay(Palette.GOOD_GREEN, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1657,14 +1573,12 @@ func _show_companion_joined_popup(uid: String) -> void:
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
 
-## Ian: "after wave 20, instead of a new unit, get a piece of equipment
-## and show a pop-up about equipment and where it can be equipped" --
-## fires on the "tutorial_equip" event (after_wave_cleared, wave 20
-## specifically). A simple, standalone item description (name/rarity/
-## slot/flat stat bonuses) rather than EquipmentPanel's own
-## _describe_equipment -- that one needs a specific unit to compute
-## per-unit affinity deltas against, which this generic introductory
-## popup has no natural "selected unit" for.
+## Fires on the "tutorial_equip" event (after_wave_cleared, wave 20): the
+## player gets a piece of equipment and a popup about equipment and where it
+## can be equipped. It is a simple, standalone item description (name, rarity,
+## slot, flat stat bonuses) rather than EquipmentPanel's _describe_equipment,
+## which needs a specific unit to compute per-unit affinity deltas against;
+## this introductory popup has no natural "selected unit".
 func _show_tutorial_equip_popup(item_id: String) -> void:
 	var item: Dictionary = FarroadCore.EQUIPMENT.get(item_id, {})
 	var item_name: String = item.get("name", item_id)
@@ -1678,8 +1592,7 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 		bits.append("Evade +%d%%" % roundi(float(item["evade"]) * 100.0))
 	var stat_line: String = " · ".join(bits) if not bits.is_empty() else "no flat stat bonus (affinity only)"
 
-	# Post-24-item-batch (Group A1/A2): same overlay migration as
-	# _show_tutorial_complete_popup above -- see its comment.
+	# Built on _build_detail_overlay, like _show_tutorial_complete_popup above.
 	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1715,12 +1628,10 @@ func _show_tutorial_equip_popup(item_id: String) -> void:
 	await get_tree().process_frame
 
 func show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
-	# Post-24-item-batch (Group A1/A2): same overlay migration as
-	# _show_tutorial_complete_popup above -- this one's the exact bug Ian
-	# actually reported ("clicking 'Got it' on the tutorial pop-ups closes
-	# the menu behind it"), since this is the one that fires WHILE a tab
-	# popup (e.g. Settings') is already open -- see _build_detail_overlay's
-	# own comment for the full root-cause writeup.
+	# Built on _build_detail_overlay, like _show_tutorial_complete_popup above.
+	# This one matters most: it fires while a tab popup (e.g. Settings') is
+	# already open, and a second top-level Window would have closed that popup
+	# behind it (see _build_detail_overlay's comment).
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1743,16 +1654,12 @@ func show_tab_tutorial_popup(title_text: String, body_text: String) -> void:
 	# has several) couldn't be added and the Road waited on it forever
 	await get_tree().process_frame
 
-## Post-Milestone-3 APK feedback (Group A3): "there should be a pop-up
-## after completing or failing a quest that does the rewards you got,
-## similar to the welcome back pop-up" -- same PopupPanel/StyleBoxFlat
-## construction and post-add-one-frame-before-popup_centered fix as
-## _show_welcome_back_popup above, just keyed off a
-## FarroadProgression.finish_side_battle event instead of an offline
-## summary. QuestsPanel's own "show_result" card (still called right
-## after this from _resolve_side_battle) is UNCHANGED -- this popup is in
-## addition to it, not a replacement.
-## Ian: what each pull gave, in a box -- cards revealed one by one, duplicates
+## A popup after completing or failing a quest or dungeon, showing the rewards
+## got, similar to the welcome-back popup. It is keyed off a
+## FarroadProgression.finish_side_battle event. QuestsPanel's own "show_result"
+## card (still called right after this from _resolve_side_battle) is in
+## addition to it, not replaced by it.
+## What each pull gave, in a box: cards revealed one by one, duplicates
 ## converting into Lore or Aether in front of you (see PullResults.gd).
 func show_pull_results(results: Array) -> void:
 	if results.is_empty():
@@ -1762,7 +1669,7 @@ func show_pull_results(results: Array) -> void:
 	PullResults.build(o["vbox"], results, vp)
 	await _finish_detail_overlay(o)
 
-## Ian: a sparkly flourish when a unit levels up (called by the Aether screen).
+## A sparkly flourish when a unit levels up (called by the Aether screen).
 func level_up_fx(uid: String, new_level: int) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	var nm: String = def["name"] if def else uid
@@ -1802,26 +1709,14 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		_:
 			body_text = "%s" % event["name"]
 
-	# Post-Milestone-3 APK feedback (round 6): a real, reported bug -- this
-	# popup used to build its own unbounded backdrop+box+vbox directly
-	# (predating _build_detail_overlay, from when it still needed the
-	# "nest inside whatever's already open" fix on its own). An
-	# auto-sizing vbox with no explicit size budget, combined with a large
-	# (vp.y*0.04) title font, could apparently take more than the one
-	# awaited frame to fully converge on its real layout size -- box.size
-	# was then read for centering BEFORE it reflected the title's true
-	# rendered height, positioning the box as if it were smaller than it
-	# actually rendered, so content visibly overflowed past the box's own
-	# drawn border (reported live: "Quest cleared!" text spilling out
-	# above the green-bordered box, "+100 Aether" spilling out below it).
-	# _build_detail_overlay's own scroll container has an EXPLICIT,
-	# content-independent minimum size instead -- deterministic from the
-	# moment it's created, not something that can lag behind children
-	# still settling -- exactly the fix every OTHER detail overlay
-	# (action/equipment/enemy) already gets for free. Reusing it here
-	# closes that gap and keeps the "nest inside whatever's open, or
-	# fall back to full-screen" behavior unchanged (still via
-	# _overlay_host() internally).
+	# Built on _build_detail_overlay. An auto-sizing vbox with no explicit size
+	# budget, combined with a large (vp.y * 0.04) title font, can take more than
+	# the one awaited frame to converge on its real layout size; box.size was
+	# then read for centering before it reflected the title's true height, so
+	# content overflowed past the box's drawn border. _build_detail_overlay's
+	# scroll container has an explicit, content-independent minimum size, so it
+	# is deterministic from the moment it is created. It still nests inside
+	# whatever is open, or falls back to full-screen (via _overlay_host()).
 	var o := _build_detail_overlay(border_color)
 	var vbox: VBoxContainer = o["vbox"]
 
@@ -1859,15 +1754,15 @@ func refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
 	marks_cell.text = "Marks %d" % roundi(g["marks"])
 	crystal_cell.text = "Crystal %d" % int(g.get("crystal", 0))
-	# Ian: the HUD's Power is the fielded party's, on the same scale the
-	# quest/dungeon/Arena recommendations use.
+	# the HUD's Power is the fielded party's, on the same scale the quest /
+	# dungeon / Arena recommendations use
 	power_level_cell.text = "Power %d" % FarroadProgression.party_power(g)
 	_live_refresh_menu()
 
-## Ian: gaining Aether (or a level) while a menu is open must update what the
-## menu shows -- what you can afford, the levels in the unit list -- without
-## closing and reopening it. Runs whenever the HUD refreshes; only acts when
-## the wallet or a level actually changed.
+## Gaining Aether (or a level) while a menu is open must update what the menu
+## shows (what you can afford, the levels in the unit list) without closing
+## and reopening it. Runs whenever the HUD refreshes; only acts when the wallet
+## or a level actually changed.
 var _wallet_key := ""
 var _last_input_ms := 0
 
@@ -2209,9 +2104,9 @@ func _apply_live_refresh(panel: Node) -> void:
 		if is_instance_valid(scrolls[i]):
 			(scrolls[i] as ScrollContainer).scroll_vertical = saved[i]
 
-## Ian: "Selecting buttons at the bottom should close all pop-ups and open
-## the selected (including the road)." One place that dismisses everything
-## closable: the open tab menu, the Arena, and the battle's Status/Log.
+## Selecting a button at the bottom closes all pop-ups and opens the selected
+## one (including the road). This is the one place that dismisses everything
+## closable: the open tab menu, the Arena, and the battle's Status / Log.
 func _close_all_popups() -> void:
 	dock_close()
 	_close_arena()
@@ -2262,8 +2157,8 @@ func panel_opening(panel: Node) -> void:
 		_close_all_popups()
 	open_panel = panel
 	UiKit.set_icon_active(panel.get("toggle_button"), true)
-	# Ian: "When a menu screen is exited and returned to, have it reset to
-	# the top." Runs after the panel has rebuilt and shown its content.
+	# A menu screen that is exited and returned to resets to the top. This runs
+	# after the panel has rebuilt and shown its content.
 	_reset_scrolls.call_deferred(panel)
 	_ensure_tab_close_x.call_deferred(panel)
 
@@ -2298,20 +2193,19 @@ func _reset_scrolls(panel: Node) -> void:
 		sc.scroll_vertical = 0
 		sc.scroll_horizontal = 0
 
-## Group H (20-item batch): Catalogue folded out of the bottom icon row --
-## reached via a "Catalogue" button inside SettingsPanel's own popup
-## instead. Just re-triggers Catalogue's own
-## existing open logic (panel_opening + refresh + popup + battle-pause),
-## which already correctly closes Settings' own popup via panel_opening.
+## The Catalogue has no bottom-row icon; it is reached from a "Catalogue"
+## button inside SettingsPanel's popup. This re-triggers the Catalogue's own
+## open logic (panel_opening + refresh + popup), which already closes
+## Settings' own popup via panel_opening.
 func open_catalogue() -> void:
 	catalogue_panel.set_meta("fromMenu", true)
 	catalogue_panel.open_menu()
 
-## Ian: "Clicking the x or the outside of a page should take you up one
-## level." A menu with a level above it (Units on Gambits/Aether/Lore/Gear
-## -> Summary; Catalogue opened from the Menu -> the Menu) goes there
-## instead of closing; at the top level it closes as before. Pop-ups inside
-## a menu already close one at a time.
+## Clicking the X or the outside of a page takes you up one level. A menu with
+## a level above it (Units on Gambits / Aether / Lore / Gear -> Summary;
+## Catalogue opened from the Menu -> the Menu) goes there instead of closing;
+## at the top level it closes. Pop-ups inside a menu already close one at a
+## time.
 func _tab_can_go_back(panel: Node) -> bool:
 	if panel == catalogue_panel:
 		return catalogue_panel.get_meta("fromMenu", false)
@@ -2328,9 +2222,9 @@ func _tab_go_back(panel: Node) -> void:
 
 ## The tab menu's X.
 func _tab_close_or_back(panel: Node) -> void:
-	# Ian: the Units page's X closes the whole page (unlike the other pages,
-	# where it goes up a level). Back on the summary first, so closing it
-	# doesn't make _on_tab_hidden reopen one level up.
+	# The Units page's X closes the whole page (unlike the other pages, where it
+	# goes up a level). It goes back to the summary first, so closing it doesn't
+	# make _on_tab_hidden reopen one level up.
 	if panel == units_panel:
 		units_panel.current_sub_tab = "summary"
 		panel.popup.hide()
@@ -2359,24 +2253,20 @@ func _reopen_one_level_up(panel: Node) -> void:
 
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 
-## Post-Milestone-3 APK feedback: "closing the details of an action closes
-## all popups." Root cause: show_action_detail_popup used to add_child() a
-## brand new top-level PopupPanel directly onto GameController -- a SIBLING
-## Window to whatever tab popup was already open (e.g. UnitsPanel's).
-## Godot's embedded-window system only tracks ONE exclusive top-level popup
-## layer at a time, so opening that second, independent Window silently
-## closed the first the instant it appeared; closing the info popup then
-## left nothing visibly open, reading as "closing it closed everything."
-## A Control (not Window) added as a CHILD of the popup that's already
-## open does not have this problem -- it just nests inside that SAME
-## window, the same way the existing ScrollContainer/VBoxContainer content
-## already does. _overlay_host() below resolves where to nest into.
-## Re-raises every still-open self-hosted overlay (see _self_hosted_overlays'
-## own comment) to the end of the child list -- called right after any new
-## BattlePresenter/side-battle presenter is added as a sibling, so a
-## still-open quest/dungeon result popup keeps drawing on top of it instead
-## of falling behind. Order among multiple stacked overlays is preserved
-## (each moved to the end in turn).
+## Detail popups are Controls nested inside the popup that is already open,
+## not separate Windows. A brand new top-level PopupPanel added to
+## GameController would be a sibling Window of whatever tab popup is open
+## (e.g. UnitsPanel's), and Godot's embedded-window system only tracks one
+## exclusive top-level popup layer at a time: opening the second closes the
+## first the instant it appears, which reads as "closing the details closes
+## everything". A Control added as a child of the open popup just nests inside
+## that same window. _overlay_host() below resolves where to nest into.
+## This re-raises every still-open self-hosted overlay (see
+## _self_hosted_overlays) to the end of the child list. It is called right
+## after any new BattlePresenter / side-battle presenter is added as a
+## sibling, so a still-open quest / dungeon result popup keeps drawing on top
+## of it instead of falling behind. The order among stacked overlays is
+## preserved (each is moved to the end in turn).
 func _raise_self_hosted_overlays() -> void:
 	for ov in _self_hosted_overlays:
 		if is_instance_valid(ov) and ov.get_parent() != null:
@@ -2463,8 +2353,8 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 		box.add_child(outer)
 		outer.add_child(header)
 		outer.add_child(scroll)
-	# `full` (Ian: "Make the window for customization and stats be full
-	# sized"): the box fills nearly the whole host instead of a small card.
+	# `full`: the box fills nearly the whole host instead of a small card (used
+	# for the customization and stats windows).
 	var pad: float = vp.y * 0.05
 	scroll.custom_minimum_size = (Vector2(host_size.x - pad * 1.2, host_size.y - pad * 2.6) if full
 		else Vector2(host_size.x * 0.8, minf(host_size.y * 0.75, vp.y * 0.6)))
@@ -2476,16 +2366,15 @@ func _build_detail_overlay(border_color: Color = Palette.BORDER_LEATHER, full: b
 	vbox.add_theme_constant_override("separation", 8)
 	scroll.add_child(vbox)
 
-	# Tapping the dim area outside the box also dismisses it -- standard
-	# modal-overlay convention. box itself stops the click from reaching
+	# Tapping the dim area outside the box also dismisses it (standard
+	# modal-overlay convention). box itself stops the click from reaching
 	# backdrop's own handler when the tap actually landed inside it.
-	# Ian: "scrolling all the way down on a pop-up box closes it" -- root
-	# cause: a mouse-wheel scroll is ALSO delivered as an InputEventMouseButton
-	# with pressed==true (wheel-up/down are just button indices), so once
-	# the inner ScrollContainer reached the bottom of its range and stopped
-	# consuming further wheel events, the same "click" check here matched
-	# the wheel event too and dismissed the popup. Restricted to real
-	# mouse buttons (left/right/middle) so a wheel scroll can never match.
+	# A mouse-wheel scroll is also delivered as an InputEventMouseButton with
+	# pressed == true (wheel up / down are just button indices), so once the
+	# inner ScrollContainer reached the bottom of its range and stopped
+	# consuming wheel events, the same "click" check here matched the wheel
+	# event and dismissed the popup. The check is restricted to real mouse
+	# buttons (left / right / middle) so a wheel scroll can never match.
 	const _DISMISS_BUTTONS := [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]
 	backdrop.gui_input.connect(func(ev: InputEvent):
 		if ev is InputEventMouseButton and ev.pressed and ev.button_index in _DISMISS_BUTTONS:
@@ -2520,35 +2409,26 @@ func _make_close_x(on_close: Callable) -> Button:
 
 func _finish_detail_overlay(o: Dictionary) -> void:
 	var backdrop: ColorRect = o["backdrop"]
-	# Ian: "Always visible X button in top right instead of 'close' at the
-	# bottom." Sits on the backdrop at the box's corner, so scrolling the
-	# box's content never moves it.
+	# An always-visible X button in the top right. It sits on the backdrop at the
+	# box's corner, so scrolling the box's content never moves it.
 	var close_btn := _make_close_x(func(): backdrop.queue_free())
 	backdrop.add_child(close_btn)
 	await get_tree().process_frame
 	if not is_instance_valid(backdrop) or not is_instance_valid(o["box"]):
 		return   # closed before it was laid out
 	var box: PanelContainer = o["box"]
-	# Ian: "in general, pop-ups aren't centered." Root cause, confirmed by
-	# direct measurement: when `host` is a STYLED PopupPanel (any tab
-	# popup already open -- the common case, since every info icon lives
-	# INSIDE one), Godot automatically insets a plain child Control added
-	# directly to it by the panel's own StyleBoxFlat content margin
-	# (_style_popup's 10px) -- so `backdrop`'s REAL rendered size ends up
-	# smaller than the `host_size` it was originally told to be (measured
-	# directly: 375x794 actual vs. 395x814 intended, exactly a 2×10px
-	# shrink). Centering `box` against the ORIGINAL, now-wrong `host_size`
-	# put it off by that same 10px on both axes -- reading as "not
-	# centered" since it's consistently offset toward the bottom-right.
-	# Using `backdrop`'s own ACTUAL post-layout size instead is correct
-	# either way: identical to host_size when host has no such inset
-	# (GameController itself, confirmed unaffected by direct measurement
-	# too), and self-correcting when it does.
-	# Ian (web build): the box sometimes landed with its top-left corner at
-	# the centre -- on web it could still report size 0 a frame after being
-	# built, and this was a one-off placement. Now it's anchored to the
-	# centre and grows both ways, so it stays centred whatever size it ends
-	# up; the close button follows it.
+	# Centering uses `backdrop`'s own actual post-layout size, not the `host_size`
+	# it was built with. When `host` is a styled PopupPanel (any tab popup already
+	# open, the common case since every info icon lives inside one), Godot
+	# insets a plain child Control by the panel's StyleBoxFlat content margin
+	# (_style_popup's 10 px), so backdrop's real size is smaller than host_size
+	# (measured 375x794 actual vs 395x814 intended); centering against host_size
+	# put the box 10 px off toward the bottom-right. The actual size is identical
+	# to host_size when host has no such inset (GameController itself) and
+	# self-correcting when it does.
+	# The box is anchored to the centre and grows both ways, so it stays centred
+	# whatever size it ends up (on web it could still report size 0 a frame after
+	# being built); the close button follows it.
 	box.set_anchors_preset(Control.PRESET_CENTER)
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	box.grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -2561,28 +2441,23 @@ func _finish_detail_overlay(o: Dictionary) -> void:
 	box.resized.connect(place)
 	backdrop.resized.connect(place)
 
-## Post-Milestone-3 APK feedback (round 5): "I want to have the filters be
-## in the actual drop downs when selecting the actions, not above them...
-## I just want a header at the top of the list you scroll through to pare
-## it down some." A native OptionButton can't embed a custom filter
-## control inside its own popup, so wherever a filter narrows a list of
-## selectable actions/conditions, that OptionButton is replaced with a
-## plain trigger Button that opens THIS overlay instead -- same backdrop+
-## box+scroll construction _build_detail_overlay already uses (so it
-## nests correctly inside whichever popup is open, not a second top-level
-## Window), with a scrollable `list_container` whose own FIRST children
-## are the filter row, followed by the actual selectable rows -- one
-## single list you scroll through together, exactly as asked, not a fixed
-## toolbar above a separately-scrolling area.
+## A picker overlay with a filter header. A native OptionButton can't embed a
+## custom filter control in its own popup, so wherever a filter narrows a list
+## of selectable actions / conditions, that OptionButton is replaced with a
+## plain trigger Button that opens this overlay. It uses the same backdrop +
+## box + scroll construction as _build_detail_overlay (so it nests inside
+## whichever popup is open instead of being a second top-level Window), with a
+## scrollable `list_container` whose first children are the filter row,
+## followed by the selectable rows: one list scrolled together, not a fixed
+## toolbar above a separately scrolling area.
 ##
-## `populate(list_container, backdrop)` is called once up front and is
-## expected to clear+rebuild `list_container` itself (filter row first,
-## then rows) -- the CALLER owns its own filter state and re-invokes its
-## own `populate` closure recursively from each filter dropdown's
-## on_change handler to refresh the list in place without closing the
-## overlay; each selectable row's own press handler calls
-## `backdrop.queue_free()` after applying the pick, closing the overlay
-## the same way _finish_detail_overlay's own Close button does.
+## `populate(list_container, backdrop)` is called once up front and is expected
+## to clear and rebuild `list_container` itself (filter row first, then rows).
+## The caller owns its filter state and calls its own `populate` again from
+## each filter dropdown's on_change handler to refresh the list in place
+## without closing the overlay. Each selectable row's press handler calls
+## `backdrop.queue_free()` after applying the pick, closing the overlay the
+## same way _finish_detail_overlay's own Close button does.
 func show_picker_overlay(title: String, populate: Callable) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
@@ -2599,17 +2474,13 @@ func show_picker_overlay(title: String, populate: Callable) -> void:
 
 	await _finish_detail_overlay(o)
 
-## Ian: "give each expedition you send out its own button to pop up a log
-## showing battle, events, and dungeons they encounter." exp["log"]
-## (push_expedition_log, newest-first, 40-entry cap) already records every
-## one of those -- sent/heading-home/arrived, bonus-fight wins/losses
-## ("battle"), and now dungeon-unlock notices too (FarroadProgression.gd's
-## resolve_expedition) -- ExpeditionPanel's own card only ever showed the
-## single most recent entry inline; this shows the FULL history. Central,
-## GameController-owned overlay, same precedent every other detail popup
-## here already set, rather than a second top-level Window nested inside
-## ExpeditionPanel's own already-open popup (which Godot would silently
-## close -- see _overlay_host's own comment).
+## An expedition's full log history in an overlay: sent / heading home /
+## arrived, bonus-fight wins and losses ("battle"), and dungeon-unlock notices
+## (exp["log"], push_expedition_log, newest first, 40-entry cap). The
+## expedition card only shows the single most recent entry inline. It is a
+## GameController-owned overlay like the other detail popups, not a second
+## top-level Window inside ExpeditionPanel's already-open popup (which Godot
+## would silently close; see _overlay_host's comment).
 func show_expedition_log_popup(exp: Dictionary) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
@@ -2650,9 +2521,9 @@ func show_action_detail_popup(action_id: String) -> void:
 	_fill_action_detail(o["vbox"], action_id)
 	await _finish_detail_overlay(o)
 
-## Everything the action-detail card shows, built into any container -- the
-## popup uses it, and so does the Lore page (Ian: "Lore page should show
-## details of the selected action").
+## Everything the action-detail card shows, built into any container. The
+## popup uses it, and so does the Lore page (which shows the details of the
+## selected action).
 func _fill_action_detail(vbox: Container, action_id: String) -> void:
 	var act = FarroadCore.ACTIONS.get(action_id)
 	if act == null:
@@ -2667,9 +2538,8 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 
 	var camp_txt: String = "Magic" if act.get("camp") == "mag" else "Physical"
 	var target_txt: String = ActionFilter.target_label(act)
-	# Ian: "actions say rank x0.87, not the stat(s) they scale with and the
-	# multiplier." Same "scales with X · power ×N" phrasing LorePanel's own
-	# action-detail card already uses, so both surfaces read consistently.
+	# "scales with X - power xN" (not the raw rank), the same phrasing
+	# LorePanel's action-detail card uses, so both surfaces read consistently.
 	var power_lbl := Label.new()
 	power_lbl.text = "%s -- target: %s -- %s" % [camp_txt, target_txt, ActionFilter.scales_text(act)]
 	power_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -2677,16 +2547,14 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 	vbox.add_child(power_lbl)
 
 	var cost_lbl := Label.new()
-	# Ian: action costs on the Catalogue (and every action's details) --
-	# the time cost (rank x100, the same "cost" Lore shows): how long until
-	# the user's next turn, 100 being a normal action.
+	# the action's cost (rank x100, the same "cost" Lore shows): how long until
+	# the user's next turn, 100 being a normal action
 	var time_txt := "Cost %d%s" % [roundi(float(act["rank"]) * 100.0),
 		" (the lowest a cost can go)" if float(act["rank"]) <= FarroadCore.RANK_FLOOR + 0.001 else ""]
 	if act.get("isCharge", false):
 		cost_lbl.text = "%s  ·  Charge action: uses %d charge" % [time_txt, int(FarroadCore.cost_of_charge(act))]
 	else:
-		# Ian: "shorten the charge bit to just Charge +x, where x is the
-		# current amount."
+		# the charge bit is just "Charge +x", where x is the current amount
 		cost_lbl.text = "%s  ·  Charge +%d" % [time_txt, int(act.get("charge", 0))]
 	cost_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	cost_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2705,11 +2573,10 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 		elem_lbl.text = "Element: %s" % str(act["element"]).capitalize()
 		vbox.add_child(elem_lbl)
 
-	# Ian: "on action inspection, say exactly what buffs and debuffs do" --
-	# a real, numeric effect line (derived from FarroadCore's own
-	# STATUS_BASE_MAG where the status is magnitude-based, so this can
-	# never silently drift out of sync with the actual engine math),
-	# not just the bare status name.
+	# say exactly what buffs and debuffs do: a real, numeric effect line (derived
+	# from FarroadCore's own STATUS_BASE_MAG where the status is
+	# magnitude-based, so it can never drift out of sync with the engine math),
+	# not just the bare status name
 	if act.get("applies"):
 		var status_id: String = str(act["applies"])
 		var applies_lbl := Label.new()
@@ -2728,11 +2595,10 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 		fx_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(fx_lbl)
 
-	# 24-item batch, Group D1: "move the (Used by x) text on actions into
-	# the detailed inspection of them... keep them unselectable." A plain
-	# Label (never selectable) listing every owned unit holding it, fielded
-	# or benched -- starter actions (strike/ember) are freely shareable, so
-	# they're labelled as such rather than listing everyone.
+	# "Used by": a plain Label (never selectable) listing every owned unit
+	# holding the action, fielded or benched. Starter actions (strike / ember)
+	# are freely shareable, so they are labelled as such rather than listing
+	# everyone.
 	var used_lbl := Label.new()
 	if FarroadProgression.STARTER_ACTIONS.has(action_id):
 		used_lbl.text = "Starter action -- any number of units can use it at once."
@@ -2754,16 +2620,13 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 		lore_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(lore_lbl)
 
-## 24-item batch: "add a Stats button in the menu that shows furthest
-## wave, number of wipes, enemies defeated, bosses defeated, dungeons
-## found, quests completed (%), and Power Level, among any other stats you
-## think worth tracking." Everything is derived live from existing save
-## state except enemies defeated (g["enemiesDefeated"], a real counter
-## bumped by every win path -- Road, quests, dungeons, expeditions).
-## Ian: PvP (first version) -- share your fielded team as a code; paste a
-## friend's code to fight their team (the game's AI runs both sides, the
-## fight plays out like a quest). Bragging rights only: a W/L record and a
-## result to copy back, which carries your own code so they can answer.
+## The Stats popup (Menu > Stats): furthest wave, wipes, enemies defeated,
+## bosses defeated, dungeons found, quests completed (%) and Power Level.
+## Everything is derived live from existing save state except enemies defeated
+## (g["enemiesDefeated"], a counter bumped by every win path: Road, quests,
+## dungeons, expeditions).
+## The Arena: fights against server opponents (players and ready-made rivals
+## in one list), with a W/L record and rating.
 func _show_pvp_popup() -> void:
 	_close_arena()
 	if wide and shell != null:
@@ -2772,8 +2635,8 @@ func _show_pvp_popup() -> void:
 	var o := _build_detail_overlay(Palette.PARTY_BLUE, true)
 	o["backdrop"].set_meta("arena", true)
 	var vbox: VBoxContainer = o["vbox"]
-	# Ian: "Arena window needs to be the same size as the others" -- match the
-	# tab menus' 96% x 76% window instead of filling the whole screen.
+	# the same size as the tab menus (96% x 76%) instead of filling the whole
+	# screen
 	var arena_m: float = vp.y * 0.025
 	var arena_scroll: ScrollContainer = o["scroll"]
 	arena_scroll.custom_minimum_size = Vector2(vp.x * 0.96 - arena_m * 2.0, vp.y * 0.76 - arena_m * 2.0 - 8.0)
@@ -2783,8 +2646,7 @@ func _show_pvp_popup() -> void:
 	title.text = "Arena"
 	title.add_theme_font_size_override("font_size", 18)
 	vbox.add_child(title)
-	# Every fight is decided on the PvP server (Ian: option 2); share codes and
-	# local-only rival fights are gone, and the ready-made rivals are server
+	# Every fight is decided on the PvP server; the ready-made rivals are server
 	# opponents in the same list as players.
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
@@ -2976,8 +2838,8 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 		return
 	var status := _wrap_label("Connecting to the Arena...", true)
 	box.add_child(status)
-	# Ian: the Arena needs the latest released version. The server also turns
-	# away any other build, but say so up front instead of at the first fight.
+	# the Arena needs the latest released version. The server also turns away any
+	# other build, but this says so up front instead of at the first fight
 	var newest := await _latest_release_version()
 	if not is_instance_valid(box):
 		return
@@ -2996,8 +2858,8 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 	if hello.has("error"):
 		status.text = RankedClient.explain(str(hello["error"]))
 		return
-	# Ian: the Arena team comes from the cloud save, so every time the Arena
-	# opens the save goes up first (starting cloud saves if they weren't yet)
+	# the Arena team comes from the cloud save, so every time the Arena opens the
+	# save goes up first (starting cloud saves if they weren't yet)
 	if cloud == null:
 		cloud = CloudSave.new()
 		add_child(cloud)
@@ -3021,7 +2883,7 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 	lb_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lb_btn.pressed.connect(_show_leaderboard)
 	btn_row.add_child(lb_btn)
-	# Ian: your last 50 fights, the ones you started and the ones you defended
+	# your last 50 fights, the ones you started and the ones you defended
 	var rec_btn := Button.new()
 	rec_btn.text = "Records"
 	rec_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3049,7 +2911,7 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 			var how: String = ("Beat" if h.get("won") else "Lost to") if h.get("attack") else ("Held off" if h.get("won") else "Beaten by")
 			box.add_child(_wrap_label("%s %s  (%+d)" % [how, str(h.get("vs", "?")), int(h.get("delta", 0))], true))
 
-## Ian: sort the opponent list.
+## Sort the opponent list.
 const OPPONENT_SORTS := [["power_desc", "Highest power"], ["power_asc", "Lowest power"],
 	["rating_desc", "Highest rating"], ["rating_asc", "Lowest rating"], ["name_asc", "Name A-Z"], ["name_desc", "Name Z-A"]]
 static var _opponent_sort: String = "rating_desc"
@@ -3068,8 +2930,8 @@ func _fill_opponents(opp_box: VBoxContainer, list: Array, status: Label, backdro
 		return int(a["rating"]) > int(b["rating"]))
 	for i in sorted.size():
 		var p: Dictionary = sorted[i]
-		# Ian: a line between teams; the name with its Fight button, and
-		# Rating and Power in columns on the line below
+		# a line between teams; the name with its Fight button, and Rating and
+		# Power in columns on the line below
 		if i > 0:
 			opp_box.add_child(HSeparator.new())
 		var row := HBoxContainer.new()
@@ -3129,11 +2991,11 @@ func _show_records() -> void:
 		att.filter(func(h): return h.get("won")).size(), att.filter(func(h): return not h.get("won")).size()], true))
 	o["vbox"].add_child(_wrap_label("Defense: %d won, %d lost" % [
 		dfn.filter(func(h): return h.get("won")).size(), dfn.filter(func(h): return not h.get("won")).size()], true))
-	# Ian: each fight on two lines, in three columns -- the opponent with
-	# Won/Lost (green/red) under it; their Power with your rating change under
-	# it; Offense/Defense with how long ago under it. A line between fights.
-	# Ian: no sideways scrolling -- the three columns share the window's own
-	# width (less the gaps between them), and the window never scrolls sideways
+	# Each fight is on two lines, in three columns: the opponent with Won/Lost
+	# (green/red) under it; their Power with your rating change under it;
+	# Offense/Defense with how long ago under it. A line between fights.
+	# No sideways scrolling: the three columns share the window's own width (less
+	# the gaps between them), and the window never scrolls sideways.
 	var rec_scroll: ScrollContainer = o["scroll"]
 	rec_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var avail: float = float(o["vbox"].custom_minimum_size.x) - _arena_vx() * 0.03 * 2.0 - 4.0
@@ -3183,8 +3045,8 @@ func _show_leaderboard() -> void:
 	wait.queue_free()
 	var top: Array = res.get("top", [])
 	(o["scroll"] as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	# Ian: the rank number sits left of the name, the rating to the right of it
-	# (wins and losses between them, small), so a row reads left to right.
+	# the rank number sits left of the name, the rating to the right of it (wins
+	# and losses between them, small), so a row reads left to right
 	var me_name: String = str(g["mc"].get("name", "")) if g.get("mc") != null else ""
 	var grid := GridContainer.new()
 	grid.columns = 4
@@ -3231,7 +3093,7 @@ func _start_ranked(res: Dictionary) -> void:
 		"serverWon": bool(res["won"]), "serverTurns": int(res.get("turns", 0)),
 		"rating": int(res.get("rating", 0)), "delta": int(res.get("delta", 0))}, battle)
 
-## Ian: Arena is its own bottom-row button (where Marks was).
+## The Arena has its own bottom-row button.
 var arena_button: Button
 
 func _build_arena_button() -> void:
@@ -3299,8 +3161,8 @@ func _section_label(text: String) -> Label:
 	l.add_theme_font_size_override("font_size", 16)
 	return l
 
-## Ian: "I don't know if there's a tutorial or not" -- Menu > Tutorials
-## lists each one: done, waiting to start, or the wave that opens it.
+## Menu > Tutorials lists each tutorial: done, waiting to start, or the wave
+## that opens it.
 const TUTORIAL_NAMES := {"road": "The Road", "units": "Units", "gambits": "Gambits", "quests": "Quests",
 	"lore": "Lore", "marks": "Marks", "shop": "Shop", "party": "Party", "gear": "Gear", "expedition": "Expedition"}
 
@@ -3365,8 +3227,8 @@ func _start_pvp(team: Dictionary) -> void:
 	pvp_skip_btn.pressed.connect(_skip_pvp)
 	add_child(pvp_skip_btn)
 
-## Ian: PvP fights can be skipped -- the rest of the fight is worked out at
-## once (same engine, same rules) and the result shown.
+## PvP fights can be skipped: the rest of the fight is worked out at once (same
+## engine, same rules) and the result shown.
 var pvp_skip_btn: Button
 
 func _skip_pvp() -> void:
@@ -3418,10 +3280,9 @@ func _show_pvp_result_popup(event: Dictionary) -> void:
 	vbox.add_child(copy_btn)
 	await _finish_detail_overlay(o)
 
-## Ian (web build): copy/paste of Arena codes didn't work in the browser --
-## the game can't read the system clipboard there. On web, copying uses the
-## browser's clipboard (falling back to a box with the text selected), and
-## pasting opens the browser's own prompt to paste into.
+## Copy / paste in the browser: the game can't read the system clipboard there.
+## On web, copying uses the browser's clipboard (falling back to a box with the
+## text selected), and pasting opens the browser's own prompt to paste into.
 static func copy_text(text: String) -> void:
 	DisplayServer.clipboard_set(text)
 	if OS.has_feature("web"):
@@ -3518,7 +3379,7 @@ func _show_wipe_enemy(e: Dictionary, wave: int) -> void:
 		if v != 0.0:
 			aff.append("%s %+d%%" % [str(ax).capitalize(), roundi(FarroadCore.affinity_mul(v) * 100.0)])
 	vbox.add_child(_wrap_label("Affinities: " + (", ".join(aff) if not aff.is_empty() else "none"), true))
-	# Ian: the enemy's actions can be inspected from here
+	# the enemy's actions can be inspected from here
 	vbox.add_child(_wrap_label("Actions (tap to inspect):", true))
 	var act_row := HFlowContainer.new()
 	act_row.add_theme_constant_override("h_separation", 6)
@@ -3606,9 +3467,9 @@ func show_stats_popup() -> void:
 	vbox.add_child(grid)
 	await _finish_detail_overlay(o)
 
-## Ian: "change the inventory section in the settings to be a button."
-## Same shared small-overlay shape every other detail popup already uses
-## (nests inside Settings' own already-open popup via _overlay_host).
+## The Inventory popup (a button in Settings): the same small overlay every
+## other detail popup uses (it nests inside Settings' already-open popup via
+## _overlay_host).
 func show_inventory_popup() -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]
@@ -3624,12 +3485,11 @@ func show_inventory_popup() -> void:
 	vbox.add_child(body)
 	await _finish_detail_overlay(o)
 
-## Ian: "add a button to change our main character's name." A LineEdit +
-## Save button inside the same shared overlay shape. FarroadProgression.
-## set_mc_name already patches g["mc"]/the roster template/any matching
-## live g["units"] entry -- this also pushes the rename onto whichever
-## BattlePresenter(s) are actually on screen right now (Road and/or a
-## side battle), so it's visible immediately, not just next wave.
+## A LineEdit + Save button inside the shared overlay, for renaming the main
+## character. FarroadProgression.set_mc_name already patches g["mc"], the
+## roster template and any matching live g["units"] entry; this also pushes the
+## rename onto whichever BattlePresenter(s) are on screen right now (the Road
+## and/or a side battle), so it shows immediately, not just next wave.
 func show_change_name_popup() -> void:
 	if g.get("mc") == null:
 		return
@@ -3667,19 +3527,17 @@ func show_change_name_popup() -> void:
 
 	await _finish_detail_overlay(o)
 
-## Ian: "let people change it in the menu" -- male/female main character,
-## plus colours for skin, hair, eyes, top, bottoms and shoes (presets and
-## RGB sliders). Ian: "Can only customize the MC" and "Move change name to
-## the customization box" -- so this is the MC's one full-size customise
-## screen: name, body, colours. Changes apply live, in battle too, and save
-## straight away.
+## Customization of the main character: male / female, plus colours for skin,
+## hair, eyes, top, bottoms and shoes (presets and RGB sliders). It is the
+## main character's one full-size customise screen (name, body, colours).
+## Changes apply live, in battle too, and save straight away.
 func show_change_body_popup() -> void:
 	if g.get("mc") == null:
 		return
 	var o := _build_detail_overlay(Palette.BORDER_LEATHER, true)
 	var vbox: VBoxContainer = o["vbox"]
-	# Ian: "have the name and character sprite always visible at the top" --
-	# both live in the fixed header; body and colours scroll below them.
+	# the name and character sprite are always visible at the top: both live in
+	# the fixed header; body and colours scroll below them
 	var header: VBoxContainer = o["header"]
 	var title := Label.new()
 	title.text = "Customize"
@@ -3782,10 +3640,10 @@ func show_change_body_popup() -> void:
 					_appearance_changed(uid)
 					state["rebuild"].call())
 				row.add_child(sw)
-			# Ian: "Add rgb color sliders to character customization." They
-			# start from the current colour (or the first preset, close to
-			# the sprite's own, while the part is still Original); dragging
-			# recolours the preview live, and the colour saves on release.
+			# RGB color sliders start from the current colour (or the first preset,
+			# close to the sprite's own, while the part is still Original);
+			# dragging recolours the preview live, and the colour saves on
+			# release.
 			var start := Color(str(cur)) if cur != null else Color(str(Appearance.PRESETS[part][0]))
 			var grid := GridContainer.new()
 			grid.columns = 4
@@ -3847,14 +3705,13 @@ func _sanitize_mc_name(raw: String) -> String:
 	re.compile("[<>&\"'\\[\\]]")
 	return re.sub(raw, "", true).strip_edges().substr(0, 20)
 
-## Ian: "say exactly what buffs and debuffs do." Every magnitude-based
-## status reads its real number straight from FarroadCore.STATUS_BASE_MAG
-## (the same table apply_status/eff_atk/eff_def/etc. actually use), so
-## this can never quietly drift out of sync with the real combat math.
-## "taunted" and "blinded" have no single named magnitude constant to
-## read (taunted is a pure behavioral flag; blinded's +30% evade-chance
-## bonus is a literal inline constant in resolve_hit, matching how the
-## engine itself defines it) -- their text is hand-written to match.
+## Says exactly what buffs and debuffs do. Every magnitude-based status reads
+## its real number straight from FarroadCore.STATUS_BASE_MAG (the same table
+## apply_status / eff_atk / eff_def / etc. use), so this can never drift out
+## of sync with the combat math. "taunted" and "blinded" have no single named
+## magnitude constant to read (taunted is a pure behavioral flag; blinded's
+## +30% evade-chance bonus is a literal inline constant in resolve_hit), so
+## their text is hand-written to match.
 func _status_description(status_id: String, potency: float = 1.0) -> String:
 	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0) * potency
 	if FarroadCore.STATUS_MAG_CAP.has(status_id):
@@ -3889,14 +3746,12 @@ func _status_description(status_id: String, potency: float = 1.0) -> String:
 				return "%s affinity %+.0f" % [status_id.substr(5).capitalize(), mag]
 			return "%+.0f%%" % (mag * 100.0) if mag != 0.0 else ""
 
-## Post-Milestone-3 APK feedback (round 3): "change enemies and equipment
-## to have similar popups" -- shared by EquipmentPanel's per-slot info icon
-## and CataloguePanel's Equipment tab. `uid` is optional (empty when opened
-## from a unit-agnostic context like Catalogue) -- see
-## EquipmentPanel._describe_equipment's own comment for why a marginal %
-## affinity contribution needs a REAL unit's baseline to be well-defined;
-## with no uid, this falls back to the item's raw affinity values instead
-## of a computed %.
+## The equipment detail popup, shared by EquipmentPanel's per-slot info icon and
+## CataloguePanel's Equipment tab. `uid` is optional (empty when opened from a
+## unit-agnostic context like the Catalogue). A marginal % affinity
+## contribution needs a real unit's baseline to be well defined (see
+## EquipmentPanel._describe_equipment), so with no uid this falls back to the
+## item's raw affinity values instead of a computed %.
 func show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null:
@@ -3964,18 +3819,15 @@ func show_equipment_detail_popup(item_id: String, uid: String = "") -> void:
 
 	await _finish_detail_overlay(o)
 
-## Post-Milestone-3 APK feedback (round 3): "for enemies, include their
-## actions" -- CataloguePanel's Enemies tab info icon. Enemy archetypes
-## carry their own gambit `slots` (an Array of {cond,action} pairs, same
-## shape a unit's own loadout uses) -- resolved here into readable
-## condition/action names via the same FarroadCore.cond_label/ACTIONS
-## lookups every other panel already uses. Each listed action gets its own
-## info icon too, opening show_action_detail_popup as a second overlay --
-## nests correctly on top of this one since both are siblings under the
-## same host popup, not nested inside each other (see
-## _build_detail_overlay's own comment).
-## Ian: "Shop: inspection icon to see details of actions, units, etc" --
-## a roster unit's base stats, growth, affinities and charge action.
+## The enemy detail popup (CataloguePanel's Enemies tab info icon). Enemy
+## archetypes carry their own gambit `slots` (an Array of {cond, action} pairs,
+## the same shape as a unit's loadout), resolved here into readable condition /
+## action names via FarroadCore.cond_label and ACTIONS. Each listed action gets
+## its own info icon too, opening show_action_detail_popup as a second overlay;
+## it nests correctly on top of this one since both are siblings under the same
+## host popup (see _build_detail_overlay).
+## The unit detail popup (the Shop's info icon) follows: a roster unit's base
+## stats, growth, affinities and charge action.
 func show_unit_detail_popup(uid: String) -> void:
 	var d = FarroadCore.roster_by_id(uid)
 	if d == null:
@@ -4082,9 +3934,8 @@ func show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_v
 		bl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(bl)
 
-	# Ian: "Change enemy catalogue stats to be formatted like units" -- the
-	# same lines a unit's detail shows: base stats, growth, crit/evade,
-	# affinity (as %). Enemy stats grow with the wave instead of a level.
+	# the same lines a unit's detail shows: base stats, growth, crit / evade,
+	# affinity (as %); enemy stats grow with the wave instead of a level
 	var lines: Array = [
 		"HP ×%.2f   ATK %s   MAG %s   DEF %s   RES %s   SPD %s" % [float(a.get("hpMul", 1.0)),
 			str(a.get("atk", 0)), str(a.get("mag", 8)), str(a.get("def", 0)), str(a.get("res", 0)), str(a.get("spd", 0))],
@@ -4104,7 +3955,7 @@ func show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_v
 
 	var affinity: Dictionary = a.get("affinity", {})
 	var aff_bits: Array = []
-	# Ian: affinities as the % they change damage by, like units
+	# affinities as the % they change damage by, like units
 	for ax in affinity.keys():
 		if affinity[ax] != 0.0:
 			aff_bits.append("%s %+.0f%%" % [str(ax).capitalize(), FarroadCore.affinity_mul(float(affinity[ax])) * 100.0])
@@ -4123,9 +3974,9 @@ func show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_v
 		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		charge_row.add_child(charge_lbl)
-		# Ian: "charge actions (both ally and enemy) need inspect icons
-		# next to them." Opens as a second, sibling overlay on top of this
-		# one (see this function's own header comment).
+		# charge actions (ally and enemy) get inspect icons, which open as a
+		# second, sibling overlay on top of this one (see this function's header
+		# comment)
 		var charge_action_id: String = a["chargeAction"]
 		var charge_info_btn := Button.new()
 		charge_info_btn.text = "ⓘ"
@@ -4159,17 +4010,13 @@ func show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_v
 
 	await _finish_detail_overlay(o)
 
-## Called by UnitsPanel whenever its
-## Gambits/Aether/Lore/Equipment sub-tab needs to (re)build its content --
-## on first selecting that sub-tab, and again on every unit swap while it
-## stays the active sub-tab. Dispatches to whichever panel's own
-## build_into(container, uid, host_popup) -- these 4 panels no longer own
-## any popup of their own (see GambitsPanel.gd's header comment for why:
-## a nested-popup-closes-everything bug, plus Ian's explicit "show up
-## beneath them, not as new windows" request) -- `host_popup` is passed
-## through only so a panel with its OWN transient dialog (LorePanel's
-## refund confirm) can nest it inside the SAME window this content lives
-## in, rather than risking the identical sibling-Window bug.
+## Called by UnitsPanel whenever its Gambits / Aether / Lore / Equipment sub-tab
+## needs to (re)build its content: on first selecting that sub-tab, and again
+## on every unit swap while it stays the active sub-tab. Dispatches to
+## whichever panel's build_into(container, uid, host_popup). Those panels own
+## no popup of their own (a second popup opened from inside UnitsPanel's closed
+## everything); `host_popup` is passed through so a panel with its own
+## transient dialog can nest it inside the same window this content lives in.
 func build_unit_subpanel_content(panel_key: String, container: Container, uid: String, host_popup: Window) -> void:
 	match panel_key:
 		"gambits": gambits_panel.build_into(container, uid, host_popup)
@@ -4177,10 +4024,9 @@ func build_unit_subpanel_content(panel_key: String, container: Container, uid: S
 		"lore": lore_panel.build_into(container, uid, host_popup)
 		"equipment": equipment_panel.build_into(container, uid, host_popup)
 
-## Post-Milestone-3 APK feedback (Group B4): full-screen popups (B2) would
-## otherwise make the Road/combat view unreachable-looking while a tab is
-## open -- the Road view is already always rendered behind every popup, so
-## "returning to it" is just closing whatever's currently open.
+## Full-screen popups would otherwise make the Road / combat view look
+## unreachable while a tab is open. The Road view is always rendered behind
+## every popup, so returning to it is just closing whatever is currently open.
 func _on_road_pressed() -> void:
 	_close_all_popups()
 	open_panel = null
@@ -4196,27 +4042,24 @@ func sync_party_change() -> void:
 	var result: Dictionary = FarroadProgression.refresh_live_party(g)
 	current_presenter.sync_live_party(result["added"], result["removed"])
 
-## Called by PartyPanel right after a
-## front/back row toggle (post-Milestone-3 APK feedback, Group A1) --
-## pushes the row change onto the live fight's on-field sprite immediately,
-## animated, rather than waiting for the next wave's build_party().
+## Called by PartyPanel right after a front/back row toggle: pushes the row
+## change onto the live fight's on-field sprite immediately, animated, rather
+## than waiting for the next wave's build_party().
 func sync_row_change(uid: String) -> void:
 	if current_presenter == null:
 		return
 	current_presenter.hop_to_new_row(uid)
 
-## Guarded against a real race with side battles (Step 3i/3j fix): a Road
-## win/wipe can already be mid-await (_animate_wave_transition's own
-## WAVE_RUN_TIME wait/_fade_out, both a full second or more) when the
-## player attempts a quest/dungeon --
-## start_side_battle() reassigns g["battle"] to the side fight's own
-## battle out from under this function. Without the two checks below,
-## the resumed _on_battle_finished call would build a SECOND, unpaused,
-## visible presenter from that reassigned g["battle"]/stale g["units"]/
-## g["enemies"], rendered alongside side_presenter -- exactly the
-## visible "quests overlap with the road" bug this was written to fix.
-## _resolve_side_battle's own restore path is what rebuilds the Road's
-## presenter once it's actually safe again (see its own comment).
+## Guarded against a race with side battles: a Road win / wipe can already be
+## mid-await (_animate_wave_transition's WAVE_RUN_TIME wait or _fade_out, each a
+## second or more) when the player attempts a quest or dungeon.
+## start_side_battle() reassigns g["battle"] to the side fight's own battle out
+## from under this function. Without the two checks below, the resumed
+## _on_battle_finished call would build a second, unpaused, visible presenter
+## from that reassigned g["battle"] and the stale g["units"] / g["enemies"],
+## rendered alongside side_presenter (quests overlapping the road).
+## _resolve_side_battle's restore path rebuilds the Road's presenter once it is
+## safe again (see its comment).
 func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_revealed: bool = false, auto_start_loop: bool = true, defer_dock: bool = false) -> void:
 	_crumb("beginNextFight")
 	if g.get("sideBattle") != null:
@@ -4260,19 +4103,23 @@ const WAVE_RUN_DIST_FRAC := 0.12
 ## comment for the full narrative this and ENEMY_RUN_IN_TIME together
 ## build).
 const WAVE_RETREAT_TIME := 0.25
-## Ian: units heal BEFORE they run, and the party runs past the front tree, so the forest
-## scrolls for a good while (the tree has to cross the whole screen) with the party running
-## in place; the party settles back to its stance in the last WAVE_RETREAT_TIME of it.
+## Units heal before they run, and the party runs past the front tree, so the
+## forest scrolls for a good while (the tree has to cross the whole screen)
+## with the party running in place; the party settles back to its stance in the
+## last WAVE_RETREAT_TIME of it.
 const WAVE_HEAL_TIME := 0.7
 const WAVE_SCROLL_TIME := 1.8
-## Ian: the parallax starts as soon as the units start running and stops as soon as the first unit
-## is back at its stopping point. This is that whole span, counted from the start of the run.
+## The parallax starts as soon as the units start running and stops as soon as
+## the first unit is back at its stopping point. This is that whole span,
+## counted from the start of the run.
 const WAVE_TRAVEL_TIME := 2.4
-## Ian: a full second of difference in how long the fastest and the slowest unit take to get to their
-## marks. The fastest unit's forward run takes WAVE_RUN_MIN; the slowest's takes WAVE_RUN_MIN + the variance.
+## A full second of difference in how long the fastest and the slowest unit take
+## to get to their marks. The fastest unit's forward run takes WAVE_RUN_MIN; the
+## slowest's takes WAVE_RUN_MIN + the variance.
 const WAVE_RUN_MIN := 0.4
-## Ian: the first enemy gets to its place just after the first ally gets to theirs; it runs in for this long
-## (the slowest enemy takes WAVE_RUN_VARIANCE longer).
+## The first enemy gets to its place just after the first ally gets to theirs;
+## it runs in for this long (the slowest enemy takes WAVE_RUN_VARIANCE
+## longer).
 const ENEMY_AFTER_ALLY := 0.15
 const ENEMY_FAST_RUN_TIME := 1.0
 const WAVE_RUN_VARIANCE := 1.0
@@ -4282,31 +4129,25 @@ const WAVE_FALL_BEHIND_FRAC := 0.12   # about 50 px on the phone layout (412 wid
 const BG_RUN_MUL := 3.0
 ## Piece G: "fade in over .5 seconds when they stop moving."
 const CHROME_FADE_TIME := 0.5
-## Duplicated from BattlePresenter.ENEMY_RUN_IN_TIME (that script has no
-## class_name, so it's not reachable as a qualified constant from here --
-## same small-duplication convention this project already uses for icon
-## x-fractions etc.) -- how long GameController waits after triggering
-## run_enemies_entering() before treating everyone as "assembled." Ian:
-## "slow down the enemy movement into their positions" -- was 1.0.
+## Duplicated from BattlePresenter.ENEMY_RUN_IN_TIME: how long GameController
+## waits after triggering run_enemies_entering() before treating everyone as
+## assembled.
 const ENEMY_RUN_IN_TIME := 1.6
 
-## Ian: "after clearing a wave, have units run towards the right...
-## maintain framing but have the background move behind them." Party
-## units shift right by a modest amount ("framing maintained" -- they stay
-## within their own band, not actually leaving the field). background_layer
-## itself does NOT move during this leg -- see _animate_wave_retreat's own
-## comment for why all of its motion happens there instead. A dead party
-## member (dimmed, not removed) is skipped -- nothing to "run" for a unit
-## that's down.
+## After clearing a wave the party units shift right by a modest amount
+## (framing is maintained: they stay within their own band, not actually
+## leaving the field). background_layer itself does not move during this leg;
+## all of its motion happens in _animate_wave_retreat. A dead party member
+## (dimmed, not removed) is skipped, since there is nothing to run for a unit
+## that is down.
 ##
-## Piece G additions: a defensive sweep force-hides any already-dead enemy
-## before the run starts ("make sure they disappear before the party runs
-## forward" -- update_hp() already hides a dead enemy the instant it dies,
-## well before this ever runs, but this costs nothing and removes any
-## doubt), and each moving party view's HP/charge/name chrome hides before
-## it starts moving (fading back in only happens once the WHOLE run+retreat
-## sequence stops -- see reveal_party(), called by _on_battle_finished once
-## the retreat below actually finishes).
+## Also: a defensive sweep force-hides any already-dead enemy before the run
+## starts (update_hp() already hides a dead enemy the instant it dies, so this
+## is cheap insurance that they disappear before the party runs forward), and
+## each moving party view's HP / charge / name chrome hides before it starts
+## moving (it only fades back in once the whole run + retreat sequence stops;
+## see reveal_party(), called by _on_battle_finished once the retreat below
+## finishes).
 func _animate_wave_transition(old_presenter: Node) -> void:
 	if old_presenter == null:
 		return
@@ -4359,28 +4200,17 @@ func _move_in_pack(t: float, view: Node, rest: Vector2, run_dx: float, behind_ma
 		x_off = -behind_max * (1.0 - (1.0 - cos(v * PI)) / 2.0)                          # run up to the mark
 	view.position = Vector2(rest.x + x_off, view.position.y)
 
-## Ian follow-up: "the Background moves backwards with units when they
-## stop. It should move forward still, and stop when the units are at
-## their starting positions. It shouldn't start moving until the units
-## are at their 'running' positions as well. Enemies shouldn't run in
-## until the background stops."
-## The background used to scroll DURING the run-right leg, then reverse
-## (scroll back the other way) during this retreat leg to literally undo
-## itself -- visually that read as the party moonwalking while the world
-## also lurched into reverse. Now the background stays completely still
-## during the run-right leg (_animate_wave_transition no longer touches it
-## at all) and does ALL of its scrolling here instead, continuing in the
-## SAME forward direction every time (never reversing, so distance keeps
-## accumulating wave over wave, exactly like genuine continuous travel) --
-## starting the instant the party begins its own retreat (i.e. only once
-## they've reached their "running" position) and stopping exactly when the
-## party finishes settling back at its starting position. _on_battle_finished
-## awaits this SAME WAVE_RETREAT_TIME duration before ever calling
-## run_enemies_entering(), so enemies are guaranteed not to start arriving
-## until this motion has actually stopped. The party's own "shift right
-## then return to center" is just a framing trick; the background is what
-## actually sells continuous forward travel down the road, so it should
-## only ever move the one way.
+## The background does all of its scrolling here, not during the run-right leg
+## (_animate_wave_transition doesn't touch it at all). It always continues in
+## the same forward direction, never reversing, so distance keeps accumulating
+## wave over wave like genuine continuous travel. It starts the instant the
+## party begins its retreat (only once they've reached their "running"
+## position) and stops exactly when the party finishes settling back at its
+## starting position. _on_battle_finished awaits this same WAVE_RETREAT_TIME
+## before calling run_enemies_entering(), so enemies don't start arriving until
+## this motion has stopped. The party's own "shift right then return to
+## center" is just a framing trick; the background is what sells continuous
+## forward travel down the road, so it only ever moves the one way.
 func _slowest_party_spd(old_presenter: Node) -> float:
 	var slowest := INF
 	for v in old_presenter.unit_views_by_id.values():
@@ -4388,11 +4218,12 @@ func _slowest_party_spd(old_presenter: Node) -> float:
 			slowest = minf(slowest, float(v.unit["base"]["spd"]))
 	return slowest if slowest < INF and slowest > 0.0 else 1.0
 
-## Ian: more variance in how fast each unit runs, so some get ahead and others lag behind and they reach
-## their marks at different times. The time a unit takes, as a share of the slowest unit's: a steeper
-## speed curve than a straight ratio, a small fixed offset per unit (from its id, so it is the same every
-## time it is asked) so even equal-speed units don't arrive together, and never faster than MIN_RATIO or
-## slower than the slowest (1.0).
+## How long a unit takes to run, as a share of the slowest unit's, so some units
+## get ahead and others lag and they reach their marks at different times: a
+## steeper speed curve than a straight ratio, a small fixed offset per unit
+## (from its id, so it is the same every time it is asked) so even equal-speed
+## units don't arrive together, and never faster than MIN_RATIO or slower than
+## the slowest (1.0).
 const RUN_VARIANCE_EXP := 1.6
 const RUN_JITTER := 0.5           # +-25%
 const RUN_MIN_RATIO := 0.3
@@ -4439,9 +4270,10 @@ func _wave_total_time(_old_presenter: Node) -> float:
 func _animate_wave_retreat(_old_presenter: Node) -> void:
 	pass
 
-## Ian: "units should heal before they run forward." The party's health bars fill up to what
-## the wave's recovery gives them (start_wave has already worked that out on the new units),
-## with a green +N over each unit, while everyone is still standing where they fought.
+## Units heal before they run forward: the party's health bars fill up to what
+## the wave's recovery gives them (start_wave has already worked that out on
+## the new units), with a green +N over each unit, while everyone is still
+## standing where they fought.
 func _animate_wave_heal(old_presenter: Node) -> void:
 	if old_presenter == null:
 		return
@@ -4467,11 +4299,11 @@ func _on_battle_finished(outcome: String, from: Node = null) -> void:
 	await _on_battle_finished_inner(outcome)
 	_road_changing -= 1
 
-## Ian: "Road doesn't resume after quests on occasion." Couldn't reproduce
-## it, so this safety net checks every few seconds: with no side fight,
-## tutorial or wave change under way, the Road must have a running, visible
-## fight -- if not, it's restarted, and what was wrong goes into the stats
-## (features: roadWatchdog:<reason>) so real reports show the cause.
+## A safety net for the Road not resuming after quests: every few seconds, with
+## no side fight, tutorial or wave change under way, the Road must have a
+## running, visible fight. If not, it is restarted, and what was wrong goes
+## into the stats (features: roadWatchdog:<reason>) so real reports show the
+## cause.
 const ROAD_WATCHDOG_SEC := 3.0
 var _watchdog_strikes := 0
 
@@ -4553,12 +4385,11 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		refresh_hud()
 		save_game()
 		_spawn_reward_drops(events, aether_before, lore_before, marks_before)
-		# Ian: a one-time popup congratulating the player on finishing the
-		# tutorial and explaining enrage, shown exactly when the mechanic
-		# itself first turns on. Awaited BEFORE the wave-transition animation
-		# below so the player actually reads it (the just-finished boss
-		# encounter stays on screen behind it, same as the welcome-back
-		# popup showing over the live game rather than a blank screen).
+		# A one-time popup congratulating the player on finishing the tutorial,
+		# awaited before the wave-transition animation below so the player
+		# actually reads it (the just-finished boss encounter stays on screen
+		# behind it, as the welcome-back popup shows over the live game rather
+		# than a blank screen).
 		for e in events:
 			if e.get("kind") == "tutorial_complete":
 				await _show_tutorial_complete_popup()
@@ -4567,42 +4398,32 @@ func _on_battle_finished_inner(outcome: String) -> void:
 			if e.get("kind") == "enrage_intro":
 				await _show_enrage_intro_popup()
 				break
-		# Ian: "add a pop-up when she joins... you save her from the enemies
-		# and she chooses to join you" -- the milestone-companion event
-		# (still named "boss_companion" even though it can now fire on a
-		# non-boss wave -- see after_wave_cleared's own comment) gets the
-		# same awaited-popup treatment as tutorial_complete above.
+		# The milestone-companion event (still named "boss_companion" though it can
+		# fire on a non-boss wave; see after_wave_cleared) gets the same
+		# awaited-popup treatment as tutorial_complete above.
 		for e in events:
 			if e.get("kind") == "boss_companion":
 				await _show_companion_joined_popup(e["id"])
 				break
-		# Ian: "after wave 20, instead of a new unit, get a piece of
-		# equipment and show a pop-up about equipment and where it can be
-		# equipped" -- same awaited-popup shape as the two above.
+		# After wave 20 the player gets a piece of equipment and a popup about it:
+		# the same awaited-popup shape as the two above.
 		for e in events:
 			if e.get("kind") == "tutorial_equip":
 				await _show_tutorial_equip_popup(e["id"])
 				break
-		# Ian: "get rid of the wave pop-up." The finished battlefield (units,
-		# HP bars, log/status buttons) stays on screen through the run
-		# animation -- only freed once its own retreat finishes, not the
-		# moment the fight ends. light_up_wave runs on this SAME
-		# (about-to-be-freed) presenter, so the circle glows during the
-		# run, matching "lights up... AS the party runs to the next
-		# encounter" -- the NEW presenter then opens already showing it lit,
+		# The finished battlefield (units, HP bars, log / status buttons) stays on
+		# screen through the run animation and is freed only once its own retreat
+		# finishes, not the moment the fight ends. light_up_wave runs on this same
+		# (about-to-be-freed) presenter, so the circle glows as the party runs to
+		# the next encounter; the new presenter then opens already showing it lit,
 		# via the cleared_waves passed into its own start_battle call.
 		#
-		# Piece G follow-up: full sequence is now strictly ordered, not
-		# concurrent -- "the party stops because they see enemies coming,
-		# assuming battle stances, and THEN we see enemies coming in from
-		# off-screen. After everyone's assembled in their spot, then combat
-		# begins." (1) run right, (2) retreat/settle (background_layer's own
-		# retreat tween is started in the SAME call, same WAVE_RETREAT_TIME
-		# duration, so it always stops at exactly the same moment the party
-		# does -- see _animate_wave_retreat), (3) enemies run in IMMEDIATELY
-		# once the party's stopped (Ian: "immediately followed by enemies
-		# entering" -- no held pause), (4) only once they've actually
-		# arrived does the battle loop start.
+		# The full sequence is strictly ordered, not concurrent: (1) the party runs
+		# right, (2) it retreats / settles (background_layer's retreat tween is
+		# started in the same call, with the same WAVE_RETREAT_TIME, so it always
+		# stops at the moment the party does; see _animate_wave_retreat), (3)
+		# enemies run in immediately once the party has stopped (no held pause),
+		# (4) only once they have arrived does the battle loop start.
 		if cleared_wave % ENV_WAVES == 0 and g.get("sideBattle") == null and current_presenter != null and _no_living_enemies(current_presenter):
 			await _gate_ascension()
 			return
@@ -4614,8 +4435,9 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		_animate_wave_retreat(old_presenter)
 		# Every time below is in seconds from the moment the party starts running.
 		var total: float = _wave_total_time(old_presenter)       # the last ally has reached its mark
-		# Ian: enemies run in too, with the same spread. The next fight is built now, with its party and its
-		# on-screen UI held back, so its enemies can be running in while the forest is still scrolling.
+		# Enemies run in too, with the same spread. The next fight is built now,
+		# with its party and its on-screen UI held back, so its enemies can be
+		# running in while the forest is still scrolling.
 		await _begin_next_fight(true, true, false, true)
 		var next = current_presenter
 		if next == null or next == old_presenter:
@@ -4711,8 +4533,8 @@ func _gate_ascension() -> void:
 	# the party runs along the ground to the foot of the stairs, up them, and into the light
 	var foot: Vector2 = gate.stair_foot()
 	var top: Vector2 = gate.door_point()
-	# Ian: the closest unit to the stairs goes first, then the next, and so on; a unit waits (standing, not
-	# running in place) until it is its turn.
+	# the closest unit to the stairs goes first, then the next, and so on; a unit
+	# waits (standing, not running in place) until it is its turn
 	var order: Array = []
 	for view in old_presenter.unit_views_by_id.values():
 		if view.unit["isParty"] and view.unit["hp"] > 0:
@@ -4767,13 +4589,11 @@ func _fade_in() -> void:
 	await tw.finished
 	fade_overlay.hide()
 
-## ===== Group H: wave-clear reward drop animation =====
+## ===== wave-clear reward drop animation =====
 ## Icon x-fractions duplicated from the target panels' own _build_icon_tab
-## calls, all at icon_size=0.11*vp.x, y=0.93*vp.y -- same per-file
-## duplication convention this project already uses everywhere else, not
-## a new pattern. Recomputed for the 8-icon row (24-item batch's own Group
-## C6: Shop added) -- UnitsPanel 0.0133, PartyPanel 0.1367, ExpeditionPanel
-## 0.3833, confirmed by reading each panel's own current _build_ui.
+## calls (all at icon_size = 0.11 * vp.x, y = 0.93 * vp.y): UnitsPanel 0.0133,
+## PartyPanel 0.1367, ExpeditionPanel 0.3833. Duplicated per file, like the
+## panels' own icon positions.
 const ICON_SIZE_FRAC := 0.11
 const ICON_Y_FRAC := 0.93
 const UNITS_ICON_X_FRAC := 0.0288
@@ -4791,16 +4611,14 @@ func _icon_center(x_frac: float) -> Vector2:
 	var icon_size: float = vp.x * ICON_SIZE_FRAC
 	return Vector2(vp.x * x_frac + icon_size / 2.0, vp.y * ICON_Y_FRAC + icon_size / 2.0)
 
-## Snapshotted aether/lore/marks BEFORE after_wave_cleared/start_wave ran,
-## diffed against the current (post-call) values -- covers every plain
-## per-wave Aether/Marks gain and duplicate-drop Lore conversion, which
-## have no dedicated event of their own, without adding new event kinds to
-## the engine layer (see this batch's own Group H plan for why a diff is
-## preferred over new events). Each captured typed event
-## (action/cond -> Gambits, equip -> Equipment, boss_companion(_roll) ->
-## Party) spawns its own flyer too. Fire-and-forget -- not awaited by the
-## caller, matching the established "small reusable helper, no bespoke
-## animation per reward kind" design.
+## Aether / lore / marks are snapshotted before after_wave_cleared / start_wave
+## run and diffed against the current values. That covers every plain per-wave
+## Aether / Marks gain and duplicate-drop Lore conversion, which have no
+## dedicated event of their own, without adding new event kinds to the engine
+## layer. Each captured typed event (action / cond -> Gambits, equip ->
+## Equipment, boss_companion(_roll) -> Party) spawns its own flyer too. It is
+## fire-and-forget, not awaited by the caller, with one small reusable helper
+## rather than a bespoke animation per reward kind.
 func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float, marks_before: float) -> void:
 	var start := _bpos + Vector2(bvp.x / 2.0, bvp.y * (0.15 + 0.58) / 2.0)
 	var delay := 0.0
@@ -4813,9 +4631,8 @@ func _spawn_reward_drops(events: Array, aether_before: float, lore_before: float
 		delay += REWARD_FLYER_STAGGER
 	var lore_delta: float = FarroadProgression.total_lore(g) - lore_before
 	if lore_delta >= 1.0:
-		# Lore's own HUD figure was removed (Ian: "remove lore total") --
-		# Lore is per-action now and lives under Units -> Lore, so the
-		# flyer's destination moves there instead of a currency cell.
+		# Lore has no HUD figure: it is per-action and lives under Units -> Lore,
+		# so the flyer's destination is there instead of a currency cell.
 		_spawn_reward_flyer(start, _icon_center(UNITS_ICON_X_FRAC), "+%d Lore" % roundi(lore_delta), delay)
 		delay += REWARD_FLYER_STAGGER
 	var marks_delta: float = g.get("marks", 0.0) - marks_before
@@ -4863,7 +4680,7 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.0196))
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
-	# Ian: an outline so rewards stand out against the field
+	# an outline so rewards stand out against the field
 	lbl.add_theme_color_override("font_outline_color", Color.BLACK)
 	lbl.add_theme_constant_override("outline_size", 5)
 	lbl.position = start
@@ -4876,17 +4693,13 @@ func _spawn_reward_flyer(start: Vector2, end: Vector2, text: String, delay: floa
 	await tw.finished
 	lbl.queue_free()
 
-## ===== QUESTS side battles (Step 3i) =====
-## Mirrors startSideBattle's presentation half (farroad-ui.js:1455-1466) --
-## the state mutation itself is FarroadProgression.start_side_battle().
-## No wasPlaying/play() dance is needed here: this port has no
-## player-facing play/pause/speed control for the Road to preserve in the
-## first place (the Road always auto-plays), unlike the real JS, which
-## needed that dance specifically to avoid double-scheduling a second
-## parallel setTimeout chain. Pausing+hiding current_presenter (the SAME
-## set_loop_paused every sibling panel already uses, plus additionally
-## hiding it since the side battle needs the same on-field real estate,
-## not a small popup) is this port's whole equivalent.
+## ===== QUESTS side battles =====
+## The presentation half of starting a side battle; the state change itself is
+## FarroadProgression.start_side_battle(). The Road has no player-facing
+## play / pause / speed control to preserve (it always auto-plays), so pausing
+## and hiding current_presenter (the same set_loop_paused every panel uses,
+## plus hiding it, since the side battle needs the same on-field space rather
+## than a small popup) is all it takes.
 func _enter_side_battle(enemies: Array, wave: int, meta: Dictionary, prebuilt: Dictionary = {}) -> void:
 	_crumb("sideBattleStart:%s" % str(meta.get("kind", "?")))
 	if not FarroadProgression.start_side_battle(g, enemies, wave, meta, prebuilt):
@@ -4998,7 +4811,7 @@ func _start_training() -> void:
 	_close_all_popups()
 	_enter_side_battle(FarroadProgression.training_enemies(g), int(g.get("wave", 1)), {"kind": "training"})
 	_clear_training_buttons()
-	# Ian: the buttons sit right next to the "Training" text above the enrage bar
+	# the buttons sit right next to the "Training" text above the enrage bar
 	await get_tree().process_frame
 	var title: Label = side_presenter.wave_progress_label if side_presenter != null and is_instance_valid(side_presenter) else null
 	var bx: float = (title.global_position.x + title.get_minimum_size().x + bvp.x * 0.025) if title != null else bvp.x * 0.30
@@ -5073,13 +4886,12 @@ func enter_dungeon(id: String) -> void:
 func _on_side_battle_finished(outcome: String) -> void:
 	_resolve_side_battle(outcome, false)
 
-## Give Up is quests-only (the real JS's own "Ian's ask" scope -- dungeons
-## can't be abandoned mid-crawl, only quests). Instant: directly
-## queue_free()s side_presenter rather than waiting for another beat --
-## Godot's Tween/coroutine machinery already cleans up safely when the
-## node it's bound to is freed mid-animation (the same unconditional
-## queue_free() a Road wipe already relies on), so no BattlePresenter-side
-## abort flag is needed.
+## Give Up is for quests only (dungeons can't be abandoned mid-crawl). It is
+## instant: it queue_free()s side_presenter directly rather than waiting for
+## another beat. Godot's Tween / coroutine machinery cleans up safely when the
+## node it is bound to is freed mid-animation (the same unconditional
+## queue_free() a Road wipe relies on), so no BattlePresenter-side abort flag
+## is needed.
 func give_up_quest() -> void:
 	if g.get("sideBattle") == null or g["sideBattle"]["meta"]["kind"] != "quest":
 		return
@@ -5095,9 +4907,9 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 	if event["kind"] != "dungeon_wave_advance" and event["kind"] != "training_done":
 		_record_side_battle(side_meta, str(event["kind"]))
 	if event["kind"] == "dungeon_wave_advance":
-		# Ian: "Quests/Dungeons: Same movement between waves as with the
-		# Road." The party runs on, settles, the next wave runs in, then
-		# the fight starts -- the Road's own sequence (_on_battle_finished).
+		# Quests and dungeons use the same movement between waves as the Road: the
+		# party runs on, settles, the next wave runs in, then the fight starts
+		# (the Road's own sequence in _on_battle_finished).
 		var old_side = side_presenter
 		_animate_wave_transition(old_side)
 		_animate_wave_retreat(old_side)
