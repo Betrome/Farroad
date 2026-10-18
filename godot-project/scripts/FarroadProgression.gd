@@ -1,46 +1,36 @@
 class_name FarroadProgression
 extends RefCounted
-## Ported economy/curves/drops/enemy-building layer -- GDScript counterpart to
-## src/farroad-progression.js, PLUS the wave-loop orchestration functions that
-## live in src/farroad-ui.js (buildParty/buildEnemies/grantDrops/startWave/
-## afterWaveCleared/onWipe/etc) despite not touching the DOM themselves --
-## confirmed by reading their real bodies (Milestone 3, Step 3a research).
-## Ported as explicit-parameter static functions taking `g` (the game-state
-## Dictionary) rather than reading an ambient global, matching the "no hidden
-## globals" discipline FarroadCore.gd already established -- unlike the real
-## JS, which reads window-scoped G directly.
+## The economy, curves, drops and enemy-building layer, plus the wave-loop
+## orchestration (build_party / build_enemies / grant_drops / start_wave /
+## after_wave_cleared / on_wipe / ...). None of it touches the UI. Everything is
+## an explicit-parameter static function taking `g` (the game-state Dictionary)
+## rather than reading an ambient global, the "no hidden globals" discipline
+## FarroadCore.gd follows. Character creation (mc_lerp / mc_build_stats /
+## apply_custom_mc and friends) is in the "character creation" section further
+## down.
 ##
-## Step 3j (character creation) is now ported too -- mc_lerp/mc_build_stats/
-## apply_custom_mc and friends, see the "Step 3j" section further down.
-##
-## UI-facing text (pushDrop's HTML bodies, sysLog lines) is NOT ported here --
-## grant_drops/after_wave_cleared/on_wipe return plain event Dictionaries
-## instead, for whatever future UI layer to render however it likes. This
-## mirrors the real split exactly: farroad-progression.js itself never builds
-## HTML either, that's farroad-ui.js's job.
+## UI-facing text is not built here: grant_drops / after_wave_cleared / on_wipe
+## return plain event Dictionaries for the UI layer to render however it likes.
 
 ## ===== wave/difficulty =====
 
 const BOSS_EVERY := 20
 const BOSS_WAVES: Array[int] = [20]
 const BOSS_LEN := 1.40   # 1.3-1.5x a normal fight
-# The wave-20 boss specifically (fought solo, before the 2nd party member
-# joins) was a ~2.8x-HP wall -- eased to ~2.3x for THIS ONE boss only
-# (build_enemies checks w==BOSS_WAVES[0]), leaving BOSS_LEN itself (and
-# every later boss, wave 40 on) untouched. A flat BOSS_LEN cut would also
-# have collided with DUNGEON_LEN (kept "clearly short of the boss band"
-# per its own real-JS comment) and permanently softened every future boss.
-# Round 2 (still too hard even with the eased ~2.3x + cheap tutorial
-# retries): cut a further ~20% off THIS boss's HP specifically -- 0.92 is
-# 1.15*0.80, so its HP is now ~1.84x a normal enemy's (2 enemy-count-
-# equivalents * 0.92), not ~2.3x.
+# The wave-20 boss (fought solo, before the 2nd party member joins) was a
+# ~2.8x-HP wall, so it is eased for this one boss only (build_enemies checks
+# w == BOSS_WAVES[0]); BOSS_LEN itself, and every later boss (wave 40 on), is
+# untouched. A flat BOSS_LEN cut would also collide with DUNGEON_LEN (which
+# stays clearly short of the boss band) and soften every future boss. On top of
+# that, 0.92 is 1.15 * 0.80, so this boss's HP is about 1.84x a normal enemy's
+# (2 enemy-count equivalents * 0.92).
 const FIRST_BOSS_LEN := 0.92
 
-## Elemental batch: the wave-20 tutorial boss stays the Stone Ox Warden (Stone
-## Ox body, Warden's Maul). Every later boss wave cycles through six named
-## elemental bosses, one per element -- 40 Pyre Tyrant, 60 Drowned
-## Matriarch, ... 140 Hollow King, then the Body and Spirit bosses (160 Iron
-## Sovereign, 180 Hollow Oracle), and round again from 200.
+## The wave-20 tutorial boss is the Stone Ox Warden (Stone Ox body, Warden's
+## Maul). Every later boss wave cycles through six named elemental bosses, one
+## per element (40 Pyre Tyrant, 60 Drowned Matriarch, ... 140 Hollow King), then
+## the Body and Spirit bosses (160 Iron Sovereign, 180 Hollow Oracle), and round
+## again from 200.
 const TUTORIAL_BOSS_ARCH := "ox"
 const BOSS_ROTATION: Array[String] = ["pyretyrant", "drownedmatriarch", "mountaincolossus",
 	"stormroc", "dawnseraph", "hollowking", "ironsovereign", "holloworacle"]
@@ -96,17 +86,14 @@ const HARD_FROM := 100
 const HARD_REF := 800.0
 const HARD_MAX := 20.0
 const BOSS_HARD_EXTRA := 1.20   # additional boss-only ATK/MAG multiplier
-## 20-item batch, Group F: a flat addition to a boss's own affinity.spirit
-## (base archetypes all sit at spirit=0 today) -- makes a boss concretely
-## resist incoming debuffs harder AND land its own debuffs harder, per the
-## new caster-boost/target-resist debuff formula. +18 puts affinity_mul(18)
-## at 0.36 (24-item-batch Group B6's flat AFFINITY_FLAT_RATE=0.02 formula,
-## post-dating this constant's own original log-curve-based math), so
-## (1-0.36)=0.64x a debuff's usual magnitude when landed on a boss by a
-## spirit-neutral caster -- softened, not negated (a high-Spirit party
-## caster can still claw some of it back, and affinity is uncapped on
-## both sides now, so there's no fixed ceiling either party caster or
-## boss can "max out" at).
+## A flat addition to a boss's own affinity.spirit (base archetypes all sit at
+## spirit = 0). It makes a boss resist incoming debuffs harder and land its own
+## debuffs harder, per the caster-boost / target-resist debuff formula. +18 puts
+## affinity_mul(18) at 0.36 (the flat AFFINITY_FLAT_RATE = 0.02 formula), so a
+## debuff landed on a boss by a spirit-neutral caster has (1 - 0.36) = 0.64x its
+## usual magnitude: softened, not negated (a high-Spirit party caster can claw
+## some of it back, and affinity is uncapped on both sides, so neither can
+## "max out").
 const BOSS_SPIRIT_BONUS := 18.0
 # Same "wave-20 boss only" scoping as FIRST_BOSS_LEN above -- combined with
 # the flat 1.10 boss ATK bonus in build_enemies, the wave-20 boss's damage
@@ -115,47 +102,38 @@ const BOSS_SPIRIT_BONUS := 18.0
 # HARD_FROM=100 -- cutting it globally would have quietly nerfed every
 # boss forever, not just the tutorial one).
 const FIRST_BOSS_HARD_EXTRA := 1.05
-# Round 2: the eased boss (~1.16x a normal enemy's damage via the two
-# constants above) was still knocking out a solo character too fast --
-# cut the wave-20 boss's actual ATK/MAG output by a further ~30%, scoped
-# the same way (only w==BOSS_WAVES[0], applied directly to the final
-# atk/mag stat values below rather than folded into hard_atk_mul, so it
-# touches damage only -- not HP, crit, spd, or anything else BOSS_HARD_EXTRA
-# also feeds).
+# The eased boss (~1.16x a normal enemy's damage via the two constants above)
+# still knocked out a solo character too fast, so the wave-20 boss's actual
+# ATK/MAG output is cut a further ~30%, scoped the same way (only w ==
+# BOSS_WAVES[0], applied directly to the final atk/mag stat values below
+# rather than folded into hard_atk_mul), so it touches damage only, not HP,
+# crit, spd, or anything else BOSS_HARD_EXTRA also feeds.
 const FIRST_BOSS_DMG_MUL := 0.70
-# Ian: "add a flat 50% atk and mag debuff to the first 20 waves for
-# tutorial purposes" -- a blanket ease across the WHOLE solo pre-second-
-# companion stretch (waves 1-20 inclusive), distinct from and stacking
-# with the wave-20-boss-only softening above (FIRST_BOSS_LEN/
-# FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL, which only ever applied to
-# w==BOSS_WAVES[0]). Applied the same way FIRST_BOSS_DMG_MUL already is --
-# directly on the final atk/mag stat values, so it touches damage output
-# only, not HP/crit/spd/anything else hard_mul also feeds.
+# A tutorial ease on enemy damage across the whole solo, pre-second-companion
+# stretch (waves 1-20 inclusive). It is distinct from, and stacks with, the
+# wave-20-boss-only softening above (FIRST_BOSS_LEN / FIRST_BOSS_HARD_EXTRA /
+# FIRST_BOSS_DMG_MUL, which only apply to w == BOSS_WAVES[0]). It is applied
+# the way FIRST_BOSS_DMG_MUL is, directly on the final atk/mag stat values, so
+# it touches damage output only, not HP / crit / spd / anything else hard_mul
+# also feeds.
 const TUTORIAL_ATK_MAG_MUL := 0.5
-# Ian follow-up: "halve enemy levels through level 20... from 20-100,
-# slowly increase the difficulty to normal levels." Was a flat 0.5x for
-# w<=20 then an abrupt cliff straight back to 1.0x at w==21 -- now a
-# smooth linear ramp from 0.5x (w<=20) back up to 1.0x (w>=100), so
-# difficulty eases back in gradually across the wave 20-100 stretch
-# instead of snapping back all at once.
-## Ian (post-24-item-batch balance pass): "soften the damage cut but keep
-## Enrage." Simulated across 8 MC builds: the wall at wave 21 was never the
-## cut ending (it was already ~50% there) -- it was enrage switching on,
-## which slow/low-damage builds (tank, support) can't outrun with fights
-## of 120+ beats. So the cut now DIPS right after the tutorial to
-## TUTORIAL_POST_DIP (enemies weaker than in waves 1-20, easing players
-## into enrage) and fades back up to full strength by wave 120 instead of
-## 100. Tested: tank/hybrid builds that used to hard-stall at wave 21 now
-## clear 21-30 with a handful of wipes; fast builds see almost none.
+# The ease is a smooth linear ramp from 0.5x (w <= 20) back up to 1.0x, so
+# difficulty comes back in gradually instead of snapping back at wave 21.
+## The wall at wave 21 was not the cut ending (it was already ~50% there); it
+## was enrage switching on, which slow / low-damage builds (tank, support) can't
+## outrun in fights of 120+ beats. So the cut dips right after the tutorial to
+## TUTORIAL_POST_DIP (enemies weaker than in waves 1-20, easing players into
+## enrage) and fades back up to full strength by wave 120. Tested across 8 MC
+## builds: tank and hybrid builds that used to hard-stall at wave 21 now clear
+## 21-30 with a handful of wipes; fast builds see almost none.
 const TUTORIAL_POST_DIP := 0.30
 ## First Road wave whose fights can enrage (see start_wave).
 const ENRAGE_FROM_WAVE := 31
 const TUTORIAL_RAMP_END_WAVE := 120
-## Ian: "a spike in difficulty after wave 100 -- extend and smooth out the
-## early game help so it reaches wave 200." Waves up to 100 keep exactly
-## the easing they had; from 100 it carries on, fading out by wave 200
-## (HELP_END_WAVE) instead of 120, alongside the eased-in hard multiplier
-## and enemy-count blend below. From 200 on nothing changes.
+## The early-game help carries on past wave 100, fading out by wave 200
+## (HELP_END_WAVE), alongside the eased-in hard multiplier and enemy-count blend
+## below, to smooth the spike after wave 100. Waves up to 100 keep exactly the
+## easing they had. From 200 on nothing changes.
 const HELP_KNEE_WAVE := 100
 const HELP_END_WAVE := 200
 
@@ -193,9 +171,9 @@ static func roll_count(rng: FarroadCore.RNG, w: int) -> int:
 			return row[0]
 	return table[table.size() - 1][0]
 
-## Ian (smoothing the wave-100 spike): the bigger hard-mode groups used to
-## arrive all at once at wave 101; now the odds blend from the normal table
-## to the hard one across waves 100-200.
+## The bigger hard-mode groups blend in rather than arriving all at once at wave
+## 101: the odds blend from the normal table to the hard one across waves
+## 100-200.
 static func count_table(w: int) -> Array:
 	if w <= HARD_FROM:
 		return COUNT_WEIGHTS
@@ -235,10 +213,9 @@ static func _hard_mul_raw(w: float) -> float:
 	var t: float = minf(1.0, sqrt((w - HARD_FROM) / (HARD_REF - HARD_FROM)))
 	return 1.0 + (HARD_MAX - 1.0) * t
 
-## The raw curve is a square root -- steepest right at wave 101, the spike
-## Ian hit. Between 100 and HELP_END_WAVE it's now an ease-in curve (flat at
-## 100) that meets the raw curve, and its slope, exactly at 200; past 200
-## it's unchanged.
+## The raw curve is a square root, steepest right at wave 101. Between 100 and
+## HELP_END_WAVE it is an ease-in curve (flat at 100) that meets the raw curve,
+## and its slope, exactly at 200; past 200 it is unchanged.
 static func hard_mul(w: float) -> float:
 	if w <= HARD_FROM:
 		return 1.0
@@ -269,19 +246,15 @@ static func archetype_for(w: int, i: int) -> String:
 
 ## ===== economy =====
 
-# Ian (24-item batch, Group B5): "triple idle income rates, halve wave
-# reward scaling. I'm getting too strong too quickly." Root cause of the
-# ~40k-Aether-for-a-few-hours report investigated directly, NOT a bug in
-# these rates: idle's own flat trickle is architecturally incapable of
-# anywhere near that (even at an extreme wave, under ~400 Aether across
-# the full 12h cap) -- the real source is simulate_offline_progress's own
-# combat-replay loop, which silently auto-clears many real waves during a
-# long absence and pays each one full kill_reward, same as live play.
-# That replay is a deliberate, existing design choice ("full fidelity
-# over offline-never-wipes"), not touched here. AETHER_RATE/MARKS_RATE
-# halved (below) shrinks every wave-clear payout, live or replayed alike;
-# the IDLE_* trio tripled shifts more of the economy toward the (now much
-# smaller, still fully capped) background trickle instead.
+# Economy balance. Idle income's flat trickle can't produce large Aether (even
+# at an extreme wave it is under ~400 Aether across the full 12 h cap). The big
+# offline payouts come from simulate_offline_progress's combat-replay loop,
+# which silently auto-clears many real waves during a long absence and pays
+# each one full kill_reward, same as live play. That replay is a deliberate
+# design choice ("full fidelity over offline-never-wipes"). AETHER_RATE /
+# MARKS_RATE are halved (below), which shrinks every wave-clear payout, live or
+# replayed alike; the IDLE_* trio is tripled to shift more of the economy
+# toward the (smaller, still fully capped) background trickle.
 const AETHER_RATE := 0.09
 const MARKS_RATE := 0.065
 const PRE_UNLOCK_MARKS_MUL := 0.45
@@ -343,8 +316,8 @@ static func boss_aether(w: float) -> int:
 	var idle: float = idle_per_sec(w)["aether"] * NOMINAL_WAVE_SEC
 	return int(round(BOSS_AETHER_WAVES * (kr + idle)))
 
-## Ian: "Duplicate gambits become aether, not lore." Worth about one wave's
-## kill reward plus idle trickle at the player's furthest wave.
+## A duplicate gambit becomes Aether, worth about one wave's kill reward plus
+## idle trickle at the player's furthest wave.
 const DUP_GAMBIT_WAVES := 1
 
 static func dup_gambit_aether(w: float) -> int:
@@ -368,37 +341,29 @@ const DUP_UNIT_RARITY_MUL := {"common": 1.0, "rare": 2.0, "legendary": 4.0}
 static func dup_unit_reward(w: float, unit_def: Dictionary) -> int:
 	return int(round(dup_unit_aether(w) * float(DUP_UNIT_RARITY_MUL.get(unit_def.get("rarity", "common"), 1.0))))
 
-## Mirrors pullCostAt/pullCost (farroad-progression.js:59, :787) -- a flat
-## cost, deliberately non-scaling (v2.3). There is only ONE pull tier in
-## the real game -- no premium/bulk variant exists.
+## The pull cost: flat and deliberately non-scaling. There is only one pull
+## tier; no premium or bulk variant exists.
 static func pull_cost_at(_w: float) -> int:
 	return 100
 
 static func pull_cost(w: float) -> int:
 	return pull_cost_at(w if w else 1.0)
 
-## ===== MARKS tab: gacha pulls (Step 3g) =====
+## ===== MARKS tab: gacha pulls =====
 
-## Mirrors P.PULL_ODDS (farroad-ui.js:2286) -- equip is "about as rare as
-## units" (Ian's own call in the real game's v2.14 changelog).
-## Ian: gear is no longer a Marks pull -- it comes from expeditions and quests.
-## Its old 10% went half to actions and half to gambits.
+## The odds of each kind of pull. Equipment is no longer a Marks pull (it comes
+## from expeditions and quests); its old 10% went half to actions and half to
+## gambits.
 const PULL_ODDS := {"unit": 0.05, "equip": 0.0, "action": 0.50, "cond": 0.45}
-## Mirrors P.PULL_PITY_AT (farroad-ui.js:2294) -- a companion is guaranteed
-## at least every 30 pulls regardless of the roll.
+## A companion is guaranteed at least every 30 pulls regardless of the roll.
 const PULL_PITY_AT := 30
 
-## Mirrors doPull (farroad-ui.js:2295-2367). Returns {} if locked or
-## unaffordable (mirrors the real function's own silent early `return` --
-## the UI's disabled button is the only real gate a player ever hits).
-## Otherwise returns a small event Dictionary describing what happened
-## ({"kind":..., "id":..., "duplicate":..., "pity":..., ...}) -- there is
-## no drop-banner/toast system in this port yet (wave drops already
-## return this same shape of event and nothing renders them either), so
-## this is what MarksPanel.gd shows as a plain "Last pull" result line
-## rather than the real game's pushDrop() card; a real UI subsystem for
-## that is out of this step's scope. Pure g-mutation only, no live-sync
-## side effects -- see MarksPanel.gd for why that stays the caller's job.
+## Does one pull. Returns {} if locked or unaffordable (the UI's disabled
+## button is the only gate a player ever hits). Otherwise returns an event
+## Dictionary describing what happened ({"kind":..., "id":..., "duplicate":...,
+## "pity":..., ...}), which MarksPanel.gd shows as a plain "Last pull" result
+## line. It only changes g, with no live-sync side effects; those stay the
+## caller's job (see MarksPanel.gd).
 static func do_pull(g: Dictionary) -> Dictionary:
 	var r := _do_pull(g)
 	if not r.is_empty():
@@ -416,9 +381,8 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 	g["marks"] -= cost
 	g["pullsSinceUnit"] = int(g.get("pullsSinceUnit", 0)) + 1
 	var pity: bool = g["pullsSinceUnit"] >= PULL_PITY_AT
-	# The roll is ALWAYS consumed, even under pity -- pity overrides the
-	# roll's RESULT, it doesn't skip drawing it (a real RNG-consumption
-	# detail confirmed from the source, needed for parity).
+	# The roll is always consumed, even under pity: pity overrides the roll's
+	# result, it doesn't skip drawing it.
 	var roll: float = g["rng"].next()
 	var o = PULL_ODDS
 	var kind: String
@@ -438,13 +402,12 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 	if kind == "unit":
 		# Nothing more this pity cycle could grant, hit or not.
 		g["pullsSinceUnit"] = 0
-		# v2.8 bugfix kept: filter on OWNED, not party -- a benched unit is
-		# still a real acquisition.
+		# filter on owned, not party: a benched unit is still a real acquisition
 		var avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"], false))
 		if avail.is_empty():
-			# Ian: a duplicate unit pays Aether by rarity, plus one Lore on
-			# its charge action (drawn from the whole roster, same rarity
-			# weights as any unit pull).
+			# a duplicate unit pays Aether by rarity, plus one Lore on its charge
+			# action (drawn from the whole roster, same rarity weights as any unit
+			# pull)
 			var dup_pick: Dictionary = weighted_roster_pick(g["rng"], FarroadCore.ROSTER)
 			var dup := dup_unit_reward(float(g.get("farthest", g.get("wave", 1))), dup_pick)
 			g["aether"] += dup
@@ -465,9 +428,8 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 		g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
 		return {"kind": "equip", "id": eid, "duplicate": g["equipInv"][eid] > 1, "ownedCount": g["equipInv"][eid]}
 	elif kind == "action":
-		# v2.13: ALL charge actions are now pullable too, not just the
-		# ATK_CAMP+MAG_CAMP pool -- the pool grows, the outcome branch
-		# dispatches on ACTIONS[id]["isCharge"].
+		# all charge actions are pullable too, not just the ATK_CAMP + MAG_CAMP
+		# pool; the outcome branch dispatches on ACTIONS[id]["isCharge"]
 		var pool: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
 		# the Marks tutorial's first pull is a guaranteed Mend
 		var aid: String = str(g["forcedPull"]) if g.get("forcedPull") else weighted_action_pick(g["rng"], pool)
@@ -475,15 +437,15 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 		g["actionCounts"][aid] = int(g["actionCounts"].get(aid, 0)) + 1
 		var is_charge: bool = bool(FarroadCore.ACTIONS.get(aid, {}).get("isCharge", false))
 		if is_charge:
-			# A pulled charge action credits the MC's own acquiredCharges
-			# list -- same destination a rare charge DROP already uses
-			# (grant_drops' "charge" branch). g["mc"] is always set by the
-			# time pulls unlock (wave 20+, well past mandatory character
-			# creation) -- defensive no-op rather than crashing if somehow
-			# null (the RNG draw above is still consumed either way).
-			# Ian: charge actions are pulled for the Lore -- every pull banks
-			# one Lore on the action (even for a unit you don't own yet);
-			# the first copy also becomes available to the MC.
+			# A pulled charge action credits the main character's acquiredCharges
+			# list, the same destination a rare charge drop uses (grant_drops'
+			# "charge" branch). g["mc"] is always set by the time pulls unlock
+			# (wave 20+, well past mandatory character creation), so this is a
+			# defensive no-op rather than a crash if it were null (the RNG draw
+			# above is still consumed either way).
+			# Charge actions are pulled for the Lore: every pull banks one Lore on
+			# the action (even for a unit you don't own yet); the first copy also
+			# becomes available to the main character.
 			_credit_lore(g, aid)
 			if g["mc"] == null:
 				return {"kind": "action", "id": aid, "duplicate": false, "isCharge": true}
@@ -510,16 +472,15 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 			gain = _credit_dup_gambit(g)
 		return {"kind": "cond", "id": cid, "duplicate": dup_c, "aetherGain": gain}
 
-## ===== SHOP tab: fixed-price purchases with Crystal (24-item batch,
-## Group C6) =====
-## Ian's own fixed prices, verbatim: gambits 10 flat; actions 20/50/100 by
-## rarity; units 100/200/500; equipment 10/30/90. Same "afford check ->
-## deduct -> mutate -> return bool" shape every other purchase function in
-## this file already uses (spend_affinity/spend_feed/etc.) -- no
-## re-validation beyond what's shown, gating is structural (a Shop row
-## only exists for an actually-purchasable entry).
-## Crystal sources -- dungeons and companion quest stages pay ONLY Crystal
-## (no Aether/Marks), per Ian's follow-up to the Crystal/Shop batch.
+## ===== SHOP tab: fixed-price purchases with Crystal =====
+## Prices: gambits 10 flat; actions 20/50/100 by rarity; units 100/200/500;
+## equipment 10/30/90. Every purchase function has the same shape as the other
+## spend functions in this file (spend_affinity, spend_feed, ...): afford check
+## -> deduct -> mutate -> return bool, with no re-validation beyond that, since
+## gating is structural (a Shop row only exists for an actually purchasable
+## entry).
+## Crystal sources: dungeons and companion quest stages pay only Crystal (no
+## Aether / Marks).
 const DUNGEON_CRYSTAL := 1
 const QUEST_STAGE_CRYSTAL := 1
 const SHOP_GAMBIT_PRICE := 5
@@ -538,17 +499,16 @@ static func buy_shop_gambit(g: Dictionary, cond_id: String) -> bool:
 	Analytics.add("spend", "crystal:gambit", SHOP_GAMBIT_PRICE)
 	return true
 
-## A charge action buys into g["mc"]["acquiredCharges"] (mirrors do_pull's
-## own action branch); a regular action buys into g["actions"]. Refuses if
-## already owned in the relevant pool, unaffordable, or (charge case) no
-## MC exists yet -- pulls/Shop both only unlock well past mandatory
-## character creation in practice, but this stays a real, not just
-## theoretical, guard.
-## Ian: actions the player already has stay on sale; buying one again turns
-## into one Lore for that action (the same as a duplicate drop or pull).
-## The unit whose signature charge action this is ("" if none). Ian: a
-## unit's charge action isn't on sale until you own that unit, and since
-## the unit already has it, buying it counts as a duplicate (+1 Lore).
+## A charge action buys into g["mc"]["acquiredCharges"] (like do_pull's action
+## branch); a regular action buys into g["actions"]. It refuses if already owned
+## in the relevant pool, unaffordable, or (charge case) no main character exists
+## yet. Pulls and the Shop only unlock well past mandatory character creation in
+## practice, but this stays a real guard.
+## Actions the player already has stay on sale; buying one again turns into one
+## Lore for that action (the same as a duplicate drop or pull).
+## The unit whose signature charge action this is ("" if none). A unit's charge
+## action isn't on sale until you own that unit, and since the unit already has
+## it, buying it counts as a duplicate (+1 Lore).
 static func signature_owner(action_id: String) -> String:
 	for r in FarroadCore.ROSTER:
 		if r.get("chargeAction") == action_id:
@@ -644,7 +604,7 @@ static func recovery_of(g: Dictionary, uid: String) -> float:
 	var steps: int = g.get("recovery", {}).get(uid, 0)
 	return minf(REST_CAP, REST + REST_STEP * steps)
 
-## Mirrors recoveryCost (farroad-ui.js:195).
+## The Aether cost of one more Recovery step.
 static func recovery_cost(g: Dictionary, uid: String) -> int:
 	var steps: int = g.get("recovery", {}).get(uid, 0)
 	return int(round(10.0 * pow(1.45, steps)))
@@ -686,16 +646,15 @@ static func drops_at(w: int) -> Array:
 static func is_curated(w: int) -> bool:
 	return w <= BOSS_EVERY
 
-## ===== gacha-adjacent math (weighted picks, used by random_drop now and by
-## the future MARKS pull screen, Step 3g) =====
+## ===== gacha-adjacent math (weighted picks, used by random_drop and the MARKS
+## pull screen) =====
 
 const RARITY_PULL_WEIGHT := {"common": 3, "rare": 1, "legendary": 1}
 
-## Ian: "Marks: list breakdown of unit/action/gambit/equipment chances plus
-## rarity chances in each." The real per-pull odds right now: each kind's
-## share (PULL_ODDS) and, inside it, each rarity's share of that kind's
-## weighted pool (the same weights the picks use). Gambit conditions have
-## no rarity. Returns [{kind, label, chance, rarities: {rarity: share}}].
+## The real per-pull odds right now: each kind's share (PULL_ODDS) and, inside
+## it, each rarity's share of that kind's weighted pool (the same weights the
+## picks use). Gambit conditions have no rarity. Returns [{kind, label, chance,
+## rarities: {rarity: share}}].
 static func pull_odds_breakdown(g: Dictionary) -> Array:
 	var out := []
 	# the unit odds always list the whole roster: owned units still come up (as
@@ -760,18 +719,14 @@ static func weighted_equipment_pick(rng: FarroadCore.RNG, ids: Array) -> String:
 const PARTY_CAP := 5
 const POOL_SIZE := 25
 const BOSS_UNIT_ORDER: Array[String] = ["ansa", "dorrek", "vey", "mirel"]
-## Ian: "add Ansa at wave 10, not 20" -- confirmed via direct simulation
-## (multiple builds that walled hard on the solo wave-20 boss all cleared
-## the whole tutorial with ZERO wipes once a 2nd body joins before it: a
-## real ally splits enemy turns/damage AND brings actual in-combat healing,
-## directly countering the "arrives at the boss nearly dead" attrition
-## problem). Was [20, ...] -- note this ALSO surfaces and fixes a real,
-## separate, previously-unnoticed bug: 150 was never actually a boss wave
-## under BOSS_EVERY=20's own math ((150-20)%20=10, not 0), so Dorrek could
-## never have been granted at all under the old is_boss_wave-gated code --
-## see after_wave_cleared's own comment on the fix.
-## Ian: the healer (Ansa) is the 2nd unit; the 3rd is the tank (Dorrek), at
-## a fixed wave so the Expedition tutorial can follow it.
+## The wave at which each companion joins: the healer (Ansa) is the 2nd unit,
+## at wave 10 rather than 20. Simulations showed builds that walled on the solo
+## wave-20 boss cleared the whole tutorial with zero wipes once a 2nd body
+## joins before it: a real ally splits enemy turns and damage and brings
+## in-combat healing, countering the "arrives at the boss nearly dead"
+## attrition problem. The 3rd unit is the tank (Dorrek), at a fixed wave so the
+## Expedition tutorial can follow it. Companions are granted on any wave clear
+## matching these waves (see after_wave_cleared), not only boss waves.
 const UNIT_WAVES: Array[int] = [10, 30, 500, 1500]
 
 static func unit_due_at(w: int) -> Variant:
@@ -791,21 +746,15 @@ const EQUIP_DROP_CHANCE := 0.10
 
 ## ===== leveling =====
 
-## static var, not const -- Step 3j's apply_custom_mc() reassigns
-## GROWTH["kesh"] at runtime for a custom MC, mirroring the real
-## P.GROWTH.kesh=... reassignment exactly. GDScript's `const` Dictionary
-## literals are frozen (mutating one is a compile error, caught directly
-## by trying it), unlike a plain JS object literal -- static var is the
-## same mutable-content idiom FarroadCore.ROSTER/ARCH/etc. already use.
-## Ian: "universally reduce HP growths by 30% and speed growths by 50% to
-## make fights faster and bring speed more in line with other stats."
-## Follow-up: "rather than have a multiplier, let's reduce the growths
-## directly. I don't want to make the math more complicated than needed."
-## Every hp/spd value below is the original design value x 0.7 (hp) or
-## x0.5 (spd), computed once and written in directly -- no runtime
-## multiplier. MC_GROWTH_RANGE's own hp/spd bounds below got the same
-## reduction, computed the same way (that range was originally calibrated
-## to match this table's own min/max spread).
+## A static var, not const: apply_custom_mc() reassigns GROWTH["kesh"] at runtime
+## for a custom main character. GDScript's `const` Dictionary literals are
+## frozen (mutating one is a compile error); a static var is the mutable-content
+## idiom FarroadCore.ROSTER / ARCH / etc. use.
+## HP growths are the original design values x 0.7 and speed growths x 0.5,
+## written in directly (no runtime multiplier), to make fights faster and bring
+## speed more in line with other stats. MC_GROWTH_RANGE's own hp / spd bounds
+## below carry the same reduction (that range was calibrated to match this
+## table's min / max spread).
 static var GROWTH := {
 	"kesh": {"hp": 23.8, "atk": 2.1, "mag": 1.0, "def": 1.4, "res": 1.0, "spd": 1.1},
 	"ansa": {"hp": 15.4, "atk": 0.8, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 1.0},
@@ -817,7 +766,7 @@ static var GROWTH := {
 	"nyra": {"hp": 17.5, "atk": 1.1, "mag": 2.1, "def": 2.0, "res": 2.0, "spd": 1.05},
 	"brenn": {"hp": 33.6, "atk": 1.4, "mag": 1.3, "def": 1.9, "res": 1.9, "spd": 1.5},
 	"sael": {"hp": 16.8, "atk": 0.8, "mag": 2.5, "def": 1.1, "res": 1.6, "spd": 1.7},
-	# Elemental batch allies.
+	# elemental allies
 	"tovan": {"hp": 22.0, "atk": 2.1, "mag": 0.8, "def": 1.4, "res": 1.0, "spd": 1.0},
 	"ilse": {"hp": 15.4, "atk": 0.7, "mag": 2.3, "def": 0.9, "res": 1.7, "spd": 1.0},
 	"garrow": {"hp": 35.0, "atk": 1.6, "mag": 0.6, "def": 2.5, "res": 1.8, "spd": 0.9},
@@ -830,7 +779,7 @@ static var GROWTH := {
 	"zephyra": {"hp": 16.0, "atk": 2.1, "mag": 0.8, "def": 1.0, "res": 1.0, "spd": 2.4},
 	"bastian": {"hp": 38.0, "atk": 1.4, "mag": 0.8, "def": 3.0, "res": 2.0, "spd": 0.8},
 	"morwen": {"hp": 20.0, "atk": 0.7, "mag": 2.0, "def": 1.3, "res": 3.0, "spd": 1.1},
-	# Ian: a legendary Spirit mage.
+	# a legendary Spirit mage
 	"lyrael": {"hp": 16.0, "atk": 0.6, "mag": 2.8, "def": 1.0, "res": 2.0, "spd": 1.2}}
 
 static func exp_for(l: int) -> int:
@@ -866,7 +815,7 @@ static func stats_at(uid: String, base: Dictionary, base_hp: float, l: int) -> D
 		o[k] = base[k]
 	return o
 
-## Ian: extra slots at levels 50 and 250.
+## Extra slots at levels 50 and 250.
 const SLOT_LEVELS: Array[int] = [1, 1, 10, 50, 100, 250, 500, 1000]
 
 static func slots_at(l: int) -> int:
@@ -889,7 +838,7 @@ static func rarity_cost_mul(uid: String) -> float:
 static func level_of(g: Dictionary, uid: String) -> int:
 	return g.get("lvl", {}).get(uid, 1)
 
-## Mirrors expOf (farroad-ui.js:199) -- unspent Aether sitting in a unit's bank.
+## The unspent Aether sitting in a unit's bank.
 static func exp_of(g: Dictionary, uid: String) -> float:
 	return g.get("bank", {}).get(uid, 0)
 
@@ -917,15 +866,11 @@ static func feed_unit(g: Dictionary, uid: String, amount: int) -> int:
 			g["maxLevelEver"] = g["lvl"][uid]
 	return gained
 
-## ===== AETHER tab purchases (Step 3d) -- each mirrors one of
-## renderAether()'s 4 purchase handlers (farroad-ui.js:1899-1938) exactly:
-## refuse if unaffordable or already maxed, else deduct g["aether"] and
-## mutate. NOT ported: refreshLiveStats()'s push onto a unit's LIVE
-## mid-fight stats -- a purchase still fully applies, just starting next
-## wave's build_party() (which already recomputes every one of these from
-## g["lvl"]/g["statInvest"]/g["affinities"] fresh every time) rather than
-## instantly mid-fight. Flagged, not silently skipped -- same class of
-## deliberate trim as GAMBITS' deferred conflict modal. =====
+## ===== AETHER tab purchases: each refuses if unaffordable or already maxed,
+## else deducts g["aether"] and mutates. refresh_live_stats() is what pushes a
+## purchase onto a unit's live mid-fight stats; otherwise a purchase applies
+## from the next wave's build_party(), which recomputes all of these from
+## g["lvl"] / g["statInvest"] / g["affinities"] every time. =====
 
 static func spend_feed(g: Dictionary, uid: String, amount: int) -> bool:
 	if g.get("aether", 0) < amount:
@@ -995,10 +940,10 @@ static func equipment_affinity(g: Dictionary, uid: String) -> Dictionary:
 				out[ax] += item.get("affinity", {}).get(ax, 0.0)
 	return out
 
-## Ian: a unit's title is its role from its two highest non-HP stats as
-## they'd be at level 100 (so it doesn't change as it levels), led by its
-## strongest elemental affinity if it has one -- e.g. "Fire Warden". All
-## five within 2: Freelancer.
+## A unit's title is its role from its two highest non-HP stats as they'd be at
+## level 100 (so it doesn't change as it levels), led by its strongest
+## elemental affinity if it has one, e.g. "Fire Warden". All five within 2:
+## Freelancer.
 const TITLE_LEVEL := 100
 const ROLE_TITLES := {"atk+mag": "Duelist", "atk+def": "Fighter", "atk+res": "Paladin", "atk+spd": "Rogue",
 	"mag+def": "Warden", "mag+res": "Mage", "mag+spd": "Sorcerer", "def+res": "Tank", "def+spd": "Bruiser",
@@ -1046,28 +991,23 @@ static func effective_affinity(g: Dictionary, uid: String) -> Dictionary:
 		out[ax] = base.get(ax, 0.0) + purchased.get(ax, 0.0) + equip[ax]
 	return out
 
-## Mirrors affinityRaw (farroad-ui.js:261) -- baseline + purchased only,
-## no equipment (equipment isn't a purchase, doesn't count toward "how much
-## has the player actually bought").
+## Baseline + purchased affinity only, no equipment (equipment isn't a
+## purchase, so it doesn't count toward how much the player has actually
+## bought).
 static func affinity_raw(g: Dictionary, uid: String, axis: String) -> float:
 	return affinity_baseline(uid).get(axis, 0.0) + affinity_purchased(g, uid).get(axis, 0.0)
 
-## Ian (24-item batch, Group B6): "no max on affinities." Always false now
-## -- affinity_raw is genuinely uncapped, so there's no threshold left to
-## gate a purchase on. Kept as a function (not deleted) since both call
-## sites (spend_affinity's own refusal gate, AetherPanel's "MAXED" display)
-## still read it; they now just always see "never maxed," which is
-## exactly the desired behavior with zero changes needed at either site.
+## Always false: affinity_raw is uncapped, so there is no threshold left to gate
+## a purchase on. It stays a function since both call sites (spend_affinity's
+## refusal gate, AetherPanel's "MAXED" display) still read it; they now just
+## always see "never maxed".
 static func affinity_maxed(g: Dictionary, uid: String, axis: String) -> bool:
 	return false
 
-## Mirrors P.AFFINITY_COST_BASE/affinityCostToNext (farroad-progression.js).
-## Ian (Group B6): "increased cost scaling" to balance the newly-uncapped
-## affinity above -- was linear (N*AFFINITY_COST_BASE), now quadratic
-## ((N+1)^2*AFFINITY_COST_BASE) so pushing deep into one axis gets
-## meaningfully steeper rather than a flat per-point rate forever. First
-## point still costs the same (round(4.0976*1)=4) as before; the 10th
-## point was 41, is now round(4.0976*100)=410.
+## The cost of the next affinity point is quadratic ((N+1)^2 * AFFINITY_COST_BASE),
+## to balance uncapped affinity: pushing deep into one axis gets meaningfully
+## steeper rather than a flat per-point rate forever. The first point costs
+## round(4.0976 * 1) = 4; the 10th costs round(4.0976 * 100) = 410.
 const AFFINITY_COST_BASE := 4.0976
 
 static func affinity_cost_to_next(invested_points: int) -> int:
@@ -1095,7 +1035,7 @@ static func pct_stat_value(g: Dictionary, uid: String, stat: String) -> float:
 	var steps := pct_stat_purchased(g, uid, stat)
 	return minf(s["cap"], baseline + steps * s["step"])
 
-## Mirrors P.pctStatCost (farroad-progression.js) -- geometric escalation.
+## The cost of the next percent-stat step: geometric escalation.
 static func pct_stat_cost(stat: String, steps: int) -> int:
 	var s: Dictionary = PCT_STAT[stat]
 	return int(round(s["cost_base"] * pow(s["cost_growth"], steps)))
@@ -1108,8 +1048,8 @@ static func apply_pct_stat_investment(g: Dictionary, uid: String, st: Dictionary
 		st[stat] = pct_stat_value(g, uid, stat)
 	return st
 
-## ===== equipment (stat/spd-penalty application, Milestone 1/3a; equip/
-## unequip mutation + query helpers, Step 3f's EQUIPMENT tab) =====
+## ===== equipment: stat / spd-penalty application, equip / unequip mutation and
+## query helpers =====
 
 static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) -> Dictionary:
 	var equipped: Dictionary = g.get("equipped", {}).get(uid, {})
@@ -1130,18 +1070,18 @@ static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) ->
 		st["spd"] = int(round(st["spd"] - spd_penalty))
 	return st
 
-## Mirrors equipKindForSlot (farroad-ui.js:327) -- hand1/hand2 (the two
-## fixed POSITIONS) both collapse to the single 'hand' item KIND for
-## compatibility checks; every other slot name already matches its kind.
+## hand1 / hand2 (the two fixed positions) both collapse to the single 'hand'
+## item kind for compatibility checks; every other slot name already matches its
+## kind.
 static func equip_kind_for_slot(slot: String) -> String:
 	return "hand" if slot.begins_with("hand") else slot
 
-## Mirrors equipOwnedCount (farroad-ui.js:307).
+## How many copies of item_id the player owns.
 static func equip_owned_count(g: Dictionary, item_id: String) -> int:
 	return int(g.get("equipInv", {}).get(item_id, 0))
 
-## Mirrors equipInUseCount (farroad-ui.js:308-312) -- how many copies of
-## item_id are currently sitting in ANY unit's equipped slots.
+## How many copies of item_id are currently sitting in any unit's equipped
+## slots.
 static func equip_in_use_count(g: Dictionary, item_id: String) -> int:
 	var n := 0
 	for uid in g.get("equipped", {}).keys():
@@ -1150,14 +1090,13 @@ static func equip_in_use_count(g: Dictionary, item_id: String) -> int:
 				n += 1
 	return n
 
-## Mirrors equipAvailableCount (farroad-ui.js:313).
+## Owned minus in use.
 static func equip_available_count(g: Dictionary, item_id: String) -> int:
 	return equip_owned_count(g, item_id) - equip_in_use_count(g, item_id)
 
-## Mirrors equipItem (farroad-ui.js:344-351) -- rejects a slot/kind
-## mismatch, no-ops (returns true) if already worn in that exact slot,
-## rejects if no free copy is available, else equips. No cost/currency --
-## equipping is free once owned, the only constraint is copy count.
+## Rejects a slot / kind mismatch, no-ops (returns true) if already worn in that
+## exact slot, rejects if no free copy is available, else equips. Equipping has
+## no cost; the only constraint is copy count.
 static func equip_item(g: Dictionary, uid: String, slot: String, item_id: String) -> bool:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null or item["slot"] != equip_kind_for_slot(slot):
@@ -1173,7 +1112,7 @@ static func equip_item(g: Dictionary, uid: String, slot: String, item_id: String
 	g["equipped"][uid][slot] = item_id
 	return true
 
-## Mirrors unequipItem (farroad-ui.js:352-354).
+## Empties a slot.
 static func unequip_item(g: Dictionary, uid: String, slot: String) -> void:
 	if not g.has("equipped"):
 		g["equipped"] = {}
@@ -1181,8 +1120,8 @@ static func unequip_item(g: Dictionary, uid: String, slot: String) -> void:
 		g["equipped"][uid] = {}
 	g["equipped"][uid].erase(slot)
 
-## ===== gambit loadout defaults (GAMBITS tab, Step 3c, edits G.loadout after
-## this -- ensure_loadout only guarantees a sane STARTING shape exists) =====
+## ===== gambit loadout defaults (ensure_loadout only guarantees a sane starting
+## shape exists; the GAMBITS tab edits g["loadout"] after this) =====
 
 static func slots_for(g: Dictionary, uid: String) -> int:
 	return slots_at(level_of(g, uid))
@@ -1237,40 +1176,36 @@ static func auto_equip(g: Dictionary) -> void:
 		g["loadout"][uid] = [s1, {"cond": "none", "action": "strike"}] if s1 else \
 			[{"cond": "none", "action": "strike"}, {"cond": "none", "action": "strike"}]
 
-## ===== GAMBITS tab: loadout editing + party bench/field (Step 3c) =====
+## ===== GAMBITS tab: loadout editing + party bench/field =====
 
-## Mirrors syncLoadout (farroad-ui.js:2892-2895) -- pushes a just-edited
-## g["loadout"][uid] onto the matching LIVE unit, so an edit made mid-fight
-## takes effect immediately rather than waiting for the next wave's
-## build_party(). g["units"][i] and g["battle"]["units"][i] are the SAME
-## Dictionary (make_battle never copies its input array's elements, same as
-## the real b={units:units,...} in farroad-core.js), so mutating the one
-## found here is already enough -- no separate g["battle"] touch needed.
+## Pushes a just-edited g["loadout"][uid] onto the matching live unit, so an
+## edit made mid-fight takes effect immediately rather than waiting for the
+## next wave's build_party(). g["units"][i] and g["battle"]["units"][i] are the
+## same Dictionary (make_battle never copies its input array's elements), so
+## mutating the one found here is enough; no separate g["battle"] touch is
+## needed.
 static func sync_loadout(g: Dictionary, uid: String) -> void:
 	if g.get("units") != null:
 		for u in g["units"]:
 			if u["id"] == uid:
 				u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
-	# Ian: edit a gambit while training and see it take effect -- a side fight
-	# (training, quest...) has its own copies of the party's units.
+	# a gambit edited while training takes effect: a side fight (training,
+	# quest...) has its own copies of the party's units
 	if g.get("sideBattle") != null and g.get("battle") != null:
 		for u in g["battle"]["units"]:
 			if u["id"] == uid and u["isParty"]:
 				u["slots"] = g["loadout"][uid].map(func(s): return {"cond": s["cond"], "action": s["action"]})
 
-## Group J (20-item batch): a first-pass heuristic auto-builder for a
-## unit's loadout, new Godot-only feature (no real-JS equivalent to
-## mirror). NOT a true optimizer -- ranks the unit's own owned actions
-## (g["actions"], the exact same eligible pool the real action picker
-## itself offers -- see GambitsPanel._populate_action_picker) toward
-## whichever camp (ATK/MAG) the unit's own CURRENT stats favor (via
-## build_party_unit, which already applies level/pct-stat/equipment
-## investment -- works for a benched unit too, no fielded requirement)
-## and higher rank/power, then pairs each slot with an owned condition
-## that fits the action's own target type where one exists (slot 0 always
-## "none", matching the real game's own convention that a unit's first
-## slot has no condition gate). Overwrites every slot -- an explicit,
-## all-at-once rebuild, not a partial fill.
+## A first-pass heuristic auto-builder for a unit's loadout, not a true
+## optimizer. It ranks the unit's own owned actions (g["actions"], the same
+## eligible pool the action picker offers; see
+## GambitsPanel._populate_action_picker) toward whichever camp (ATK / MAG) the
+## unit's current stats favor (via build_party_unit, which already applies
+## level / pct-stat / equipment investment, so it works for a benched unit too)
+## and higher rank / power, then pairs each slot with an owned condition that
+## fits the action's target type where one exists (slot 0 is always "none": a
+## unit's first slot has no condition gate). It overwrites every slot: an
+## explicit, all-at-once rebuild, not a partial fill.
 static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
 	Analytics.add("features", "autoGambits")
 	var slots: Array = ensure_loadout(g, uid)
@@ -1278,11 +1213,9 @@ static func auto_assign_loadout(g: Dictionary, uid: String) -> void:
 	var dominant_camp: String = "mag" if float(probe["base"]["mag"]) > float(probe["base"]["atk"]) else "atk"
 	var aff: Dictionary = probe.get("affinity", {})
 
-	# Ian: "Auto-Set: Not assign actions already assigned" -- nothing another
-	# owned unit holds (benched included), and no action twice in this
-	# unit's own slots; "assign actions based on elemental attributes as
-	# well" -- the unit's affinity for an action's element (Body for
-	# physical) weighs into its score.
+	# Nothing another owned unit holds (benched included) is assigned, and no
+	# action twice in this unit's own slots. The unit's affinity for an action's
+	# element (Body for physical) weighs into its score.
 	var candidates: Array = g["actions"].filter(func(aid):
 		return FarroadCore.ACTIONS.has(aid) and action_holder_in_party(g, aid, uid) == null)
 	candidates.sort_custom(func(x, y):
@@ -1329,9 +1262,8 @@ static func _auto_assign_condition(act: Dictionary, owned_conditions: Array) -> 
 			return cid
 	return "none"
 
-## Mirrors benchUnit (farroad-ui.js:2648-2652) -- refuses to empty the
-## party. Deliberately does NOT touch g["loadout"][uid] -- a benched
-## unit's loadout is preserved as-is, same as the real game.
+## Refuses to empty the party. It deliberately does not touch
+## g["loadout"][uid]: a benched unit's loadout is preserved as-is.
 static func bench_unit(g: Dictionary, uid: String) -> bool:
 	if g["party"].size() <= 1:
 		return false
@@ -1341,12 +1273,10 @@ static func bench_unit(g: Dictionary, uid: String) -> bool:
 	g["party"].remove_at(idx)
 	return true
 
-## Mirrors fieldUnit (farroad-ui.js:2653-2659), now including the
-## isOnExpedition guard (Step 3h) -- refuses if not owned, already
-## fielded, on an active expedition, or the party is full; else appends
-## and runs auto_equip(g), same as the real call -- a no-op for this unit
-## if g["touched"][uid] is already set, otherwise it installs the default
-## curated rule.
+## Refuses if the unit is not owned, already fielded, on an active expedition,
+## or the party is full; else appends it and runs auto_equip(g), which is a
+## no-op for this unit if g["touched"][uid] is already set, and otherwise
+## installs the default curated rule.
 static func field_unit(g: Dictionary, uid: String) -> bool:
 	if not g["owned"].get(uid):
 		return false
@@ -1360,11 +1290,9 @@ static func field_unit(g: Dictionary, uid: String) -> bool:
 	auto_equip(g)
 	return true
 
-## Mirrors availableForParty (farroad-ui.js:2646-2647), now including the
-## isOnExpedition filter (Step 3h) -- every owned, unfielded, not-away
-## unit is available.
-## Ian: "the MC should always be at the top of the list." Owned unit ids,
-## the MC ("kesh") first, the rest in the order they joined.
+## Every owned, unfielded, not-away unit is available.
+## Owned unit ids, the main character ("kesh") first, the rest in the order they
+## joined.
 static func mc_first(ids: Array) -> Array:
 	var out: Array = ids.filter(func(u): return u == "kesh")
 	out.append_array(ids.filter(func(u): return u != "kesh"))
@@ -1380,10 +1308,9 @@ static func available_for_party(g: Dictionary) -> Array:
 			out.append(uid)
 	return out
 
-## ===== per-unit gambit sets and gear sets (Ian: "5 per unit gambit and gear
-## sets in their tabs that can be saved and loaded similar to parties") =====
-## g["loadoutSets"][uid] = [{name, slots:[{cond, action}]}], at most
-## UNIT_SET_CAP per unit; g["gearSets"][uid] = [{name, items:{slot: item_id}}].
+## ===== per-unit gambit sets and gear sets, saved and loaded like parties =====
+## g["loadoutSets"][uid] = [{name, slots:[{cond, action}]}], at most UNIT_SET_CAP
+## per unit; g["gearSets"][uid] = [{name, items:{slot: item_id}}].
 const UNIT_SET_CAP := 5
 
 static func _sets_of(g: Dictionary, key: String, uid: String) -> Array:
@@ -1477,11 +1404,9 @@ static func delete_gear_set(g: Dictionary, uid: String, index: int) -> bool:
 	sets.remove_at(index)
 	return true
 
-## ===== party presets (24-item batch, Group E1) =====
-## Ian: "save current party as a default party you name. Have up to 10."
+## ===== party presets =====
+## Save the current party as a named preset (up to 10).
 ## g["partyPresets"] is an Array of {"name": String, "party": Array[uid]}.
-## Godot-originating (no real-JS precedent), mirrored to farroad-ui.js for
-## parity the same way the Shop was.
 const PARTY_PRESET_CAP := 10
 
 static func save_party_preset(g: Dictionary, preset_name: String) -> bool:
@@ -1527,16 +1452,14 @@ static func delete_party_preset(g: Dictionary, index: int) -> bool:
 	presets.remove_at(index)
 	return true
 
-## Mirrors actionHolderInParty (farroad-ui.js:2903-2911) -- who (if anyone)
-## already holds a non-starter action elsewhere in the FIELDED party, for
-## the action dropdown's disable+tooltip. Starter actions (Strike/Ember)
-## are exempt, same as the engine's own action_held_by_earlier_fielded
-## (FarroadCore.gd) this UI-level check exists to keep the player from
-## even creating a conflict that function would otherwise just silently
-## resolve in favor of the earlier-fielded unit at combat time.
-## Ian: "Each unit has to have unique actions, even if they're benched. Not
-## counting Strike or Magibolt." Checks every owned unit, not just the
-## fielded party (the name is kept for its many callers).
+## Who (if anyone) already holds a non-starter action: every owned unit is
+## checked, not just the fielded party, because each unit has to have unique
+## actions even when benched (Strike and Magibolt, the starters, are exempt).
+## The action dropdown uses this to disable the option with a tooltip. It exists
+## to keep the player from creating a conflict that the engine's own
+## action_held_by_earlier_fielded would otherwise silently resolve in favor of
+## the earlier-fielded unit at combat time. The name is kept for its many
+## callers.
 static func action_holder_in_party(g: Dictionary, action_id: String, exclude_uid: String) -> Variant:
 	if STARTER_ACTIONS.has(action_id):
 		return null
@@ -1552,14 +1475,11 @@ static func action_holder_in_party(g: Dictionary, action_id: String, exclude_uid
 				return def["name"] if def else uid
 	return null
 
-## ===== LORE (mirrors farroad-ui.js's renderLore() and its supporting
-## functions usedActions/actionHolders/unitActiveActions, :1995-2220) =====
+## ===== LORE =====
 
-## Mirrors usedActions (farroad-ui.js:2003-2010) -- every OWNED unit's (not
-## just fielded) loadout actions + roster chargeAction, as a lookup set --
-## the refund button's own eligibility check. The G.mc-gated
-## acquiredCharges branch naturally no-ops while g["mc"] is null (Step 3j),
-## same pattern as everywhere else this has come up.
+## Every owned unit's (not just fielded) loadout actions + roster chargeAction,
+## as a lookup set. The refund button's eligibility check. The main character's
+## acquiredCharges branch is a no-op while g["mc"] is null.
 static func used_actions(g: Dictionary) -> Dictionary:
 	var used := {}
 	for uid in g["owned"].keys():
@@ -1570,11 +1490,10 @@ static func used_actions(g: Dictionary) -> Dictionary:
 			used[rd["chargeAction"]] = 1
 	return used
 
-## Mirrors actionHolders (farroad-ui.js:2018-2029) -- who currently equips
-## action `aid`, split active (a loadout slot or the unit's live
-## chargeAction) from banked (sitting unequipped in the MC's
-## acquiredCharges pool). The `banked` case is unreachable while g["mc"]
-## is null (mcOwns is always false), matching the same no-op pattern.
+## Who currently equips action `aid`, split active (a loadout slot or the
+## unit's live chargeAction) from banked (sitting unequipped in the main
+## character's acquiredCharges pool). The `banked` case is unreachable while
+## g["mc"] is null.
 static func action_holders(g: Dictionary, aid: String) -> Dictionary:
 	var active := []
 	var banked := false
@@ -1591,8 +1510,7 @@ static func action_holders(g: Dictionary, aid: String) -> Dictionary:
 			active.append(rd["name"] if rd else uid)
 	return {"active": active, "banked": banked}
 
-## Mirrors unitActiveActions (farroad-ui.js:2035-2042) -- a unit's own
-## loadout-slot actions, deduped, plus its live charge action.
+## A unit's own loadout-slot actions, deduped, plus its live charge action.
 static func unit_active_actions(g: Dictionary, uid: String) -> Array:
 	var ids := []
 	for s in g["loadout"].get(uid, []):
@@ -1604,14 +1522,13 @@ static func unit_active_actions(g: Dictionary, uid: String) -> Array:
 		ids.append(ca)
 	return ids
 
-## Mirrors renderLore()'s own actionIds construction (farroad-ui.js:2066-2068)
-## -- every loadout-slot basic the player has unlocked (g["actions"],
-## already tracked and already used directly by GambitsPanel.gd) PLUS any
-## charge action currently in play (from used_actions, filtered to
-## FarroadCore.ACTIONS[id]["isCharge"]) that isn't already in that list --
-## a companion's chargeAction (a fixed roster property) and the MC's
-## acquired charges never go through the drop/pull unlock path g["actions"]
-## tracks, so without this they'd be silently unselectable on LORE.
+## Every loadout-slot basic the player has unlocked (g["actions"], used directly
+## by GambitsPanel) plus any charge action currently in play (from used_actions,
+## filtered to FarroadCore.ACTIONS[id]["isCharge"]) that isn't already in that
+## list. A companion's chargeAction (a fixed roster property) and the main
+## character's acquired charges never go through the drop / pull unlock path
+## g["actions"] tracks, so without this they'd be unselectable on the Lore
+## tab.
 static func lore_action_ids(g: Dictionary) -> Array:
 	var ids: Array = g["actions"].duplicate()
 	for id in used_actions(g).keys():
@@ -1619,13 +1536,12 @@ static func lore_action_ids(g: Dictionary) -> Array:
 			ids.append(id)
 	return ids
 
-## v2.13: Lore became PER-ACTION -- g["loreByAction"][aid] is a cumulative
-## EARNED total for that one action specifically (replacing the single
-## global g["lore"]), only ever incremented (by grant_drops'/do_pull's
-## duplicate-drop routing below). "Free Lore to spend ON THIS ACTION" is
-## still always DERIVED live as that action's own earned-minus-spent --
-## bonus_spend already works on a single-action map (`{aid: b}`), matching
-## the same idiom FarroadSave.gd's refund-diff already used.
+## Lore is per action: g["loreByAction"][aid] is a cumulative earned total for
+## that one action, only ever incremented (by grant_drops' / do_pull's
+## duplicate-drop routing below). The free Lore to spend on an action is always
+## derived live as that action's earned minus spent. bonus_spend works on a
+## single-action map (`{aid: b}`), the idiom FarroadSave's refund diff also
+## uses.
 static func free_lore(g: Dictionary, action_id: String) -> float:
 	var earned: float = float(g["loreByAction"].get(action_id, 0.0))
 	var spent: int = FarroadCore.bonus_spend({action_id: g["bonuses"].get(action_id, {})})
@@ -1640,14 +1556,11 @@ static func total_lore(g: Dictionary) -> float:
 		t += float(g["loreByAction"][aid])
 	return t
 
-## The "Lv%d" tag shown next to an action's name wherever a level makes
-## sense to show (originally LorePanel's own card only; post-batch
-## feedback asked for it on the GAMBITS action picker and Catalogue too,
-## so this moved here as the single shared source both now call) --
-## always equal to that action's own TOTAL LORE EARNED
-## (g["loreByAction"][aid], not just what's been spent on it), e.g. Lv. 4
-## once 4 total Lore has been earned for it, regardless of how many
-## upgrade stacks that Lore has actually bought.
+## The "Lv%d" tag shown next to an action's name wherever a level makes sense
+## (Lore, the Gambits action picker, the Catalogue). It always equals that
+## action's total Lore earned (g["loreByAction"][aid], not just what has been
+## spent on it), e.g. Lv. 4 once 4 total Lore has been earned for it, however
+## many upgrade stacks that Lore has bought.
 static func action_level(g: Dictionary, action_id: String) -> int:
 	return floori(g["loreByAction"].get(action_id, 0.0))
 
@@ -1664,13 +1577,11 @@ static func lore_stacks_text(g: Dictionary, action_id: String) -> String:
 			bits.append("%s ×%d" % [FarroadCore.BONUSES[bid]["n"], n] if n > 1 else str(FarroadCore.BONUSES[bid]["n"]))
 	return ", ".join(bits)
 
-## Mirrors the inline unusedIds/refundTotal computation (farroad-ui.js:2051-2056)
-## -- read-only preview, no mutation. Iterates g["bonuses"].keys() (every
-## action id the player has EVER spent Lore on), not lore_action_ids(g) --
-## an action can fall out of the current tab pool (e.g. a dropped/unpulled
-## action) while still holding a refundable Lore investment. v2.13: flat
-## per-stack cost, no more triangular total*(total+1)/2 reconstruction --
-## reuses bonus_spend directly, same as free_lore above.
+## A read-only preview of the refund. It iterates g["bonuses"].keys() (every
+## action id the player has ever spent Lore on), not lore_action_ids(g): an
+## action can fall out of the current tab pool (e.g. a dropped / unpulled
+## action) while still holding a refundable Lore investment. The cost is a flat
+## per-stack price, so it reuses bonus_spend directly, as free_lore does.
 static func unused_lore_refund(g: Dictionary) -> Dictionary:
 	var used := used_actions(g)
 	var unused_ids := []
@@ -1682,21 +1593,20 @@ static func unused_lore_refund(g: Dictionary) -> Dictionary:
 		refund_total += FarroadCore.bonus_spend({aid: g["bonuses"][aid]})
 	return {"ids": unused_ids, "total": refund_total}
 
-## Mirrors the bulk refund handler (farroad-ui.js:2216-2220) -- deletes each
-## given action's ENTIRE bonus entry (typically unused_lore_refund(g)["ids"]).
-## Never touches g["loreByAction"] -- free_lore(g, aid) rises on its own once
-## bonus_spend drops. No re-validation inside (the real JS doesn't either -- the button
-## itself only exists when unused_lore_refund(g)["ids"] is non-empty).
+## Deletes each given action's entire bonus entry (typically
+## unused_lore_refund(g)["ids"]). It never touches g["loreByAction"]:
+## free_lore(g, aid) rises on its own once bonus_spend drops. There is no
+## re-validation inside; the button only exists when unused_lore_refund(g)["ids"]
+## is non-empty.
 static func claim_lore_refund(g: Dictionary, ids: Array) -> void:
 	Analytics.add("features", "loreRefund")
 	for aid in ids:
 		g["bonuses"].erase(aid)
 	FarroadCore.apply_bonuses(g["bonuses"])
 
-## Mirrors the "+" purchase handler (farroad-ui.js:2208-2210) -- buys ONE
-## stack of bonus `bid` on action `aid`. No re-validation inside (gating is
-## structural, the button only exists when applicable/affordable -- the UI
-## layer's responsibility, same discipline as GAMBITS' own mutation
+## Buys one stack of bonus `bid` on action `aid`. There is no re-validation
+## inside (gating is structural: the button only exists when applicable /
+## affordable, the UI layer's responsibility, as with the GAMBITS mutation
 ## functions above).
 static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
 	Analytics.add("loreBonus", bid)
@@ -1707,9 +1617,8 @@ static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
 	g["bonuses"][aid][bid] = int(g["bonuses"][aid].get(bid, 0)) + 1
 	FarroadCore.apply_bonuses(g["bonuses"])
 
-## Mirrors the "−" handler (farroad-ui.js:2211-2214) -- removes ONE stack of
-## bonus `bid` from action `aid` (distinct from the bulk claim_lore_refund
-## above), deleting the bid entry once it hits 0.
+## Removes one stack of bonus `bid` from action `aid` (distinct from the bulk
+## claim_lore_refund above), deleting the bid entry once it hits 0.
 static func remove_bonus(g: Dictionary, aid: String, bid: String) -> void:
 	if not g["bonuses"].has(aid):
 		return
@@ -1720,17 +1629,14 @@ static func remove_bonus(g: Dictionary, aid: String, bid: String) -> void:
 		g["bonuses"][aid][bid] = count
 	FarroadCore.apply_bonuses(g["bonuses"])
 
-## ===== party/enemy construction (mirrors buildParty/buildEnemies,
-## farroad-ui.js:366/388) =====
+## ===== party / enemy construction =====
 
-## Mirrors refreshLiveStats (farroad-ui.js:1991-2003) -- pushes a fresh
-## AETHER purchase (feed/level, Recovery, Evade/Crit, Affinity) onto every
-## unit already mid-fight, the same way sync_loadout does for a GAMBITS
-## slot edit. g["units"][i] is the SAME Dictionary as g["battle"]["units"][i]
-## (make_battle never copies its input array's elements), so mutating the
-## one found here already reaches the live fight. HP is rescaled to keep
-## the unit's CURRENT hp fraction, not reset to full, exactly like the
-## real function.
+## Pushes a fresh AETHER purchase (feed / level, Recovery, Evade / Crit,
+## Affinity) onto every unit already mid-fight, the way sync_loadout does for a
+## GAMBITS slot edit. g["units"][i] is the same Dictionary as
+## g["battle"]["units"][i] (make_battle never copies its input array's
+## elements), so mutating the one found here reaches the live fight. HP is
+## rescaled to keep the unit's current hp fraction, not reset to full.
 static func refresh_live_stats(g: Dictionary) -> void:
 	if g.get("units") == null:
 		return
@@ -1766,27 +1672,20 @@ static func build_party_unit(g: Dictionary, uid: String, slot_index: int) -> Dic
 	apply_equipment_stats(g, uid, st)
 	var mh: float = st["hp"]
 	var carry = g["hpCarry"].get(uid)
-	# Ian: "the player currently heals between waves by default. Remove
-	# that. I want players to have to opt in." -- the earlier free
-	# tutorial-only top-up is gone; recovery_of(g, uid) (real AETHER
-	# Recovery investment, opt-in by spending) is the only thing that ever
-	# tops up hpCarry now, tutorial or not.
+	# There is no free between-waves heal: recovery_of(g, uid) (the AETHER
+	# Recovery investment, opt-in by spending) is the only thing that tops up
+	# hpCarry, tutorial or not.
 	if carry != null:
 		carry = minf(1.0, carry + recovery_of(g, uid))
 	var hp: float = mh if carry == null else maxf(1.0, round(mh * carry))
-	# Charge persists between Road waves too, same shape as hpCarry above --
-	# carries forward as-is (no recovery-style decay/regen), 0 if this unit
-	# was never fielded before (a fresh join, or a legacy pre-chargeCarry
-	# save). Scoped to build_party_unit only -- build_expedition_party
-	# deliberately keeps its own fresh-start-each-time convention, a
-	# separate system.
-	# Ian: "the status log is not updating unit levels" -- this was
-	# hardcoded to 1 (matching a real hardcode the JS reference itself
-	# has -- combat math never reads u.level, only stats_at's OWN level
-	# param above does), but the Status popup's own level line DOES read
-	# u["level"] for a party unit. The real JS's equivalent card sidesteps
-	# this by reading levelOf(u.id) live instead of u.level -- simpler
-	# here to just make u["level"] itself correct at construction.
+	# Charge persists between Road waves too, the same shape as hpCarry above: it
+	# carries forward as-is (no recovery-style decay or regen), 0 if this unit was
+	# never fielded before (a fresh join, or a legacy save from before
+	# chargeCarry). Scoped to build_party_unit only; build_expedition_party keeps
+	# its own fresh-start-each-time convention, a separate system.
+	# u["level"] is set correctly at construction: combat math never reads
+	# u.level (only stats_at's own level param), but the Status popup's level line
+	# reads u["level"] for a party unit.
 	return FarroadCore.make_unit({"id": uid, "name": def["name"], "isParty": true, "level": lvl,
 		"slotIndex": slot_index, "stats": st, "maxHp": mh, "hp": minf(hp, mh), "row": def.get("row"),
 		"chargeAction": def.get("chargeAction"), "charge": g["chargeCarry"].get(uid, 0.0),
@@ -1799,41 +1698,25 @@ static func build_party(g: Dictionary) -> Array:
 		out.append(build_party_unit(g, g["party"][i], i))
 	return out
 
-## Godot-only enhancement, not a JS port -- confirmed the real benchUnit/
-## fieldUnit (farroad-ui.js) don't sync a live fight either, so this isn't a
-## parity gap, and nothing here consumes RNG or touches a bit-exact formula
-## (no parity-test implications). Called right after bench_unit/field_unit
-## so a party-roster change reaches a fight already in progress, the same
-## immediacy sync_loadout already gives a GAMBITS slot edit.
+## Reaches a party-roster change into a fight already in progress, the same
+## immediacy sync_loadout gives a GAMBITS slot edit. It is called right after
+## bench_unit / field_unit. It consumes no RNG and touches no formula.
 ##
-## Benching a currently-fielded unit marks it dead (hp=0) in THIS fight
-## rather than removing its entry from g["battle"]["units"] outright --
-## removing an array entry mid-fight risks invariants the engine was never
-## built to handle (turn-order scans, threat lists), where a 0-HP unit is
-## already correctly ignored everywhere (living()/choose()/etc.) and reads
-## visually as "fallen", the same treatment a real combat death gets.
-##
-## Fielding a new companion builds a fresh unit (build_party_unit) and
-## appends it to BOTH g["units"] and g["battle"]["units"] -- two separate
-## Array objects sharing element references, not one Array (see
-## start_wave's own `party + enemies` concatenation) -- with its turn
-## schedule seeded from the battle's CURRENT time (`battle["t"]`), not a
-## fresh-battle-relative 0, so it takes its first turn in due course
-## instead of jumping the queue. A benched party member is REMOVED from
-## both arrays outright (not just zeroed) -- Godot-only behavior, no real-
-## JS equivalent to mirror (benchUnit/fieldUnit, farroad-ui.js:2680-2691,
-## only ever touch G.party; the real game has no mid-fight live-sync at
-## all, this whole mechanism is a Godot-side enhancement, confirmed
-## untested by any parity mode). Removing outright (rather than the
-## earlier hp=0-in-place convention) is what lets the presentation layer
-## actually hop the sprite offscreen and free it, instead of leaving a
-## permanently-dimmed corpse standing in a slot that unit no longer
-## occupies. Safe against FarroadCore.step()'s own battle["units"]
-## iteration -- pick_next()/check_end() already skip/ignore anything not
-## found by id, nothing there assumes a fixed array length or indexes
-## positionally. Returns {"added": [unit dicts...], "removed": [uid
-## strings...]} so the presentation layer can build matching UnitViews
-## for additions and animate/free the ones removed.
+## Fielding a new companion builds a fresh unit (build_party_unit) and appends it
+## to both g["units"] and g["battle"]["units"] (two separate Array objects
+## sharing element references; see start_wave's `party + enemies`
+## concatenation), with its turn schedule seeded from the battle's current time
+## (`battle["t"]`), not a fresh-battle-relative 0, so it takes its first turn in
+## due course instead of jumping the queue. A benched party member is removed
+## from both arrays outright. Removing it (rather than leaving a 0-HP unit in
+## place) lets the presentation layer hop the sprite offscreen and free it,
+## instead of leaving a permanently dimmed corpse standing in a slot that unit
+## no longer occupies. That is safe against FarroadCore.step()'s iteration over
+## battle["units"]: pick_next() / check_end() already skip anything not found by
+## id, and nothing there assumes a fixed array length or indexes positionally.
+## Returns {"added": [unit dicts...], "removed": [uid strings...]} so the
+## presentation layer can build matching UnitViews for additions and
+## animate / free the ones removed.
 static func refresh_live_party(g: Dictionary) -> Dictionary:
 	if g.get("units") == null:
 		return {"added": [], "removed": []}
@@ -1886,19 +1769,14 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	# HARD_EXTRA/DMG_MUL below) regardless of party size, unlike count_mul's
 	# own solo-vs-party check just below this.
 	var is_first_boss: bool = boss and w == BOSS_WAVES[0]
-	# Ian: "make waves with fewer enemies stronger." count_strength(n) was
-	# already exactly this compensation curve (n=1 -> x1.85 per enemy down
-	# to n=10 -> x0.29) -- the "fewer enemies than a full party" reasoning
-	# it exists for only makes sense once the player HAS a real party bigger
-	# than 1, so it's gated on actual live party size, not a wave-number
-	# proxy (a wave-number gate like the old "w>=UNIT_WAVES[0]" would need
-	# re-deriving by hand every time UNIT_WAVES[0] itself changes -- it
-	# already did once, see UNIT_WAVES' own comment). A genuinely solo
-	# player (party size 1, true through wave 9 and the wave-20 boss alike
-	# unless/until a real 2nd body has actually joined) never gets
-	# compensated against; the instant party size exceeds 1 -- whether
-	# that's the wave-20 boss (now a real 2-vs-1 fight since Ansa joins at
-	# wave 10) or any later wave -- it correctly does.
+	# Waves with fewer enemies are stronger: count_strength(n) is the
+	# compensation curve (n = 1 -> x1.85 per enemy down to n = 10 -> x0.29). The
+	# "fewer enemies than a full party" reasoning only makes sense once the player
+	# has a real party bigger than 1, so it is gated on the actual live party
+	# size, not a wave-number proxy (a gate like "w >= UNIT_WAVES[0]" would need
+	# re-deriving by hand whenever UNIT_WAVES[0] changes). A solo player (party
+	# size 1) is never compensated against; the instant party size exceeds 1, it
+	# is.
 	var is_solo: bool = g["party"].size() <= 1
 	var count_mul: float = count_strength(n) if not is_solo else 1.0
 	var v_mul: float = (count_mul * band_roll(g["rng"])) if variety else count_mul
@@ -1908,29 +1786,23 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 	var priest_used := false   # 1 healer max per wave -- see below
 	for j in range(n):
 		var key: String = (TUTORIAL_BOSS_ARCH if super_boss_key != "" else boss_arch_for(w)) if boss else archetype_for(w, j)
-		# archetype_for can hand back "priest" more than once in the same
-		# wave -- every WAVE_ARCH wave 1-19 uses ONE archetype for every
-		# slot (so a multi-enemy wave 5-7 was previously all-healer), and
-		# post-19 ROT repeats once a wave rolls more enemies than ROT has
-		# entries (unlikely since the elemental batch grew it to 12). A wave full of simultaneous healers can stall the fight
-		# indefinitely (the CSV's own design note: "Only enemy that
-		# heals... Kill first or the fight stalls") -- cap it at 1,
-		# deterministically, no extra RNG draw: the first priest slot
-		# stays a priest, every later one falls back to "wolf" (always
-		# defined, the safest/plainest archetype).
+		# archetype_for can hand back "priest" more than once in the same wave:
+		# every WAVE_ARCH wave 1-19 uses one archetype for every slot (so a
+		# multi-enemy wave 5-7 would be all healers), and post-19 ROT repeats once
+		# a wave rolls more enemies than ROT has entries. A wave full of
+		# simultaneous healers can stall the fight indefinitely (the CSV's design
+		# note: "Only enemy that heals... Kill first or the fight stalls"), so it
+		# is capped at 1, deterministically, with no extra RNG draw: the first
+		# priest slot stays a priest, every later one falls back to "wolf" (always
+		# defined, the safest / plainest archetype).
 		if key == "priest":
 			if priest_used:
 				key = "wolf"
 			else:
 				priest_used = true
 		var a: Dictionary = FarroadCore.ARCH[key]
-		# Post-Milestone-3 APK feedback (Group C1): pure bookkeeping for the
-		# new Catalogue tab's Enemies list -- marks this archetype as
-		# encountered. Zero RNG consumption, so this is safe to write
-		# unconditionally with no parity impact (verified via the full
-		# 60-wave progression-mode battle trace staying bit-exact). Godot-only
-		# -- Catalogue has no real-JS equivalent, so g["seenArch"] is
-		# deliberately NOT mirrored to src/farroad-save.js/parity-reference.js.
+		# Bookkeeping for the Catalogue's Enemies list: marks this archetype as
+		# encountered. It consumes no RNG, so it is safe to write unconditionally.
 		if g.has("seenArch"):
 			g["seenArch"][key] = true
 			# boss variants of normal enemies get their own Catalogue entry
@@ -1947,23 +1819,17 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 				maxf(1, enemy_count(w)) * len_mul
 		else:
 			hp_base = 200.0 * a["hpMul"] * FarroadCore.dmg_taken_mul(a) * s
-		# Ian: waves 1-20 still wiping way too often even after the earlier
-		# tutorial ATK/MAG halving -- tutorial_atk_mag_mul(w) was ALREADY the
-		# right shape (flat 0.5x through wave 20, ramping back to 1.0x by
-		# wave 100), it just never touched HP, only atk/mag below. A
-		# high-hpMul archetype (Stone Ox, wave 14-16, hpMul 1.60 -- the
-		# tutorial's biggest single spike, confirmed via direct simulation:
-		# every build tested wiped 200+ times specifically at this wave)
-		# dragged fights on long enough to trigger runaway enrage on top of
-		# its own inflated HP. Reused here (same function, same ramp) for
-		# every tutorial enemy uniformly -- boss and non-boss alike, matching
-		# how dmg_mul below already applies to atk/mag on both regardless of
-		# boss status, not a new one-off HP-only constant.
+		# The tutorial ease (tutorial_atk_mag_mul(w): 0.5x through wave 20, ramping
+		# back to 1.0x by wave 100) also applies to HP, for every tutorial enemy
+		# uniformly, boss and non-boss alike (as dmg_mul below applies to atk / mag
+		# on both). A high-hpMul archetype (Stone Ox, wave 14-16, hpMul 1.60 - the
+		# tutorial's biggest single spike) otherwise dragged fights on long enough
+		# to trigger runaway enrage on top of its own inflated HP.
 		hp_base *= DIFFICULTY * v_mul * sqrt(hard_mul(w)) * tutorial_atk_mag_mul(w)
-		# Ian: past wave 100 the hard multiplier went entirely into ATK/MAG
-		# (x20 by wave 800) while DEF/RES grew only with the wave and SPD not
-		# at all. Now it's spread: ATK/MAG take hard^0.7, DEF/RES/SPD hard^0.35,
-		# and SPD also grows with the wave (sqrt of the wave scale).
+		# Past wave 100 the hard multiplier is spread: ATK/MAG take hard^0.7,
+		# DEF/RES/SPD hard^0.35, and SPD also grows with the wave (sqrt of the wave
+		# scale). Otherwise it would all go into ATK/MAG (x20 by wave 800) while
+		# DEF/RES grew only with the wave and SPD not at all.
 		var hard: float = hard_mul(w)
 		var hard_atk_mul: float = pow(hard, HARD_ATK_EXP) * ((FIRST_BOSS_HARD_EXTRA if is_first_boss else BOSS_HARD_EXTRA) if boss else 1.0)
 		var hard_def_mul: float = pow(hard, HARD_DEF_EXP)
@@ -1986,19 +1852,17 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 			"chargeAction": "wardensmaul" if boss and key == TUTORIAL_BOSS_ARCH else a.get("chargeAction"),
 			"affinity": a["affinity"],
 			"slots": enemy_slots(a, w)}))
-		# 20-item batch, Group F: bosses get a flat Spirit bonus (own,
-		# freshly-constructed affinity dict -- make_unit already copies
-		# a["affinity"]'s values out into a NEW dict per unit, so this never
-		# touches the shared ARCH data) so their own debuffs land harder and
-		# incoming debuffs from the party resist harder, per the new
-		# caster-boost/target-resist debuff formula (apply_status/
-		# aff_boost_resist above).
+		# Bosses get a flat Spirit bonus (on their own freshly constructed affinity
+		# dict: make_unit copies a["affinity"]'s values into a new dict per unit, so
+		# this never touches the shared ARCH data), so their own debuffs land harder
+		# and incoming debuffs from the party resist harder, per the caster-boost /
+		# target-resist debuff formula (apply_status / aff_boost_resist above).
 		if boss:
 			var boss_unit: Dictionary = out[out.size() - 1]
 			boss_unit["affinity"]["spirit"] = float(boss_unit["affinity"]["spirit"]) + BOSS_SPIRIT_BONUS
 	return out
 
-## ===== random post-curated drops (mirrors randomDrop, farroad-ui.js:735) =====
+## ===== random post-curated drops =====
 
 static func random_equipment_ids() -> Array:
 	return FarroadCore.EQUIPMENT.keys()
@@ -2026,22 +1890,19 @@ static func random_drop(g: Dictionary, w: int) -> Array:
 	var cp: Array = FarroadCore.ALL_CONDITION_IDS.filter(func(id): return id != "none")
 	return [{"kind": "cond", "id": cp[g["rng"].next_int(cp.size())], "why": "random drop"}]
 
-## Credits ONE Lore to a specific action's own pool -- duplicate REGULAR
-## actions and duplicate CHARGE actions both route here (v2.13: charge
-## actions are no longer special-cased to random routing, per the confirmed
-## design -- a charge-action duplicate is "specific to itself," same as a
-## regular action).
+## Credits one Lore to a specific action's own pool. Duplicate regular actions
+## and duplicate charge actions both route here: a charge-action duplicate is
+## specific to itself, like a regular action.
 static func _credit_lore(g: Dictionary, action_id: String) -> void:
 	g["loreByAction"][action_id] = float(g["loreByAction"].get(action_id, 0.0)) + 1.0
 
-## Credits ONE Lore to a RANDOM action's pool, chosen from lore_action_ids(g)
-## via g["rng"] -- the only remaining "random" routing case (a duplicate
-## CONDITION has no action of its own to credit). A no-op if the player
-## somehow owns zero lore-eligible actions (shouldn't happen in practice --
-## starter actions always exist by the time drops/pulls are reachable).
-## Returns the credited action id ("" on the no-op path) -- 24-item batch,
-## Group D6: MarksPanel names which action a duplicate gambit's Lore went
-## to, which it couldn't before since this used to return nothing.
+## Credits one Lore to a random action's pool, chosen from lore_action_ids(g)
+## via g["rng"]. It is the only remaining "random" routing case (a duplicate
+## condition has no action of its own to credit). A no-op if the player somehow
+## owns zero lore-eligible actions (shouldn't happen: starter actions always
+## exist by the time drops / pulls are reachable). Returns the credited action id
+## ("" on the no-op path), so MarksPanel can name which action a duplicate
+## gambit's Lore went to.
 static func _credit_random_lore(g: Dictionary) -> String:
 	var ids: Array = lore_action_ids(g)
 	if ids.is_empty():
@@ -2050,10 +1911,10 @@ static func _credit_random_lore(g: Dictionary) -> String:
 	_credit_lore(g, aid)
 	return aid
 
-## ===== drop granting (mirrors grantDrops, farroad-ui.js:639) =====
-## Mutates g in place (actions/conditions/loreByAction/equipInv unlocked or
-## bumped); returns a list of plain event Dictionaries describing what
-## happened, for a future UI layer to log/notify however it likes.
+## ===== drop granting =====
+## Mutates g in place (actions / conditions / loreByAction / equipInv unlocked or
+## bumped); returns a list of plain event Dictionaries describing what happened,
+## for the UI layer to log or notify however it likes.
 
 static func grant_drops(g: Dictionary, w: int) -> Array:
 	if g["dropsGranted"].get(w):
@@ -2099,7 +1960,7 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 		auto_equip(g)
 	return events
 
-## ===== companion acquisition (mirrors joinCompanion, farroad-ui.js:794) =====
+## ===== companion acquisition =====
 
 static func join_companion(g: Dictionary, uid: String) -> bool:
 	if not g["owned"].get(uid):
@@ -2113,17 +1974,14 @@ static func join_companion(g: Dictionary, uid: String) -> bool:
 		g["statInvest"][uid] = {}
 	if not g["equipped"].has(uid):
 		g["equipped"][uid] = {}
-	# Ian: "when units join, only give them strike and ember as their
-	# actions so they don't start with actions others have." Without this,
-	# a joining unit's loadout was populated lazily -- either
-	# ensure_loadout's own strike+strike default, or (if fielded when the
-	# NEXT drop happened to grant) auto_equip silently upgrading slot 0 to
-	# whatever action the account had already unlocked, which could be
-	# anything, not necessarily Ember. Seeding the loadout explicitly here
-	# AND marking the unit as already-touched short-circuits auto_equip's
-	# own per-unit gate (already keyed off g["touched"]) from ever
-	# revisiting this unit -- strike+ember, permanently, until the player
-	# edits it via GAMBITS themselves.
+	# A joining unit starts with only strike and ember, so it doesn't start with
+	# actions others have. Without this, the loadout would be populated lazily:
+	# either ensure_loadout's strike + strike default, or (if fielded when the next
+	# drop happened to grant) auto_equip silently upgrading slot 0 to whatever
+	# action the account had already unlocked, not necessarily Ember. Seeding the
+	# loadout here and marking the unit as already touched stops auto_equip's
+	# per-unit gate (keyed off g["touched"]) from ever revisiting this unit:
+	# strike + ember until the player edits it via GAMBITS.
 	if not g["loadout"].has(uid):
 		g["loadout"][uid] = [{"cond": "none", "action": "strike"}, {"cond": "none", "action": "magibolt"}]
 	g["touched"][uid] = true
@@ -2132,7 +1990,7 @@ static func join_companion(g: Dictionary, uid: String) -> bool:
 		g["party"].append(uid)
 	return fielded
 
-## ===== wave loop (mirrors startWave/afterWaveCleared/onWipe, farroad-ui.js) =====
+## ===== wave loop (start_wave / after_wave_cleared / on_wipe) =====
 
 static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array:
 	g["wave"] = w
@@ -2144,22 +2002,18 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 	var enemies := build_enemies(g, w)
 	g["units"] = party
 	g["enemies"] = enemies
-	# Ian: waves 1-20 wiping too often -- enrage (ENRAGE_AFTER=20 beats, now
-	# compounding EVERY beat, not just an enemy's own turn, since the earlier
-	# "enrage every turn" change) was found to be a major hidden driver: a
-	# solo tutorial character's fights are inherently slower than a full
-	# party's (no one to split turns/damage with), so a merely-average-length
-	# solo fight routinely runs past 20 beats and starts stacking -- directly
-	# confirmed via simulation (Stone Ox's own attack nearly doubled, 21->42,
-	# over one fight). Enrage exists to punish deliberate late-game
-	# stalling, not to punish a tutorial character for being early-game
-	# weak, so it's off entirely for the Road's own solo tutorial stretch --
-	# same w<=20 boundary every other tutorial exception in this project
-	# already uses (tutorial_atk_mag_mul, TUTORIAL_CHECKPOINT_EVERY).
-	# Post-24-item-batch balance pass: pushed back from wave 21 to wave 31
-	# (ENRAGE_FROM_WAVE) -- simulated across 8 MC builds, enrage at 21 was
-	# the actual wall slow/support builds hit right after the tutorial;
-	# with this plus tutorial_atk_mag_mul's post-tutorial dip, no tested
+	# Enrage is off entirely for the Road's solo tutorial stretch. Enrage
+	# (ENRAGE_AFTER = 20 beats, compounding every beat, not just an enemy's own
+	# turn) was a major hidden driver of tutorial wipes: a solo character's
+	# fights are inherently slower than a full party's (no one to split
+	# turns / damage with), so an average-length solo fight runs past 20 beats and
+	# starts stacking (Stone Ox's own attack nearly doubled, 21 -> 42, over one
+	# fight). Enrage exists to punish deliberate late-game stalling, not an early
+	# character for being weak. It uses the same w <= 20 boundary as every other
+	# tutorial exception (tutorial_atk_mag_mul, TUTORIAL_CHECKPOINT_EVERY).
+	# Enrage starts at wave 31 (ENRAGE_FROM_WAVE): simulated across 8 MC builds,
+	# enrage at 21 was the wall slow / support builds hit right after the
+	# tutorial; with this plus tutorial_atk_mag_mul's post-tutorial dip, no tested
 	# build stalls anywhere in waves 21-40.
 	var enrage_on: bool = g.get("enrage", true) and w >= ENRAGE_FROM_WAVE
 	g["battle"] = FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": enrage_on})
@@ -2175,8 +2029,8 @@ static func start_wave(g: Dictionary, w: int, skip_drops: bool = false) -> Array
 ## untouched, same discipline as every prior scoped balance change.
 const TUTORIAL_AETHER_WAVES := 20
 const TUTORIAL_AETHER_MUL := 2.0
-## Ian: "have a new unit be guaranteed acquired at wave 60 if you don't
-## have one by then" -- see after_wave_cleared's own comment.
+## A new unit is guaranteed by wave 60 if the player doesn't have one by then
+## (see after_wave_cleared).
 const GUARANTEED_THIRD_WAVE := 60
 
 static func after_wave_cleared(g: Dictionary) -> Array:
@@ -2186,19 +2040,16 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	for u in g["units"]:
 		g["hpCarry"][u["id"]] = u["hp"] / u["maxHp"]
 		g["chargeCarry"][u["id"]] = u["charge"]
-	# 24-item batch, Stats page: "enemies defeated" -- a win means every
-	# enemy in the wave went down. Same counter is bumped by every other
-	# win path (side battles, expedition fights, bonus fights).
+	# "enemies defeated" for the Stats page: a win means every enemy in the wave
+	# went down. The same counter is bumped by every other win path (side
+	# battles, expedition fights, bonus fights).
 	g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + g["enemies"].size()
 	var r := kill_reward(g["wave"], g["enemies"].size())
 	var aether_mul: float = (TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0) * catchup_mul(g)
-	# Ian (24-item batch, Group B5): "perhaps we need to have half rewards
-	# for clearing waves you've already cleared." first_clear was already
-	# computed above (line 1590) for the one-time boss events below, but
-	# never applied to the base reward itself until now -- a checkpoint
-	# replay (or a deliberate low-wave farm) now pays half. Live-play
-	# forward progress (first_clear==true, the overwhelmingly common case)
-	# is completely unaffected.
+	# Replaying an already-cleared wave (a checkpoint replay, or a deliberate
+	# low-wave farm) pays half. first_clear (computed above for the one-time boss
+	# events below) is applied to the base reward here. Live-play forward progress
+	# (first_clear == true, the overwhelmingly common case) is unaffected.
 	var reclear_mul: float = 1.0 if first_clear else 0.5
 	g["aether"] = g.get("aether", 0) + r["aether"] * aether_mul * reclear_mul
 	g["marks"] = g.get("marks", 0) + r["marks"] * marks_mul(g) * catchup_mul(g) * reclear_mul
@@ -2207,30 +2058,26 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 		var hoard := boss_aether(g["wave"]) * aether_mul
 		g["aether"] += hoard
 		events.append({"kind": "boss_hoard", "wave": g["wave"], "amount": hoard})
-		# Ian: a popup congratulating the player on finishing the tutorial
-		# and warning the road only gets harder -- shown exactly once, on the
-		# FIRST boss's first clear. Its enrage explanation moved to its own
-		# "enrage_intro" event below, now that enrage starts at wave 31.
+		# Shown exactly once, on the first boss's first clear: a popup congratulating
+		# the player on finishing the tutorial and warning the road only gets
+		# harder. The enrage explanation is its own "enrage_intro" event below,
+		# since enrage starts at wave 31.
 		if g["wave"] == BOSS_WAVES[0]:
 			events.append({"kind": "tutorial_complete", "wave": g["wave"]})
 		events.append({"kind": "checkpoint", "wave": g["bossesCleared"] * BOSS_EVERY})
-	# Ian: the enrage explanation shows "on the wave that enrage begins as
-	# a mechanic" -- first clear of the wave right before ENRAGE_FROM_WAVE,
-	# so it lands just before the first fight that can actually enrage.
-	# Godot-only UI trigger (same as tutorial_complete).
+	# The enrage explanation shows on the first clear of the wave right before
+	# ENRAGE_FROM_WAVE, so it lands just before the first fight that can actually
+	# enrage. It is a UI trigger only (like tutorial_complete).
 	if first_clear and g["wave"] == ENRAGE_FROM_WAVE - 1:
 		events.append({"kind": "enrage_intro", "wave": g["wave"]})
-	# Ian: "add Ansa at wave 10, not 20" -- a companion join needs to fire on
-	# ANY wave clear matching UNIT_WAVES, not just boss clears. Genuinely
-	# fixes a real, separate, previously-unnoticed bug along the way: this
-	# used to live INSIDE the is_boss_wave branch above, but UNIT_WAVES[1]
-	# (150, dorrek) was never actually a boss wave under BOSS_EVERY=20's own
-	# math ((150-20)%20=10, not 0) -- Dorrek could never have been granted
-	# at all under the old code, boss wave or not. Kept event kind names
-	# ("boss_companion"/"boss_no_companion") as-is despite no longer being
-	# boss-exclusive, to avoid touching every consumer (GameController's
-	# reward-flyer target lookup, parity coverage) for a rename with no
-	# behavior change.
+	# A companion join fires on any wave clear matching UNIT_WAVES, not just boss
+	# clears. (It used to live inside the is_boss_wave branch above, but
+	# UNIT_WAVES[1] (150, dorrek) was never a boss wave under BOSS_EVERY = 20's
+	# math, (150-20) % 20 = 10, so Dorrek could never have been granted.) The
+	# event kind names ("boss_companion" / "boss_no_companion") are kept as-is
+	# despite no longer being boss-exclusive, to avoid touching every consumer
+	# (GameController's reward-flyer target lookup) for a rename with no behavior
+	# change.
 	if first_clear:
 		var next = unit_due_at(g["wave"])
 		if next and g["party"].has(next):
@@ -2240,15 +2087,12 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 				join_companion(g, next)
 				events.append({"kind": "boss_companion", "wave": g["wave"], "id": next})
 		elif g["wave"] == BOSS_WAVES[0]:
-			# Ian: "after wave 20, instead of a new unit, get a piece of
-			# equipment and show a pop-up about equipment." Wave 20 no
-			# longer has a companion due at all (Ansa moved to wave 10), so
-			# this replaces what would otherwise be the generic
-			# dup_unit_aether consolation -- specifically for the tutorial
-			# boss, not any later "no companion due" boss clear (those keep
-			# the plain Aether consolation, same as before). Same
-			# weighted-pick + equipInv grant shape do_pull's own 'equip'
-			# branch already uses.
+			# After wave 20 the player gets a piece of equipment and a popup about
+			# it, instead of a new unit. Wave 20 has no companion due (Ansa joins at
+			# wave 10), so this replaces what would otherwise be the generic
+			# dup_unit_aether consolation, for the tutorial boss only (any later "no
+			# companion due" boss clear keeps the plain Aether consolation). Same
+			# weighted-pick + equipInv grant shape as do_pull's 'equip' branch.
 			var equip_ids := random_equipment_ids()
 			var eid: String = weighted_equipment_pick(g["rng"], equip_ids)
 			g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
@@ -2262,25 +2106,21 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 			var dup := dup_unit_aether(g["wave"])
 			g["aether"] += dup
 			events.append({"kind": "boss_no_companion", "wave": g["wave"], "amount": dup})
-	# Ian: "wave 20: getting equipment and a unit, should just be
-	# equipment." Root cause: this 10% roll used to fire on EVERY boss
-	# wave clear independently of the tutorial-equip branch above, so
-	# 10% of the time wave 20 handed out the guaranteed equipment AND a
-	# bonus companion on top. Excluded BOSS_WAVES[0] specifically -- every
-	# later boss keeps the roll untouched.
+	# The 10% boss_companion_roll excludes BOSS_WAVES[0]: it used to fire on every
+	# boss wave clear independently of the tutorial-equip branch above, so 10% of
+	# the time wave 20 handed out the guaranteed equipment and a bonus companion on
+	# top. Every later boss keeps the roll.
 	if is_boss_wave(g["wave"]) and g["wave"] != BOSS_WAVES[0] and g["rng"].next() < 0.10:
 		var boss_avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"]))
 		if not boss_avail.is_empty():
 			var pick: Dictionary = boss_avail[g["rng"].next_int(boss_avail.size())]
 			var fielded := join_companion(g, pick["id"])
 			events.append({"kind": "boss_companion_roll", "wave": g["wave"], "id": pick["id"], "fielded": fielded})
-	# Ian: "have a new unit be guaranteed acquired at wave 60 if you don't
-	# have one by then" -- a backstop on top of the 10% boss_companion_roll
-	# above (already possible at waves 20/40/60 by this point), for the
-	# unlucky case where none of those hit. Scoped to first_clear of wave
-	# 60 specifically, and only if the roster is still stuck at just
-	# kesh+Ansa (owned<3) -- if the roll (or an earlier lucky roll) already
-	# got a 3rd companion, this is a no-op.
+	# A backstop on top of the 10% boss_companion_roll above (already possible at
+	# waves 20/40/60 by this point) for the unlucky case where none of those hit.
+	# It is scoped to first_clear of wave 60, and only if the roster is still
+	# stuck at kesh + Ansa (owned < 3); if the roll (or an earlier lucky roll)
+	# already got a 3rd companion, this is a no-op.
 	if g["wave"] == GUARANTEED_THIRD_WAVE and first_clear and g["owned"].size() < 3:
 		var avail: Array = FarroadCore.ROSTER.filter(func(r): return not g["owned"].get(r["id"]))
 		if not avail.is_empty():
@@ -2298,12 +2138,10 @@ static func on_wipe(g: Dictionary) -> Array:
 	events.append_array(start_wave(g, back))
 	return events
 
-## ===== new game / new save (mirrors newGame/newDirections, farroad-ui.js:45) =====
+## ===== new game / new save =====
 
-## Step 3h: DIRECTION_CONFIG is now exported (export-content.js) and
-## loaded into FarroadCore.DIRECTION_CONFIG -- direction_ids() derives the
-## 8 ids from it directly, mirroring the real P.DIRECTIONS=
-## Object.keys(P.DIRECTION_CONFIG) exactly, no more hardcoded fallback list.
+## DIRECTION_CONFIG is exported (export-content.js) and loaded into
+## FarroadCore.DIRECTION_CONFIG; direction_ids() derives the 8 ids from it.
 static func direction_ids() -> Array:
 	return FarroadCore.DIRECTION_CONFIG.keys()
 
@@ -2337,31 +2175,23 @@ static func new_game(seed: int, mc) -> Dictionary:
 		"seenTabTutorial": {}, "tutorials": {}, "tutorialSkip": false, "forcedPull": null,
 		"pvp": {"wins": 0, "losses": 0, "history": []}}
 
-## ===== EXPEDITIONS (Step 3h) =====
-## Mirrors farroad-ui.js:947-1352 (simulateOfflineProgress through
-## recallExpedition) -- the real JS reads Date.now() internally throughout;
-## every time-touching function here instead takes `now` (Unix SECONDS,
-## not the real JS's milliseconds -- matches FarroadSave.serialize's own
-## established `now: int` convention) as an explicit parameter, so a
-## parity test can inject a fixed fake time and get reproducible RNG-call
-## counts. The real caller (GameController.gd) reads the clock once via
-## Time.get_unix_time_from_system() and passes it down.
+## ===== EXPEDITIONS =====
+## Every time-touching function here takes `now` (Unix seconds, matching
+## FarroadSave.serialize's `now: int`) as an explicit parameter instead of
+## reading the clock, so a test can inject a fixed fake time and get
+## reproducible RNG-call counts. The real caller (GameController.gd) reads the
+## clock once via Time.get_unix_time_from_system() and passes it down.
 ##
-## Step 3i: resolveExpedition's dungeon-unlock side effect
-## (unlockDirectionDungeon, see the DUNGEONS/QUESTS section below) is now
-## wired in -- dp["maxDepth"] tracking (already ported here since 3h) is
-## what feeds it.
+## resolve_expedition also unlocks dungeons (unlock_direction_dungeon, see the
+## DUNGEONS / QUESTS section below), fed by dp["maxDepth"] tracking.
 ##
-## A pushDrop()-based game-wide banner (arrival notice, "Welcome back")
-## is also not ported -- no drop-banner/toast system exists anywhere in
-## this port yet (the same trim MARKS' pull-result display already made);
-## push_expedition_log's own per-expedition log covers the same
-## information for this panel's own display.
+## There is no game-wide banner for arrivals; push_expedition_log's
+## per-expedition log carries that information for the Expedition panel.
 
-## Ian: parties push on until 10% HP (was 25%).
+## Parties push on until 10% HP.
 const EXPED_RETURN_HP_FRAC := 0.10
-## Ian: a hurt party can stop and rest, healing by its members' Recovery,
-## instead of turning back. It starts resting below REST_BELOW and keeps going
+## A hurt party can stop and rest, healing by its members' Recovery, instead of
+## turning back. It starts resting below REST_BELOW and keeps going
 ## until REST_UNTIL, each rest taking REST_WAVES waves' worth of time. A party
 ## with no Recovery can't rest and turns back as before.
 static var EXPED_REST: bool = true
@@ -2370,14 +2200,12 @@ static var EXPED_REST_UNTIL: float = 0.70
 static var EXPED_REST_WAVES: float = 2.0
 const EXPED_CAP_SEC := OFFLINE_CAP_SEC
 const EXPED_DISCOVERY_CHANCE := 0.08
-## 24-item batch, Group E4: non-combat road events. EXPED_EVENT_CHANCE is
-## the per-node chance a stretch of road is one of these instead of a
-## fight (first-pass value, easily retuned). Each entry's aether/marks is a
-## multiple of that node's own normal kill_reward (so the payout scales
-## with depth exactly the way fights do); heal restores a fraction of the
-## party's shared HP pool. {names} is filled with the party's names.
-## Mirrored verbatim in farroad-ui.js (EXPED_EVENTS) and parity-reference.js.
-## Ian: more road events (no fight) so parties get further (was 10%).
+## Non-combat road events. EXPED_EVENT_CHANCE is the per-node chance a stretch
+## of road is one of these instead of a fight (first-pass value, easily
+## retuned; higher so parties get further). Each entry's aether / marks is a
+## multiple of that node's own normal kill_reward (so the payout scales with
+## depth exactly the way fights do); heal restores a fraction of the party's
+## shared HP pool. {names} is filled with the party's names.
 const EXPED_EVENT_CHANCE := 0.25
 const EXPED_EVENTS: Array = [
 	{"text": "{names} passed through a roadside town and traded stories for supplies.", "aether": 0.5, "marks": 0.0, "heal": 0.0},
@@ -2401,7 +2229,7 @@ static func direction_label(dir: String) -> String:
 static func direction_mul(dir: String) -> float:
 	return FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("mul", 1.0)
 
-## Mirrors isOnExpedition (farroad-ui.js:1012-1013).
+## Whether the unit is currently out on an expedition.
 static func is_on_expedition(g: Dictionary, uid: String) -> bool:
 	for exp in g.get("expeditions", []):
 		if exp["partyIds"].has(uid):
@@ -2432,8 +2260,7 @@ static func _expedition_names(party_ids: Array) -> String:
 		names.append(def["name"] if def else uid)
 	return ", ".join(names)
 
-## Mirrors pushExpeditionLog (farroad-ui.js:1014-1017) -- newest first,
-## capped at 40 entries.
+## Newest first, capped at 40 entries.
 static func push_expedition_log(exp: Dictionary, text: String, now) -> void:
 	if not exp.has("log"):
 		exp["log"] = []
@@ -2441,9 +2268,8 @@ static func push_expedition_log(exp: Dictionary, text: String, now) -> void:
 	while exp["log"].size() > 40:
 		exp["log"].pop_back()
 
-## Mirrors applyStatMul (farroad-ui.js:1116-1122) -- asymmetric scaling:
-## HP via sqrt(mul), ATK/MAG via mul directly. Mutates `enemies` in place
-## (same as the real function) and returns it too, for chaining.
+## Asymmetric scaling: HP via sqrt(mul), ATK / MAG via mul directly. Mutates
+## `enemies` in place and returns it too, for chaining.
 static func apply_stat_mul(enemies: Array, mul: float) -> Array:
 	var hp_mul: float = sqrt(mul)
 	for u in enemies:
@@ -2454,8 +2280,7 @@ static func apply_stat_mul(enemies: Array, mul: float) -> Array:
 		u["base"]["mag"] = round(u["base"]["mag"] * mul)
 	return enemies
 
-## Mirrors applyDirectionAffinity (farroad-ui.js:1131-1135) -- a flat
-## additive bonus on top of an enemy's own archetype-authored affinity,
+## A flat additive bonus on top of an enemy's own archetype-authored affinity,
 ## never replacing it.
 static func apply_direction_affinity(enemies: Array, dir: String) -> Array:
 	var ax = FarroadCore.DIRECTION_CONFIG.get(dir, {}).get("affinity")
@@ -2465,17 +2290,15 @@ static func apply_direction_affinity(enemies: Array, dir: String) -> Array:
 		u["affinity"][ax] = float(u["affinity"].get(ax, 0.0)) + DIRECTION_AFFINITY_BONUS
 	return enemies
 
-## Mirrors buildExpeditionParty (farroad-ui.js:1018-1032) -- close to
-## build_party_unit (Step 3f) but genuinely different HP math: ONE shared
-## hp_frac across the whole party (not per-unit g["hpCarry"]), so it's its
-## own function rather than a build_party_unit reuse.
-## Ian: waves take twice as long (parties stay out longer) and each wave
-## won pays twice as much to compensate.
+## Close to build_party_unit but with different HP math: one shared hp_frac
+## across the whole party (not per-unit g["hpCarry"]), so it is its own
+## function. Waves take twice as long (parties stay out longer) and each wave won
+## pays twice as much to compensate.
 const EXPED_BASE_SEC := 120.0
 const EXPED_SEC_PER_WAVE := 0.16
 const EXPED_REWARD_MUL := 2.0
-## Ian: no enrage on expeditions (testing how it plays). A fight that runs
-## to the turn limit counts as a loss and is recorded as a stall.
+## There is no enrage on expeditions. A fight that runs to the turn limit counts
+## as a loss and is recorded as a stall.
 const EXPED_ENRAGE := false
 const EXPED_MAX_SPEEDUP := 0.5   # at most half the time
 
@@ -2519,14 +2342,11 @@ static func build_expedition_party(g: Dictionary, party_ids: Array, hp_frac) -> 
 			"slots": ensure_loadout(g, uid).map(func(s): return {"cond": s["cond"], "action": s["action"]})}))
 	return out
 
-## Mirrors sendExpedition (farroad-ui.js:1084-1102) -- party-size/
-## direction-validity/one-expedition-per-direction/ownership/not-already-
-## fielded/not-already-out/no-duplicate-uid checks, then starts a fresh
-## expedition. The id's random component deliberately uses Godot's own
-## randi(), NOT g["rng"] -- mirrors the real 'exp'+Date.now()+'_'+
-## Math.random() exactly, which is itself deliberately outside the seeded
-## RNG stream (an id just needs to be unique, not reproducible) -- so
-## expedition ids are never bit-exact between JS and GD, by design.
+## Checks the party size, direction validity, one expedition per direction,
+## ownership, not already fielded, not already out, and no duplicate uid, then
+## starts a fresh expedition. The id's random component deliberately uses
+## Godot's own randi(), not g["rng"]: an id just needs to be unique, not
+## reproducible, and it stays outside the seeded RNG stream.
 static func send_expedition(g: Dictionary, party_ids: Array, direction: String, now) -> bool:
 	if party_ids.is_empty() or party_ids.size() > PARTY_CAP:
 		return false
@@ -2558,11 +2378,10 @@ static func send_expedition(g: Dictionary, party_ids: Array, direction: String, 
 	push_expedition_log(exp, "%s set out to explore %s." % [names, direction_label(direction)], now)
 	return true
 
-## Mirrors beginReturnTrip (farroad-ui.js:1069-1076) -- the trip home costs
-## HALF the real time the party has been out, measured from startedAt to
-## decision_moment (NOT `now` -- a big catch-up pass can cross the turn-
-## back threshold mid-simulation, so the return-trip clock starts from
-## THAT point, same reasoning the real comment gives).
+## The trip home costs half the real time the party has been out, measured from
+## startedAt to decision_moment (not `now`: a big catch-up pass can cross the
+## turn-back threshold mid-simulation, so the return-trip clock starts from that
+## point).
 static func begin_return_trip(exp: Dictionary, decision_moment, reason: String, now) -> void:
 	if exp.get("homeAt") != null:
 		return
@@ -2572,8 +2391,8 @@ static func begin_return_trip(exp: Dictionary, decision_moment, reason: String, 
 	push_expedition_log(exp, "%s — %s Heading home now." % [names, reason], now)
 	check_arrival(exp, now)
 
-## Mirrors checkArrival (farroad-ui.js:1151-1159) -- first-observation-only
-## arrival flag; does NOT bank the reward (collect_expedition does that).
+## First-observation-only arrival flag; does not bank the reward
+## (collect_expedition does that).
 static func check_arrival(exp: Dictionary, now) -> void:
 	if exp.get("arrivedAt") != null or exp.get("homeAt") == null or float(now) < float(exp["homeAt"]):
 		return
@@ -2581,16 +2400,14 @@ static func check_arrival(exp: Dictionary, now) -> void:
 	var names := expedition_label(exp)
 	push_expedition_log(exp, "%s arrived home — awaiting collection." % names, now)
 
-## Mirrors resolveExpedition (farroad-ui.js:1160-1206) -- the real-time
-## resolution loop for ONE expedition. 5s no-op floor, 12h cap, a
-## cost=20+travel_sec(ew)-second-per-node loop building a fresh
-## expedition party + direction-scaled/-themed enemies each node, banking
-## kill_reward*mul (+boss_aether*mul on a boss node), tracking average-
-## alive-HP-fraction, auto-turning-back below EXPED_RETURN_HP_FRAC.
-## Restores FarroadCore's global current-wave via set_wave(saved_wave)
-## before returning -- build_enemies's own set_wave call would otherwise
-## leave the Road's wave-scaling state pointed at the expedition's ew, the
-## same real, easy-to-miss fix-up the JS source itself flags in a comment.
+## The real-time resolution loop for one expedition: a 5 s no-op floor, a 12 h
+## cap, a loop of (20 + travel_sec(ew)) seconds per node building a fresh
+## expedition party and direction-scaled / -themed enemies each node, banking
+## kill_reward * mul (+ boss_aether * mul on a boss node), tracking the average
+## alive-HP fraction, and auto-turning-back below EXPED_RETURN_HP_FRAC. It
+## restores FarroadCore's global current wave via set_wave(saved_wave) before
+## returning: build_enemies's own set_wave call would otherwise leave the Road's
+## wave-scaling state pointed at the expedition's ew.
 static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	if exp.get("homeAt") != null:
 		check_arrival(exp, now)
@@ -2605,12 +2422,11 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	var guard := 0
 	var saved_wave: int = g["wave"]
 	var turned_back := false
-	# Ian: "an expedition notification triggered ~8 minutes too soon." The
-	# notification time is worked out by playing the trip forward, which only
-	# matches what really happens if the trip always plays out the same. So
-	# each expedition has its OWN random stream (rngA, seeded from its id),
-	# advanced only by the nodes it actually resolves -- it no longer depends
-	# on what the Road did meanwhile, or on how the catch-up was chunked.
+	# The notification time is worked out by playing the trip forward, which only
+	# matches what really happens if the trip always plays out the same. So each
+	# expedition has its own random stream (rngA, seeded from its id), advanced
+	# only by the nodes it actually resolves; it doesn't depend on what the Road
+	# did meanwhile, or on how the catch-up was chunked.
 	var saved_rng = g["rng"]
 	var xr := FarroadCore.make_rng(0)
 	xr.a = int(exp["rngA"]) if exp.get("rngA") != null else (str(exp["id"]).hash() & 0xFFFFFFFF)
@@ -2619,9 +2435,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 		guard += 1
 		var stream_a: int = xr.a
 		var stream_calls: int = xr.calls
-		# Ian: a wave takes 60s (+0.08s per wave), cut by how much the
-		# party's offence beats this wave's enemies -- glass cannons move
-		# faster but don't get as far.
+		# a wave takes 60 s (+0.08 s per wave), cut by how much the party's offence
+		# beats this wave's enemies: glass cannons move faster but don't get as far
 		var party := build_expedition_party(g, exp["partyIds"], exp["hpFrac"])
 		var enemies: Array = apply_direction_affinity(
 			apply_stat_mul(build_enemies(g, exp["ew"], true), mul), exp["direction"])
@@ -2633,24 +2448,19 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 			xr.a = stream_a
 			xr.calls = stream_calls
 			break
-		# Ian: expedition log entries "tend to be grouped together... should
-		# be based on how long the party has been out, not the time of
-		# day." Root cause: every push_expedition_log call inside this loop
-		# used to pass the outer, real-wall-clock `now` -- so a catch-up
-		# pass resolving 1 node or 50 nodes stamped every entry with the
-		# EXACT same real moment. sim_now is this node's own simulated
-		# elapsed-away offset instead (mirrors how begin_return_trip's own
-		# decision_moment is already computed below), spreading entries
-		# across the party's simulated time away rather than clustering at
-		# real time.
+		# Log entries are stamped by how long the party has been out, not the time of
+		# day. Every push_expedition_log call inside this loop would otherwise get
+		# the same real-wall-clock `now`, so a catch-up pass resolving 1 node or 50
+		# stamped every entry with the exact same moment. sim_now is this node's
+		# own simulated elapsed-away offset (as begin_return_trip's decision_moment
+		# is computed below), spreading entries across the party's simulated time
+		# away rather than clustering at real time.
 		var sim_now: float = resolve_started_at + (capped - remaining) + cost
-		# Ian (24-item batch, Group E4): "more variety in expedition events:
-		# visiting towns, selling goods, rescuing other travelers." A flat
-		# per-node chance that this stretch of road is a non-combat event
-		# instead of a fight -- the party still advances a node (ew+1,
-		# maxDepth/dungeon schedule as normal), just without a battle. The
-		# roll is drawn every node, event or not, so both engines consume
-		# RNG identically.
+		# A flat per-node chance that this stretch of road is a non-combat event
+		# (visiting towns, selling goods, rescuing other travelers) instead of a
+		# fight. The party still advances a node (ew + 1, maxDepth / dungeon
+		# schedule as normal), just without a battle. The roll is drawn every node,
+		# event or not, so the RNG is consumed identically either way.
 		if g["rng"].next() < EXPED_EVENT_CHANCE:
 			roll_expedition_event(g, exp, mul, sim_now)
 			exp["ew"] += 1
@@ -2697,10 +2507,10 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	exp["rngA"] = xr.a
 	g["rng"] = saved_rng
 	FarroadCore.set_wave(saved_wave)
-	# Ian: parties sat at wave 2 for 30 minutes. A step costs ~28s but the
-	# game checks every 15s; this used to set lastResolvedAt = now, throwing
-	# away the part-step each time, so nothing ever advanced while playing.
-	# Keep the unspent time (time past the 12h cap is still dropped).
+	# A step costs ~28 s but the game checks every 15 s; setting lastResolvedAt =
+	# now would throw away the part-step each time, so nothing would ever advance
+	# while playing. The unspent time is kept (time past the 12 h cap is still
+	# dropped).
 	exp["lastResolvedAt"] = float(now) - remaining
 	if turned_back:
 		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
@@ -2718,10 +2528,9 @@ static func _advance_direction_depth(g: Dictionary, exp: Dictionary, now, sim_no
 		var new_dungeon: Dictionary = unlock_direction_dungeon(g, exp["direction"], dp["dungeonsUnlocked"], now)
 		push_expedition_log(exp, "Found the way into %s — enter it from the QUESTS tab." % new_dungeon["name"], sim_now)
 
-## 24-item batch, Group E4 -- one non-combat road event (see EXPED_EVENTS).
-## Picks via g["rng"], banks any reward into exp["bank"] like a won fight
-## would, restores any heal onto the party's shared hpFrac, and logs it at
-## the node's own simulated timestamp.
+## One non-combat road event (see EXPED_EVENTS). Picks via g["rng"], banks any
+## reward into exp["bank"] like a won fight would, restores any heal onto the
+## party's shared hpFrac, and logs it at the node's own simulated timestamp.
 static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, sim_now: float) -> void:
 	var ev: Dictionary = EXPED_EVENTS[g["rng"].next_int(EXPED_EVENTS.size())]
 	var names := expedition_label(exp)
@@ -2752,9 +2561,9 @@ static func roll_expedition_event(g: Dictionary, exp: Dictionary, mul: float, si
 		text += " (%s)" % ", ".join(bits)
 	push_expedition_log(exp, text, sim_now)
 
-## Ian: pickups (gear, actions, gambits) start at 0% and gain 0.35% for every
-## wave the party clears; the chance goes back to 0 whenever the party picks
-## something up. Kept per expedition (exp["pickupChance"]).
+## Pickups (gear, actions, gambits) start at 0% and gain 0.35% for every wave the
+## party clears; the chance goes back to 0 whenever the party picks something
+## up. Kept per expedition (exp["pickupChance"]).
 const EXPED_PICKUP_STEP := 0.0035   # Ian: 0.35% per wave cleared
 const EXPED_PICKUP_TEXT := {
 	"equip": ["{names} found a dented chest by the roadside with gear inside.", "{names} pried open a sealed crate in a ruined watchtower."],
@@ -2764,7 +2573,7 @@ const EXPED_PICKUP_TEXT := {
 static func roll_expedition_pickup(g: Dictionary, exp: Dictionary, sim_now: float) -> void:
 	var chance: float = float(exp.get("pickupChance", 0.0))
 	if g["rng"].next() < chance:
-		# Ian: half the pickups are gear, a quarter actions, a quarter gambits
+		# half the pickups are gear, a quarter actions, a quarter gambits
 		var kinds := ["equip", "equip", "action", "cond"]
 		var kind: String = kinds[g["rng"].next_int(kinds.size())]
 		var f := _roll_find(g, kind)
@@ -2804,13 +2613,10 @@ static func _expedition_rest(g: Dictionary, exp: Dictionary, remaining: float, w
 		push_expedition_log(exp, "%s stopped to rest%s and recovered some HP." % [expedition_label(exp), "" if rests == 1 else " (%d times)" % rests], sim_now)
 	return remaining
 
-## Mirrors rollExpeditionDiscovery (farroad-ui.js:1250-1266) -- a flat 8%
-## chance per won node, a full one-off bonus fight against the SAME
-## party/ew, banked or logged as a miss. Never a dungeon (v2.9 correction,
-## already the real behavior -- dungeons come from the deterministic
-## per-direction schedule this step deliberately doesn't port).
-## Ian: "change 'won a bonus fight' to 'defeated some bandits'. Also add
-## other enemy variants that could be fought." Who the party ran into.
+## A flat 8% chance per won node of a one-off bonus fight against the same party
+## and ew, banked or logged as a miss. It is never a dungeon; dungeons come from
+## the deterministic per-direction schedule. The bonus fight is against some
+## variant of enemy (bandits, ...): who the party ran into.
 const EXPED_FOES := ["some bandits", "a wolf pack", "a band of highwaymen", "a rogue knight",
 	"a cult's lookouts", "some grave robbers", "a raiding party", "a nest of wild beasts",
 	"a smuggler crew", "a deserter patrol"]
@@ -2841,18 +2647,15 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 	else:
 		push_expedition_log(exp, "%s were ambushed by %s and had to fall back — no reward." % [names, foe], now)
 
-## Mirrors resolveAllExpeditions (farroad-ui.js:1339-1340).
+## Resolves every active expedition.
 static func resolve_all_expeditions(g: Dictionary, now) -> void:
 	for exp in g["expeditions"]:
 		resolve_expedition(g, exp, now)
 
-## Mirrors recallExpedition (farroad-ui.js:1348-1352) -- catches up first
-## (may itself trigger a full or partial auto turn-back), then forces a
-## turn-back right now if still out. No reward penalty -- nothing banked
-## is lost, only the standard half-time trip delay applies. Returns false
-## only if `id` doesn't match any active expedition (the real JS is void
-## here; this port returns bool for consistency with every other mutation
-## function's own "did this succeed" convention).
+## Catches up first (which may itself trigger a full or partial auto turn-back),
+## then forces a turn-back right now if still out. There is no reward penalty:
+## nothing banked is lost, only the standard half-time trip delay applies.
+## Returns false only if `id` doesn't match any active expedition.
 static func recall_expedition(g: Dictionary, id: String, now) -> bool:
 	var exp = null
 	for e in g["expeditions"]:
@@ -2867,8 +2670,8 @@ static func recall_expedition(g: Dictionary, id: String, now) -> bool:
 		Analytics.add("expedition", "recalled")
 	return true
 
-## Ian: a recalled party heading home can be sent back out ("Explore"):
-## it turns around and carries on from the wave it had reached.
+## A recalled party heading home can be sent back out ("Explore"): it turns
+## around and carries on from the wave it had reached.
 static func resume_expedition(g: Dictionary, id: String, now) -> bool:
 	for exp in g["expeditions"]:
 		if exp["id"] == id and exp.get("homeAt") != null and exp.get("arrivedAt") == null and exp.get("recalled", false):
@@ -2931,9 +2734,8 @@ static func grant_find(g: Dictionary, f: Dictionary) -> void:
 				g["conditions"].append(id)
 	Analytics.add("expeditionFinds", "%s:%s" % [f.get("kind", ""), id])
 
-## Mirrors collectExpedition (farroad-ui.js:1046-1056) -- only reachable
-## once arrivedAt is set; grants bank into the real economy and removes
-## the expedition.
+## Only reachable once arrivedAt is set; grants the bank into the real economy
+## and removes the expedition.
 static func collect_expedition(g: Dictionary, id: String) -> bool:
 	var exp = null
 	for e in g["expeditions"]:
@@ -2952,24 +2754,17 @@ static func collect_expedition(g: Dictionary, id: String) -> bool:
 	g["expeditions"] = g["expeditions"].filter(func(e2): return e2["id"] != exp["id"])
 	return true
 
-## Mirrors simulateOfflineProgress (farroad-ui.js:947-984) -- 5s no-op
-## floor, 12h cap, credits the FULL idle trickle unconditionally for the
-## capped duration, then replays real Road combat for as many
-## cost=20+travel_sec(wave)-second waves as fit. A genuine wipe can happen
-## while away, matching the real game's own "full fidelity over offline-
-## never-wipes" choice. `saved_at` is the save envelope's own top-level
-## timestamp (sibling to the FIELDS-derived g content), not anything
-## inside `g` itself.
+## The offline catch-up: a 5 s no-op floor, a 12 h cap, credits the full idle
+## trickle unconditionally for the capped duration, then replays real Road combat
+## for as many (20 + travel_sec(wave))-second waves as fit. A genuine wipe can
+## happen while away ("full fidelity over offline-never-wipes"). `saved_at` is
+## the save envelope's own top-level timestamp (a sibling of the FIELDS-derived
+## g content), not anything inside `g`.
 ##
-## Godot-only signature change (Group J, post-Milestone-3 batch): returns a
-## summary Dictionary instead of void -- {} when the 5s floor wasn't met
-## (a real caller distinguishes "nothing happened" from "elapsed_sec: 0.0"
-## by checking is_empty(), same convention used elsewhere in this port),
-## else the same waveBefore/wipesBefore/aetherBefore/marksBefore locals the
-## real JS already computes via closure (it never needed a return value,
-## since pushDrop() is called from inside the same function) -- no
-## src/*.js edit needed, this is purely a Godot-side plumbing change so
-## GameController can show its own "welcome back" popup instead.
+## It returns a summary Dictionary: {} when the 5 s floor wasn't met (a caller
+## tells "nothing happened" from "elapsed_sec: 0.0" with is_empty()), else the
+## wave / wipes / aether / marks before-and-after numbers GameController uses
+## for its welcome-back popup.
 static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionary:
 	var st: Dictionary = offline_begin(g, saved_at, now)
 	if st.is_empty():
@@ -3045,14 +2840,9 @@ static func offline_summary(g: Dictionary, st: Dictionary) -> Dictionary:
 		"wave_results": st["wave_results"],
 	}
 
-## Credits the accumulated-but-uncollected idle trickle to
-## g["aether"]/g["marks"], zeroing both pending pools -- same bank-then-
-## collect shape as collect_expedition. Quest/dungeon rewards used to
-## follow this same pattern too (collect_quest_reward/
-## collect_dungeon_reward) but were reverted to auto-credit per the
-## 24-item batch's Group A/C5 ("have quest rewards be automatically
-## attributed") -- idle income's own Collect button is unaffected, that
-## question was never asked about idle.
+## Credits the accumulated-but-uncollected idle trickle to g["aether"] /
+## g["marks"], zeroing both pending pools: the same bank-then-collect shape as
+## collect_expedition. Quest and dungeon rewards are credited on clear instead.
 static func collect_idle_reward(g: Dictionary) -> Dictionary:
 	var aether: float = float(g.get("pendingIdleAether", 0.0))
 	var marks: float = float(g.get("pendingIdleMarks", 0.0))
@@ -3064,25 +2854,21 @@ static func collect_idle_reward(g: Dictionary) -> Dictionary:
 	g["pendingIdleMarks"] = 0.0
 	return {"aether": aether, "marks": marks}
 
-## ===== POWER LEVEL (Step 3i, re-established + rescaled per later feedback) =====
-## Displayed in the HUD next to Aether/Marks (GameController.refresh_hud),
-## and also used to scale companion quest difficulty (questStageWave below)
-## rather than reading G.wave directly, so a late-acquired companion's quest
-## line doesn't face the "wall" a fixed wave-equivalent would create (the
-## v2.9 correction the real source comment describes).
+## ===== POWER LEVEL =====
+## Displayed in the HUD next to Aether / Marks (GameController.refresh_hud), and
+## also used to scale companion quest difficulty (quest_stage_wave below) rather
+## than reading g.wave directly, so a late-acquired companion's quest line
+## doesn't face a "wall" a fixed wave-equivalent would create.
 ##
-## Ian: "have it scale with combined units stats, total lore levels, and
-## furthest wave reached." Replaced the old unit-level/-count-based rollup
-## with each owned unit's own level-scaled combat stats (atk/mag/def/res/
-## spd/hp via stats_at -- the same pure, already-ported curve build_party_unit
-## itself starts from, before any equipment/pct-stat overlay, which this
-## display metric doesn't need for a "how strong is my roster" readout),
-## summed across every owned unit (fielded or benched) and divided down to a
-## scale comparable to the other two terms. Lore term unchanged (already
-## matched "total lore levels" exactly). Wave term now reads g.farthest (the
-## deepest wave ever reached) instead of g.wave (the current one), so a
-## checkpoint-triggered retreat after a wipe doesn't make POWER LEVEL itself
-## go backwards.
+## It scales with combined unit stats, total Lore levels, and furthest wave
+## reached. The unit term is each owned unit's own level-scaled combat stats
+## (atk / mag / def / res / spd / hp via stats_at, the pure curve build_party_unit
+## starts from, before any equipment / pct-stat overlay, which this display
+## metric doesn't need), summed across every owned unit (fielded or benched) and
+## divided down to a scale comparable to the other two terms. The wave term reads
+## g.farthest (the deepest wave ever reached) instead of g.wave (the current
+## one), so a checkpoint retreat after a wipe doesn't make Power itself go
+## backwards.
 const POWER_STAT_DIVISOR := 20.0
 const POWER_PER_LORE := 1.0
 
@@ -3099,35 +2885,27 @@ static func power_level(g: Dictionary) -> int:
 	var wave_level: float = FarroadCore.level_curve(g.get("farthest", 1))
 	return maxi(1, roundi(unit_stat_total / POWER_STAT_DIVISOR + lore_levels * POWER_PER_LORE + wave_level))
 
-## ===== DUNGEONS/QUESTS (Step 3i) =====
-## Mirrors farroad-ui.js:1213-1236/1284-1313/2505-2634 and
-## farroad-progression.js:1168-1203 -- companion quest lines (a 5-stage
-## frozen fight per roster unit, difficulty scaled off power_level above,
-## not the Road's own wave) and direction dungeons (multi-wave frozen
-## fights auto-discovered from EXPEDITION's dp["maxDepth"] tracking, wired
-## in above). Both resolve as a REAL interactive battle -- see
-## start_side_battle/finish_side_battle below -- not a headless
+## ===== DUNGEONS / QUESTS =====
+## Companion quest lines (a 5-stage frozen fight per roster unit) and direction
+## dungeons (multi-wave frozen fights auto-discovered from the expedition
+## dp["maxDepth"] tracking above). Both resolve as a real interactive battle
+## (see start_side_battle / finish_side_battle below), not a headless
 ## instant-resolve like expeditions.
 ##
-## Super Boss Quests (G.superBossQuests/superBossesUnlocked/
-## superBossesCleared, enterSuperBoss) stay out of scope -- a genuinely
-## separate third system, already has full save-field parity (FarroadSave.gd),
-## zero gameplay logic. Deferred the same way GAMBITS' conflict modal and
-## AETHER's live-sync trim were.
+## Super Boss Quests (g.superBossQuests / superBossesUnlocked /
+## superBossesCleared) have save fields (FarroadSave.gd) but no gameplay logic
+## yet.
 
 const DUNGEON_LEN := 1.15   # 1 < DUNGEON_LEN < BOSS_LEN(1.40) -- "slightly harder", not boss-tier
 const QUEST_STAGE_AETHER_MIN := 100
 const QUEST_STAGE_AETHER_MAX := 500
 
-## Mirrors bakeEnemySnapshot/unitsFromSnapshots (farroad-ui.js:1213-1236).
-## Serializes a live enemy into a plain, JSON-safe cfg (base stats/
-## affinity/archetype/slots only, never per-battle runtime fields like hp/
-## status/charge) so it can be repeatedly rebuilt at a FROZEN difficulty
-## instead of rescaling with Road progress the way a freshly-built enemy
-## would. A real v2.17 bug the real JS shipped and later had to fix is
-## avoided from day one here: affinity is included unconditionally (the
-## real snapshot originally omitted it, silently losing a dungeon enemy's
-## themed direction-affinity bonus on first bake).
+## Serializes a live enemy into a plain, JSON-safe cfg (base stats, affinity,
+## archetype and slots only, never per-battle runtime fields like hp / status /
+## charge) so it can be rebuilt repeatedly at a frozen difficulty instead of
+## rescaling with Road progress the way a freshly built enemy would. The affinity
+## is included unconditionally: leaving it out would silently lose a dungeon
+## enemy's themed direction-affinity bonus.
 static func bake_enemy_snapshot(u: Dictionary) -> Dictionary:
 	return {
 		"name": u["name"], "arch": u["arch"], "thorns": u.get("thorns", 0.0),
@@ -3149,12 +2927,11 @@ static func units_from_snapshots(snapshots: Array) -> Array:
 			"chargeAction": snap.get("chargeAction"), "slots": snap["slots"], "affinity": snap["affinity"]}))
 	return out
 
-## Ian: "Dungeons should be unique, with affinities just like their
-## expeditions." Each dungeon gets its own element: the first in a
-## direction uses that direction's own element (as its expeditions do), the
-## next ones step round the other elements, so no two dungeons in a line
-## fight alike. Its foes are strong in that element (+DIRECTION_AFFINITY_BONUS)
-## and weak to the opposite one, so the element also tells you how to beat it.
+## Each dungeon gets its own element: the first in a direction uses that
+## direction's own element (as its expeditions do), the next ones step round the
+## other elements, so no two dungeons in a line fight alike. Its foes are strong
+## in that element (+DIRECTION_AFFINITY_BONUS) and weak to the opposite one, so
+## the element also tells you how to beat it.
 const DUNGEON_AXES: Array = ["fire", "water", "earth", "air", "light", "dark"]
 const DUNGEON_OPPOSITE := {"fire": "water", "water": "fire", "earth": "air", "air": "earth", "light": "dark", "dark": "light"}
 const DUNGEON_PLACES := {"fire": ["Cinder Hollow", "Ashen Forge", "Emberdeep"],
@@ -3185,10 +2962,8 @@ static func _apply_dungeon_affinity(enemies: Array, axis: String) -> Array:
 
 const DUNGEON_WEAKNESS := 4
 
-## Mirrors unlockDirectionDungeon (farroad-ui.js:1284-1313). Dungeon ids
-## use Godot's own randi(), not g["rng"] -- same established reasoning as
-## send_expedition's own id (unique, not reproducible; never bit-exact
-## between JS/GD by design).
+## Dungeon ids use Godot's own randi(), not g["rng"], for the same reason as
+## send_expedition's id: unique, not reproducible.
 static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now) -> Dictionary:
 	var cfg: Dictionary = FarroadCore.DIRECTION_CONFIG[dir]
 	var mul: float = cfg["mul"]
@@ -3248,22 +3023,20 @@ static func dungeon_charges(dungeon: Dictionary, now) -> int:
 static func dungeon_available(dungeon: Dictionary, now) -> bool:
 	return dungeon_charges(dungeon, now) > 0
 
-## Mirrors questStageWave/questStageAether (farroad-progression.js:1168-1203).
-## Ian: "reduce new unit quests difficulty to about 50% of current." A
-## companion quest's frozen fight was scaled to the player's FULL current
-## power_level -- halved so a freshly-acquired companion's own quest line
-## reads as approachable rather than as hard as the player's actual
-## current build.
+## A companion quest's frozen fight was scaled to the player's full current
+## power_level; it is halved so a freshly acquired companion's own quest line
+## reads as approachable rather than as hard as the player's actual current
+## build.
 const QUEST_DIFFICULTY_MUL := 0.5
 
-## Ian: quests are a fixed, fairly easy difficulty -- the same Road waves
-## for everyone, not scaled to the party's Power. Stage 5 (the boss) is the
-## softened wave-20 boss.
+## Quests are a fixed, fairly easy difficulty: the same Road waves for everyone,
+## not scaled to the party's Power. Stage 5 (the boss) is the softened wave-20
+## boss.
 const QUEST_STAGE_WAVES: Array[int] = [6, 10, 14, 17, 20]
 ## Bumped when quest difficulty changes: stages saved under an older rule
 ## are rebuilt the next time they're attempted.
 const QUEST_RULES_VERSION := 3
-## Ian: rare units' quests at 2x those waves, legendary at 4x.
+## Rare units' quests are at 2x those waves, legendary at 4x.
 const QUEST_RARITY_MUL := {"common": 1, "rare": 2, "legendary": 4}
 
 static func quest_stage_wave(_g: Dictionary, uid: String, stage_idx: int) -> int:
@@ -3281,10 +3054,9 @@ static func _refresh_quest_rules(q: Dictionary) -> void:
 		q["frozen"] = []
 		q["rulesV"] = QUEST_RULES_VERSION
 
-## Ian: "Have quests/dungeons show their power level (the recommended power
-## level players should be to complete them)." The fight's enemy stats
-## through the same formula as power_level (stat total / POWER_STAT_DIVISOR
-## plus the wave's level), for its toughest wave.
+## The recommended Power level for a quest or dungeon: the fight's enemy stats
+## through the same formula as power_level (stat total / POWER_STAT_DIVISOR plus
+## the wave's level), for its toughest wave.
 static func snapshot_power(snaps: Array, _wave: int) -> int:
 	var total := 0.0
 	for e in snaps:
@@ -3308,9 +3080,9 @@ static func party_power_of(g: Dictionary, uids: Array) -> int:
 		total += unit_power_stats(g, uid)
 	return maxi(1, roundi(total / POWER_STAT_DIVISOR))
 
-## A unit's stat total for Power, gear and Aether investments included (Ian:
-## gear didn't count). The Arena's ranked Power (Ranked.power_of) uses the
-## same sum, so Power reads the same on the Road and in the Arena.
+## A unit's stat total for Power, gear and Aether investments included. The
+## Arena's ranked Power (Ranked.power_of) uses the same sum, so Power reads the
+## same on the Road and in the Arena.
 static func unit_power_stats(g: Dictionary, uid: String) -> float:
 	var def = FarroadCore.roster_by_id(uid)
 	if def == null:
@@ -3345,16 +3117,14 @@ static func quest_stage_power(g: Dictionary, uid: String, stage: int) -> int:
 static func quest_stage_aether(stage_idx: int) -> int:
 	return roundi(QUEST_STAGE_AETHER_MIN + stage_idx * (QUEST_STAGE_AETHER_MAX - QUEST_STAGE_AETHER_MIN) / 4.0)
 
-## Mirrors attemptQuestStage's validation+freeze half (farroad-ui.js:2540-2562).
-## The pure-state half only -- returns a plain {enemies, wave, meta} bundle
-## for GameController.gd to hand to start_side_battle, splitting "prepare
-## the fight" (pure) from "actually drive it visually" (Node-owning), the
-## same split every Progression/GameController boundary in this project
-## already uses. Freezes q["frozen"][stage] lazily on first call (win-or-
-## lose-durable) so a companion acquired early and quested late still gets
-## an approachable stage 1, not whatever the Road's current wave/power
-## implies at attempt time. Story text has its {{name}} token substituted
-## via with_mc_name (Step 3j) -- falls back to "Kesh" if g["mc"] is null.
+## The pure-state half of attempting a quest stage: validation plus freezing.
+## It returns a plain {enemies, wave, meta} bundle for GameController.gd to hand
+## to start_side_battle, splitting "prepare the fight" (pure) from "drive it
+## visually" (Node-owning). It freezes q["frozen"][stage] lazily on first call
+## (win-or-lose-durable), so a companion acquired early and quested late still
+## gets an approachable stage 1, not whatever the Road's current wave / power
+## implies at attempt time. The story text has its {{name}} token substituted via
+## with_mc_name (falling back to "Kesh" if g["mc"] is null).
 static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 	if g.get("sideBattle") != null:
 		return {}
@@ -3380,10 +3150,9 @@ static func prep_quest_attempt(g: Dictionary, uid: String) -> Dictionary:
 		"meta": {"kind": "quest", "uid": uid, "stage": stage,
 			"name": (def["name"] if def else uid), "story": with_mc_name(step["story"])}}
 
-## Mirrors enterDungeon (farroad-ui.js:2505-2513).
-## `now` (20-item batch, Group G): structural enforcement of the once-per-
-## day gate, not just QuestsPanel's own disable+tooltip UI polish on top --
-## a real game rule, not merely a UX nicety, so it's checked here too.
+## `now` enforces the once-per-day gate structurally, not just through
+## QuestsPanel's disable + tooltip: it is a real game rule, so it is checked
+## here too.
 static func prep_dungeon_attempt(g: Dictionary, id: String, now) -> Dictionary:
 	if g.get("sideBattle") != null:
 		return {}
@@ -3398,12 +3167,9 @@ static func prep_dungeon_attempt(g: Dictionary, id: String, now) -> Dictionary:
 		"meta": {"kind": "dungeon", "dungeonId": id, "name": dungeon["name"], "direction": dungeon["direction"],
 			"tier": dungeon["tier"], "waveIndex": 0, "totalWaves": (dungeon["waves"] as Array).size()}}
 
-## Mirrors startSideBattle (farroad-ui.js:1455-1466), state only -- no
-## play()/stop()/wasPlaying: this port has no player-facing play/pause/
-## speed control for the Road to preserve in the first place (the Road
-## always auto-plays), so that half of the real function has nothing to
-## mirror. GameController.gd's own pause/hide of current_presenter is the
-## Godot-side equivalent of "stop the Road while this runs."
+## The state half of starting a side battle. The Road always auto-plays, so
+## there is no play / pause to preserve; GameController.gd's own pause / hide of
+## current_presenter is what stops the Road while this runs.
 ## `prebuilt`: a ranked PvP fight arrives already built (Ranked.build_battle,
 ## from the server's teams and seed) and is used as it is.
 static func start_side_battle(g: Dictionary, enemies: Array, wave: int, meta: Dictionary, prebuilt: Dictionary = {}) -> bool:
@@ -3524,24 +3290,18 @@ static func training_enemies(g: Dictionary) -> Array:
 		out.append(build_training_unit(g, t["dummies"][i], i))
 	return out
 
-## Mirrors finishSideBattle (farroad-ui.js:1476-1618), minus the superboss
-## branch (out of scope) and all pushDrop/sysLog text -- returns a plain
-## event Dictionary for QuestsPanel to render however it likes, same split
-## every other progression event function (grant_drops, after_wave_cleared)
-## already uses.
+## Resolves a side battle and returns a plain event Dictionary for QuestsPanel to
+## render however it likes (the same split as grant_drops / after_wave_cleared).
 ## @return {"kind":"dungeon_wave_advance",...} if a multi-wave dungeon just
-##   advanced IN PLACE (g["sideBattle"] still active -- same fight
-##   continues); otherwise one of "quest_cleared"/"quest_failed"/
-##   "quest_abandoned"/"dungeon_cleared"/"dungeon_failed" once fully
-##   resolved (g["sideBattle"]/g["roadBattle"] cleared, g["battle"]
-##   restored to the Road's own battle).
-## `now` (20-item batch, Group G): a real timestamp, always caller-supplied
-## rather than read internally -- same discipline every other time-touching
-## function in this file already follows (see the EXPEDITIONS section's own
-## comment for why). Only consumed by the dungeon-clear branch below, to
-## stamp dungeon["lastClearedAt"] for the new once-per-day gate.
-## Ian: the last stage of a unit's quest line gives one RARE piece of gear that
-## fits the unit's affinity: rare gear carrying the unit's strongest affinity
+##   advanced in place (g["sideBattle"] still active, the same fight continues);
+##   otherwise one of "quest_cleared" / "quest_failed" / "quest_abandoned" /
+##   "dungeon_cleared" / "dungeon_failed" once fully resolved (g["sideBattle"] /
+##   g["roadBattle"] cleared, g["battle"] restored to the Road's own battle).
+## `now` is a real timestamp, always caller-supplied rather than read internally
+## (see the EXPEDITIONS section). It is only consumed by the dungeon-clear
+## branch below, to stamp dungeon["lastClearedAt"] for the once-per-day gate.
+## The last stage of a unit's quest line gives one RARE piece of gear that fits
+## the unit's affinity: rare gear carrying the unit's strongest affinity
 ## (then its next one, and so on). A unit whose affinities no rare gear
 ## carries yet gets a random rare piece instead. Returns its id.
 static func _grant_quest_gear(g: Dictionary, uid: String) -> String:
@@ -3625,12 +3385,11 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 		var q: Dictionary = g["quests"][meta["uid"]]
 		if result == "party":
 			q["stage"] = int(q["stage"]) + 1
-			# Ian: "the dungeons and new unit quests should no longer give
-			# aether or marks, just crystals." Auto-credited on clear (no
-			# Collect step), QUEST_STAGE_CRYSTAL per stage.
+			# quests give Crystal only (no Aether / Marks), credited on clear:
+			# QUEST_STAGE_CRYSTAL per stage
 			g["crystal"] = int(g.get("crystal", 0)) + QUEST_STAGE_CRYSTAL
-			# Ian: only the final stage hands over gear -- one rare piece that
-			# fits the unit's own affinity
+			# only the final stage hands over gear: one rare piece that fits the
+			# unit's own affinity
 			var q_gear: String = _grant_quest_gear(g, str(meta["uid"])) if int(q["stage"]) >= 5 else ""
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
 				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "crystal": QUEST_STAGE_CRYSTAL,
@@ -3649,35 +3408,31 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			# a completed run uses one charge (failing costs nothing)
 			dungeon["charges"] = maxi(0, dungeon_charges(dungeon, now) - 1)
 			dungeon["lastClearedAt"] = now
-			# Ian: dungeons give Crystal only now -- no Aether/Marks.
+			# dungeons give Crystal only, no Aether / Marks
 			g["crystal"] = int(g.get("crystal", 0)) + DUNGEON_CRYSTAL
 			return {"kind": "dungeon_cleared", "name": dungeon["name"], "crystal": DUNGEON_CRYSTAL}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
 
-## ===== Step 3j: character creation (MC point-buy + charge picker) =====
-## Mirrors P.MC_STAT_RANGE/MC_GROWTH_RANGE/MC_STAT_KEYS/MC_POINT_MIN/MAX/
-## MC_POINTS_TOTAL/MC_STARTER_CHARGES (farroad-progression.js:925-944) --
-## hand-transcribed constants, not CSV-exported (never were on the JS side
-## either -- content-pipeline.js has nothing MC-creation-specific).
-## mcSanitizeName/renderMcStats/updateMcConfirm/showMcCreate stay UI-layer
-## orchestration (McCreatePanel.gd), same split every other step already
-## draws between this file and its own *Panel.gd.
+## ===== character creation (main-character point-buy + charge picker) =====
+## MC_STAT_RANGE / MC_GROWTH_RANGE / MC_STAT_KEYS / MC_POINT_MIN / MAX /
+## MC_POINTS_TOTAL / MC_STARTER_CHARGES are hand-written constants, not
+## CSV-exported. Name sanitizing and the creation UI itself stay in
+## McCreatePanel.gd.
 
 const MC_STAT_RANGE := {
 	"atk": [8.0, 30.0], "mag": [7.0, 30.0], "def": [8.0, 45.0],   # Ian: ATK tops out like MAG
 	"res": [8.0, 40.0], "spd": [11.0, 26.0], "hp": [180.0, 840.0]}
-## hp/spd bounds carry the same reduction the roster's own GROWTH table
-## gets above (x0.7 hp, x0.5 spd growth, written in directly -- see its
-## own comment); spd's STARTING range separately carries the x0.2
-## starting-SPD cut applied across the whole roster/enemy/equipment
-## tables (was [56,131], now that x0.2) -- this range was originally
-## calibrated to match GROWTH's own min/max spread, so a custom MC's
-## own point-bought growth stays consistent with the rest of the roster.
-## Ian: "have the mc growths be legendary level." The non-HP ranges are the old
-## ones x1.066, so a character with its points spread evenly grows 7.73 stats
-## a level -- the average of the legendary roster (7.3-8.1). HP is unchanged
-## (a balanced build already gets 23 a level against the legendaries' 21.5).
+## hp / spd bounds carry the same reduction as the roster's own GROWTH table
+## above (x0.7 hp, x0.5 spd growth, written in directly); spd's starting range
+## separately carries the x0.2 starting-SPD cut applied across the roster /
+## enemy / equipment tables. The range was calibrated to match GROWTH's own
+## min / max spread, so a custom main character's own point-bought growth stays
+## consistent with the rest of the roster. The main character's growths are at
+## legendary level: the non-HP ranges are the old ones x1.066, so a character
+## with its points spread evenly grows 7.73 stats a level, the average of the
+## legendary roster (7.3-8.1). HP is unchanged (a balanced build already gets 23
+## a level against the legendaries' 21.5).
 const MC_GROWTH_RANGE := {
 	"atk": [0.64, 2.88], "mag": [0.53, 2.88], "def": [0.85, 2.56],
 	"res": [0.85, 1.81], "spd": [0.75, 1.70], "hp": [12.6, 33.6]}
@@ -3688,34 +3443,29 @@ const MC_POINT_MAX := 15
 ## GDScript const-expressions can't call .size() at parse time; matches
 ## P.MC_POINTS_TOTAL=(P.MC_STAT_KEYS.length*P.MC_POINT_MAX)/2 = 6*15/2 = 45).
 const MC_POINTS_TOTAL := 45
-## Mirrors P.MC_STARTER_CHARGES -- the generic starters offered at
-## creation; the 18-entry MC_CHARGE_DROP_POOL above is deliberately
-## withheld (a rare post-wave-20 drop instead). 20-item batch, Group D:
-## added wearingdown (debuff) and ironresolve (buff), both scaling off
-## avgAtkMag. Tank-build fix: added bastion_strike (DEF) and aegis_strike
-## (RES), both true-damage and tutorial-front-loaded (FarroadCore.gd's
-## tutorial_tank_charge_mul) -- a 7-entry pool now, was 5.
+## The generic starters offered at creation; the 18-entry MC_CHARGE_DROP_POOL
+## above is deliberately withheld (a rare post-wave-20 drop instead). The pool
+## has 7 entries: wearingdown (debuff) and ironresolve (buff), both scaling off
+## avgAtkMag, and bastion_strike (DEF) and aegis_strike (RES), both true-damage
+## and tutorial-front-loaded (FarroadCore.tutorial_tank_charge_mul).
 const MC_STARTER_CHARGES: Array[String] = ["heavystrike", "wildfire", "greatheal", "wearingdown", "ironresolve", "bastion_strike", "aegis_strike"]
 
-## Mirrors P.mcLerp (farroad-progression.js:981-983).
+## Linear interpolation of a range by a point value.
 static func mc_lerp(range: Array, point: float) -> float:
 	return range[0] + (point - MC_POINT_MIN) / float(MC_POINT_MAX - MC_POINT_MIN) * (range[1] - range[0])
 
-## Mirrors P.mcPointsSpent (farroad-progression.js:984-987).
+## The total points spent across all stats.
 static func mc_points_spent(points: Dictionary) -> int:
 	var sum := 0
 	for k in MC_STAT_KEYS:
 		sum += int(points.get(k, 0))
 	return sum
 
-## Mirrors P.mcBuildStats (farroad-progression.js:988-996). `points` is a
-## {atk,mag,def,res,spd,hp: int 0..15} Dictionary. Returns {stats: 5-key
-## Dict, hp: int, growth: 6-key Dict} -- hp is pulled OUT of stats
-## (erased), same as JS's `delete stats.hp`. Deliberately does NOT enforce
-## the MC_POINTS_TOTAL budget itself -- only the UI's Confirm-button gate
-## does, matching the real JS exactly (an all-MC_POINT_MAX allocation
-## legally sums to 90, over budget, and this function still returns a
-## result without complaint).
+## `points` is a {atk, mag, def, res, spd, hp: int 0..15} Dictionary. Returns
+## {stats: 5-key Dict, hp: int, growth: 6-key Dict}; hp is pulled out of stats
+## (erased). It deliberately does not enforce the MC_POINTS_TOTAL budget itself:
+## only the UI's Confirm-button gate does (an all-MC_POINT_MAX allocation legally
+## sums to 90, over budget, and this function still returns a result).
 static func mc_build_stats(points: Dictionary) -> Dictionary:
 	var stats := {}
 	var growth := {}
@@ -3728,16 +3478,13 @@ static func mc_build_stats(points: Dictionary) -> Dictionary:
 	stats.erase("hp")
 	return {"stats": stats, "hp": hp, "growth": growth}
 
-## Mirrors applyCustomMC (farroad-ui.js:125-161) -- mutates the shared
-## FarroadCore.ROSTER "kesh" entry IN PLACE so every existing unit-
-## construction call site (roster_by_id/make_unit/build_party_unit) picks
-## up the custom MC for free; internal roster id stays "kesh" always (no
-## new roster row, matches new_game()'s own g["party"]=["kesh"] hardcode).
-## A no-op when g["mc"] is null, which is why it's safe to call
-## unconditionally on BOTH boot paths -- see GameController's
-## _try_resume_save (resumed game) and _on_mc_confirmed (fresh game),
-## exactly matching the real applyCustomMC's own two call sites
-## (tryResumeSave() and boot()).
+## Mutates the shared FarroadCore.ROSTER "kesh" entry in place so every
+## existing unit-construction call site (roster_by_id / make_unit /
+## build_party_unit) picks up the custom main character; the internal roster id
+## stays "kesh" always (no new roster row, matching new_game()'s
+## g["party"] = ["kesh"]). It is a no-op when g["mc"] is null, which is why it
+## is safe to call unconditionally on both boot paths (GameController's
+## _try_resume_save for a resumed game and _on_mc_confirmed for a fresh one).
 ## A character's growth is worked out from its creation points, so when the
 ## growth ranges change, existing characters follow (otherwise the Arena would
 ## reject them for not matching). Characters from before points were kept are
@@ -3788,18 +3535,14 @@ static func apply_custom_mc(g: Dictionary) -> void:
 		"hp": mc["growth"]["hp"], "atk": mc["growth"]["atk"], "mag": mc["growth"]["mag"],
 		"def": mc["growth"]["def"], "res": mc["growth"]["res"], "spd": mc["growth"]["spd"]}
 
-## Post-Milestone-3 APK feedback (Group A4): "there's currently no way to
-## change charge actions." Mirrors the real JS's own mcc-swap <select>
-## onchange handler (farroad-ui.js:2914-2922) -- sets the MC's ACTIVE
-## charge action, re-applies it onto the shared roster def via
-## apply_custom_mc (already correct/idempotent), then patches any matching
-## LIVE unit's own chargeAction field too, same shared-dict-reference
-## reasoning sync_loadout already relies on (Step 3c), so a swap mid-fight
-## takes effect immediately rather than waiting for the next wave. Only
-## meaningful when `action_id` is already in mc["acquiredCharges"] -- the
-## UI only ever offers already-acquired ids (mirrors mcOwns/swappable), so
-## no re-validation here, same discipline every other mutation function in
-## this file already follows.
+## Sets the main character's active charge action, re-applies it onto the shared
+## roster def via apply_custom_mc (idempotent), then patches any matching live
+## unit's own chargeAction field too (the same shared-dict-reference reasoning
+## sync_loadout relies on), so a swap mid-fight takes effect immediately rather
+## than waiting for the next wave. It is only meaningful when `action_id` is
+## already in mc["acquiredCharges"]: the UI only offers already-acquired ids, so
+## there is no re-validation here, as with every other mutation function in this
+## file.
 static func set_mc_charge_action(g: Dictionary, action_id: String) -> void:
 	var mc = g.get("mc")
 	if mc == null:
@@ -3810,15 +3553,13 @@ static func set_mc_charge_action(g: Dictionary, action_id: String) -> void:
 		if u["id"] == "kesh":
 			u["chargeAction"] = action_id
 
-## Post-batch feedback: "add a button to change our main character's
-## name." Same shape as set_mc_charge_action above -- mutate g["mc"],
-## re-apply onto the shared roster def via apply_custom_mc (already
-## correct/idempotent), then patch any matching live unit's own field
-## directly so a rename mid-fight takes effect immediately, not just next
-## wave. GameController is responsible for the on-field UnitView/
-## unit_views_by_name sync (BattlePresenter.sync_mc_name) -- this
-## function only touches g-level state, matching every other
-## FarroadProgression mutation's own scope.
+## Renames the main character: the same shape as set_mc_charge_action above.
+## It mutates g["mc"], re-applies onto the shared roster def via
+## apply_custom_mc (idempotent), then patches any matching live unit's own field
+## directly so a rename mid-fight takes effect immediately, not just next wave.
+## GameController is responsible for the on-field UnitView / unit_views_by_name
+## sync (BattlePresenter.sync_mc_name); this function only touches g-level
+## state.
 static func set_mc_name(g: Dictionary, new_name: String) -> void:
 	var mc = g.get("mc")
 	if mc == null:
@@ -3829,12 +3570,10 @@ static func set_mc_name(g: Dictionary, new_name: String) -> void:
 		if u["id"] == "kesh":
 			u["name"] = new_name
 
-## Mirrors mcName/withMcName (farroad-ui.js:178-181) -- reads the CURRENT
-## FarroadCore.ROSTER "kesh" entry's name directly (not g["mc"]["name"]),
-## exactly like the real mcName(), falling back to "Kesh" if that entry
-## is somehow absent. Takes no `g` -- the real functions don't either,
-## since apply_custom_mc() is what keeps ROSTER's kesh entry in sync with
-## g["mc"] in the first place; this just reads the result.
+## Reads the current FarroadCore.ROSTER "kesh" entry's name directly (not
+## g["mc"]["name"]), falling back to "Kesh" if that entry is somehow absent. It
+## takes no `g`: apply_custom_mc() is what keeps ROSTER's kesh entry in sync with
+## g["mc"], and this just reads the result.
 static func with_mc_name(text: String) -> String:
 	if text == null or text == "":
 		return text

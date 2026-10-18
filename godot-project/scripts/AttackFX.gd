@@ -363,9 +363,9 @@ func _emitter(at: Vector2, one_shot: bool) -> CPUParticles2D:
 	c.global_position = at
 	c.one_shot = one_shot
 	c.explosiveness = 0.9 if one_shot else 0.0
-	# Ian: "Effects shouldn't be pixel-based, but be like HD-2D games" --
-	# soft round glows, smooth filtering, additive light that blooms
-	# (GameController's WorldEnvironment glow picks up anything over 1.0).
+	# effects aren't pixel-based but like HD-2D games: soft round glows, smooth
+	# filtering, additive light that blooms (GameController's WorldEnvironment
+	# glow picks up anything over 1.0)
 	c.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	c.texture = _glow_texture()
 	c.material = fx_material()

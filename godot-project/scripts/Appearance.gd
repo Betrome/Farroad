@@ -79,8 +79,8 @@ static func material_for_colors(colors: Dictionary, part_ref: Array) -> ShaderMa
 static func _hash(uid: String, salt: String) -> int:
 	return absi(hash(uid + ":" + salt))
 
-## Companions whose body is set (Ian: Ansa and Mirel are women); the rest
-## are picked from their id.
+## Companions whose body is set (Ansa and Mirel are women); the rest are picked
+## from their id.
 const BODY := {"ansa": "female", "mirel": "female"}
 
 static func _default_body(uid: String) -> String:

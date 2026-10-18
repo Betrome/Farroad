@@ -1,7 +1,7 @@
 class_name Ranked
 extends RefCounted
-## Ranked PvP, shared by the game and the PvP server (Ian: option 2 -- the
-## Godot game itself runs headless on a server and decides every fight).
+## Ranked PvP, shared by the game and the PvP server (the game itself runs
+## headless on the server and decides every fight).
 ##
 ## A ranked team is uploaded as BUILD INPUTS, never as finished stats: unit
 ## ids, levels, gear, Aether investments, gambits, Lore, and the main
