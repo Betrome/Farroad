@@ -1,21 +1,18 @@
 class_name FarroadCore
 extends RefCounted
-## Ported combat engine -- GDScript counterpart to src/farroad-core.js.
-## A global class_name (not an autoload singleton -- there's no per-instance
-## state to own here, just static functions/factories, mirroring how the JS
-## build exposes window.FarroadCore as one shared table of functions) so any
-## script can call FarroadCore.xxx() without an explicit preload/instance.
-## Ported incrementally per the plan's staged steps; each step is proven
-## bit/behavior-identical to the JS original via parity_test.gd before
-## the next step is added.
+## The combat engine: RNG, constants, unit and battle construction, targeting,
+## gambit conditions, action selection, damage and heal resolution, statuses,
+## affinities, Lore bonuses, and the battle loop (step). A global class_name
+## (not an autoload: there is no per-instance state, just static functions and
+## factories) so any script can call FarroadCore.xxx() without a preload or an
+## instance.
 
-## ===== Step 1a: RNG (mirrors makeRNG, farroad-core.js:8-10) =====
-## mulberry32-family PRNG. Every op in the original is addition, XOR, or
-## an UNSIGNED right shift (`>>>`) -- never sign-extending -- so keeping
-## the state as a canonical value in 0..0xFFFFFFFF (masking after every
-## write) and using GDScript's plain >>/^/& on that non-negative 64-bit
-## int reproduces the identical bit pattern JS's 32-bit ops produce at
-## every step, with no need to emulate JS's |0/>>>0 sign gymnastics.
+## ===== RNG =====
+## A mulberry32-family PRNG. Every operation is addition, XOR, or an unsigned
+## right shift (never sign-extending), so keeping the state as a canonical
+## value in 0..0xFFFFFFFF (masking after every write) and using GDScript's
+## plain >>, ^ and & on that non-negative 64-bit int gives the exact 32-bit
+## bit pattern at every step.
 class RNG:
 	var a: int
 	var calls: int = 0
@@ -49,9 +46,8 @@ static func make_rng(seed: int) -> RNG:
 	return RNG.new(seed)
 
 
-## ===== Step 1b: constants (mirrors the top-of-file constants block,
-## farroad-core.js:16-141) ===== only what resolveHit/healFor/step/
-## targeting actually read; rarity/equipment/Lore constants are Step 1d.
+## ===== constants: only what resolveHit / healFor / step / targeting read;
+## rarity, equipment and Lore constants are further down =====
 const CRIT_MUL := 1.75
 const CAP_EVADE := 0.40
 const CAP_CRIT := 1.00
@@ -77,18 +73,17 @@ const GAIN_RATIO := 12.5
 ## DEF/RES count for more. DMG_SCALE rebalances overall damage afterwards.
 static var K_BASE: float = 25.0
 static var DMG_SCALE: float = 1.0
-## Ian: DEF/RES were worth far less than ATK/SPD (a +25% DEF was worth about
-## a fifth of what +25% ATK was). Mitigation is now K/(K+DEF) raised toward
-## DEF_EXP around a reference level for each side, so defence beyond (or
-## below) the usual amount counts for more, while a typical unit's damage
-## taken stays where it was. DEF_EXP 1 = the old formula. At 2.5, +25% DEF is
-## worth about 60-80% of what +25% ATK is (it was about a fifth).
+## Mitigation is K/(K+DEF) raised toward DEF_EXP around a reference level for
+## each side, so defence beyond (or below) the usual amount counts for more,
+## while a typical unit's damage taken stays where it was. DEF_EXP 1 is the
+## plain K/(K+DEF). At 2.5, +25% DEF is worth about 60-80% of what +25% ATK is
+## (the plain formula made it about a fifth).
 static var DEF_EXP: float = 2.5
 static var MIT_REF_PARTY: float = 0.36   # mitigation a typical player unit has (DEF about 1.8 x K)
 static var MIT_REF_ENEMY: float = 0.67   # ... and a typical enemy (DEF about half of K)
-## Ian's new effects: poisoned (hurts every time ANY unit acts, not just
-## on the victim's own turns), confused (its single-target actions may land
-## on a random unit, friend or foe), exposed (lower evade).
+## Poisoned (hurts every time ANY unit acts, not just on the victim's own
+## turns), confused (its single-target actions may land on a random unit,
+## friend or foe), exposed (lower evade).
 const ST: Array[String] = ["sundered", "frail", "enfeebled", "dulled", "slowed",
 	"blinded", "burning", "hasted", "warded", "taunted", "surging", "bracing",
 	"regen", "blurred", "poisoned", "confused", "exposed", "empowered",
@@ -109,20 +104,18 @@ const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"boon_fire": 25.0, "boon_water": 25.0, "boon_earth": 25.0, "boon_air": 25.0, "boon_light": 25.0, "boon_dark": 25.0, "boon_body": 10.0, "boon_spirit": 20.0,
 	"bane_fire": -20.0, "bane_water": -20.0, "bane_earth": -20.0, "bane_air": -20.0, "bane_light": -20.0, "bane_dark": -20.0, "bane_body": -10.0, "bane_spirit": -15.0,
 	"regen": REGEN_PCT, "poisoned": POISON_PCT, "exposed": -0.20}
-## Ian: Magibolt (Spirit) replaces Ember as the default magic action.
+## Magibolt (Spirit) is the default magic action (it replaced Ember).
 const STARTER_ACTIONS: Array[String] = ["strike", "magibolt"]
 
-## Test-only module state (mirrors CURRENT_WAVE/ACTIONS being plain
-## module-level vars in the JS closure). register_actions() stands in for
-## the real CSV content pipeline, deferred to a later milestone -- see plan.
+## Module state: the current wave and the ACTIONS table. register_actions()
+## lets tests supply actions directly instead of loading the exported content.
 static var current_wave: int = 1
 static var ACTIONS: Dictionary = {}
 
 static func set_wave(w: int) -> void:
 	current_wave = w
 
-## Mirrors A() (farroad-core.js:271-272) -- fills the same defaults every
-## CSV-authored action gets before use.
+## Fills in the defaults every CSV-authored action gets before use.
 static func a_defaults(o: Dictionary) -> Dictionary:
 	o["rank"] = o.get("rank", 1.0)
 	if o["rank"] == null:
@@ -146,12 +139,10 @@ static func cost_of_charge(act) -> float:
 		return act["chargeCost"]
 	return CHARGE_FULL
 
-## ===== Step 1e: real-content wiring (mirrors farroad-core.js:299-320,
-## 284-294) =====
-## ATK_CAMP+MAG_CAMP (-> EQUIPPABLE) and CHARGE_ACTIONS are hardcoded
-## whitelists in the real engine, not CSV-generated -- ported here verbatim
-## rather than exported alongside the CSV content, since they're genuinely
-## part of core.js's own source.
+## ===== real-content wiring =====
+## ATK_CAMP + MAG_CAMP (-> EQUIPPABLE) and CHARGE_ACTIONS are hardcoded
+## whitelists, not CSV-generated, so they live here rather than in the
+## exported content.
 const ATK_CAMP: Array[String] = ["strike", "pierce", "cleave", "flurry", "execute", "guardbreak",
 	"daunt", "cripple", "brace", "vengeance", "onslaught", "rally",
 	"cinderstrike", "riptideblow", "stoneshatter", "squallstrike", "radiantblow", "shadowrend"]
@@ -176,14 +167,13 @@ static var PLAYER_ACTIONS: Array = []
 static func equippable() -> Array:
 	return PLAYER_ACTIONS if not PLAYER_ACTIONS.is_empty() else ATK_CAMP + MAG_CAMP
 
-## Mirrors ACTION_DYNAMIC (farroad-core.js:284-292). powerFn/critFn are
-## closures in JS; GDScript can't hold those in a plain-data Dictionary the
-## same way, so each gets a string marker instead, dispatched by
-## eval_power_fn/eval_crit_fn below. ninefold's randomPerHit is already a
-## plain flag -- no marker needed, register_actions()/a_defaults() pass it
-## through as-is.
+## Actions whose power or crit depends on state (ACTION_DYNAMIC). A powerFn /
+## critFn can't be a closure in a plain-data Dictionary, so each gets a string
+## marker, dispatched by eval_power_fn / eval_crit_fn below. ninefold's
+## randomPerHit is already a plain flag, so register_actions() / a_defaults()
+## pass it through as-is.
 static func merge_action_dynamic() -> void:
-	# Ian: Execute's payoff is power against a low-HP target, not crit.
+	# Execute's payoff is power against a low-HP target, not crit.
 	for id in ["execute", "vengeance", "onslaught", "reckoning"]:
 		if ACTIONS.has(id):
 			ACTIONS[id]["powerFnId"] = id
@@ -192,13 +182,12 @@ static func merge_action_dynamic() -> void:
 			ACTIONS[id]["powerBase"] = ACTIONS[id].get("power")
 	if ACTIONS.has("ninefold"): ACTIONS["ninefold"]["randomPerHit"] = true
 
-## Mirrors ACTION_DYNAMIC.vengeance/onslaught/reckoning's powerFn closures.
-## Ian: bastion_strike/aegis_strike's earlier wave-ramped power (2x through
-## wave 20, decaying to 1x by wave 100) is REMOVED -- they're flat static
-## CSV-power actions now (1.0x DEF AoE / 1.5x RES single-target, both still
-## true damage via defPierce=1.0 on the CSV row), no powerFnId needed.
-## Execute: its power at full target HP, times (1 + this x the share of HP
-## the target has lost) -- 0.65 at full HP up to ~1.79 near 0.
+## The powerFn rules for vengeance / onslaught / reckoning.
+## bastion_strike and aegis_strike are flat static CSV-power actions (1.0x DEF
+## AoE / 1.5x RES single target, both true damage via defPierce=1.0 on the CSV
+## row), so they need no powerFnId.
+## Execute: its power at full target HP, times (1 + this x the share of HP the
+## target has lost): 0.65 at full HP up to ~1.79 near 0.
 const EXECUTE_RAMP := 1.75
 
 static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
@@ -211,8 +200,8 @@ static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
 			var base: float = float(action.get("powerBase", action["power"]))
 			raw = base * (1.0 + EXECUTE_RAMP * (1 - float(tgt["hp"]) / float(tgt["maxHp"]))) if tgt != null else base
 		_: return action["power"]
-	# Ian: Potent affects these too -- it scales the whole range by the same
-	# factor it applied to "power".
+	# Potent affects these too: it scales the whole range by the same factor it
+	# applied to "power".
 	var pb := float(action.get("powerBase", 0.0)) if action.get("powerBase") else 0.0
 	if pb > 0.0:
 		raw *= float(action["power"]) / pb
@@ -221,23 +210,18 @@ static func eval_power_fn(action: Dictionary, src: Dictionary, tgt) -> float:
 static func eval_crit_fn(_action: Dictionary, _tgt) -> float:
 	return 0.0
 
-## Real ROSTER/ARCH/EQUIPMENT storage -- core.js itself only passes these
-## through (nothing in the combat loop reads them directly; that's
-## buildParty/buildEnemies, farroad-ui.js, a later milestone), but a parity
-## test needs them to build units from genuine content instead of inventing
-## stat blocks.
+## Real ROSTER / ARCH / EQUIPMENT storage. Nothing in the combat loop reads
+## these directly (build_party / build_enemies do), but tests need them to
+## build units from genuine content instead of inventing stat blocks.
 static var ROSTER: Array = []
 static var ARCH: Dictionary = {}
 static var EQUIPMENT: Dictionary = {}
 ## The 8-direction {label, mul, waveCount, unlockEvery, bossName, affinity}
-## table (Step 3h, EXPEDITION) -- exported alongside the other content
-## tables by export-content.js, same source (content-pipeline.js's
-## compileDirectionConfig) the real JS reads via
-## window.FarroadContent.DIRECTION_CONFIG.
+## table (EXPEDITION), exported with the other content tables by
+## export-content.js (source: content-pipeline.js's compileDirectionConfig).
 static var DIRECTION_CONFIG: Dictionary = {}
 ## The per-companion 5-stage {story, powerFraction, isBoss} quest table
-## (Step 3i, QUESTS/dungeons) -- same export-content.js/content-pipeline.js
-## source as DIRECTION_CONFIG, just not previously selected.
+## (QUESTS / dungeons), exported by export-content.js like DIRECTION_CONFIG.
 static var QUEST_LINES: Dictionary = {}
 
 ## Loads godot-project/data/content.json (export-content.js's output) --
@@ -269,48 +253,40 @@ static func load_real_content(path: String = "res://data/content.json") -> bool:
 ## opponent's Lore'd actions from these, never from the player's).
 static var CLEAN_ACTIONS: Dictionary = {}
 
-## Finds a ROSTER entry by id -- mirrors the small inline
-## `C.ROSTER.forEach(function(r){if(r.id===uid)def=r;})` lookup pattern used
-## throughout farroad-ui.js.
+## Finds a ROSTER entry by id.
 static func roster_by_id(id: String) -> Variant:
 	for r in ROSTER:
 		if r["id"] == id:
 			return r
 	return null
 
-## ===== Milestone 3 prep: a handful of small farroad-core.js pieces Milestone 1
-## never needed (combat-resolution didn't touch enemy-building/equipment) but
-## FarroadProgression.gd's build_enemies/build_party (mirroring buildEnemies/
-## buildParty, farroad-ui.js) do. =====
+## ===== small pieces FarroadProgression's build_enemies / build_party need =====
 
-## Post-wave-19 enemy archetype rotation. Elemental batch: the six
-## elemental archetypes (strong in one element, weak to its opposite)
-## are interleaved with the original six, so every post-tutorial wave
-## mixes plain and elemental enemies.
-## Ian: four Body/Spirit archetypes (ironhide, hollowhusk, carrion, veilwarden)
-## are spread through it so weaknesses to Body and Spirit show up in ordinary waves.
+## Post-wave-19 enemy archetype rotation. The six elemental archetypes
+## (strong in one element, weak to its opposite) are interleaved with the
+## original six, so every post-tutorial wave mixes plain and elemental enemies.
+## Four Body/Spirit archetypes (ironhide, hollowhusk, carrion, veilwarden) are
+## spread through it so weaknesses to Body and Spirit show up in ordinary
+## waves.
 const ROT: Array[String] = ["wolf", "cinderimp", "knight", "tidewraith", "carrion", "hound", "cragback",
 	"ox", "galeharpy", "ironhide", "priest", "dawnacolyte", "shrike", "hollowhusk", "umbralstalker", "veilwarden"]
 
-## Mirrors dmgTakenMul (farroad-core.js:887-888) -- the DEF/evade-vs-reference
-## multiplier buildEnemies sizes a body's HP pool against.
+## The DEF / evade-vs-reference multiplier build_enemies sizes a body's HP
+## pool against.
 static func dmg_taken_mul(a: Dictionary) -> float:
 	var k := 25.0
 	var ref_def := 12.0
 	var ref_evade := 0.05
 	return ((k / (k + a["def"])) / (k / (k + ref_def))) * ((1.0 - a["evade"]) / (1.0 - ref_evade))
 
-## Mirrors EQUIPMENT_SLOTS/EQUIP_SPD_PENALTY_BASE (farroad-core.js:54,65).
+## The equipment slots, and the base speed penalty for gear.
 const EQUIPMENT_SLOTS: Array[String] = ["head", "body", "legs", "hand1", "hand2"]
 const EQUIP_SPD_PENALTY_BASE := 1.5
 
-## The full 79-id gambit condition catalog (Step 1c already ported every
-## resolve_condition/cond_label case; this is just the enumerable id LIST
-## mirroring C.CONDITIONS.map(c=>c.id), needed by FarroadProgression's
-## random-drop pool -- extracted programmatically from the real
-## farroad-core.js's own CONDITIONS array, not hand-typed, to guarantee it
-## matches exactly). "none" excluded from drop pools by callers, same as
-## the real JS's own `CONDITIONS.filter(c=>c.id!=='none')`.
+## The full gambit condition catalog (79 ids): just the enumerable id list,
+## needed by FarroadProgression's random-drop pool. resolve_condition and
+## cond_label handle the cases. "none" is excluded from drop pools by
+## callers.
 const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "foe_highest_hp",
 	"foe_hp_gte_70", "foe_hp_lte_30", "foe_armoured", "foe_warded",
 	"foe_weak_fire", "foe_weak_water", "foe_weak_earth", "foe_weak_air", "foe_weak_light", "foe_weak_dark",
@@ -332,7 +308,7 @@ const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "f
 	"foe_hp_gte_25", "foe_hp_lte_25", "ally_hp_gte_25", "ally_hp_lte_25", "self_hp_gte_25", "self_hp_lte_25",
 	"foe_hp_gte_75", "foe_hp_lte_75", "ally_hp_gte_75", "ally_hp_lte_75", "self_hp_gte_75", "self_hp_lte_75",
 	"foe_charge_gte_25", "foe_charge_gte_50", "foe_charge_gte_75",
-	# Ian: affinity -- strong to any affinity, and weak to Body / Spirit
+	# affinity: strong to any affinity, and weak to Body / Spirit
 	"foe_strong_fire", "foe_strong_water", "foe_strong_earth", "foe_strong_air", "foe_strong_light",
 	"foe_strong_dark", "foe_strong_body", "foe_strong_spirit", "foe_weak_body", "foe_weak_spirit",
 	# status
@@ -351,23 +327,19 @@ const FOE_STATUS_CONDS := {"foe_poisoned": "poisoned", "foe_burning": "burning",
 	"foe_slowed": "slowed", "foe_confused": "confused"}
 const ALLY_STATUS_CONDS := {"ally_poisoned": "poisoned", "ally_burning": "burning"}
 
-## ===== Step 1d: rarity + Lore-bonus system (mirrors farroad-core.js:18-41,
-## 321-519) =====
+## ===== rarity + Lore-bonus system =====
 const RARITY_POWER_MUL := {"common": 1.00, "rare": 1.25, "legendary": 1.55}
 const RARITY_COST_MUL := {"common": 1.00, "rare": 1.60, "legendary": 2.40}
 const SWIFT_CEIL := 3.0
 const SWIFT_DECAY := 0.88
-## Ian: "each lore level should increase cost (decreasing speed) by 5 for
-## normal actions... requiring investment into swift to keep their speed
-## up" -- 24-item batch, Group B2. Every non-swift bonus stack purchased
-## on a regular (non-charge) action now slows its own initiative down;
-## stacking `swift` on the SAME action still corrects it back up toward
-## SWIFT_CEIL exactly as before. First-pass rate, easily retuned.
+## Each non-swift bonus stack on a regular (non-charge) action adds a flat
+## LORE_SLOWDOWN_PER_LEVEL to its rank (its turn cost, shown x100, so +5 per
+## level), slowing it down. Keeping its speed up takes investment in `swift`.
+## First-pass rate, easily retuned.
 const LORE_SLOWDOWN_PER_LEVEL := 0.05
-## Ian: "Swift: flat reduction. Also, it's not working on charge actions."
 ## Each Swift level takes a flat SWIFT_PER_LEVEL off the action's rank (its
-## turn cost, shown x100) -- regular AND charge actions -- mirroring the
-## flat +LORE_SLOWDOWN_PER_LEVEL each other bonus adds to regular actions.
+## turn cost, shown x100), for regular and charge actions, mirroring the flat
+## +LORE_SLOWDOWN_PER_LEVEL each other bonus adds to regular actions.
 const SWIFT_PER_LEVEL := 0.05
 const RANK_FLOOR := 0.3
 const BONUS_COST_BROAD := 10
@@ -382,19 +354,11 @@ const BUFFS: Array[String] = ["hasted", "warded", "taunted", "surging", "bracing
 static func is_buff_status(s) -> bool:
 	return BUFFS.has(s)
 
-## Mirrors BONUSES (farroad-core.js:388-409) -- 9 display entries (name `n`,
-## description `d`; `potent` also carries `mag: true`, unused by any real UI
-## logic -- confirmed via grep of farroad-ui.js -- kept anyway for an exact
-## port). `bonus_applies`/`apply_bonuses` (below) already have the real
-## match-statement LOGIC ported since Milestone 1 Step 1d; this is only the
-## LORE screen's display table, extracted programmatically (a throwaway node
-## script loading the real farroad-core.js via the same vm-sandbox technique
-## parity-reference.js uses, then JSON.stringify(C.BONUSES)) to guarantee an
-## exact match rather than hand-typed copy risk -- same discipline
-## ALL_CONDITION_IDS used. `weighty` is correctly absent from both this
-## table and `bonus_applies` below -- it was merged into `potent` in v2.4
-## (farroad-core.js:368-376); `apply_bonuses` still honors old stacks for
-## backward compatibility, it just isn't newly purchasable.
+## The Lore screen's display table: 9 entries (name `n`, description `d`;
+## `potent` also carries `mag: true`, which no UI logic uses). bonus_applies and
+## apply_bonuses below hold the logic. `weighty` is absent from both: it was
+## merged into `potent`; apply_bonuses still honors old stacks for backward
+## compatibility, but it isn't newly purchasable.
 const BONUSES := {
 	"swift": {"n": "Swift", "d": "−5 turn cost per level, down to a lowest cost of 30 (other upgrades on normal actions add +5 each)"},
 	"potent": {"n": "Potent", "d": "+15% to whatever it does — damage or healing", "mag": true},
@@ -407,7 +371,7 @@ const BONUSES := {
 	"thrifty": {"n": "Thrifty", "d": "−15 charge cost — CHARGE ACTIONS ONLY, fires more often"},
 }
 
-## Mirrors actionBonusTotal (farroad-core.js:341-343).
+## The total Lore stacks on an action, excluding broad.
 static func action_bonus_total(b: Dictionary) -> int:
 	var t := 0
 	for bid in b.keys():
@@ -415,25 +379,24 @@ static func action_bonus_total(b: Dictionary) -> int:
 			t += int(b.get(bid, 0))
 	return t
 
-## Mirrors bonusPrice (farroad-core.js:356-359). v2.13: flat cost -- no more
-## rarity multiplier (RARITY_COST_MUL is kept defined, just unreferenced
-## here, for any other reader) and no more triangular per-stack scaling
-## (total_on_action is kept as a parameter for call-site compatibility, but
-## no longer read) -- every non-broad stack costs a flat 1 Lore, matching
-## what the OLD formula's own very first purchase already cost (0+1=1).
+## The price of one more Lore stack. It is flat: broad costs BONUS_COST_BROAD
+## and every other stack costs 1 Lore. There is no rarity multiplier
+## (RARITY_COST_MUL is kept defined but unreferenced) and no per-stack scaling
+## (total_on_action is kept as a parameter for call-site compatibility but is
+## no longer read).
 static func bonus_price(a, bid: String, total_on_action: int) -> int:
 	if bid == "broad":
 		return BONUS_COST_BROAD
 	return 1
 
-## Mirrors bonusApplies (farroad-core.js:423-451).
+## Whether a Lore bonus can do anything for this action (it decides which
+## bonuses the Lore screen offers).
 static func bonus_applies(a, bid: String) -> bool:
 	if a == null:
 		return false
-	# NOTE: GDScript's bool(x) constructor throws on x == null (a real
-	# runtime gap vs JS's !!x, which is always safe) -- "x else false"
-	# below relies on `if`'s native truthy/falsy coercion instead, which
-	# handles null (and 0/""/empty) the same way JS's falsy values do.
+	# NOTE: GDScript's bool(x) constructor throws on null, so "x else false"
+	# below relies on `if`'s own truthy/falsy coercion, which treats null (and
+	# 0, "", empty) as false.
 	match bid:
 		"swift": return true
 		"potent": return true if (a.get("power") or a.get("revive") or a.get("giveCharge") or a.get("siphonCharge")) else false
@@ -449,12 +412,9 @@ static func bonus_applies(a, bid: String) -> bool:
 		"thrifty": return true if a.get("isCharge") else false
 	return false
 
-## PRISTINE/snapshot (farroad-core.js:454-457) is normally keyed off the
-## hardcoded EQUIPPABLE.concat(CHARGE_ACTIONS) whitelist -- that whitelist
-## isn't ported yet (it comes from the real CSV roster, deferred per the
-## plan), so register_bonus_eligible() stands in for it: the test harness
-## explicitly names which registered ids are Lore-eligible, the same role
-## the whitelist plays for real content later.
+## PRISTINE / snapshot are normally keyed off the EQUIPPABLE + CHARGE_ACTIONS
+## whitelist. register_bonus_eligible() lets a test name which registered ids
+## are Lore-eligible instead.
 static var PRISTINE = null
 static var BONUS_ELIGIBLE: Array = []
 
@@ -472,8 +432,8 @@ static func snapshot() -> void:
 			PRISTINE[id] = {"power": a.get("power"), "rank": a.get("rank"), "charge": a.get("charge"),
 				"defPierce": a.get("defPierce"), "critBonus": a.get("critBonus"),
 				"turns": a.get("turns"), "chargeCost": a.get("chargeCost"),
-				# Ian: Broad/Cleansing/Deepening change these too, so they're
-				# reset with the rest -- they used to build up on every re-apply
+				# Broad / Cleansing / Deepening change these too, so they are reset
+				# with the rest (otherwise they would build up on every re-apply)
 				"tk": a.get("tk"), "cleanse": a.get("cleanse"), "deepen": a.get("deepen"),
 				"revive": a.get("revive")}
 
@@ -481,9 +441,8 @@ static func pristine_of(id: String):
 	snapshot()
 	return PRISTINE.get(id)
 
-## Mirrors applyBonuses (farroad-core.js:458-496) -- resets every eligible
-## action to PRISTINE, then re-applies `map` on top, exactly like the JS:
-## a full replay from baseline every call, never a compounding mutation.
+## Resets every eligible action to PRISTINE, then re-applies `map` on top: a
+## full replay from baseline on every call, never a compounding mutation.
 static func apply_bonuses(map: Dictionary) -> void:
 	snapshot()
 	for id in PRISTINE.keys():
@@ -499,11 +458,10 @@ static func apply_bonuses(map: Dictionary) -> void:
 		var a = ACTIONS.get(aid)
 		if a == null or b == null:
 			continue
-		# Ian (24-item batch, Group B2): non-swift Lore investment slows a
-		# regular action down; swift is the only bonus that counters it.
-		# Runs unconditionally (not gated on b.get("swift")) so an action
-		# with e.g. only `potent` stacked still gets slower even with no
-		# swift investment at all.
+		# Non-swift Lore investment slows a regular action down; swift is the only
+		# bonus that counters it. This runs unconditionally (not gated on
+		# b.get("swift")) so an action with e.g. only `potent` stacked still gets
+		# slower.
 		var swift_lv: int = int(b.get("swift", 0))
 		var slow_lv: int = 0 if a.get("isCharge") else action_bonus_total(b) - swift_lv
 		if slow_lv > 0 or swift_lv > 0:
@@ -518,7 +476,7 @@ static func apply_bonuses(map: Dictionary) -> void:
 			a["turns"] = a.get("turns", 3) + b["lasting"]
 		if b.get("potent") and a.get("power"):
 			a["power"] = a["power"] * (1 + 0.15 * b["potent"])
-		# Ian: Potent also strengthens revives (the HP they bring a unit back with)
+		# Potent also strengthens revives (the HP they bring a unit back with)
 		if b.get("potent") and a.get("revive"):
 			a["revive"] = minf(1.0, float(a["revive"]) * (1 + 0.15 * b["potent"]))
 		if b.get("potent") and a.get("giveCharge"):
@@ -540,12 +498,11 @@ static func apply_bonuses(map: Dictionary) -> void:
 			var computed: int = CHARGE_FULL + CHARGE_UP_COST * ups - CHARGE_THRIFT * int(b.get("thrifty", 0))
 			a["chargeCost"] = max(CHARGE_COST_MIN, min(CHARGE_COST_MAX, computed))
 
-## Mirrors bonusSpend (farroad-core.js:513-519). v2.13: flat cost -- no
-## rarity multiplier, no triangular per-stack scaling (see bonus_price) --
-## a non-broad stack now costs a flat 1 Lore regardless of the action's own
-## rarity, so this no longer needs to look up ACTIONS[aid] at all. `map` can
-## hold one action (`{aid: b}`, the per-action-pool idiom FarroadSave.gd's
-## refund-diff and free_lore below already use) or several summed together.
+## The total Lore spent. The cost is flat: no rarity multiplier and no
+## per-stack scaling (see bonus_price), so a non-broad stack costs 1 Lore
+## whatever the action's rarity, and this doesn't need to look up ACTIONS[aid].
+## `map` can hold one action (`{aid: b}`, the per-action idiom FarroadSave's
+## refund diff and free_lore use) or several summed together.
 static func bonus_spend(map: Dictionary) -> int:
 	var n := 0
 	for aid in map.keys():
@@ -553,7 +510,7 @@ static func bonus_spend(map: Dictionary) -> int:
 		n += action_bonus_total(b) + int(b.get("broad", 0)) * BONUS_COST_BROAD
 	return n
 
-## ===== affinity system (mirrors farroad-core.js:88-139) =====
+## ===== affinity system =====
 static func affinity_mul(raw: float) -> float:
 	var s: float = -1.0 if raw < 0 else 1.0
 	return s * AFFINITY_FLAT_RATE * abs(raw)
@@ -575,17 +532,13 @@ static func aff_term(atk_raw: float, def_raw: float) -> float:
 static func aff_boost(a: float, b: float) -> float:
 	return min(AFFINITY_BOOST_CAP, _aff_dealt(affinity_mul(a)) * _aff_dealt(affinity_mul(b)))
 
-## 20-item batch, Group F: Ian's confirmed intent for spirit affinity is
-## an ASYMMETRIC formula, not aff_boost's symmetric one -- the CASTER's
-## own spirit still scales potency UP (unchanged direction), but the
-## TARGET's own spirit should now scale potency DOWN (more spirit-
-## resistant units shrug debuffs off more; more spirit-potent casters
-## land them harder on others). Same caster-boost/target-resist SHAPE
-## `aff_term` (below) already establishes for damage's own affinity
-## factor -- not a new pattern, applied here to status potency for
-## DEBUFFS specifically (apply_status branches on is_buff_status; buffs
-## keep the original symmetric aff_boost unchanged, since an ally
-## buffing a high-spirit teammate isn't what this ask was about).
+## Debuff potency is asymmetric: the caster's own spirit scales potency up,
+## and the target's own spirit scales it down (more spirit-resistant units
+## shrug debuffs off more; more spirit-potent casters land them harder on
+## others). It has the same caster-boost / target-resist shape aff_term uses
+## for damage's affinity factor, applied to status potency for debuffs
+## (apply_status branches on is_buff_status; buffs keep the symmetric
+## aff_boost).
 static func aff_boost_resist(caster_spirit: float, target_spirit: float) -> float:
 	return min(AFFINITY_BOOST_CAP, _aff_dealt(affinity_mul(caster_spirit)) * _aff_taken(affinity_mul(target_spirit)))
 
@@ -597,7 +550,7 @@ static func affinity_factor(src: Dictionary, tgt: Dictionary, act: Dictionary) -
 		m *= aff_term(eff_aff(src, str(act["element"])), eff_aff(tgt, str(act["element"])))
 	return m
 
-## ===== status system (mirrors farroad-core.js:196-267) =====
+## ===== status system =====
 static func new_st() -> Dictionary:
 	var s := {}
 	for id in ST:
@@ -614,10 +567,9 @@ static func mag_of(u: Dictionary, id: String) -> float:
 	return STATUS_BASE_MAG.get(id, 0.0)
 
 ## How strong an action's status is, on top of the status's base strength:
-## Ian -- rarer actions apply stronger statuses (the same 1.25x / 1.55x
-## their damage already gets; a rare buff used to be its common twin with
-## one more turn), and the Deepening Lore upgrade (+10% a level on a buff,
-## +20% on a debuff) now actually does what it says -- it was never read before.
+## rarer actions apply stronger statuses (the same 1.25x / 1.55x their damage
+## gets), and the Deepening Lore upgrade (+10% a level on a buff, +20% on a
+## debuff) scales it.
 static func status_potency(act: Dictionary) -> float:
 	var p: float = RARITY_POWER_MUL.get(act.get("rarity", "common"), 1.0)
 	var deep = act.get("deepen")
@@ -632,7 +584,7 @@ const STATUS_MAG_CAP := {"hasted": -0.80, "warded": -0.80, "enfeebled": -0.80, "
 	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50,
 	"dazed": -0.80, "drained": -0.80, "wounded": -0.80, "keen": 0.60, "vulnerable": 1.00,
 	"boon_fire": 100.0, "boon_water": 100.0, "boon_earth": 100.0, "boon_air": 100.0, "boon_light": 100.0, "boon_dark": 100.0, "boon_body": 100.0, "boon_spirit": 100.0, "bane_fire": -100.0, "bane_water": -100.0, "bane_earth": -100.0, "bane_air": -100.0, "bane_light": -100.0, "bane_dark": -100.0, "bane_body": -100.0, "bane_spirit": -100.0}
-## Ian: Deepening per level -- +10% on a buff, +20% on a debuff.
+## Deepening per level: +10% on a buff, +20% on a debuff.
 const DEEPEN_BUFF := 0.10
 const DEEPEN_DEBUFF := 0.20
 
@@ -691,17 +643,14 @@ static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "def": return eff_def(u)
 	if key == "res": return eff_res(u)
 	if key == "spd": return u["base"]["spd"]
-	# Group D (20-item batch): the 2 new starter charge actions scale off
-	# the average of ATK and MAG, for a unit whose build doesn't lean
-	# hard into either camp.
-	# Ian: the ATK/MAG average still lost to a single maxed stat -- these
-	# now use the LOWER of the two. Their extra strength is in the action's
-	# own power (Wearing Down x6.24, Iron Resolve x4.8), not a hidden
-	# multiplier on the stat, so the description shows the real numbers.
+	# The 2 starter charge actions that scale off the LOWER of ATK and MAG (for a
+	# build that doesn't lean hard into either camp). Their extra strength is in
+	# the action's own power (Wearing Down x6.24, Iron Resolve x4.8), not a
+	# hidden multiplier on the stat, so the description shows the real numbers.
 	if key == "avgAtkMag": return minf(eff_atk(u), eff_mag(u))
 	return eff_atk(u)
 
-## ===== tick cost / mitigation (mirrors farroad-core.js:152-186) =====
+## ===== tick cost / mitigation =====
 static func clamp_f(x: float, lo: float, hi: float) -> float:
 	return lo if x < lo else (hi if x > hi else x)
 
@@ -718,10 +667,9 @@ static func uses_rows(u: Dictionary) -> bool:
 
 ## Row effects (static vars so balance tests can try values).
 ## Front: ROW_FRONT_DMG more damage dealt (physical and magic) on top of
-## ROW_SPD speed. Back: physical damage dealt x ROW_BACK_PHYS_OUT, damage
-## taken x ROW_BACK_PHYS_IN (physical) / ROW_BACK_MAG_IN (magic).
-## Ian's row balance (tested: mages now gain from the back row, physical
-## attackers from the front; was front-row-for-everyone before).
+## ROW_SPD speed. Back: physical damage dealt x ROW_BACK_PHYS_OUT, damage taken
+## x ROW_BACK_PHYS_IN (physical) / ROW_BACK_MAG_IN (magic). Mages gain from the
+## back row, physical attackers from the front.
 static var ROW_FRONT_DMG := 0.10
 static var ROW_BACK_PHYS_OUT := 0.85
 static var ROW_BACK_PHYS_IN := 0.70
@@ -779,7 +727,7 @@ static func speed_status_mul(u: Dictionary) -> float:
 static func incoming_mul(u: Dictionary) -> float:
 	return ((1 + mag_of(u, "warded")) if has(u, "warded") else 1.0) * ((1 + mag_of(u, "vulnerable")) if has(u, "vulnerable") else 1.0)
 
-## ===== unit/battle construction (mirrors farroad-core.js:666-680) =====
+## ===== unit/battle construction =====
 static func default_affinity() -> Dictionary:
 	return {"fire": 0.0, "water": 0.0, "earth": 0.0, "air": 0.0, "light": 0.0,
 		"dark": 0.0, "body": 0.0, "spirit": 0.0}
@@ -814,7 +762,7 @@ static func make_battle(units: Array, opts: Dictionary = {}) -> Dictionary:
 		u["nextActAt"] = tc_of(u, 1.00); u["turnsTaken"] = 0; u["enrageApplied"] = 0; u["alternateFlag"] = 0
 	return b
 
-## ===== targeting / threat (mirrors farroad-core.js:520-545, 660-665) =====
+## ===== targeting / threat =====
 static func living(b: Dictionary, is_party: bool, want_same: bool) -> Array:
 	var o := []
 	for u in b["units"]:
@@ -846,8 +794,7 @@ static func by_highest_hp(l: Array) -> Variant:
 			best = u
 	return best
 
-## PREF (farroad-core.js:528-530) as a match, not a dict-of-lambdas --
-## same per-archetype weighting, simpler in GDScript.
+## Per-archetype targeting preference, as a match (not a dict of lambdas).
 static func pref_weight(arch, u: Dictionary, hp: float) -> float:
 	match arch:
 		"wolf": return 1 + 1.5 * (1 - hp)
@@ -934,11 +881,9 @@ static func resolve_target(act: Dictionary, ct, u: Dictionary, b: Dictionary) ->
 		return d[0] if not d.is_empty() else null
 	return null
 
-## ===== action selection (mirrors farroad-core.js:696-730) =====
-## Condition list reduced to just 'none' for this step -- full ~40-condition
-## catalog is Step 1c (see plan). needs_heal/action_held_by_earlier_fielded
-## are the real logic (not stubs), since even 'none'-only content exercises
-## chooseFrom's allNone branch, which uses both.
+## ===== action selection =====
+## needs_heal and action_held_by_earlier_fielded are used by choose_from's
+## all-"none" branch.
 static func needs_heal(b: Dictionary, u: Dictionary) -> bool:
 	for a in allies(b, u):
 		if a["hp"] < a["maxHp"]:
@@ -956,18 +901,14 @@ static func action_held_by_earlier_fielded(b: Dictionary, u: Dictionary, action_
 				return true
 	return false
 
-## ===== Step 1c: gambit conditions (mirrors CONDITIONS/condById,
-## farroad-core.js:546-658) =====
-## 30 explicit conditions + a generated 10%-ladder (10-90, both directions,
-## for foe/ally/self) = 79 total. 5 of the 30 explicit ones (foe_hp_gte_70,
-## foe_hp_lte_30, ally_hp_lte_60/30, self_hp_lte_50) are IDENTICALLY SHAPED
-## to what the generated ladder would produce for the same group/cmp/pct
-## (confirmed against the JS source -- the ladder generator's own
-## existing-id guard exists specifically because they'd be exact
-## duplicates otherwise), so this port handles all 54 percentile-shaped
-## ids (5 legacy + 49 generated) through ONE generic path instead of
-## hand-duplicating them, and only the 25 genuinely bespoke ids get their
-## own match branch -- the same DRY structure the JS source itself uses.
+## ===== gambit conditions =====
+## 30 explicit conditions plus a generated 10% ladder (10-90, both directions,
+## for foe / ally / self) = 79 in all. 5 of the 30 explicit ones
+## (foe_hp_gte_70, foe_hp_lte_30, ally_hp_lte_60/30, self_hp_lte_50) have
+## exactly the shape the ladder would generate for the same group / cmp / pct,
+## so all 54 percentile-shaped ids (5 legacy + 49 generated) go through one
+## generic path, and only the 25 genuinely bespoke ids get their own match
+## branch.
 static func any_debuff(u: Dictionary) -> bool:
 	for d in DEBUFFS:
 		if has(u, d):
@@ -1015,13 +956,13 @@ static func charge_share(x: Dictionary) -> float:
 static func _pct_cmp(x: float, cmp: String, v: float) -> bool:
 	return x >= v if cmp == "gte" else x <= v
 
-## Mirrors foeTest (farroad-core.js:642-644).
+## Tests a foe's HP percent against a threshold; picks the first matching foe.
 static func cond_foe_pct(b: Dictionary, u: Dictionary, cmp: String, v: float) -> Dictionary:
 	for x in foes(b, u):
 		if _pct_cmp(hp_pct(x), cmp, v):
 			return {"ok": true, "target": x}
 	return {"ok": false, "target": null}
-## Mirrors allyTest (farroad-core.js:645-647).
+## Tests allies' HP percent against a threshold; picks the lowest-HP match.
 static func cond_ally_pct(b: Dictionary, u: Dictionary, cmp: String, v: float) -> Dictionary:
 	var c := []
 	for x in allies(b, u):
@@ -1029,7 +970,7 @@ static func cond_ally_pct(b: Dictionary, u: Dictionary, cmp: String, v: float) -
 			c.append(x)
 	var t = by_lowest_hp(c)
 	return {"ok": t != null, "target": t}
-## Mirrors selfTest (farroad-core.js:648).
+## Tests the unit's own HP percent against a threshold.
 static func cond_self_pct(u: Dictionary, cmp: String, v: float) -> Dictionary:
 	return {"ok": _pct_cmp(hp_pct(u), cmp, v), "target": u}
 
@@ -1046,18 +987,18 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			"foe": return cond_foe_pct(b, u, pct["cmp"], v)
 			"ally": return cond_ally_pct(b, u, pct["cmp"], v)
 			"self": return cond_self_pct(u, pct["cmp"], v)
-	# Ian: "Foe: charge >= 50%" and other chosen values -- any
-	# foe_charge_gte_N is a share of that foe's own charge cost.
+	# any foe_charge_gte_N is a share of that foe's own charge cost (e.g. "Foe:
+	# charge >= 50%")
 	if cond_id.begins_with("foe_charge_gte_") and cond_id.substr(15).is_valid_int():
 		var need: float = float(cond_id.substr(15).to_int()) / 100.0
 		for x in foes(b, u):
 			if x.get("chargeAction") and x["charge"] >= need * cost_of_charge(ACTIONS.get(x["chargeAction"])):
 				return {"ok": true, "target": x}
 		return {"ok": false, "target": null}
-	# Ian: "Foe: weak/strong to <affinity>" for all eight affinities. A NEGATIVE
-	# raw affinity on the foe is what aff_term reads as "takes more damage from
-	# this" (Body: physical hits; Spirit: debuffs land harder on it); a
-	# POSITIVE one is the opposite.
+	# "Foe: weak/strong to <affinity>" for all eight affinities. A negative raw
+	# affinity on the foe is what aff_term reads as "takes more damage from
+	# this" (Body: physical hits; Spirit: debuffs land harder on it); a positive
+	# one is the opposite.
 	var aff := _parse_affinity_condition(cond_id)
 	if aff["matched"]:
 		for x in foes(b, u):
@@ -1199,7 +1140,7 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 			if f.is_empty(): return {"ok": false, "target": null}
 			var t = f[0]
 			for i in range(1, f.size()):
-				# Ian: hardest hitter counts magic too (mages were never picked)
+				# the hardest hitter counts magic too
 				if maxf(eff_atk(f[i]), eff_mag(f[i])) > maxf(eff_atk(t), eff_mag(t)): t = f[i]
 			return {"ok": true, "target": t}
 		"foe_acts_next":
@@ -1383,7 +1324,7 @@ static func choose(u: Dictionary, b: Dictionary) -> Dictionary:
 	u["alternateFlag"] = st["alternateFlag"]
 	return r
 
-## ===== damage/heal resolution (mirrors farroad-core.js:731-767) =====
+## ===== damage/heal resolution =====
 static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Dictionary, pv: float) -> Dictionary:
 	var det: bool = b["det"]
 	var rng = b["rng"]
@@ -1424,10 +1365,9 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["damage"] = max(1, floori(d))
 	return o
 
-## Healing multiplier for a battle (heals, regen, lifesteal). PvP: healing
-## shrinks as enrage rises (Ian: "add it into the enrage mechanic, so it
-## steadily is reduced") -- healDecay "inverse": 1/(1+pct*stacks);
-## "linear": 1-pct*stacks, down to nothing.
+## Healing multiplier for a battle (heals, regen, lifesteal). In PvP, healing
+## shrinks as enrage rises: healDecay "inverse" gives 1/(1+pct*stacks),
+## "linear" gives 1-pct*stacks, down to nothing.
 static func heal_mul(b: Dictionary) -> float:
 	var m := float(b.get("healMul", 1.0))
 	var mode := str(b.get("healDecay", ""))
@@ -1445,7 +1385,7 @@ static func heal_for(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Dicti
 	tgt["hp"] = min(tgt["maxHp"], tgt["hp"] + amt)
 	return {"heal": true, "targetName": tgt["name"], "amount": tgt["hp"] - before}
 
-## ===== the battle loop (mirrors farroad-core.js:768-842) =====
+## ===== the battle loop =====
 static func pick_next(b: Dictionary) -> Variant:
 	var best = null
 	for u in b["units"]:
@@ -1489,11 +1429,10 @@ static func step(b: Dictionary) -> Variant:
 	var ms: int = beat_ms(b["beat"])
 	b["elapsedMs"] += ms
 	# NOTE: every field ever read off e must be pre-populated here, even if a
-	# later branch overwrites it -- unlike JS (a missing property just reads
-	# `undefined`), GDScript's Dictionary throws on `dict[missing_key]`. The
-	# "burned out" early-return below deliberately mirrors the JS original by
-	# NOT setting targetName/isCharge/tickCost/enrageStacks itself; the
-	# defaults here are what make that safe to read afterward.
+	# later branch overwrites it, because GDScript's Dictionary throws on
+	# dict[missing_key]. The "burned out" early return below deliberately does
+	# not set targetName / isCharge / tickCost / enrageStacks itself; the
+	# defaults here are what make reading them afterward safe.
 	var e := {"beat": b["beat"], "t": b["t"], "ms": ms, "actorId": u["id"], "actorName": u["name"],
 		"isParty": u["isParty"], "chargeBefore": u["charge"], "hits": [], "heals": [],
 		"totalDamage": 0, "notes": [], "dot": 0, "regen": 0, "thorns": 0, "poison": [],
@@ -1514,47 +1453,26 @@ static func step(b: Dictionary) -> Variant:
 		b["log"].append(e)
 		check_end(b)
 		return e
-	# Post-Milestone-3 APK feedback (Group A2), broadened per later
-	# feedback, redesigned again after further feedback ("I want actions to
-	# be locked in as soon as they appear on the turn order... charge
-	# actions should only enter the turn order once they're full, not
-	# appearing beforehand. The same should be true for gambit conditions
-	# being met"): the ORIGINAL fix only froze a unit's `slots` (its
-	# loadout structure) -- but choose_from() still re-evaluates charge
-	# readiness and gambit-condition truth against WHATEVER live state
-	# exists at the moment it's actually called, so even a unit with
-	# frozen slots could still resolve a DIFFERENT action at real
-	# execution time than the one shown when it first appeared, if its
-	# charge/HP/conditions drifted in the meantime (from another unit's
-	# actions, not just a player edit). The fix now locks the fully
-	# RESOLVED action id itself (BattlePresenter._lock_upcoming_actors
-	# computes it via choose_from() against the unit's CURRENT real state
-	# the FIRST moment it appears in the rail, matching preview()'s own
-	# no-longer-projected-forward resolution exactly -- see preview()'s
-	# own comment) -- honor that locked id directly instead of calling
-	# choose()/choose_from() at all, then consume (clear) this one unit's
-	# own lock entry. `target` stays null exactly like the real engine's
-	# own "alternate" (no-condition) path already does, so resolve_target
-	# below still picks a fresh, definitely-still-valid target for this
-	# specific action at the ACTUAL moment it fires -- never a stale
-	# reference to a unit that may have died in the meantime. Godot-only
-	# WRITE site (only a live-watched fight ever sets it), but this READ/
-	# consume is engine-layer so headless callers (expedition/dungeon/
-	# offline catch-up) that never set it are unaffected -- `locked`
-	# stays empty and this is a pure no-op there.
-	# lockedActors[uid] is a QUEUE (Array), one entry per upcoming turn of
-	# that unit currently locked -- a fast unit can have several of its
-	# own future turns visible/locked at once (see BattlePresenter.
-	# _lock_upcoming_actors' own comment for why a single value per uid
-	# was the actual bug this replaced). Consumed FIFO: the front entry is
-	# always this unit's OWN next real turn, since preview()/the lock
-	# queue both walk time in order. Each entry also carries the
-	# alternateFlag value that results from having resolved it (computed
-	# at lock time via the real choose_from, not re-derived here) -- since
-	# choose()'s own round-robin advance never runs on this path, applying
-	# that stored value is what keeps a round-robin loadout actually
-	# rotating through its slots instead of freezing on whichever slot it
-	# first locked to.
+	# Honor the action locked in the turn order.
+	# BattlePresenter._lock_upcoming_actors records the fully resolved action id
+	# (via choose_from against the unit's real state, the first time the turn
+	# appears in the rail), so it is used directly here instead of calling
+	# choose() / choose_from(), and this unit's lock entry is consumed.
+	# `target` stays null, as in the engine's own "alternate" (no-condition)
+	# path, so resolve_target below picks a fresh, still-valid target for this
+	# action when it actually fires, never a stale reference to a unit that may
+	# have died meanwhile. Only a live-watched fight ever sets lockedActors;
+	# headless callers (expeditions, dungeons, offline catch-up) never do, so
+	# `locked` stays empty and this is a no-op for them.
+	# lockedActors[uid] is a queue (Array), one entry per locked upcoming turn of
+	# that unit: a fast unit can have several of its own turns visible at once.
+	# It is consumed FIFO, since the front entry is always the unit's own next
+	# real turn (the rail and the lock queue both walk time in order). Each entry
+	# also carries the alternateFlag that results from having resolved it
+	# (computed at lock time by the real choose_from), because choose()'s own
+	# round-robin advance doesn't run on this path; applying that stored value
+	# keeps a round-robin loadout rotating through its slots instead of freezing
+	# on the slot it first locked to.
 	var locked: Dictionary = b.get("lockedActors", {})
 	var ch: Dictionary
 	if locked.has(u["id"]) and not (locked[u["id"]] as Array).is_empty():
@@ -1566,11 +1484,10 @@ static func step(b: Dictionary) -> Variant:
 			locked.erase(u["id"])
 		ch = {"actionId": entry["actionId"], "target": null, "via": "locked -> %s" % entry["actionId"],
 			"condId": entry.get("condId"), "paid": float(entry.get("paid", 0.0))}
-		# Ian: "Foe: lowest HP not working" -- a locked turn kept the action
-		# but dropped the gambit's target, so it fell back to the default
-		# (random) target. Re-run the same condition now for a fresh target
-		# (e.g. whoever is lowest at this moment); if it no longer holds,
-		# the default target is used.
+		# A locked turn keeps the action but not the gambit's target, which would
+		# fall back to the default (random) target. So the same condition is re-run
+		# now for a fresh target (e.g. whoever is lowest at this moment); if it no
+		# longer holds, the default target is used.
 		var cid = entry.get("condId")
 		if cid != null and cid != "none":
 			var r := resolve_condition(str(cid), u, b, ACTIONS.get(entry["actionId"]))
@@ -1601,13 +1518,13 @@ static func step(b: Dictionary) -> Variant:
 		elif act.get("tk") == "allAllies": targets = allies(b, u)
 		elif act.get("tk") == "self": targets = [u]
 		else: targets = [primary]
-		# Ian: "if an attack is evaded, status effects don't occur" -- tracked
-		# per-target here (id -> did at least one hit land / was any hit even
-		# attempted against them), only ever populated by the pv>0 hit loop
-		# below, so the "applies" block further down can skip a target that
-		# dodged every hit from a combined damage+status action, while a
-		# pure status/buff/heal action (no hits resolved here at all) stays
-		# completely unaffected -- evasion is never rolled for those.
+		# If an attack is evaded, its status effects don't occur. Tracked per
+		# target here (id -> did at least one hit land / was any hit even attempted
+		# against them), only populated by the pv>0 hit loop below, so the
+		# "applies" block further down can skip a target that dodged every hit of
+		# a combined damage + status action, while a pure status / buff / heal
+		# action (no hits resolved here at all) is unaffected: evasion is never
+		# rolled for those.
 		var hit_landed: Dictionary = {}
 		var hit_attempted: Dictionary = {}
 		if act.get("revive"):
@@ -1634,7 +1551,7 @@ static func step(b: Dictionary) -> Variant:
 				for tg in tl:
 					if tg == null or tg["hp"] <= 0:
 						continue
-					# Ian: target-HP actions hit by Broad scale off each foe's own HP.
+					# target-HP actions hit by Broad scale off each foe's own HP
 					var hit_pv: float = eval_power_fn(act, u, tg) if act.get("powerFnId") in ["execute", "reckoning"] else pv
 					# extra damage against a target carrying a given status (Inferno Burst vs Burning)
 					if act.get("bonusStatus") and has(tg, str(act["bonusStatus"])):
@@ -1673,17 +1590,16 @@ static func step(b: Dictionary) -> Variant:
 					var already := has(t, act["applies"])
 					var speed_before: float = speed_status_mul(t)
 					apply_status(t, act["applies"], act["turns"], u["affinity"]["spirit"], status_potency(act))
-					# Ian: Haste/Slow weren't doing what they should -- they only
-					# changed the waits scheduled AFTER the status landed, so the
-					# target's current wait (and, with a short duration, most of
-					# the effect) was lost. Rescale what is left of the current
-					# wait right away. (The caster's own wait is set below.)
+					# Haste / Slow rescale what is left of the target's current wait
+					# right away (otherwise they would only change the waits scheduled
+					# after the status landed, losing most of a short effect). The
+					# caster's own wait is set below.
 					if t != u and (act["applies"] == "hasted" or act["applies"] == "slowed"):
 						var speed_after: float = speed_status_mul(t)
 						if speed_before > 0.0 and speed_after != speed_before and t["nextActAt"] > b["t"]:
 							t["nextActAt"] = b["t"] + maxi(1, roundi(float(t["nextActAt"] - b["t"]) * speed_after / speed_before))
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
-		# Ian: charge-sharing actions. giveCharge: each target (never the user)
+		# charge-sharing actions. giveCharge: each target (never the user)
 		# gains that much charge. siphonCharge: the user gives up to that much
 		# of its own charge, split evenly among the other targets.
 		if act.get("giveCharge"):
@@ -1703,13 +1619,10 @@ static func step(b: Dictionary) -> Variant:
 		if act.get("selfTaunt"):
 			apply_status(u, "taunted", act["selfTaunt"], u["affinity"]["spirit"])
 			e["notes"].append("taunting")
-	# Ian: "sear triggers after the afflicted unit acts" -- burning's DOT
-	# tick used to fire at the very TOP of this unit's own turn, before
-	# they even chose an action (so a lethal DOT could burn a unit out
-	# before their turn ever happened). Now it ticks here instead, once
-	# this unit's own action has fully resolved -- still the same beat/
-	# event (e["actorId"] is still the afflicted unit either way), just
-	# ordered after rather than before.
+	# Burning's DOT ticks here, once this unit's own action has fully resolved
+	# (not at the top of its turn, which would let a lethal DOT burn a unit out
+	# before its turn ever happened). It is still the same beat / event
+	# (e["actorId"] is the afflicted unit either way).
 	if has(u, "burning"):
 		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
 		u["hp"] = max(0, u["hp"] - dot)
@@ -1741,29 +1654,25 @@ static func step(b: Dictionary) -> Variant:
 	if b["enrage"] and (not u["isParty"] or b.get("enrageAll", false)) and u["hp"] > 0:
 		var pending: int = int(b.get("enrageN", 0)) - int(u.get("enrageApplied", 0))
 		if pending > 0:
-			# Ian: "enraged damage scaling seems to be compounding, not
-			# increasing at a linear rate" -- switched from
-			# pow(1+ENRAGE_PCT, N) to a flat 1+ENRAGE_PCT*N. u["base"]["atk"]/
-			# ["mag"] are mutated PERMANENTLY in place (no separate
-			# "original, pre-enrage" value kept elsewhere), and a slow enemy
-			# can have several turns' worth of stacks pending at once -- so
-			# catching up from `applied_n` to `target_n` in one lump multiply
-			# needs the RATIO between the two linear targets (both measured
-			# against the true original), not the raw target multiplier
-			# itself: base_atk currently already carries (1+PCT*applied_n)
-			# baked in, so multiplying by (1+PCT*target_n)/(1+PCT*applied_n)
-			# lands it exactly on (original * (1+PCT*target_n)).
+			# Enrage scales linearly: 1 + ENRAGE_PCT * N. u["base"]["atk"] / ["mag"]
+			# are mutated permanently in place (no separate pre-enrage value is
+			# kept elsewhere), and a slow enemy can have several turns' worth of
+			# stacks pending at once. So catching up from `applied_n` to `target_n`
+			# in one lump multiply needs the ratio between the two linear targets
+			# (both measured against the true original), not the raw target
+			# multiplier: base_atk already carries (1+PCT*applied_n), so multiplying
+			# by (1+PCT*target_n)/(1+PCT*applied_n) lands it exactly on
+			# original * (1+PCT*target_n).
 			var applied_n: int = int(u.get("enrageApplied", 0))
 			var target_n: int = int(b.get("enrageN", 0))
 			var pct: float = float(b.get("enragePct", ENRAGE_PCT))   # a battle may override (PvP tuning)
 			var mul: float = (1.0 + pct * target_n) / (1.0 + pct * applied_n)
 			u["base"]["atk"] *= mul
 			u["base"]["mag"] *= mul
-			# Ian: "have enrage increase speed as well." Same linear
-			# catch-up multiplier already applied to atk/mag -- spd is
-			# mutated permanently in place the same way, so a unit that's
-			# missed several stacks catches up to the same relative speed
-			# boost as atk/mag in one lump multiply, not applied N times.
+			# Enrage also speeds the unit up, with the same linear catch-up
+			# multiplier as atk / mag: spd is mutated permanently in place the same
+			# way, so a unit that missed several stacks catches up in one lump
+			# multiply, not N times.
 			u["base"]["spd"] *= mul
 			u["enrageApplied"] = target_n
 			e["enrageStacks"] = target_n
@@ -1776,49 +1685,42 @@ static func step(b: Dictionary) -> Variant:
 	check_end(b)
 	return e
 
-## ===== turn-order preview (mirrors preview(), farroad-core.js:843-859) =====
-## A non-mutating simulation of the next `count` turns' ORDER (who acts
-## when -- driven by real nextActAt/spd/slotIndex, cloned into `sim` and
-## advanced via tc_of only). Ian: "charge actions should only enter the
-## turn order once they're full, not appearing beforehand. The same
-## should be true for gambit conditions being met" -- ACTION CHOICE,
-## unlike order, is no longer projected forward at all: every slot,
-## including a fast unit's own further-out appearances within this same
-## window, resolves choose_from() against that unit's REAL, CURRENT
-## charge/HP/conditions (never a simulated future value) -- so a slot can
-## only ever show a charge action if it's genuinely full RIGHT NOW, and a
-## condition-gated action only if that condition is genuinely true RIGHT
-## NOW. This is also what makes the result safe to lock in verbatim the
-## instant it first appears (BattlePresenter._lock_upcoming_actors/
-## FarroadCore.step()'s own lockedActors consumption) -- "what's shown"
-## and "what would happen if resolved this instant" are the same
-## question by construction, never a speculative forecast. choose_from()
-## itself never mutates a unit (only the throwaway `state` dict passed
-## in), so this stays safe to call every beat purely for display.
+## ===== turn-order preview =====
+## A non-mutating simulation of the next `count` turns' order (who acts when,
+## driven by real nextActAt / spd / slotIndex, cloned into `sim` and advanced
+## via tc_of only). Action choice, unlike order, is not projected forward:
+## every slot, including a fast unit's own further-out appearances within this
+## window, resolves choose_from() against that unit's real, current charge /
+## HP / conditions (never a simulated future value). So a slot only shows a
+## charge action if it is genuinely full right now, and a condition-gated
+## action only if that condition is genuinely true right now. That is also what
+## makes the result safe to lock in verbatim the instant it first appears
+## (BattlePresenter._lock_upcoming_actors, and step()'s lockedActors
+## consumption): "what's shown" and "what would happen if resolved this
+## instant" are the same question by construction. choose_from() never mutates
+## a unit (only the throwaway `state` dict passed in), so this is safe to call
+## every beat purely for display.
 static func preview(b: Dictionary, count: int = 6) -> Array:
 	var sim := []
 	for u in b["units"]:
 		if u["hp"] <= 0:
 			continue
 		sim.append({"u": u, "at": u["nextActAt"]})
-	# Ian: "when a charge action is entered in the queue, consider it
-	# expended and only list it once." A fast unit can occupy multiple of
-	# the upcoming slots within one preview() call -- without this, every
-	# one of those slots re-reads the SAME still-full u["charge"] (real
-	# charge only ever decrements in step(), once the action truly
-	# executes), so the same full charge action would get listed again
-	# and again for that unit. Tracked per-unit, this preview() call only.
+	# A charge action entered in the queue counts as expended and is listed only
+	# once. A fast unit can occupy several of the upcoming slots within one
+	# preview() call; without this, each of those slots would re-read the same
+	# still-full u["charge"] (real charge only decrements in step(), when the
+	# action truly executes) and list the same charge action again and again.
+	# Tracked per unit, for this preview() call only.
 	var charge_shown: Dictionary = {}
 	var out := []
-	# Post-report fix: choose_from can reach resolve_condition -> def_foe(),
-	# which rolls real RNG to pick a random foe (e.g. for "foe_any"-style
-	# conditions) whenever b["det"] is false. preview() never surfaces that
-	# picked target to anything -- only the resolved ACTION id is ever
-	# used -- so without this, every turn-order refresh (every beat, for
-	# every visible unit with such a condition) silently burned real draws
-	# from the shared battle RNG purely to compute a throwaway value,
-	# corrupting the SAME stream later crit/evade rolls depend on. Flipped
-	# to deterministic for the duration of this call only.
+	# choose_from can reach resolve_condition -> def_foe(), which rolls real RNG
+	# to pick a random foe (e.g. for "foe_any"-style conditions) whenever
+	# b["det"] is false. preview() never surfaces that target, only the resolved
+	# action id, so without this every turn-order refresh (every beat, for every
+	# visible unit with such a condition) would burn real draws from the shared
+	# battle RNG for a throwaway value, corrupting the stream later crit / evade
+	# rolls depend on. So b["det"] is true for the duration of this call only.
 	var was_det: bool = b["det"]
 	b["det"] = true
 	for n in range(count):
@@ -1855,8 +1757,8 @@ static func preview(b: Dictionary, count: int = 6) -> Array:
 	b["det"] = was_det
 	return out
 
-## Ian: a queued charge action was paid for when it entered the turn-order
-## queue -- if the fight ends before it goes off, give the cost back.
+## A queued charge action was paid for when it entered the turn-order queue; if
+## the fight ends before it goes off, give the cost back.
 static func refund_queued_charges(b: Dictionary) -> void:
 	var locked: Dictionary = b.get("lockedActors", {})
 	for uid in locked.keys():

@@ -1,26 +1,23 @@
 class_name BattlePresenter
 extends Node2D
-## Milestone 2, Step 2a: the battle view. Drives FarroadCore.step() beat by
-## beat and animates each event -- FarroadCore.gd itself is never modified,
-## this is presentation only, consuming the exact same event shape
-## parity_test.gd already dumps to JSON for the headless diff tests.
+## The battle view. Drives FarroadCore.step() beat by beat and animates each
+## event. This is presentation only; FarroadCore is not modified here.
 ##
-## Layout is computed from the viewport's OWN size at runtime, as fractions,
-## not fixed pixel constants -- this is meant to run on phones, and Godot's
-## stretch/aspect="expand" (project.godot) means the actual visible viewport
-## size varies by device aspect ratio, not just the 1280x720 design size.
+## Layout is computed from the viewport's own size at runtime, as fractions,
+## not fixed pixel constants: this runs on phones, and Godot's
+## stretch/aspect="expand" (project.godot) means the visible viewport size
+## varies by device aspect ratio, not just the 1280x720 design size.
 ##
-## Milestone 3, Step 3b: no longer self-contained -- GameController.gd owns
-## the real game-state Dictionary and the real battle it's fighting.
-## `_ready()` only builds the reusable UI chrome (log/status/enrage/turn
-## order); `start_battle()` is the new entry point a caller uses to actually
-## begin animating a real, externally-built battle. A fresh instance is
-## created per wave (see GameController._begin_next_fight) rather than
-## reused, so there's no reset-state path to get wrong between fights.
+## GameController.gd owns the game-state Dictionary and the real battle being
+## fought. _ready() only builds the reusable UI chrome (log, status, enrage,
+## turn order); start_battle() is the entry point that begins animating an
+## externally built battle. A fresh instance is created per wave (see
+## GameController._begin_next_fight) rather than reused, so there is no
+## reset-state path to get wrong between fights.
 
 signal battle_finished(outcome)
 
-## Ian: damage over time (burning, poison) shows in purple.
+## Damage over time (burning, poison) shows in purple.
 const DOT_COLOR := Color(0.74, 0.42, 0.98)
 const TURN_ORDER_COUNT := 6      # five in full, the sixth running off the right edge
 const TURN_ORDER_FULL := 5
@@ -42,18 +39,13 @@ const HOP_HEIGHT_FRAC := 0.099      # of viewport height (doubled from round 4's
 # stops -- 0.05 originally drew the two shapes nearly on top of each other
 # at the peak of the hop; 50% farther back than that.
 const HOP_STOP_SHORT := 0.075       # of viewport width
-# 24-item batch (Group B3): "if actions are physical, have the next action
-# take place while they are in the middle of moving back to their
-# position, so after 0.75 seconds. Make magic actions take 0.75 seconds."
-# HOP_TIME is now just the OUTBOUND leg's own duration -- the return leg
-# is fire-and-forget (started, never awaited), so the two are no longer
-# coupled into one blocking round trip. PHYS_BEAT_TOTAL is the actual
-# gate before the next beat's step() fires: since HOP_TIME(0.475) is
-# comfortably under PHYS_BEAT_TOTAL(0.75), and the RETURN leg takes its
-# own HOP_TIME to finish, the return is still visibly mid-flight when the
-# next action starts, exactly as asked. MAGIC_BEAT_TOTAL replaces the old
-# PROJECTILE_TIME+BEAT_PAUSE pair -- the projectile's own flight duration
-# IS the full magic beat now, nothing tacked on after.
+# A physical action's next beat starts while the unit is still moving back to
+# its position, PHYS_BEAT_TOTAL (0.75 s) after the beat began. HOP_TIME is only
+# the outbound leg's duration; the return leg is started but never awaited, so
+# the two are not one blocking round trip. HOP_TIME (0.475) is under
+# PHYS_BEAT_TOTAL and the return leg takes its own HOP_TIME, so the return is
+# still in flight when the next action starts. MAGIC_BEAT_TOTAL is the whole
+# magic beat: the projectile's flight is the beat, with nothing added after.
 const HOP_TIME := 0.475             # outbound leg only now (see above)
 const LAND_TO_HIT := 0.06            # seconds from touching down to the attack's impact frame
 const ATTACK_EARLIEST_IN_LEG := 0.15 # the attack never starts before this share of the jump (takeoff reads first)
@@ -61,8 +53,7 @@ const PHYS_BEAT_TOTAL := 0.75
 const MAGIC_BEAT_TOTAL := 0.75
 const IDLE_PAUSE := 0.45            # no-target/burned-out beats -- nothing to animate anyway
 
-## camp/element glyphs -- mirrors ELEMENT_GLYPH/actionGlyphText exactly
-## (farroad-ui.js:486-505), same unicode icons, no sprite assets needed.
+## camp/element glyphs (unicode icons, no sprite assets needed).
 const ELEMENT_GLYPH := {"fire": "🔥", "water": "💧", "earth": "🪨",
 	"air": "💨", "light": "☀️", "dark": "🌑"}
 
@@ -128,8 +119,8 @@ func _ready() -> void:
 	UnitView.name_ref_size = _vp.y * 0.05 * unit_scale
 	_bar_layer = Node2D.new()
 	add_child(_bar_layer)
-	# Needed for UnitView's own Area2D.input_event (tap-a-unit-for-stats,
-	# post-batch feedback) to ever fire -- off by default project-wide.
+	# Needed for UnitView's own Area2D.input_event (tap a unit for its stats) to
+	# ever fire; it is off by default project-wide.
 	get_viewport().physics_object_picking = true
 	_recompute_field_fractions()
 	_build_log_ui()
@@ -186,10 +177,10 @@ func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen:
 	if auto_start_loop:
 		_run_battle_loop()
 
-## Reveals a party hidden by start_battle's hide_party_until_revealed --
-## Ian: "units should heal before they run forward." Fills each party unit's health bar from
-## where the fight left it up to `targets[id]` (what the wave's recovery gives it) over
-## `duration`, with a green +N over it. Returns whether anyone actually healed.
+## Units heal before they run forward: fills each party unit's health bar from
+## where the fight left it up to `targets[id]` (what the wave's recovery gives
+## it) over `duration`, with a green +N over it. Returns whether anyone
+## actually healed.
 func heal_party_to(targets: Dictionary, duration: float) -> bool:
 	var any := false
 	for view in unit_views_by_id.values():
@@ -219,7 +210,7 @@ func reveal_party(fade_duration: float = 0.5) -> void:
 			view.visible = true
 			view.fade_in_chrome(fade_duration)
 
-## Ian: "slow down the enemy movement into their positions" -- was 1.0.
+## How long the enemies take to run into their positions.
 const ENEMY_RUN_IN_TIME := 1.6
 
 ## Ian, follow-up to the original "enemies run in" ask: "make it feel like
@@ -248,8 +239,8 @@ func _stage_enemies_offscreen() -> void:
 		view.position = Vector2(_vp.x + view.size * 2.0, view.rest_position.y)
 		view.hide_chrome()
 
-## Ian: the turn order does not just appear -- its first five cards slide in
-## from the right, filling the strip, while the enemies come into the frame.
+## The turn order does not just appear: its first five cards slide in from the
+## right, filling the strip, while the enemies come into the frame.
 var _cards_staged := false
 
 func _stage_turn_cards_offscreen() -> void:
@@ -276,12 +267,13 @@ func _snap_turn_cards_home() -> void:
 	for card in turn_cards:
 		(card["panel"] as Control).position.x = float(card["home_x"])
 
-## (Same rule as GameController.run_time_ratio, duplicated per this project's convention.)
-## Ian: more variance in how fast each unit runs, so some get ahead and others lag behind and they reach
-## their marks at different times. The time a unit takes, as a share of the slowest unit's: a steeper
-## speed curve than a straight ratio, a small fixed offset per unit (from its id, so it is the same every
-## time it is asked) so even equal-speed units don't arrive together, and never faster than MIN_RATIO or
-## slower than the slowest (1.0).
+## (Same rule as GameController.run_time_ratio, duplicated per this project's
+## convention.) How long a unit takes to run, as a share of the slowest unit's,
+## so some units get ahead and others lag and they reach their marks at
+## different times: a steeper speed curve than a straight ratio, a small fixed
+## offset per unit (from its id, so it is the same every time it is asked) so
+## even equal-speed units don't arrive together, and never faster than
+## MIN_RATIO or slower than the slowest (1.0).
 const RUN_VARIANCE_EXP := 1.6
 const RUN_JITTER := 0.5           # +-25%
 const RUN_MIN_RATIO := 0.3
@@ -291,8 +283,9 @@ static func run_time_ratio(uid: String, spd: float, slowest: float) -> float:
 	var jitter: float = 1.0 + (float(absi(uid.hash()) % 1000) / 1000.0 - 0.5) * RUN_JITTER
 	return clampf(base * jitter, RUN_MIN_RATIO, 1.0)
 
-## Ian: a full second between the fastest and the slowest enemy arriving. The fastest takes ENEMY_RUN_MIN,
-## the slowest ENEMY_RUN_IN_TIME (so combat still starts once everyone has arrived).
+## A full second between the fastest and the slowest enemy arriving. The
+## fastest takes ENEMY_RUN_MIN, the slowest ENEMY_RUN_IN_TIME (so combat still
+## starts once everyone has arrived).
 const ENEMY_RUN_MIN := 0.6
 
 static func pack_lags(ratios: Dictionary) -> Dictionary:
@@ -331,10 +324,11 @@ func run_enemies_entering() -> void:
 		tw.tween_property(view, "position", view.rest_position, ENEMY_RUN_MIN + lag * (ENEMY_RUN_IN_TIME - ENEMY_RUN_MIN)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.finished.connect(view.fade_in_chrome)
 
-## Ian: enemies run in like the party runs on: the same spread in how fast each one is, so some arrive
-## ahead of the others. Run in over the given times: the fastest enemy takes `fast_time`, the slowest
-## `fast_time + variance`. (The next fight is built while the old one is still on screen, so its enemies
-## can be running in while the forest is still scrolling.)
+## Enemies run in like the party runs on, with the same spread in how fast
+## each one is, so some arrive ahead of the others. They run in over the given
+## times: the fastest enemy takes `fast_time`, the slowest `fast_time +
+## variance`. (The next fight is built while the old one is still on screen,
+## so its enemies can be running in while the forest is still scrolling.)
 func run_enemies_in_pack(fast_time: float, variance: float) -> void:
 	var slowest := INF
 	for v in unit_views_by_id.values():
@@ -437,13 +431,11 @@ func _reposition_units() -> void:
 	_place_side(party_front, party_back, party_front_x, party_back_x, false)
 	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, not _rival_team(enemy_front + enemy_back))
 
-## Group I (20-item batch): per-unit, not a single global constant -- a
-## boss (u["isBoss"]) reads BOSS_SIZE_MUL bigger, and an archetype's own
-## optional `size` CSV field (FarroadCore.ARCH[u["arch"]]["size"], default
-## 1.0 -- content-pipeline.js's compileArch, omitted when the archetype is
-## normal-sized) scales it further. A party member (no "arch") or an
-## archetype with no size override both fall back to the plain base size,
-## identical to every unit's size before this change.
+## Per-unit size: a boss (u["isBoss"]) is BOSS_SIZE_MUL bigger, and an
+## archetype's own optional `size` field (FarroadCore.ARCH[u["arch"]]["size"],
+## default 1.0, omitted when the archetype is normal-sized) scales it further.
+## A party member (no "arch") or an archetype with no size override uses the
+## plain base size.
 const BOSS_SIZE_MUL := 1.5
 func _unit_size(u: Dictionary) -> float:
 	var base: float = _vp.y * 0.05 * unit_scale
@@ -573,16 +565,14 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 	for view in unit_views_by_id.values():
 		view.update_hp()
 
-## Called by GameController right after a PartyPanel front/back row toggle
-## (post-Milestone-3 APK feedback, Group A1) -- replaces the earlier
-## "self-corrects within one wave" tradeoff with a real live hop. The
-## mover's own UnitView is still at its OLD slot when this runs; snapshot
-## that, re-run _reposition_units() (which re-places EVERY tracked view,
-## including the mover, by its now-updated `row` -- same shared recompute
-## sync_live_party's own hop already uses), then tween just the mover from
-## its old position to the freshly computed new one. Every OTHER view gets
-## snapped instantly by _reposition_units() too, but harmlessly -- only the
-## mover's own row changed, so only its own slot actually moved.
+## Called by GameController right after a PartyPanel front/back row toggle: a
+## live hop to the new slot. The mover's own UnitView is still at its old slot
+## when this runs; snapshot that, re-run _reposition_units() (which re-places
+## every tracked view, including the mover, by its now-updated `row`, the same
+## shared recompute sync_live_party's hop uses), then tween just the mover from
+## its old position to the new one. Every other view is snapped instantly by
+## _reposition_units() too, but harmlessly: only the mover's row changed, so
+## only its slot moved.
 func hop_to_new_row(uid: String) -> void:
 	var view: UnitView = unit_views_by_id.get(uid)
 	if view == null:
@@ -596,15 +586,13 @@ func hop_to_new_row(uid: String) -> void:
 	var tw := create_tween()
 	tw.tween_property(view, "position", target, JOIN_HOP_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
-## Called by GameController right after a MC rename (post-batch feedback:
-## "add a button to change our main character's name") -- the live unit
-## dict's own "name" field is already updated by FarroadProgression.
-## set_mc_name (same shared-reference reasoning sync_loadout/
-## set_mc_charge_action rely on), but the on-field UnitView's own name
-## label was only ever set once at build time, and unit_views_by_name's
-## dict KEY would otherwise go stale -- a future event's target-name
-## lookup (e.g. _apply_status_notes) reads the unit's already-renamed
-## live name, which would miss the OLD key entirely.
+## Called by GameController right after the main character is renamed. The
+## live unit dict's own "name" is already updated by
+## FarroadProgression.set_mc_name (the dict is shared, as with sync_loadout and
+## set_mc_charge_action), but the on-field UnitView's name label was only set
+## once at build time, and the unit_views_by_name key would otherwise go stale:
+## a later event's target-name lookup (e.g. _apply_status_notes) reads the
+## already-renamed live name and would miss the old key.
 func sync_mc_name(old_name: String, new_name: String) -> void:
 	var view: UnitView = unit_views_by_id.get("kesh")
 	if view == null:
@@ -647,23 +635,20 @@ func _layout_units(units: Array) -> void:
 	_place_side(party_front, party_back, party_front_x, party_back_x, false)
 	_place_side(enemy_front, enemy_back, enemy_front_x, enemy_back_x, not _rival_team(enemy_front + enemy_back))
 
-## Assigns every unit on ONE side a Y position -- each reserving a vertical
-## band proportional to its own field size (_unit_size), not an equal
-## slice everyone shares regardless of how big they actually are (Group I,
-## 20-item batch: "make bosses bigger" needs the boss to actually GET more
-## room, not just draw a bigger shape squeezed into the same slot).
+## Assigns every unit on one side a Y position. Each reserves a vertical band
+## proportional to its own field size (_unit_size), not an equal slice, so a
+## boss actually gets more room rather than a bigger shape squeezed into the
+## same slot.
 ##
-## allow_shared_rows=false (party) keeps the original no-two-units-ever-
-## share-a-row guarantee: front and back interleaved into ONE combined list
-## in the order they get slots, then laid out as one weighted column.
-## allow_shared_rows=true (enemies) instead lays front and back out as TWO
-## INDEPENDENT weighted columns, each spanning the full field height on its
-## own -- restores the pre-interleaving behavior specifically for enemies,
-## so e.g. a 1-front/1-back pair can land at the identical Y (directly
-## behind each other), freeing vertical room for a bigger boss sprite, per
-## Ian's own "saves space" reasoning.
-## Ian: an Arena rival is a party, so it's laid out like one (no unit
-## directly behind another), mirrored on the enemy side.
+## allow_shared_rows=false (party) guarantees no two units share a row: front
+## and back are interleaved into one combined list in the order they get slots,
+## then laid out as one weighted column.
+## allow_shared_rows=true (enemies) lays front and back out as two independent
+## weighted columns, each spanning the full field height, so e.g. a
+## 1-front/1-back pair can land at the identical Y (directly behind each
+## other), freeing vertical room for a bigger boss sprite.
+## An Arena rival is a party, so it is laid out like one (no unit directly
+## behind another), mirrored on the enemy side.
 func _rival_team(views: Array) -> bool:
 	for v in views:
 		if v.unit.get("pvp", false):
@@ -796,9 +781,8 @@ const STATUS_GLYPH := {
 	"regen": "✚", "blurred": "💨", "poisoned": "☠", "confused": "❓", "exposed": "🎯", "empowered": "⚔",
 	"inspired": "🔮", "resolute": "🛡", "keen": "🎯", "dazed": "💫", "drained": "🔋", "vulnerable": "💔", "wounded": "🩹", "boon_fire": "✨", "boon_water": "✨", "boon_earth": "✨", "boon_air": "✨", "boon_light": "✨", "boon_dark": "✨", "boon_body": "✨", "boon_spirit": "✨", "bane_fire": "☠", "bane_water": "☠", "bane_earth": "☠", "bane_air": "☠", "bane_light": "☠", "bane_dark": "☠", "bane_body": "☠", "bane_spirit": "☠"}
 
-## Flavor text for a non-party unit's row tag -- mirrors PREF_TEXT
-## (farroad-core.js:531-533), which this port only kept as numeric weights
-## (pref_weight) since nothing needed the display strings until now.
+## Flavor text for a non-party unit's row tag (pref_weight holds only the
+## numeric weights).
 const PREF_TEXT := {"wolf": "lunges at whoever is hurt", "knight": "engages the front line",
 	"hound": "darts past the line at your back rank", "ox": "indiscriminate",
 	"priest": "opportunist — prefers the wounded", "shrike": "indiscriminate"}
@@ -806,37 +790,21 @@ const PREF_TEXT := {"wolf": "lunges at whoever is hurt", "knight": "engages the 
 var status_popup: PopupPanel
 var status_container: VBoxContainer
 
-## "Unit status screens like the original implementation" -- mirrors
-## renderUnits()'s per-unit card (farroad-ui.js:1683-1729) structurally:
-## name+level+row tag, HP text+bar, charge action name+bar, one combined
-## ATK/MAG/SPD/DEF/RES line (DEF/RES colored to flag the lower of the two,
-## no separate hint sentence), a weakness line, and (party only)
-## a RECOVERY line. Rebuilt fresh each time the popup opens, reading live
-## unit data at that moment, rather than kept continuously in sync while
-## hidden.
-## The default theme's PopupPanel background wasn't fully opaque -- with the
-## battle animating behind it, both popups were hard to read. Forces a solid,
-## fully-opaque panel (alpha 1.0) on both, rather than relying on the theme
-## default.
+## The default theme's PopupPanel background isn't fully opaque, and with the
+## battle animating behind it both popups were hard to read. This forces a
+## solid, fully opaque panel (alpha 1.0) on both.
 func _style_popup(popup: PopupPanel) -> void:
 	UiKit.style_popup(popup)
 
-## A tab square -- eventually a blank placeholder standing in for real art
-## (same "placeholder shape until sprites exist" convention UnitView's own
-## Polygon2D shapes already use), but FOR NOW showing its label directly ON
-## the button (`btn.text`) rather than a separate caption Label below it --
-## a caption positioned below a small, corner-anchored square is exactly
-## the kind of element that can land partly or fully outside the visible
-## window when the screen is resized smaller (confirmed live: "the text
-## under the buttons will also fall off screen"), whereas text INSIDE the
-## button's own already-correctly-bounded rect can't independently drift
-## off it. `size` is in PIXELS (already resolved from a viewport fraction
-## by the caller) and applied to both dimensions so it's always a true
-## square regardless of the screen's aspect ratio.
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## A tab square: a placeholder standing in for real art, with its label shown
+## directly on the button (`btn.text`). A caption positioned below a small,
+## corner-anchored square can land partly or fully outside the visible window
+## when the screen is resized smaller, whereas text inside the button's own
+## bounded rect can't drift off it. `size` is in pixels (already resolved from
+## a viewport fraction by the caller) and applied to both dimensions so it is
+## always a true square regardless of the screen's aspect ratio.
+## `icon`, when given, shows a real icon texture instead of or alongside the
+## placeholder text; no caller passes one yet.
 func _build_icon_tab(pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(self, pos, size, label_text, callback, icon)
 
@@ -888,12 +856,11 @@ func _on_status_pressed() -> void:
 	_refresh_status_popup()
 	status_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.85))
 
-## Ian: "tapping on a unit in the battle should show its stats page,
-## live." Opens the SAME Status popup, just filtered down to the one
-## tapped unit -- reuses _refresh_status_popup's existing per-beat live
-## refresh (_run_battle_loop's own `if _status_open():` calls),
-## so the single card keeps tracking the fight for as long as it's open,
-## same as the full list already did.
+## Tapping a unit in the battle shows its stats page, live. This opens the same
+## Status popup, filtered down to the one tapped unit, reusing
+## _refresh_status_popup's per-beat live refresh (_run_battle_loop's
+## `if _status_open():` calls), so the single card keeps tracking the fight for
+## as long as it is open, as the full list does.
 func _on_unit_tapped(uid: String) -> void:
 	_clear_status_bars()
 	status_filter_uid = uid
@@ -955,6 +922,11 @@ func _refresh_status_popup() -> void:
 			continue
 		status_container.add_child(_build_status_card(u))
 
+## One unit's status card: name, level and row tag, HP text and bar, charge
+## action name and bar, one combined ATK/MAG/SPD/DEF/RES line (the lower of
+## DEF/RES colored), a weakness line, and (party only) a RECOVERY line. Rebuilt
+## fresh each time the popup opens, reading live unit data at that moment,
+## rather than kept in sync while hidden.
 func _build_status_card(u: Dictionary) -> Control:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", UiKit.card_style(10, u["id"] == active_unit_id))
@@ -965,11 +937,10 @@ func _build_status_card(u: Dictionary) -> Control:
 	var header := HBoxContainer.new()
 	var color: String = PARTY_COLOR if u["isParty"] else ENEMY_COLOR
 	var level: int = u["level"] if u["isParty"] else roundi(FarroadCore.level_curve(FarroadCore.current_wave))
-	# Ian: "reduce First boss level to 10." Display-only override, scoped
-	# exactly like FIRST_BOSS_LEN/FIRST_BOSS_HARD_EXTRA/FIRST_BOSS_DMG_MUL
-	# (the wave-20 boss's own dedicated softening constants) -- the
-	# underlying level_curve/waveScale stat math is untouched, only the
-	# number shown on this card for that one specific fight.
+	# The first boss's level shown on this card is overridden (display only),
+	# scoped like FIRST_BOSS_LEN / FIRST_BOSS_HARD_EXTRA / FIRST_BOSS_DMG_MUL
+	# (the wave-20 boss's own softening constants). The underlying level_curve /
+	# waveScale stat math is untouched; only the number shown for that fight.
 	if not u["isParty"] and u.get("isBoss") and FarroadCore.current_wave == FarroadProgression.BOSS_WAVES[0]:
 		level = 10
 	var row_tag: String = ""
@@ -1003,8 +974,8 @@ func _build_status_card(u: Dictionary) -> Control:
 		charge_row.add_child(_info_btn(str(u["chargeAction"])))
 		box.add_child(charge_row)
 
-		# Matches the ORIGINAL UI's own display convention (farroad-ui.js:1711):
-		# clamped against a flat 100, not this unit's own real costOfCharge.
+		# Display convention: the bar is clamped against a flat 100, not this
+		# unit's own real costOfCharge.
 		var cb: Array = _status_bar(str(u["id"]), "ch", false, 8.0)
 		var ch_bar: UiBar = cb[0]
 		ch_bar.set_frac(clamp(float(u["charge"]) / 100.0, 0.0, 1.0), not cb[1])
@@ -1065,15 +1036,15 @@ func _build_status_card(u: Dictionary) -> Control:
 			enrage_text = "⏱ calm — enrages at turn %d" % _enrage_after()
 		box.add_child(_rich_line("[font_size=12][color=#%s]%s[/color][/font_size]" % [BAD_COLOR if stacks > 0 else DIM_COLOR, enrage_text]))
 
-	# Ian: tap a party unit on the Road to pick the action it takes next.
+	# tap a party unit on the Road to pick the action it takes next
 	if u["isParty"] and u["hp"] > 0 and status_filter_uid == u["id"] and battle["over"] == null and not battle.get("ranked", false):
 		_add_next_action_picker(box, u)
 
-	# Ian: tapping an enemy shows what it will do -- its gambits, top first
+	# tapping an enemy shows what it will do: its gambits, top first
 	if not u["isParty"] and status_filter_uid == u["id"]:
 		var lines: Array = []
 		var ch = u.get("chargeAction")
-		# Ian: an Arena opponent's actions show their level (the Lore spent on them).
+		# an Arena opponent's actions show their level (the Lore spent on them)
 		var lv := func(a) -> String: return (" Lv%d" % int(a.get("loreLevel", 0))) if (u.get("pvp", false) and a != null) else ""
 		if ch != null and FarroadCore.ACTIONS.has(ch):
 			lines.append({"text": "⚡ charge full → %s%s" % [FarroadCore.ACTIONS[ch]["name"], lv.call(FarroadCore.ACTIONS[ch])], "aid": str(ch)})
@@ -1167,8 +1138,8 @@ func _choose_next_action(uid: String, aid: String) -> void:
 	_refresh_status_popup()
 	Analytics.add("features", "manualAction")
 
-## Mirrors defResPair (farroad-ui.js:1638-1651) -- EFFECTIVE DEF/RES, the
-## lower one flagged only when the gap is >=15% (a smaller gap is noise).
+## Effective DEF / RES, with the lower one flagged only when the gap is 15% or
+## more (a smaller gap is noise).
 func _def_res_hint(u: Dictionary) -> Dictionary:
 	var d: float = FarroadCore.eff_def(u)
 	var r: float = FarroadCore.eff_res(u)
@@ -1279,7 +1250,7 @@ func _build_log_ui() -> void:
 	clear_btn.text = "Clear"
 	clear_btn.pressed.connect(_on_clear_pressed)
 	header.add_child(clear_btn)
-	# Ian: the waves that wiped the party most recently.
+	# the waves that wiped the party most recently
 	var wipes_btn := Button.new()
 	wipes_btn.text = "Wipes"
 	wipes_btn.pressed.connect(func():
@@ -1391,16 +1362,13 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 			calc_line.text = "[font_size=12][color=#%s]%s[/color][/font_size]" % [DIM_COLOR, _entry_calc(entry)]
 		calc_line.visible = entry["expanded"]
 		box.add_child(calc_line)
-		# Captures `entry` (a Dictionary -- a reference type in GDScript) by
-		# reference, so toggling it here correctly mutates the SAME dict
-		# still held in log_lines -- mirrors logEntry()'s own d.onclick
-		# toggling a class on that same log entry (farroad-ui.js:1804).
-		# Flips only THIS entry's own expanded flag and its own calc line's
-		# visibility -- deliberately NOT a full _rebuild_log_container() call
-		# (the earlier version's approach), which re-pulls the CURRENT
-		# log_lines wholesale and would silently undo a log pause: opening a
-		# damage breakdown while paused shouldn't jump the whole list back
-		# to whatever accumulated in the background since.
+		# Captures `entry` (a Dictionary, a reference type in GDScript) by
+		# reference, so toggling it here changes the same dict still held in
+		# log_lines. Flips only this entry's expanded flag and its own calc
+		# line's visibility, deliberately not a full _rebuild_log_container(),
+		# which re-pulls the current log_lines wholesale and would silently undo
+		# a log pause: opening a damage breakdown while paused shouldn't jump
+		# the whole list to whatever accumulated in the background since.
 		btn.pressed.connect(func():
 			entry["expanded"] = not entry["expanded"]
 			if entry["expanded"]:
@@ -1412,14 +1380,12 @@ func _build_log_entry_node(entry: Dictionary) -> Control:
 
 	return box
 
-## Ian: "just above the Enrage bar, have 20 small circles, one for each
-## wave and the boss at the end that is slightly bigger. Completing a
-## wave 'lights up' its related circle as the party runs to the next
-## encounter. Just above the line of circles have a small line of text
-## that shows the current wave." WAVE_PROGRESS_COUNT matches
-## FarroadProgression.BOSS_EVERY -- one circle per wave of the CURRENT
-## boss-to-boss stretch, the last (bigger) one being its boss. See
-## _refresh_wave_progress for how it tracks/resets (24-item batch, Group D4).
+## Small circles just above the Enrage bar, one per wave of the current
+## boss-to-boss stretch, the last (slightly bigger) one being its boss.
+## Completing a wave lights up its circle as the party runs to the next
+## encounter, and a small line of text above the circles shows the current
+## wave. WAVE_PROGRESS_COUNT matches FarroadProgression.BOSS_EVERY. See
+## _refresh_wave_progress for how it tracks and resets.
 const WAVE_PROGRESS_COUNT := 20
 var wave_progress_label: Label
 var wave_progress_circles: Array = []   # [{"panel": Panel, "style": StyleBoxFlat, "wave": int}, ...]
@@ -1472,22 +1438,18 @@ func _build_wave_progress_ui() -> void:
 func _wave_circle_color(lit: bool) -> Color:
 	return Palette.GOLD_LIGHT if lit else Color(0.36, 0.36, 0.41, 0.9)
 
-## Sets the "Wave N" text and every circle's lit/unlit state -- called
-## once from start_battle (progress doesn't change mid-fight) and again by
+## Sets the "Wave N" text and every circle's lit / unlit state. Called once
+## from start_battle (progress doesn't change mid-fight) and again by
 ## reflow().
 ##
-## Ian (24-item batch, Group D4): "wave icons at the bottom should track
-## live for the area you are in, resetting to your checkpoint after wipes
-## and resetting after defeating a boss." The strip used to be a fixed,
-## one-time waves-1-20 tracker lit from g["clearedWaves"] (permanent,
-## never reset) -- useless past wave 20. It now always shows the CURRENT
-## boss-to-boss stretch (BOSS_EVERY waves, the last one the boss), lit
-## purely from how far into that stretch the live wave is. Derived fresh
-## from the current wave rather than any new saved state, so it resets on
-## its own: a wipe sends the wave back to the checkpoint (the stretch's
-## own first wave -> nothing lit), and clearing a boss moves the wave into
-## the next stretch (bounds recompute -> all unlit again). cleared_waves
-## is still accepted/cached for call-site compatibility but no longer read.
+## The strip always shows the current boss-to-boss stretch (BOSS_EVERY waves,
+## the last one the boss), lit purely from how far into that stretch the live
+## wave is. It is derived fresh from the current wave rather than any saved
+## state, so it resets on its own: a wipe sends the wave back to the
+## checkpoint (the stretch's first wave, so nothing is lit), and clearing a
+## boss moves the wave into the next stretch (the bounds recompute, so all
+## are unlit again). cleared_waves is still accepted and cached for call-site
+## compatibility but no longer read.
 var _fight_wave := 0
 var catchup_lookup: Callable = Callable()   # set by GameController: the current catch-up reward multiplier
 
@@ -1505,7 +1467,7 @@ func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
 		var entry: Dictionary = wave_progress_circles[i]
 		entry["wave"] = stretch_start + i
 		(entry["panel"] as Panel).visible = true
-		# Ian: "Wave progress bar: have current wave colored blue."
+		# the current wave is colored blue
 		(entry["style"] as StyleBoxFlat).bg_color = CURRENT_WAVE_COLOR if int(entry["wave"]) == cur else _wave_circle_color(int(entry["wave"]) < cur)
 
 const CURRENT_WAVE_COLOR := Color(0.25, 0.52, 0.9)
@@ -1538,8 +1500,8 @@ func light_up_wave(w: int) -> void:
 			var dot: Panel = entry["panel"]
 			var from_color: Color = style.bg_color
 			var to_color: Color = _wave_circle_color(true)
-			# Ian: a yellow ripple comes out of the dot, and the dot turns from
-			# blue to yellow as it goes
+			# a yellow ripple comes out of the dot, and the dot turns from blue to
+			# yellow as it goes
 			var centre: Vector2 = dot.position + dot.size / 2.0
 			var reach: float = dot.size.x * 5.0
 			WaveRipple.play(self, centre, dot.size.x * 0.5, reach, 0.0, 0.75, 1.5)
@@ -1553,12 +1515,11 @@ var enrage_bg: ColorRect
 var enrage_fg: ColorRect
 var enrage_label: Label
 
-## Red bar tracking the battle-wide ENRAGE_AFTER gate (farroad-core.js's
-## step(), ported as-is in FarroadCore.gd) -- fills as b.beat climbs toward
-## ENRAGE_AFTER (20). A single label ABOVE the bar carries both states of
-## the same story: "Enrage in N turns" while the gate is still closed, then
-## (once it opens) the CURRENT worst-case damage-bonus text takes over that
-## exact spot -- one line that changes meaning, not two separate texts.
+## Red bar tracking the battle-wide ENRAGE_AFTER gate: it fills as b.beat
+## climbs toward ENRAGE_AFTER (20). A single label above the bar carries both
+## states: "Enrage in N turns" while the gate is still closed, then (once it
+## opens) the current worst-case damage-bonus text takes over that spot. One
+## line that changes meaning, not two separate texts.
 func _build_enrage_ui() -> void:
 	# Same row as the Status/Log icons, to their left -- vertically centered
 	# against the icons' own height, and ending just short of Status rather
@@ -1573,7 +1534,7 @@ func _build_enrage_ui() -> void:
 	enrage_label = Label.new()
 	enrage_label.position = Vector2(margin, y - _vp.y * 0.047)
 	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))   # Ian: make the enrage text more pronounced
-	# Ian: a black outline so it stands out on the ground
+	# a black outline so it stands out on the ground
 	enrage_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
 	enrage_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	enrage_label.add_theme_constant_override("outline_size", 6)
@@ -1593,7 +1554,7 @@ func _build_enrage_ui() -> void:
 
 var _enrage_tween: Tween
 
-## Ian: the enrage fill slides to its next point instead of snapping.
+## The enrage fill slides to its next point instead of snapping.
 func _set_enrage_fill(frac: float) -> void:
 	if enrage_fg == null or not is_instance_valid(enrage_fg):
 		return
@@ -1605,19 +1566,19 @@ func _set_enrage_fill(frac: float) -> void:
 	if target.x < enrage_fg.size.x:          # a new fight: reset at once
 		enrage_fg.size = target
 		return
-	# Ian: eases out, never in -- 0.4 s in all, about 90% of the way after 0.3 s
+	# eases out, never in: 0.4 s in all, about 90% of the way after 0.3 s
 	var from_w: float = enrage_fg.size.x
 	_enrage_tween = create_tween()
 	_enrage_tween.tween_method(func(t: float):
 		enrage_fg.size = Vector2(lerpf(from_w, target.x, WaveRipple.ease_out(t)), target.y), 0.0, 1.0, 0.4)
 
 func _refresh_enrage() -> void:
-	# Ian: waves 1-20 wiping too often -- enrage is now off entirely for the
-	# Road's own solo tutorial stretch (see FarroadProgression.start_wave).
-	# Without this guard the bar/label would still count the beat clock up
-	# toward ENRAGE_AFTER and eventually claim "ENRAGED" with no stacks --
-	# genuinely misleading, since battle["enrageN"] stays 0 forever when
-	# battle["enrage"] is false (step() gates its own increment on it too).
+	# Enrage is off entirely for the Road's solo tutorial stretch (waves 1-20,
+	# see FarroadProgression.start_wave). Without this guard the bar and label
+	# would still count the beat clock up toward ENRAGE_AFTER and eventually
+	# claim "ENRAGED" with no stacks, which would be misleading:
+	# battle["enrageN"] stays 0 when battle["enrage"] is false (step() gates its
+	# own increment on it too).
 	if not battle.get("enrage", true):
 		_set_enrage_fill(0.0)
 		enrage_label.text = ("No enrage until wave %d" % FarroadProgression.ENRAGE_FROM_WAVE) \
@@ -1627,16 +1588,12 @@ func _refresh_enrage() -> void:
 	var gate: int = _enrage_after()
 	var frac: float = 1.0 if gate <= 0 else clamp(float(beat) / float(gate), 0.0, 1.0)
 	_set_enrage_fill(frac)
-	# Ian: "enrage should start at 20 turns, not 21" -- gate is now
-	# beat>=ENRAGE_AFTER (was beat>ENRAGE_AFTER), matching step()'s own
-	# corrected gate check exactly.
+	# the gate is beat >= ENRAGE_AFTER, matching step()'s own gate check
 	if beat >= gate:
 		# Stacks are battle-wide now (battle["enrageN"], rising once per turn
 		# regardless of who acts) -- no more per-unit max scan needed.
 		var stacks: int = int(battle.get("enrageN", 0))
-		# Ian: enrage now scales LINEARLY (1+ENRAGE_PCT*N), not compounding --
-		# mirrors the JS display formula exactly (farroad-ui.js's own
-		# enrageStacks-driven label).
+		# enrage scales linearly (1 + ENRAGE_PCT * N), not compounding
 		var pct := roundi(_enrage_pct() * stacks * 100.0)
 		enrage_label.text = ("ENRAGED +%d%% dmg/spd" % pct) if stacks > 0 else "ENRAGED"
 		if stacks > 0 and str(battle.get("healDecay", "")) != "":   # PvP
@@ -1645,12 +1602,11 @@ func _refresh_enrage() -> void:
 		var turns_left: int = gate - beat
 		enrage_label.text = "Enrage in %d turn%s" % [turns_left, "" if turns_left == 1 else "s"]
 
-## Ian (24-item batch, Group B4): "after enrage hits 25%, increase game
-## speed by 0.05 seconds every 25%." Enrage first crosses 25% at
-## enrageN==10 (ENRAGE_PCT*10*100 == 25). Below that, no cut at all --
-## matches the "after 25%" wording literally, not a gradual ramp from 0.
-## MIN_BEAT_FLOOR keeps a long fight's pacing from ever collapsing to an
-## unreadable blur.
+## Once enrage passes 25%, the pacing speeds up by ENRAGE_SPEEDUP_STEP (0.05 s)
+## for every further 25%. Enrage first crosses 25% at enrageN == 10
+## (ENRAGE_PCT * 10 * 100 == 25); below that there is no cut at all, not a
+## gradual ramp from 0. MIN_BEAT_FLOOR keeps a long fight's pacing from ever
+## collapsing to an unreadable blur.
 ## A battle can set its own enrage start/strength (PvP does).
 func _enrage_pct() -> float:
 	return float(battle.get("enragePct", FarroadCore.ENRAGE_PCT))
@@ -1668,10 +1624,10 @@ func _enrage_speed_cut() -> float:
 		return 0.0
 	return floor(pct / 25.0) * ENRAGE_SPEEDUP_STEP
 
-## "TURN ORDER ->" strip -- mirrors the JS version's preview()-powered strip
-## (a fixed row of upcoming-turn cards, not the history log; that's the
-## separate Log button/popup above). Always visible, fixed height, no
-## scrolling needed since it only ever shows TURN_ORDER_COUNT cards.
+## The "TURN ORDER" strip: a fixed row of upcoming-turn cards, powered by
+## FarroadCore.preview() (not the history log; that is the separate Log
+## button / popup above). Always visible, fixed height, no scrolling needed
+## since it only ever shows TURN_ORDER_COUNT cards.
 func _build_turn_order_ui() -> void:
 	# Spans the full screen width (minus small edge margins) -- card_w is
 	# SOLVED FOR so TURN_ORDER_COUNT cards + the gaps between them exactly
@@ -1746,8 +1702,8 @@ func _build_turn_order_ui() -> void:
 
 		turn_cards.append({"panel": panel, "name": name_lbl, "action": action_lbl, "home_x": panel.position.x})
 
-	# Ian: the yellow outline marks the current action's spot and never moves;
-	# the queued actions slide into it. Drawn above the cards.
+	# the yellow outline marks the current action's spot and never moves; the
+	# queued actions slide into it. Drawn above the cards.
 	turn_active_frame = Panel.new()
 	var af := StyleBoxFlat.new()
 	af.bg_color = Color(0, 0, 0, 0)
@@ -1762,31 +1718,23 @@ func _build_turn_order_ui() -> void:
 	turn_active_frame.visible = not battle.is_empty()
 	add_child(turn_active_frame)
 
-## Ian: "I want actions to be locked in as soon as they appear on the
-## turn order... charge actions should only enter the turn order once
-## they're full, not appearing beforehand. The same should be true for
-## gambit conditions being met." FarroadCore.preview() itself no longer
-## projects charge/conditions forward at all (see its own comment) -- it
-## always resolves every slot against each unit's REAL, CURRENT state,
-## so "what's shown" already equals "what would happen if resolved this
-## instant" by construction. The only remaining gap: once a unit's
-## choice gets LOCKED (_lock_upcoming_actors, below) at the moment it
-## first appears, a LATER refresh's freshly-computed preview() could
-## still disagree with that frozen lock if real state has drifted since
-## (another unit's action changing this one's HP-based condition, etc.).
-## Overrides the display for any ALREADY-locked unit's card to show the
-## locked action instead of preview()'s fresh (and possibly now
-## different) recomputation, so the rail and the eventual execution can
-## never disagree. Turn ORDER itself never depended on action choice in
-## the first place (preview()'s own ordering compares nextActAt/isParty/
-## spd/slotIndex only), so this only ever changes which ACTION text a
-## card shows, never who's shown or in what order.
-## lockedActors[uid] is a QUEUE (Array of {actionId, resultingAlternate}
-## entries) -- see _lock_upcoming_actors' own comment for why a single
-## value per uid was the actual bug behind "turn order still changes
-## right as a unit enters the active box." Overlays each OCCURRENCE of a
-## unit in `out` with the correspondingly-indexed queue entry (1st
-## occurrence <-> queue[0], 2nd <-> queue[1], etc.), not just the first.
+## Actions are locked in as soon as they appear on the turn order, and charge
+## actions and gambit conditions only count once they are met.
+## FarroadCore.preview() resolves every slot against each unit's real, current
+## state, so what is shown already equals what would happen if it were resolved
+## this instant. The remaining gap: once a unit's choice is locked
+## (_lock_upcoming_actors, below) when it first appears, a later preview() can
+## disagree with that frozen lock if real state has drifted (another unit's
+## action changing this one's HP-based condition, etc.). So this overlays the
+## locked action onto the card of any already-locked unit instead of preview()'s
+## fresh recomputation, and the rail and the eventual execution can never
+## disagree. Turn order itself never depends on action choice (preview() orders
+## by nextActAt / isParty / spd / slotIndex only), so this only changes which
+## action text a card shows, never who is shown or in what order.
+## lockedActors[uid] is a queue (Array of {actionId, resultingAlternate}), see
+## _lock_upcoming_actors. Each occurrence of a unit in `out` gets the
+## correspondingly indexed queue entry (1st occurrence <-> queue[0], 2nd <->
+## queue[1], etc.), not just the first.
 func _preview_respecting_locks() -> Array:
 	var out: Array = FarroadCore.preview(battle, TURN_ORDER_COUNT)
 	var locked: Dictionary = battle.get("lockedActors", {})
@@ -1834,12 +1782,11 @@ func _refresh_turn_order() -> void:
 		card["panel"].visible = true
 		var p = upcoming[i]
 		_fit_label_text(card["name"], p["unitName"], int(_vp.y * 0.018), max_w, 8, true)
-		# Ian: "they aren't the colors I specified" -- `.modulate` MULTIPLIES
-		# against the project theme's own Label font_color (a dark ink,
-		# Color(0.22,0.15,0.09)), not replaces it, so #1462e0 modulated
-		# through that ink rendered as a near-black smudge instead of the
-		# actual vivid blue. A theme color override REPLACES the font color
-		# outright, which is what was actually wanted here.
+		# `.modulate` multiplies against the project theme's Label font_color (a
+		# dark ink, Color(0.22,0.15,0.09)) rather than replacing it, so a vivid
+		# blue modulated through that ink renders as a near-black smudge. A theme
+		# color override replaces the font color outright, which is what is
+		# wanted here.
 		card["name"].add_theme_color_override("font_color",
 			Palette.PARTY_BLUE_BRIGHT if p["isParty"] else Palette.ENEMY_RED_BRIGHT)
 		# No camp/element glyph prefix and no speed (×N) line -- just who's
@@ -1853,7 +1800,7 @@ var _prev_first_key := ""
 var turn_active_frame: Panel
 var _shift_tween: Tween
 
-## Ian: as the queue moves on, the cards slide one slot to the left.
+## As the queue moves on, the cards slide one slot to the left.
 func _shift_turn_cards_left() -> void:
 	if _shift_tween != null and _shift_tween.is_valid():
 		_shift_tween.kill()
@@ -1865,70 +1812,37 @@ func _shift_turn_cards_left() -> void:
 		# quick enough that even a combo's next action is in place before it fires
 		_shift_tween.tween_property(panel, "position:x", float(card["home_x"]), 0.11).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
-## Post-Milestone-3 APK feedback (Group A2), redesigned again after
-## further feedback ("I want actions to be locked in as soon as they
-## appear on the turn order... charge actions should only enter the
-## turn order once they're full, not appearing beforehand. The same
-## should be true for gambit conditions being met"). Locks the fully
-## RESOLVED action id, not the unit's `slots` -- `upcoming` (from
-## `_preview_respecting_locks`'s own fresh FarroadCore.preview() call)
-## already resolved every NOT-yet-locked unit's action against its REAL,
-## CURRENT charge/HP/conditions (preview() no longer projects any of
-## that forward -- see its own comment), so `p["actionId"]` already IS
-## exactly "what would happen if this unit's turn resolved right now" --
-## simply recording it is both correct and needs no separate probe call.
-## Confirmed via direct reads of FarroadCore.gd's choose_from/
-## resolve_condition that action/target SELECTION is fully deterministic
-## and RNG-free (only later damage/evade/crit resolution rolls), so
-## freezing a unit's resolved choice this way is 100% safe w.r.t. RNG/
-## parity -- no roll is skipped or added either way. Writes
-## battle["lockedActors"] (a new transient, unsaved battle field -- uid
-## -> action id -- consumed/cleared per-uid by FarroadCore.step()/
-## farroad-core.js's own step()): every unit CURRENTLY visible anywhere
-## in the turn-order preview gets locked the FIRST time it appears there
-## (not re-locked on later refreshes, so a lock always reflects the
-## moment a unit first became visible, not whatever real state has
-## drifted to since).
+## Locks the fully resolved action id of every unit currently visible in the
+## turn-order preview, the first time each upcoming turn appears there. A lock
+## is never re-taken on later refreshes, so it always reflects the moment the
+## unit first became visible, not whatever real state has drifted to since.
+## `upcoming` (from _preview_respecting_locks' fresh FarroadCore.preview() call)
+## already resolved every not-yet-locked unit's action against its real,
+## current charge / HP / conditions, so `p["actionId"]` is exactly what would
+## happen if this unit's turn resolved right now. Action and target selection
+## are deterministic and RNG-free (only later damage / evade / crit resolution
+## rolls), so freezing the choice cannot skip or add a roll.
 ##
-## Post-batch feedback: "turn order is still changing actions when they
-## enter the currently-activating box." Root cause -- a lock used to be
-## dropped the instant its unit fell out of the small (TURN_ORDER_COUNT-
-## wide) visible window, even for one beat. Since a fast unit can occupy
-## several of the visible slots at once (see preview()'s own comment), a
-## slower unit gets squeezed out of view easily -- and could reappear
-## later, sometimes landing directly at slot 0, freshly re-locked
-## against whatever real state had drifted to while it was invisible,
-## visibly changing right as it became the active actor. Fixed: a lock
-## now ONLY ever clears by actually being consumed in step(), or here if
-## its unit has died (can never act again) -- never just for scrolling
-## out of the visible rail.
+## Writes battle["lockedActors"], a transient, unsaved battle field (uid -> a
+## queue of {actionId, resultingAlternate}), consumed per uid by
+## FarroadCore.step(). The queue has one entry per upcoming turn, indexed by
+## occurrence order (the 1st occurrence of this unit anywhere in the rail locks
+## queue[0], the 2nd locks queue[1], ...), because a unit fast enough to occupy
+## several rail slots has a different future action in each, and each
+## occurrence must be frozen independently the first moment it becomes visible,
+## never borrowed from a sibling occurrence. A lock clears only by being
+## consumed in step(), or here if its unit has died (it can never act again),
+## never just because it scrolled out of the visible rail: a slower unit
+## squeezed out of view could otherwise reappear later at slot 0, freshly
+## re-locked against drifted state, visibly changing as it became the actor.
 ##
-## STILL still-changing bug, found on a fresh re-investigation: locked[uid]
-## used to be a single action id, not one per UPCOMING TURN. A unit fast
-## enough to occupy 2+ of the visible rail slots at once only ever got
-## ONE lock value (taken from its nearest occurrence) -- _preview_
-## respecting_locks then painted that SAME value onto every occurrence of
-## it, so the far occurrence's card was never really locked to its own
-## true future action, just borrowing the near one's. The instant the
-## near turn actually fired, step() erased that single lock entirely --
-## so on the very next refresh, the unit's now-nearest (formerly 2nd)
-## occurrence looked "never locked" and got a FRESH, honestly-recomputed
-## value, which could legitimately differ (other units' actions, HP
-## changes, etc. had moved real state in the meantime) -- exactly
-## "changes right before it fires." Fixed: locked[uid] is now a QUEUE,
-## one entry per upcoming turn, indexed by OCCURRENCE order (1st
-## occurrence of this unit anywhere in the rail locks queue[0], 2nd
-## occurrence locks queue[1], etc.) -- each occurrence gets its own real,
-## independently-frozen value the first moment IT specifically becomes
-## visible, never borrowed from a sibling occurrence. Computed via a
-## direct choose_from() call (not preview()'s own per-slot resolution,
-## which deliberately does NOT project alternateFlag/charge forward
-## across a unit's own occurrences -- see preview()'s comment) so a
-## round-robin ("all_none") loadout's 2nd+ queued turn correctly shows
-## (and later executes) the NEXT slot in rotation, not a repeat of the
-## first, and so a charge action already queued once for this unit is
-## correctly treated as spent for any later queued occurrence too,
-## matching preview()'s own established "charge shown once" rule.
+## The queue is computed with a direct choose_from() call, not preview()'s
+## per-slot resolution, which does not project alternateFlag or charge forward
+## across a unit's own occurrences. So a round-robin ("all_none") loadout's
+## 2nd and later queued turns show (and later execute) the next slot in
+## rotation rather than a repeat of the first, and a charge action already
+## queued once for this unit counts as spent for any later queued occurrence
+## (matching preview()'s rule that a charge action is shown once).
 func _lock_upcoming_actors(upcoming: Array) -> void:
 	if battle.get("lockedActors") == null:
 		battle["lockedActors"] = {}
@@ -1963,9 +1877,9 @@ func _lock_upcoming_actors(upcoming: Array) -> void:
 		battle["det"] = was_det
 		var q_entry := {"actionId": ch["actionId"], "resultingAlternate": int(state["alternateFlag"]),
 			"condId": ch.get("condId")}   # so its target is re-picked by the same rule
-		# Ian: a charge action pays its cost the moment it enters the queue,
-		# so charge-stealing can't stop it and it can't steal from one
-		# already queued; refunded if the fight ends first.
+		# a charge action pays its cost the moment it enters the queue, so
+		# charge-stealing can't stop it and it can't steal from one already
+		# queued; refunded if the fight ends first
 		var q_act = FarroadCore.ACTIONS.get(ch["actionId"])
 		if q_act != null and q_act.get("isCharge", false):
 			var cost: float = FarroadCore.cost_of_charge(q_act)
@@ -1994,8 +1908,8 @@ func _fit_label_text(lbl: Label, text: String, base_font_size: int, max_width: f
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", base_font_size)
 	var natural_w: float = lbl.get_minimum_size().x
-	# Ian: names stay large and readable -- when one is too wide at full size,
-	# show just its first word ("Mire Hound 1" -> "Mire") before shrinking it
+	# names stay large and readable: when one is too wide at full size, show
+	# just its first word ("Mire Hound 1" -> "Mire") before shrinking it
 	if first_word_ok and natural_w + 6.0 > max_width and text.contains(" "):
 		lbl.text = text.split(" ")[0]
 		natural_w = lbl.get_minimum_size().x
@@ -2005,7 +1919,7 @@ func _fit_label_text(lbl: Label, text: String, base_font_size: int, max_width: f
 	lbl.clip_text = true
 	lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
-## Mirrors actionGlyphText (farroad-ui.js:501-505) -- camp icon + element icon.
+## The camp icon plus the element icon.
 func _action_glyph(act) -> String:
 	if act == null:
 		return ""
@@ -2015,26 +1929,19 @@ func _action_glyph(act) -> String:
 		h += ELEMENT_GLYPH[el]
 	return h + " "
 
-## Builds one log entry from a step() event, closely mirroring logEntry()'s
-## actual structure (farroad-ui.js:1781-1806), not just its rough content:
-## "bN <b>Actor</b> → [icon] Action → Target [EVADED/CRIT]" with the damage
-## figure pinned to the panel's right edge (an HBoxContainer in
-## _build_log_entry_node, not a BBCode table -- see that function's comment
-## for why), an italic "via · initiative ×NNN" line, note bullets, and a
-## "tap for the damage breakdown" affordance expanding the same
-## base/off/mitigation math resolveHit() itself already computed.
+## Builds one log entry from a step() event: "bN <b>Actor</b> -> [icon] Action
+## -> Target [EVADED/CRIT]" with the damage figure pinned to the panel's right
+## edge (an HBoxContainer in _build_log_entry_node, not a BBCode table), an
+## italic "via - initiative xNNN" line, note bullets, and a "tap for the damage
+## breakdown" affordance that expands the base / off / mitigation math
+## resolveHit() already computed.
 ##
-## The visual container is only rebuilt while the popup is actually
-## VISIBLE (log_popup.visible) -- a real performance bug found and fixed
-## here: this function (and _append_raw_log below) runs every single beat
-## regardless of whether the log is open, and _rebuild_log_container() tears
-## down and recreates a Control node per log_lines entry EVERY TIME it's
-## called. Rebuilding unconditionally every beat meant a beat late in a long
-## fight paid for rebuilding every earlier beat's entry too (O(beats) work
-## per beat, O(beats^2) over a whole fight) even though nobody could see it
-## -- exactly the kind of thing that reads as "gets choppier the longer a
-## fight runs." log_lines itself still accumulates every beat regardless
-## (cheap, just data); _on_log_pressed rebuilds once on open to catch up.
+## The visual container is only updated while the popup is actually visible
+## (log_popup.visible): this function (and _append_raw_log below) runs every
+## beat whether or not the log is open, and rebuilding the container for every
+## beat would make each beat cost more the longer a fight runs. log_lines
+## accumulates regardless (cheap, just data); _on_log_pressed rebuilds once on
+## open.
 func _append_log(e: Dictionary) -> void:
 	var color: String = PARTY_COLOR if e["isParty"] else ENEMY_COLOR
 	var act = FarroadCore.ACTIONS.get(e["actionId"])
@@ -2076,9 +1983,9 @@ func _append_raw_log(bbcode: String) -> void:
 		"note_bbcodes": [], "has_calc": false, "ev": null, "calc": "", "expanded": false})
 	_log_added()
 
-## Mirrors logEntry()'s `calc` string (farroad-ui.js:1783-1793) -- reuses
-## resolveHit()'s OWN already-computed fields off the first real hit, no
-## re-derivation. Evaded/no-hit actions have nothing to expand.
+## The damage breakdown text. It reuses the fields resolveHit() already
+## computed on the first hit, with no re-derivation. Evaded and no-hit actions
+## have nothing to expand.
 func _calc_text(e: Dictionary) -> String:
 	if e["hits"].is_empty():
 		return ""
@@ -2193,10 +2100,10 @@ func _run_battle_loop() -> void:
 		active_unit_id = e["actorId"]
 		if _status_open():
 			_refresh_status_popup()
-		# Ian: several actions in a row from the same side start 0.25 s after
-		# each other instead of waiting for each to finish. Only when the NEXT
-		# actor is a different unit on the same side (one unit never overlaps
-		# itself), and the fight isn't over.
+		# several actions in a row from the same side start 0.25 s after each
+		# other instead of waiting for each to finish. Only when the next actor is
+		# a different unit on the same side (one unit never overlaps itself), and
+		# the fight isn't over.
 		if battle["over"] == null and _next_is_same_side_other_unit(e):
 			_beats_running += 1
 			_run_beat_detached(e)
@@ -2303,27 +2210,18 @@ func _refresh_charge_bars() -> void:
 	for view in unit_views_by_id.values():
 		view.update_charge()
 
-## Hit effects (damage numbers, HP bar updates) resolve at the moment of
-## IMPACT -- after a physical unit's approach hop lands, or a projectile
-## arrives -- not after the actor has already finished its whole animation
-## and settled back home. The earlier version applied them only after a
-## physical attack's full there-and-back round trip, which visually
-## disconnected the hit from the moment the attacker was actually there.
-## Group I (20-item batch): the field's own center point, in the same
-## world-space coordinates as a UnitView's own position/rest_position --
-## an AoE action's animation flies here instead of toward one arbitrary
-## target, since it actually hits every foe/ally at once. Same point
-## GameController._spawn_reward_drops already uses as its own flyer
-## start position (Vector2(_vp.x/2.0, _vp.y*(0.11+0.58)/2.0)), just
-## expressed via field_top/field_bottom directly rather than duplicating
-## the raw 0.11/0.58 constants.
+## The field's own center point, in the same world-space coordinates as a
+## UnitView's position / rest_position. An AoE action's animation flies here
+## instead of toward one arbitrary target, since it hits every foe or ally at
+## once. It is the same point GameController._spawn_reward_drops uses as its
+## flyer start position, expressed via field_top / field_bottom.
 func _field_center() -> Vector2:
 	return Vector2(_vp.x / 2.0, (field_top + field_bottom) / 2.0)
 
-## Ian: "If targeting all allies, have it go to the center of your party.
-## If targeting all enemies, have it hit the center of all enemies." The
-## middle of the living units on one side -- rest spots (`body` false) or
-## their body centres (`body` true, where spells land).
+## The middle of the living units on one side: their rest spots (`body` false)
+## or their body centres (`body` true, where spells land). An action that
+## targets all allies goes to the center of the party, and one that targets all
+## enemies to the center of the enemies.
 func _side_center(party_side: bool, body: bool) -> Vector2:
 	var sum := Vector2.ZERO
 	var n := 0
@@ -2341,12 +2239,10 @@ func _is_phys_action(action_id: String) -> bool:
 func _is_phys_act(a) -> bool:
 	return a != null and a.get("camp") == "atk" and not a.get("heal") and a.get("tk") != "self"
 
-## Ian: "If a character has multiple physical attacks in a row, have them
-## move from their first target to their second, rather than back to their
-## starting position." A unit whose next turn (per the locked turn order)
-## is another physical attack stays where it struck -- uid -> use_run --
-## and its next beat's approach starts from there. Anyone left waiting
-## whose next beat turns out different goes home first.
+## A unit whose next turn (per the locked turn order) is another physical
+## attack stays where it struck instead of returning to its starting position
+## (uid -> use_run), and its next beat's approach starts from there. Anyone
+## left waiting whose next beat turns out different goes home first.
 var _chained: Dictionary = {}
 
 func _release_chained(except_uid: String) -> void:
@@ -2400,9 +2296,9 @@ func _animate_beat(e: Dictionary) -> void:
 		_chained.erase(e["actorId"])
 	_release_chained("")
 
-	# 24-item batch (Group B4): reduces both the visual tween durations AND
-	# the post-beat gate together, floored at MIN_BEAT_FLOOR so a long
-	# fight's pacing can't collapse to an unreadable blur.
+	# reduces both the visual tween durations and the post-beat gate together,
+	# floored at MIN_BEAT_FLOOR so a long fight's pacing can't collapse to an
+	# unreadable blur
 	var speed_cut: float = _enrage_speed_cut()
 
 	if is_phys:
@@ -2412,20 +2308,18 @@ func _animate_beat(e: Dictionary) -> void:
 		# the full gap.
 		var full_delta: Vector2 = dest_rest - actor_view.rest_position
 		var approach_offset: Vector2 = full_delta - full_delta.normalized() * (_vp.x * HOP_STOP_SHORT)
-		# Ian: "jumping to attack can stay the default, but have the option
-		# for units to use... running instead." Per-unit, derived from
-		# whether THIS unit's own SpriteFrames actually has a "run"
-		# animation -- a fallback-shape unit always answers false, so this
-		# branch is a no-op change for every unit without real art yet.
+		# Per unit, derived from whether this unit's own SpriteFrames has a "run"
+		# animation. A placeholder-shape unit always answers false, so this
+		# changes nothing for units without real art yet.
 		var use_run: bool = actor_view.prefers_run_approach()
 		var leg_time: float = maxf(MIN_BEAT_FLOOR * 0.5, (RUN_TIME if use_run else HOP_TIME) - speed_cut)
-		# Ian: a unit acting again from where it already stands (same target) does
-		# not jump back in: it goes straight into the next strike, so physical
-		# attacks read as a combo.
+		# a unit acting again from where it already stands (same target) does not
+		# jump back in: it goes straight into the next strike, so physical attacks
+		# read as a combo
 		var same_spot: bool = chain_start != Vector2.ZERO and chain_start.distance_to(approach_offset) < actor_view.size * 0.25
-		# Ian: start the attack's wind-up 3/4 of the way through the jump, so
-		# the blow lands right after touching down. The leg runs on its own;
-		# the attack animation takes over the sprite for the last quarter.
+		# start the attack's wind-up 3/4 of the way through the jump, so the blow
+		# lands right after touching down. The leg runs on its own; the attack
+		# animation takes over the sprite for the last quarter.
 		var leg_done := [false]
 		var leg := func():
 			if use_run:
@@ -2438,11 +2332,11 @@ func _animate_beat(e: Dictionary) -> void:
 		else:
 			actor_view.play_state("run" if use_run else "jump")
 			leg.call()
-		# Ian: the attack starts in the air so the HIT lands right after
-		# touching down: start it (time to its impact frame) before landing,
-		# plus a short beat. If the wind-up is longer than the jump allows,
-		# play it faster so the hit still lands on touchdown.
-		# Ian: charge actions get their own flashier move when the art has one
+		# the attack starts in the air so the hit lands right after touching down:
+		# start it (time to its impact frame) before landing, plus a short beat.
+		# If the wind-up is longer than the jump allows, play it faster so the
+		# hit still lands on touchdown.
+		# charge actions get their own flashier move when the art has one
 		var strike_anim: String = "charge" if act != null and act.get("isCharge", false) and actor_view.has_animation("charge") else "attack"
 		var to_impact: float = actor_view.time_to_impact(strike_anim)
 		var start_at: float = leg_time + LAND_TO_HIT - to_impact
@@ -2463,8 +2357,8 @@ func _animate_beat(e: Dictionary) -> void:
 			await get_tree().process_frame
 		await actor_view.wait_for_impact()
 		_apply_hit_effects(e)
-		# Ian: when this unit acts again right away, cut the recovery short so the
-		# next strike follows at once (combo)
+		# when this unit acts again right away, cut the recovery short so the next
+		# strike follows at once (combo)
 		var combo_next := false
 		if float(actor_view.unit["hp"]) > 0.0 and battle["over"] == null:
 			var nx: Array = _preview_respecting_locks()
@@ -2473,9 +2367,8 @@ func _animate_beat(e: Dictionary) -> void:
 			await get_tree().create_timer(COMBO_RECOVERY).timeout
 		else:
 			await actor_view.wait_for_animation(0.6)
-		# Ian: "sear triggers after the afflicted unit acts" -- _apply_hit_
-		# effects' own DOT handling can kill the ACTOR on their own turn.
-		# update_hp() already set "dead" for that case; don't stomp it back
+		# _apply_hit_effects' own DOT handling can kill the actor on their own
+		# turn. update_hp() already set "dead" for that case; don't stomp it back
 		# to jump/idle right after.
 		var actor_still_alive: bool = float(actor_view.unit["hp"]) > 0.0
 		var phys_gate: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
@@ -2485,16 +2378,13 @@ func _animate_beat(e: Dictionary) -> void:
 			return
 		if actor_still_alive:
 			actor_view.play_state("run" if use_run else "jump")
-		# Ian (Group B3): "have the next action take place while they are
-		# in the middle of moving back to their position, so after 0.75
-		# seconds." The return leg is now fire-and-forget (started, never
-		# awaited) -- _return_and_settle keeps animating it home and sets
-		# "idle" once it lands, entirely independent of this function's own
-		# return. The gate below gives the WHOLE beat (outbound + this
-		# wait) a fixed total budget; since the return leg's own duration
-		# (leg_time) is longer than what's left of that budget once the
-		# outbound leg is subtracted, the unit is still visibly mid-return
-		# when the next beat's step() actually fires.
+		# The return leg is fire-and-forget (started, never awaited):
+		# _return_and_settle keeps animating it home and sets "idle" once it
+		# lands, independent of this function's return. The gate below gives the
+		# whole beat (outbound + this wait) a fixed total budget; since the return
+		# leg's own duration (leg_time) is longer than what is left of that budget
+		# once the outbound leg is subtracted, the unit is still visibly mid-return
+		# when the next beat's step() fires.
 		_return_and_settle(actor_view, use_run, actor_still_alive, leg_time)
 		var phys_total: float = maxf(MIN_BEAT_FLOOR, PHYS_BEAT_TOTAL - speed_cut)
 		await get_tree().create_timer(maxf(0.05, phys_total - leg_time)).timeout
@@ -2508,8 +2398,8 @@ func _animate_beat(e: Dictionary) -> void:
 		var fx := _new_cast_fx()
 		fx.unit_size = actor_view.size
 		fx.begin(el)
-		# Ian: a unit casting again straight after its last action casts faster,
-		# so spells chain together
+		# a unit casting again straight after its last action casts faster, so
+		# spells chain together
 		var combo_cast: bool = _last_beat_actor == e["actorId"] and not _last_beat_phys \
 			and Time.get_ticks_msec() - _last_beat_end_ms < 700
 		var cast_speed: float = 2.2 if combo_cast else 1.0
@@ -2550,6 +2440,9 @@ func _upd_charge(view: UnitView, e: Dictionary) -> void:
 	var sn = e.get("_snap", {}).get(view.unit["id"])
 	view.update_charge(sn[1] if sn != null else -1.0)
 
+## Hit effects (damage numbers, HP bar updates) resolve at the moment of impact:
+## after a physical unit's approach hop lands, or a projectile arrives, not
+## after the actor has finished its whole animation and settled back home.
 func _apply_hit_effects(e: Dictionary) -> void:
 	# "Recalled units still appear dead despite acting" -- a revive action
 	# (recall/lastlight) mutates its target's hp directly but is captured
@@ -2565,12 +2458,12 @@ func _apply_hit_effects(e: Dictionary) -> void:
 	var primary_view: UnitView = unit_views_by_name.get(e.get("targetName"))
 	if primary_view != null:
 		_upd_hp(primary_view, e)
-	# Ian: "charge bar update on hit, not on return to starting position" --
-	# was only ever refreshed by the post-beat _refresh_charge_bars() sweep,
-	# AFTER a physical attacker's full there-and-back hop completed. This
-	# unit's own charge already changed (spent or gained) by the time
-	# step() returned this event, so update it right here, at the same
-	# "impact" moment hits/heals already resolve at.
+	# The charge bar updates on the hit, not when the unit returns to its
+	# starting position. This unit's own charge already changed (spent or
+	# gained) by the time step() returned this event, so it is updated here, at
+	# the same impact moment hits and heals resolve at (rather than by the
+	# post-beat _refresh_charge_bars() sweep, after a physical attacker's full
+	# there-and-back hop).
 	var actor_view: UnitView = unit_views_by_id.get(e.get("actorId"))
 	if actor_view != null:
 		_upd_charge(actor_view, e)
@@ -2586,7 +2479,7 @@ func _apply_hit_effects(e: Dictionary) -> void:
 			DamageNumber.spawn(self, tv.damage_spawn_position(), "Evade", Color(0.75, 0.75, 0.75), n)
 			tv.evade()
 		else:
-			# Ian: damage is red (a crit is a brighter, more orange red)
+			# damage is red (a crit is a brighter, more orange red)
 			var color := Color("FF6A2B") if h.get("crit") else Color("FF3B30")
 			DamageNumber.spawn(self, tv.damage_spawn_position(), str(h["damage"]), color, n)
 			tv.shake()
@@ -2598,19 +2491,17 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		var n: int = stagger.get(h["targetName"], 0)
 		stagger[h["targetName"]] = n + 1
 		DamageNumber.spawn(self, tv.damage_spawn_position(), "+%d" % h["amount"], Color(0.4, 0.95, 0.5), n)
-	# Ian: "sear triggers after the afflicted unit acts and show the
-	# amount" -- step() already moved burning's DOT tick to fire after this
-	# unit's own action resolves (still this same beat/event); this is the
-	# "show" half, giving it a floating number on the afflicted unit's own
-	# field position, same as any other damage source. The log popup's own
-	# "🔥 -N" note (BattlePresenter's log-building code) is unchanged.
+	# Burning's damage-over-time tick fires after the afflicted unit's own action
+	# resolves (step() does that, still within this same beat / event). This
+	# gives it a floating number on the unit's field position, like any other
+	# damage source. The log popup's own burn note is unchanged.
 	if actor_view != null and e.get("dot", 0) > 0:
 		_upd_hp(actor_view, e)
 		var an: int = stagger.get(e.get("actorName"), 0)
 		stagger[e.get("actorName")] = an + 1
 		DamageNumber.spawn(self, actor_view.damage_spawn_position(), str(e["dot"]), DOT_COLOR, an)
-	# Ian: "show regen hp gains" -- Regen heals at the start of the unit's own
-	# turn (step() records it in e["regen"]); a green number on the unit.
+	# Regen heals at the start of the unit's own turn (step() records it in
+	# e["regen"]); shown as a green number on the unit.
 	if actor_view != null and e.get("regen", 0) > 0:
 		_upd_hp(actor_view, e)
 		var rn: int = stagger.get(e.get("actorName"), 0)
@@ -2627,17 +2518,15 @@ func _apply_hit_effects(e: Dictionary) -> void:
 		DamageNumber.spawn(self, pv.damage_spawn_position(), str(pz["amount"]), DOT_COLOR, pn)
 	_apply_status_notes(e, stagger)
 
-## A unit applying/refreshing a stat-affecting status (bracing/enfeebled/
-## dulled/frail/sundered/blurred/etc. -- anything with an "applies" field)
-## only ever showed up as a text line in the Log popup, not on the field
-## itself, unlike damage/heals which both get a floating number. Parses the
-## exact note strings FarroadCore.gd already appends for this
-## ("applied X on Y" / "refreshed X on Y", farroad-core.js's own status-apply
-## branch) rather than duplicating that logic or touching the engine layer --
-## presentation-only, same as everything else in this file. Excludes
-## "enraged x%d" (its own dedicated enrage bar/label already covers that,
-## every beat once enrage is open would be popup spam) and "taunting"/
-## "thorns -%d" (self-effects with no stat change to call out this way).
+## A unit applying or refreshing a stat-affecting status (bracing, enfeebled,
+## dulled, frail, sundered, blurred, ... anything with an "applies" field)
+## otherwise only showed up as a text line in the Log popup, unlike damage and
+## heals, which get a floating number. This parses the note strings
+## FarroadCore already appends ("applied X on Y" / "refreshed X on Y") instead
+## of duplicating that logic or touching the engine layer. It excludes
+## "enraged x%d" (the enrage bar and label already cover it, and every beat
+## once enrage is open would be popup spam) and "taunting" / "thorns -%d"
+## (self-effects with no stat change to call out this way).
 func _apply_status_notes(e: Dictionary, stagger: Dictionary) -> void:
 	for note in e["notes"]:
 		var applied: bool = note.begins_with("applied ")
@@ -2674,14 +2563,11 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2, duration: float = HOP_TIM
 		0.0, 1.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
 
-## Ian: "have the option for units to use a different animation such as
-## running (which would mean having a straight line to their target
-## instead of the current hop)." Same signature/local-offset convention as
-## _hop() -- only used for a unit whose own SpriteFrames has a "run"
-## animation (see prefers_run_approach()) -- no arc height, a direct line.
-## RUN_TIME is a first-pass guess (no real run art to time it against
-## yet), deliberately quicker than a HOP_TIME round trip since a run
-## reads as brisker than an arcing jump.
+## A straight-line dash to the target, an alternative to the arcing hop (same
+## signature and local-offset convention as _hop()). Used only for a unit whose
+## own SpriteFrames has a "run" animation (see prefers_run_approach()). There is
+## no arc height. RUN_TIME is a first-pass guess, deliberately quicker than a
+## HOP_TIME round trip since a run reads as brisker than an arcing jump.
 const RUN_TIME := 0.35
 func _run_to(actor: UnitView, from: Vector2, to: Vector2, duration: float = RUN_TIME) -> void:
 	actor.shape.position = from
@@ -2732,8 +2618,8 @@ func _animate_projectile(actor: UnitView, dest: Vector2, duration: float = MAGIC
 	await tw.finished
 	bolt.queue_free()
 
-## Ian: pressing a bottom-bar button closes every pop-up before opening its
-## own screen -- this covers the battle's Status and Log windows.
+## Pressing a bottom-bar button closes every pop-up before opening its own
+## screen; this covers the battle's Status and Log windows.
 func close_popups() -> void:
 	if status_popup != null and is_instance_valid(status_popup):
 		status_popup.hide()
