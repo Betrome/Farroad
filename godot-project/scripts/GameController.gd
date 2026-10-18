@@ -224,6 +224,8 @@ func _start_game() -> void:
 	if OS.is_debug_build() and int(g.get("crystal", 0)) < DEBUG_CRYSTAL:
 		g["crystal"] = DEBUG_CRYSTAL
 	_start_cloud.call_deferred()
+	# a test-build patch counts as good once the game has run a few seconds (see PatchLoader)
+	get_tree().create_timer(8.0).timeout.connect(PatchLoader.mark_boot_ok)
 	_build_background_layer()
 	_compute_regions()
 	shell = load("res://scripts/WideShell.gd").new()

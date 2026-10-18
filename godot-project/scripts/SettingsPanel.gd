@@ -232,6 +232,21 @@ func _populate_popup() -> void:
 		id_btn.text = "ID: %s  (copied)" % Analytics.display_id())
 	vbox.add_child(id_btn)
 
+	# test builds only: which patch (if any) is loaded, and a way to remove it
+	if PatchLoader.enabled():
+		var patch_lbl := Label.new()
+		patch_lbl.text = "Test build. " + PatchLoader.status
+		patch_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		patch_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		patch_lbl.modulate = Palette.TEXT_DIM
+		vbox.add_child(patch_lbl)
+		var patch_btn := Button.new()
+		patch_btn.text = "Remove test patch"
+		patch_btn.pressed.connect(func():
+			PatchLoader.remove_patch()
+			patch_lbl.text = "Test build. " + PatchLoader.status)
+		vbox.add_child(patch_btn)
+
 	if _built_wide:
 		_split_columns(vbox)
 
