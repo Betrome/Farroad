@@ -1,27 +1,16 @@
 class_name EquipmentPanel
 extends Node
-## Milestone 3, Step 3f: the EQUIPMENT tab -- per-unit gear management.
-## Structural sibling of GambitsPanel.gd specifically (a per-unit editor,
-## no currency-gated purchase rows to reuse from Aether/Lore) -- same
-## "panel owns its own tab-row button + popup" shape, same unit-picker-
-## including-benched pattern, given the live game-state Dictionary `g`
-## once at setup() and reading/writing it directly from then on.
+## The Gear card of the Units menu: per-unit gear management. It is a per-unit
+## editor and gets the live game-state Dictionary `g` once, at setup().
 ##
-## Equipping is free once owned in the real game -- the only constraint is
-## copy count (FarroadProgression.equip_available_count). An equip/unequip
-## change reaches a unit already mid-fight immediately via
-## FarroadProgression.refresh_live_stats(g) (already ported -- it already
-## calls apply_equipment_stats internally, so no new plumbing was needed
-## there), and this popup pauses BattlePresenter's beat loop while open,
-## same as every sibling panel.
+## Equipping is free once owned; the only limit is the number of copies
+## (FarroadProgression.equip_available_count). An equip or unequip reaches a
+## unit already mid-fight immediately through
+## FarroadProgression.refresh_live_stats(g), which calls apply_equipment_stats.
 ##
-## Post-Milestone-3 APK feedback (Group B1, then revised after real-device
-## testing): this panel no longer owns any UI surface of its own -- see
-## GambitsPanel.gd's own header comment for the full story of why (a
-## nested-popup-closes-everything bug, plus Ian's explicit "show up
-## beneath them, not as new windows" request). UnitsPanel is the sole
-## popup owner now; this panel builds its existing card content directly
-## into whatever container UnitsPanel hands it (build_into).
+## This panel owns no popup of its own. UnitsPanel is the only popup owner (a
+## second popup opened from inside it closed everything), and this panel
+## builds its card into the container UnitsPanel hands it (build_into).
 
 var g: Dictionary
 var _vp: Vector2
@@ -30,15 +19,11 @@ var selected_uid: String = ""
 
 var card_container: Container
 
-## Same small per-file duplication convention every sibling panel already
-## uses (no shared base class in this project).
-## Post-Milestone-3 APK feedback (Group B3, then round 4 after Ian reported
-## the [LEGENDARY] text was STILL showing, uncolored): OptionButton items
-## genuinely cannot render BBCode/per-item text color in Godot -- but they
-## CAN carry a per-item ICON (add_icon_item), so the rarity bracket tag is
-## replaced here with a small solid-color swatch icon instead, actually
-## achieving "color instead of text" within a real dropdown rather than
-## falling back to a text tag. _rarity_icon() below generates/caches these.
+## Duplicated per file, like the sibling panels (no shared base class).
+## OptionButton items can't render BBCode or per-item text color in Godot, but
+## they can carry a per-item icon (add_icon_item). So rarity is shown as a
+## small solid-color swatch icon instead of a bracketed text tag.
+## _rarity_icon() below generates and caches these.
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 static var _rarity_icon_cache: Dictionary = {}
 
@@ -53,7 +38,7 @@ static func _rarity_icon(rarity: String) -> Texture2D:
 	return tex
 const AFFINITY_AXIS_LABELS := {"fire": "Fire", "water": "Water", "earth": "Earth", "air": "Air",
 	"light": "Light", "dark": "Dark", "body": "Body", "spirit": "Spirit"}
-## Mirrors EQUIP_SLOT_ICON/EQUIP_SLOT_LABEL (farroad-ui.js:556, :1955).
+## Icon and label for each equipment slot.
 const EQUIP_SLOT_ICON := {"head": "🪖", "body": "🛡️", "legs": "🥾", "hand1": "🖐️", "hand2": "🖐️"}
 const EQUIP_SLOT_LABEL := {"head": "Head", "body": "Body", "legs": "Legs", "hand1": "Hand (left)", "hand2": "Hand (right)"}
 
@@ -73,21 +58,15 @@ func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	card_container = container
 	_refresh_card()
 
-## Mirrors describeEquipment's body line (farroad-ui.js:557-565) --
-## "<Slot> · <stat bits> · <affinity bits>". UI-layer display logic (the
-## real function lives in farroad-ui.js, not farroad-core.js), so it
-## belongs here, not FarroadCore.gd/FarroadProgression.gd -- same split
-## every other panel already follows for its own display helpers.
-## `uid` is needed to show the item's affinity contribution as a real %
-## instead of a raw CSV point value -- affinity_mul's log curve is
-## nonlinear in the TOTAL raw affinity, not additive per-source, so an
-## item's own raw value can't just be run through affinity_mul in
-## isolation and called "this item's %". The well-defined number: the
-## MARGINAL % this item's own contribution is worth on top of the
-## unit's baseline+purchased affinity (deliberately excluding whatever
-## else is equipped, so items stay comparable to each other regardless
-## of loadout) -- affinity_mul(base+purchased+item) minus
-## affinity_mul(base+purchased), as a percentage-point delta.
+## The description line for an item: "<Slot> - <stat bits> - <affinity bits>".
+## `uid` is needed to show the item's affinity contribution as a real % instead
+## of a raw point value. affinity_mul is nonlinear in the TOTAL raw affinity,
+## not additive per source, so an item's own raw value can't just be run
+## through it in isolation. The number shown is the marginal %: what this
+## item's contribution adds on top of the unit's baseline plus purchased
+## affinity, ignoring whatever else is equipped so items stay comparable
+## whatever the loadout: affinity_mul(base + purchased + item) minus
+## affinity_mul(base + purchased), as a percentage-point delta.
 func _describe_equipment(item_id: String, uid: String) -> String:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null:
@@ -129,7 +108,7 @@ func _refresh_card() -> void:
 	header.text = "[font_size=16][color=#%s]%s[/color][/font_size]" % [rarity_color.to_html(false), def["name"]]
 	card_container.add_child(header)
 
-	# Ian: gear filtering and sorting by stat (applies to every slot's list)
+	# gear filtering and sorting by stat (applies to every slot's list)
 	card_container.add_child(ActionFilter.gear_controls(_refresh_card))
 	card_container.add_child(UnitSets.build(g, uid, "gear", func():
 		FarroadProgression.refresh_live_stats(g)
@@ -157,12 +136,9 @@ func _refresh_card() -> void:
 		var slot_opt := _build_slot_option(uid, slot)
 		slot_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		option_row.add_child(slot_opt)
-		# Post-Milestone-3 APK feedback (round 3): "add the informational
-		# popups for actions wherever they can be selected... change
-		# enemies and equipment to have similar popups" -- an info icon
-		# next to the slot's own OptionButton, reading whatever's CURRENTLY
-		# equipped there at press-time (not bound at build-time), matching
-		# GambitsPanel's own action-info-icon pattern exactly.
+		# an info icon next to the slot's OptionButton. It reads whatever is
+		# equipped there at press time (not bound at build time), like
+		# GambitsPanel's action info icon.
 		var cur_id_now = g.get("equipped", {}).get(uid, {}).get(slot)
 		if cur_id_now != null:
 			var info_btn := Button.new()
@@ -178,23 +154,21 @@ func _refresh_card() -> void:
 			desc_lbl.text = _describe_equipment(cur_id, uid)
 			desc_lbl.modulate = Palette.TEXT_DIM
 			desc_lbl.add_theme_font_size_override("font_size", 12)
-			# A stacked stat+affinity description (e.g. "Body -- ATK +5 --
+			# A stacked stat + affinity description (e.g. "Body -- ATK +5 --
 			# DEF +3 -- Fire affinity +12% -- Water affinity -8%") can run
-			# long -- same missing-autowrap overflow class as this batch's
-			# other reported popups.
+			# long, so it autowraps instead of overflowing the popup.
 			desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 			desc_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(desc_lbl)
 
 		slot_host.add_child(row)
 
-## Mirrors the per-slot <select> build (farroad-ui.js:1968-1980) -- lists
-## "— empty —" first, then every OWNED item matching this slot's kind
-## (equip_owned_count>0), each reading "<name><rarity tag> (M/N)" --
-## available/owned. An option with equip_available_count<=0 is disabled (NOT
-## omitted -- the label text alone already explains why) unless it's this
-## slot's own current occupant, the exact same "disable, don't hide" rule
-## GAMBITS' own action <select> already uses for a held-elsewhere action.
+## One slot's dropdown: "- empty -" first, then every OWNED item matching the
+## slot's kind (equip_owned_count > 0), each reading "<name> (M/N)", available
+## over owned. An option with equip_available_count <= 0 is disabled, not
+## omitted (the label already explains why), unless it is this slot's own
+## current occupant. It is the same "disable, don't hide" rule the Gambits
+## action dropdown uses for an action held elsewhere.
 func _build_slot_option(uid: String, slot: String) -> OptionButton:
 	var opt := OptionButton.new()
 	opt.set_meta("gear_slot", slot)   # the Gear tutorial points at these, not at the rarity/sort filters above them
@@ -211,9 +185,8 @@ func _build_slot_option(uid: String, slot: String) -> OptionButton:
 			continue
 		var is_cur: bool = item_id == cur_id
 		var available := FarroadProgression.equip_available_count(g, item_id)
-		# Ian: shorten "(owned N, M available)" to a compact "(M/N)" --
-		# available/owned, e.g. "(0/3)" -- meaningfully cuts each option
-		# row's own text length (this popup's own scroll-length complaint).
+		# a compact "(M/N)" (available/owned, e.g. "(0/3)") keeps each option
+		# row short
 		var label: String = "%s (%d/%d)" % [
 			item["name"], available, FarroadProgression.equip_owned_count(g, item_id)]
 		opt.add_icon_item(_rarity_icon(item.get("rarity", "common")), label, idx)
@@ -228,8 +201,7 @@ func _build_slot_option(uid: String, slot: String) -> OptionButton:
 	opt.item_selected.connect(func(sel_idx): _on_slot_selected(uid, slot, item_ids[sel_idx]))
 	return opt
 
-## Post-Milestone-3 APK feedback (round 3) -- reads the slot's CURRENT
-## occupant fresh at press-time.
+## Reads the slot's current occupant at press time.
 func _on_equip_info_pressed(slot: String) -> void:
 	var item_id = g.get("equipped", {}).get(selected_uid, {}).get(slot)
 	if item_id == null:

@@ -1,22 +1,16 @@
 class_name MarksPanel
 extends Node
-## Milestone 3, Step 3g: the MARKS tab -- gacha pulls. Structural sibling
-## of EquipmentPanel.gd, but with no unit-tab row -- MARKS is a single
-## global screen, not a per-unit editor.
+## The Marks pull screen (gacha pulls). It lives in the Shop's Marks tab. It is
+## a single global screen, not a per-unit editor.
 ##
-## FarroadProgression.do_pull(g) stays pure (g-mutation only, no UI/live-
-## sync side effects, matching every other orchestration function's own
-## discipline) -- this panel is what notifies GameController after a pull:
-## _notify_currency_changed() always (marks/aether/lore can all change),
-## and -- only when the result actually fielded a new companion -- the
-## SAME sync_party_change() PartyPanel already uses (a pulled-and-fielded
-## companion is functionally identical to a PartyPanel field action, no
-## real-JS precedent either way, same class of Godot-only enhancement).
+## FarroadProgression.do_pull(g) only changes g, with no UI side effects. This
+## panel notifies GameController after a pull: _notify_currency_changed()
+## always (marks, aether and lore can all change), and, only when the pull
+## fielded a new companion, sync_party_change(), the same call PartyPanel
+## makes after a field action.
 ##
-## No drop-banner/toast system exists anywhere in this port yet (wave
-## drops already return this same shape of event and nothing renders them
-## either) -- a real one is out of this step's scope. A pull's result
-## shows as a plain "Last pull: ..." text line inside this popup instead.
+## There is no drop banner or toast system, so a pull's result shows as a
+## plain text line inside this popup.
 
 var g: Dictionary
 var _vp: Vector2
@@ -25,9 +19,8 @@ var _parent: GameController
 var toggle_button: Button
 var popup: PopupPanel
 var card_container: VBoxContainer
-## Always an Array now (even a single Pull stores a 1-entry array) --
-## Ian: "Pull x10 button for marks" needed a result shape that scales to
-## many pulls at once without a separate single-vs-batch data path.
+## Always an Array (a single Pull stores a 1-entry array), so one shape
+## serves a single pull and a batch.
 var last_pull_results: Array = []
 
 func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
@@ -36,8 +29,8 @@ func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	_parent = parent
 	_build_ui(parent)
 
-## Ian: Marks moved into the Shop (its bottom-row slot went to Arena) --
-## this now only draws the pull screen into the Shop's Marks tab.
+## Draws the pull screen into the Shop's Marks tab (this panel has no bottom-row
+## slot of its own).
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
 
@@ -56,12 +49,9 @@ func build_into(container: Container) -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Same icon-square style every sibling panel's own copy uses (duplicated
-## here, different script, no shared base).
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## Same icon-square style every sibling panel uses (duplicated here: no
+## shared base class). `icon`, when given, shows a real icon texture instead
+## of or alongside the placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
@@ -85,7 +75,7 @@ func _refresh_card() -> void:
 	else:
 		_build_unlocked_card()
 
-## Mirrors renderMarks()'s locked branch (farroad-ui.js:2233-2242).
+## The card shown before pulls unlock.
 func _build_locked_card() -> void:
 	var header := Label.new()
 	header.text = "Pulls open at wave %d." % FarroadProgression.MARKS_UNLOCK_WAVE
@@ -112,7 +102,7 @@ func _build_locked_card() -> void:
 	explain_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	card_container.add_child(explain_lbl)
 
-## Mirrors renderMarks()'s unlocked branch (farroad-ui.js:2243-2263).
+## The card shown once pulls are unlocked.
 func _build_unlocked_card() -> void:
 	var cost := FarroadProgression.pull_cost(g.get("wave", 1))
 	var marks: float = g.get("marks", 0.0)
@@ -149,10 +139,8 @@ func _build_unlocked_card() -> void:
 	pull_btn.pressed.connect(_on_pull_pressed)
 	card_container.add_child(pull_btn)
 
-	# Ian: "Pull x10 button for marks." Gated on affording all 10 up front
-	# (same silent-refusal convention the single Pull button already uses
-	# via its own disabled state) -- never a partial bulk pull that leaves
-	# the player wondering why it only did some of them.
+	# Pull x10 is enabled only if all 10 are affordable (the single Pull button
+	# is disabled the same way), so a bulk pull is never partial.
 	var cost_x10 := cost * 10
 	var available_x10: bool = marks >= cost_x10
 	var pull_x10_btn := Button.new()
@@ -162,7 +150,7 @@ func _build_unlocked_card() -> void:
 	pull_x10_btn.pressed.connect(_on_pull_x10_pressed)
 	card_container.add_child(pull_x10_btn)
 
-	# Ian: a button that spends every Mark on as many pulls as it buys.
+	# spends every Mark on as many pulls as it buys
 	var n_all: int = floori(marks / float(cost)) if cost > 0 else 0
 	var pull_all_btn := Button.new()
 	pull_all_btn.text = "PULL ALL — %d pulls, %d Marks" % [n_all, n_all * cost]
@@ -172,8 +160,8 @@ func _build_unlocked_card() -> void:
 	card_container.add_child(pull_all_btn)
 
 	var pity_n := int(g.get("pullsSinceUnit", 0))
-	# Ian: a breakdown of each kind's chance and the rarity split inside it
-	# (share of that kind, and the overall per-pull chance in brackets).
+	# a breakdown of each kind's chance and the rarity split inside it (the
+	# share of that kind, and the overall per-pull chance in brackets)
 	var odds_grid := GridContainer.new()
 	odds_grid.columns = 4
 	odds_grid.add_theme_constant_override("h_separation", 10)
@@ -315,9 +303,8 @@ func _describe_pull_results(results: Array) -> String:
 	var dup_conds := 0
 	var new_equip := 0
 	var dup_equip := 0
-	# 24-item batch, Group D6: "list how much aether and what actions got
-	# lore from duplicate each pull" -- tallied per action name, in the
-	# order each first appeared.
+	# Lore from duplicate pulls, tallied per action name in the order each
+	# first appeared.
 	var dup_aether := 0
 	var cond_aether := 0
 	var lore_by_action: Dictionary = {}

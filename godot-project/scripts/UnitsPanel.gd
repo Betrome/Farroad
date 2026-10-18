@@ -1,30 +1,17 @@
 class_name UnitsPanel
 extends Node
-## Post-Milestone-3 APK feedback (Group B1, redesigned again after
-## real-device testing): the "Units" tab -- a single dropdown-based unit
-## picker plus a sub-tab row (Summary/Gambits/Aether/Lore/Equipment)
-## showing content INLINE, beneath the picker, in this SAME popup, rather
-## than opening a second window. This replaces an earlier design (four
-## buttons that opened GAMBITS/AETHER/LORE/EQUIPMENT's own separate
-## full-screen popups) after Ian reported that closing a nested popup (the
-## Group D action-info popup, shown while one of those was open) closed
-## EVERY popup -- Godot's embedded-window system only tracks one exclusive
-## top-level popup layer at a time, so a second stacked Window silently
-## closed the first the moment it opened. He also explicitly asked for
-## this shape directly: "the tabs within the unit pop-up should show up
-## beneath them, not as new windows. This way you can swap between units
-## easily" -- swapping the dropdown now just rebuilds content_container
-## for the new uid, staying on whatever sub-tab was already showing,
-## instead of closing/reopening a separate popup each time.
+## The Units tab: a dropdown unit picker plus a sub-tab row
+## (Summary/Gambits/Aether/Lore/Equipment) whose content is shown inline,
+## beneath the picker, in this same popup. Swapping the unit rebuilds
+## content_container for the new uid and stays on the current sub-tab.
 ##
-## GAMBITS/AETHER/LORE/EQUIPMENT no longer own any popup of their own --
-## each exposes build_into(container, uid, host_popup), called here via
-## GameController.build_unit_subpanel_content. This is also the ONLY
-## popup any of that content now lives inside, so there's exactly one
-## outer ScrollContainer for everything (dropdown+subtabs+content) -- no
-## nested scroll containers to fight each other, directly addressing the
-## "still inconsistent" scrolling complaint alongside the removed
-## horizontal unit-tab-row from the previous round.
+## The Gambits, Aether, Lore and Equipment panels own no popup of their own.
+## Each exposes build_into(container, uid, host_popup), called through
+## GameController.build_unit_subpanel_content. Opening a second popup from
+## inside this one closes everything (Godot's embedded windows allow only one
+## exclusive popup at a time), so all of that content lives in this one popup.
+## That also means one outer ScrollContainer for everything and no nested
+## scroll containers fighting each other.
 
 var g: Dictionary
 var _vp: Vector2
@@ -110,14 +97,13 @@ func _populate_popup() -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	root_vbox.add_child(title)
 
-	# Ian: same unit filter/sort as the Party tab
+	# same unit filter/sort as the Party tab
 	root_vbox.add_child(UnitFilter.controls(refresh_dropdown))
 	dropdown = OptionButton.new()
 	dropdown.item_selected.connect(_on_dropdown_selected)
 	root_vbox.add_child(dropdown)
 
-	# Ian: "fit summary, gambits, aether, lore, and equipment onto a single
-	# line" -- five equal-width buttons sharing one row.
+	# the five sub-tabs share one row as equal-width buttons
 	var tab_row := HBoxContainer.new()
 	tab_row.add_theme_constant_override("separation", 4)
 	for entry in SUB_TABS:
@@ -234,18 +220,15 @@ func unit_pick_target() -> Control:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Same icon-square style every sibling panel's own copy uses (duplicated
-## here, different script, no shared base).
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## Same icon-square style every sibling panel uses (duplicated here: no
+## shared base class). `icon`, when given, shows a real icon texture instead
+## of or alongside the placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
 func open_menu() -> void:
 	_parent.panel_opening(self)
-	# Ian: reopening Units starts back on the MC's summary
+	# reopening Units starts back on the main character's summary
 	selected_uid = "kesh" if g["owned"].has("kesh") else ""
 	current_sub_tab = "summary"
 	_refresh()
@@ -289,7 +272,7 @@ func _on_dropdown_selected(idx: int) -> void:
 	selected_uid = uids[idx]
 	refresh_content()
 
-## Ian: X / tapping outside goes up a level -- from a sub-tab to Summary.
+## Closing (the X, or tapping outside) goes up a level: from a sub-tab to Summary.
 func can_go_back() -> bool:
 	return current_sub_tab != "summary"
 
@@ -420,7 +403,7 @@ func _build_summary_card() -> void:
 		def.get("row", "front"), ("Fielded" if g["party"].has(selected_uid) else "Benched")]
 	content_container.add_child(name_lbl)
 
-	# Ian: the item given at wave 100 -- redo the Main Character's stats.
+	# the item given at wave 100: redo the main character's stats
 	if selected_uid == "kesh" and g.get("mc") != null and int(g.get("mcRespecs", 0)) > 0:
 		var remake := Button.new()
 		remake.text = "Use the Shifted Reflection (x%d) — redo my stats" % int(g["mcRespecs"])
@@ -442,8 +425,8 @@ func _build_summary_card() -> void:
 		stat_row.add_child(_sum_label(k[0], nums, k[1] + " %d", 0))
 	content_container.add_child(stat_row)
 
-	# Ian: "have Summary show all stats" -- crit, evade on one row, and charge
-	# rate with recovery on the next.
+	# Summary shows all stats: crit and evade on one row, charge rate and
+	# recovery on the next
 	var crit_row := HFlowContainer.new()
 	crit_row.add_theme_constant_override("h_separation", 16)
 	crit_row.add_theme_constant_override("v_separation", 2)
@@ -476,8 +459,7 @@ func _build_summary_card() -> void:
 		charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		charge_row.add_child(charge_lbl)
-		# Ian: "charge actions (both ally and enemy) need inspect icons
-		# next to them."
+		# charge actions get an inspect (info) icon next to them
 		var charge_id: String = def["chargeAction"]
 		var charge_info_btn := Button.new()
 		charge_info_btn.text = "ⓘ"

@@ -1,14 +1,11 @@
 class_name ShopPanel
 extends Node
-## 24-item batch, Group C6: the new "Shop" tab -- spend Crystal (a new
-## currency, see FarroadProgression.gd's own SHOP_*_PRICE constants) on a
-## fixed-price pick of gambits (conditions), actions, units, or equipment.
-## Structural sibling of CataloguePanel.gd (same 4-sub-tab-row-over-a-
-## scrollable-list shape, no per-unit picker) crossed with LorePanel.gd's
-## purchase-row machinery (_style_purchase_button, duplicated here --
-## different script, no shared base class in this project). Unlike
-## Catalogue (browse-only) or Marks (random gacha), every row here is a
-## deliberate pick at a known, fixed price -- Ian's own numbers, verbatim.
+## The Shop tab: spend Crystal (see FarroadProgression's SHOP_*_PRICE
+## constants) on a fixed-price pick of gambits (conditions), actions, units
+## or equipment. A tab row over a scrollable list, like CataloguePanel, with
+## the purchase rows LorePanel uses (_style_purchase_button is duplicated
+## here: no shared base class). Unlike the Catalogue (browse-only) or Marks
+## (random pulls), every row is a deliberate pick at a known, fixed price.
 
 var g: Dictionary
 var _vp: Vector2
@@ -41,8 +38,7 @@ func reflow(new_vp: Vector2) -> void:
 	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", open_menu)
 
 func _build_ui(parent: Node) -> void:
-	# 24-item batch's own Group C6 -- 8th slot in the bottom row, see
-	# MarksPanel.gd's own copy of this comment for the full 8-slot layout.
+	# Bottom-row slot; see MarksPanel.gd for the full icon layout.
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.7225, _vp.y * 0.93), icon_size, "Shop", open_menu)
 
@@ -272,7 +268,7 @@ func _build_buy_row(label_bbcode: String, price: int, callback: Callable, info_c
 	var lbl := _rich_row(label_bbcode)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(lbl)
-	# Ian: "Shop: inspection icon to see details of actions, units, etc"
+	# an info button opens the details of the action, unit, gambit or gear
 	if info_callback.is_valid():
 		var info_btn := Button.new()
 		info_btn.text = "ⓘ"
@@ -299,9 +295,9 @@ var _pending_btn: Button = null
 ## True while a purchase animation plays (the menu must not rebuild under it).
 var _anim_busy := false
 
-## Ian: a bought row turns white; a gambit or unit then shrinks away and the
-## rows below slide up. Gear and actions flash the same way but stay put (they
-## can be bought again). Rebuilds the list once it is done.
+## A bought row turns white; a gambit or unit then shrinks away and the rows
+## below slide up. Gear and actions flash the same way but stay put (they can
+## be bought again). Rebuilds the list once it is done.
 func _after_buy(remove_in: bool) -> void:
 	var remove: bool = remove_in and not _built_wide   # a grid cell just flashes
 	var row: Control = _pending_row
@@ -414,9 +410,9 @@ func _after_buy(remove_in: bool) -> void:
 		if is_instance_valid(scroll):
 			scroll.scroll_vertical = keep
 
-## Ian: "Shop: Filter for actions, gambits, and equipment." Same filters
-## as Catalogue/Gambits (ActionFilter), plus rarity; kept while the Shop
-## stays open, so buying something doesn't reset them.
+## Filters for actions, gambits and equipment: the same ones as the Catalogue
+## and Gambits (ActionFilter), plus rarity. They are kept while the Shop stays
+## open, so buying something doesn't reset them.
 var f_target := "any"
 var f_stat := "any"
 var f_effect := "any"

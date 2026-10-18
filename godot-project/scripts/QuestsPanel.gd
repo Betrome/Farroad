@@ -1,20 +1,15 @@
 class_name QuestsPanel
 extends Node
-## Milestone 3, Step 3i: the QUESTS tab -- companion quest lines + direction
-## dungeons. Structural sibling of MarksPanel.gd (single global screen, no
-## unit-tab row) but for TWO sections in one popup, not split -- the real
-## JS's own renderQuests() comment is explicit that this is intentional:
-## both are main-party content, distinct from EXPEDITION's benched-party
-## focus.
+## The Quests tab: companion quest lines and direction dungeons, in two
+## sections of one popup. Both use the main party, unlike expeditions, which
+## send benched units.
 ##
-## Unlike every other panel, entering a quest/dungeon doesn't mutate g and
-## refresh a card in place -- it hands off to GameController's own
-## attempt_quest/enter_dungeon/give_up_quest, since actually
-## RUNNING the fight means parking the Road's BattlePresenter and spinning
-## up a second one -- machinery only GameController owns. This panel's own
-## job is just: show the DUNGEONS/COMPANION QUESTS lists, forward button
-## presses, and render whatever result GameController hands back via
-## show_result() once a fight resolves.
+## Entering a quest or dungeon doesn't change g here. It is handed to
+## GameController's attempt_quest / enter_dungeon / give_up_quest, because
+## running the fight means parking the Road's BattlePresenter and starting a
+## second one. This panel shows the DUNGEONS and COMPANION QUESTS lists,
+## forwards button presses, and shows the result GameController hands back
+## through show_result() when a fight resolves.
 
 var g: Dictionary
 var _vp: Vector2
@@ -41,9 +36,7 @@ func reflow(new_vp: Vector2) -> void:
 	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", open_menu)
 
 func _build_ui(parent: Node) -> void:
-	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
-	# bottom row -- see MarksPanel.gd's own copy of this comment for the
-	# full layout. This panel now sits at 0.6300.
+	# Bottom-row slot (x as a fraction of vp.x).
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.4450, _vp.y * 0.93), icon_size, "Quests", open_menu)
 
@@ -75,12 +68,9 @@ func _build_ui(parent: Node) -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Same icon-square style every sibling panel's own copy uses (duplicated
-## here, different script, no shared base).
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## Same icon-square style every sibling panel uses (duplicated here: no
+## shared base class). `icon`, when given, shows a real icon texture instead
+## of or alongside the placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
@@ -91,10 +81,9 @@ func open_menu() -> void:
 		return   # wide window: the quests list sits in the dock beside the fight
 	popup.popup(_parent.menu_popup_rect())
 
-## Also called by GameController after a
-## background dungeon unlock (Step 3h's expedition tick, resolve_expedition
-## calling unlock_direction_dungeon) so an open popup picks up a new
-## dungeon card without the player having to close and reopen it.
+## Also called by GameController after a background dungeon unlock (the
+## expedition tick, via resolve_expedition and unlock_direction_dungeon) so an
+## open popup shows the new dungeon card without being closed and reopened.
 func refresh() -> void:
 	_refresh_card()
 
@@ -113,16 +102,14 @@ func _refresh_card() -> void:
 	for c in card_container.get_children():
 		c.queue_free()
 
-	# Ian: "Once a non-repeatable quest is completed, have it disappear."
-	# The finished quest's card is already gone (completed lines are
-	# filtered out below); its result line used to linger at the top of the
-	# list, though the result pop-up already announced it -- so it no
-	# longer stays around.
+	# A completed non-repeatable quest disappears: its card is filtered out
+	# below, and its result line doesn't linger at the top either, since the
+	# result pop-up already announced it.
 	last_result = {}
 
 	var busy: bool = g.get("sideBattle") != null
 
-	# Ian: training dummies -- the same screen as the Gambits editor's Test button
+	# training dummies: the same screen as the Gambits editor's Test button
 	var training_header := Label.new()
 	training_header.text = "TRAINING"
 	training_header.add_theme_font_size_override("font_size", 16)
@@ -160,8 +147,8 @@ func _refresh_card() -> void:
 	for uid in owned:
 		var q: Dictionary = g.get("quests", {}).get(uid, {})
 		var completed: bool = int(q.get("stage", 0)) >= 5
-		# Rewards auto-credit on clear now (24-item batch, Group A/C5) --
-		# nothing pending to keep a completed quest's card around for.
+		# rewards are credited on clear, so nothing is pending that would keep a
+		# completed quest's card around
 		if q.is_empty() or completed:
 			continue
 		any_quest = true
@@ -173,16 +160,14 @@ func _refresh_card() -> void:
 		none_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(none_lbl)
 
-## Mirrors renderQuests()'s dungeon card (farroad-ui.js:2588-2609).
+## A dungeon's card.
 func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	var card := PanelContainer.new()
 	var box := VBoxContainer.new()
 	card.add_child(box)
 
-	# Ian: "I'm seeing horizontal scrolling on the quests, specifically the
-	# dungeons" -- the info line used to carry "cleared N times" and "on
-	# clear" and ran wider than the popup. Trimmed, and both labels wrap
-	# now so a long dungeon name can't push the card wide either.
+	# The info line is kept short and both labels wrap, so a long dungeon name
+	# can't make the card wider than the popup (no horizontal scrolling).
 	var name_lbl := Label.new()
 	name_lbl.text = d["name"]
 	name_lbl.add_theme_font_size_override("font_size", 15)
@@ -225,7 +210,7 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	row.add_child(enter_btn)
 	return card
 
-## Mirrors renderQuests()'s companion-quest card (farroad-ui.js:2610-2634).
+## A companion quest's card.
 func _build_quest_card(uid: String, q: Dictionary, busy: bool) -> PanelContainer:
 	var card := PanelContainer.new()
 	var box := VBoxContainer.new()

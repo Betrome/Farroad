@@ -1,13 +1,11 @@
 extends Node
-## Milestone 3, Step 3j (final roadmap item): the character-creation
-## screen -- MC point-buy + charge-action picker. Mirrors #mcCreate
-## (src/shell.html:266-301) and its handlers (src/farroad-ui.js:3159-3236).
+## The character-creation screen: main-character point-buy and charge-action
+## picker.
 ##
-## Unlike every other *Panel.gd, this is NOT a toggle-button/PopupPanel --
-## it is shown unconditionally, full-screen, the moment GameController
-## decides no save exists, and it is what the rest of GameController's
-## _ready() (HUD, the other 8 panels, the first fight) waits on. See
-## GameController._on_mc_confirmed()/_start_game().
+## Unlike the other panels, this is not a toggle button with a PopupPanel. It
+## is shown full-screen as soon as GameController finds no save, and the rest
+## of GameController._ready() (HUD, the other panels, the first fight) waits on
+## it. See GameController._on_mc_confirmed() and _start_game().
 
 var _vp: Vector2
 var _parent: Node
@@ -16,8 +14,8 @@ var _on_confirm: Callable
 var mc_points: Dictionary = {}        # {atk,mag,def,res,spd,hp: int 0..15}
 var mc_charge_choice: String = ""
 var mc_body: String = "male"
-## Ian: after wave 100 an item lets the player redo their stats. In this mode only the
-## point-buy shows; the name, look and charge action stay as they are.
+## After wave 100 an item lets the player redo their stats. In this mode only
+## the point-buy shows; the name, look and charge action stay as they are.
 var respec_mode := false
 var _orig_points: Dictionary = {}   # what the character had; confirming needs a change
 var _on_cancel: Callable = Callable()
@@ -123,7 +121,7 @@ func _build_ui(parent: Node) -> void:
 				_on_cancel.call())
 		root_vbox.add_child(cancel_btn)
 
-	# Ian (cloud saves): bring an existing game over from another device
+	# bring an existing game over from another device (cloud saves)
 	if respec_mode:
 		_refresh_stats()
 		return
@@ -137,7 +135,7 @@ func _build_ui(parent: Node) -> void:
 	_refresh_stats()
 	_refresh_charges()
 
-## Ian: a male or female main character (changeable later in the Menu).
+## A male or female main character (changeable later in the Menu).
 func _build_body_block(parent: VBoxContainer) -> void:
 	var label := Label.new()
 	label.text = "Character"
@@ -249,10 +247,9 @@ func _on_stat_minus(k: String) -> void:
 	_refresh_stats()
 	_update_confirm_state()
 
-## The + guard is a PER-CLICK check against the running total, not just a
-## per-stat 0-15 clamp -- matches updateMcConfirm's own real gate exactly
-## (farroad-ui.js:3183-3185): a stat already below MC_POINT_MAX can still
-## refuse a click once the whole 45-point pool is spent elsewhere.
+## The + guard checks the running total on every click, not just a per-stat
+## 0-15 clamp: a stat below MC_POINT_MAX still refuses a click once the whole
+## 45-point pool is spent elsewhere.
 func _on_stat_plus(k: String) -> void:
 	if mc_points[k] < FarroadProgression.MC_POINT_MAX and FarroadProgression.mc_points_spent(mc_points) < FarroadProgression.MC_POINTS_TOTAL:
 		mc_points[k] += 1

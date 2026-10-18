@@ -1,22 +1,19 @@
 class_name CataloguePanel
 extends Node
-## Post-Milestone-3 APK feedback (Group C1): the new "Catalogue" tab -- 5
-## sub-tabs (Units/Actions/Gambits/Equipment/Enemies), each a scrollable
-## list over the relevant STATIC content table (FarroadCore.ROSTER/ACTIONS/
-## ALL_CONDITION_IDS/EQUIPMENT/ARCH -- always fully loaded regardless of
-## what the player owns), cross-referenced against what's actually been
-## acquired/encountered. An unencountered entry shows only "???".
+## The Catalogue tab: 5 sub-tabs (Units/Actions/Gambits/Equipment/Enemies),
+## each a scrollable list over the relevant content table (FarroadCore's
+## ROSTER/ACTIONS/ALL_CONDITION_IDS/EQUIPMENT/ARCH, always fully loaded),
+## cross-referenced against what the player has acquired or met. An entry not
+## found yet shows only "???".
 ##
-## "Encountered" proxies, none of them new tracking except Enemies:
+## What counts as "found":
 ##   Units      -- g["owned"].has(id)
-##   Actions    -- FarroadProgression.lore_action_ids(g) (already the exact
-##                 "has the player got this in some form" set LORE's own
-##                 tab pool computes -- reused directly, no new logic)
+##   Actions    -- FarroadProgression.lore_action_ids(g), the same set the
+##                 Lore tab uses for "has the player got this in some form"
 ##   Gambits    -- g["conditions"].has(id)
 ##   Equipment  -- g["equipInv"].has(id)
-##   Enemies    -- g["seenArch"].has(key) -- genuinely new, Godot-only
-##                 bookkeeping written by FarroadProgression.build_enemies
-##                 (see that function's own comment).
+##   Enemies    -- g["seenArch"].has(key), recorded by
+##                 FarroadProgression.build_enemies
 
 var g: Dictionary
 var _vp: Vector2
@@ -30,14 +27,10 @@ var list_container: VBoxContainer
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 const TABS := [["units", "Units"], ["actions", "Actions"], ["gambits", "Gambits"], ["equipment", "Gear"], ["enemies", "Enemies"]]
 
-## Post-Milestone-3 APK feedback (round 2): "add filter options for gambits
-## and actions to reduce scrolling. Include such things as targets,
-## scaling, effects, etc." -- when any filter dimension is active
-## (!= "any"), an unencountered ("???") entry is omitted entirely rather
-## than shown filtered-in-or-out -- showing a "???" row that happens to
-## match e.g. a Heals filter would itself leak that an unfound heal action
-## exists, a real (if small) spoiler an inactive default filter never has
-## to worry about.
+## Filter options for gambits and actions (targets, scaling, effects, ...)
+## cut down the scrolling. When any filter is active (not "any"), a "???"
+## entry is left out entirely: a "???" row that happened to match e.g. a Heals
+## filter would reveal that an unfound heal action exists.
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
@@ -58,11 +51,9 @@ func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	_build_ui(parent)
 
 func reflow(new_vp: Vector2) -> void:
-	# Group H (20-item batch): Catalogue no longer owns a bottom-row icon
-	# of its own -- it's reached via a "Catalogue" button inside
-	# SettingsPanel's popup (GameController.open_catalogue()) instead.
-	# _vp still needs to track resizes so a later open_menu()
-	# call sizes/positions the popup correctly.
+	# The Catalogue has no bottom-row icon of its own: it is reached from a
+	# "Catalogue" button in SettingsPanel's popup (GameController.open_catalogue()).
+	# _vp still tracks resizes so a later open_menu() sizes the popup correctly.
 	_vp = new_vp
 	if popup != null and _built_wide != _is_wide():
 		_populate_popup()
@@ -311,7 +302,7 @@ func _refresh_actions() -> void:
 			continue
 		if is_known:
 			var row := HBoxContainer.new()
-			# Ian: the action's cost (time until the next turn, 100 = normal)
+			# the action's cost (time until the next turn, 100 = normal)
 			var lbl := _rich_row(_rarity_name(act["name"], act.get("rarity", "common")) +
 				" Lv%d  [color=#%s]cost %d[/color]" % [FarroadProgression.action_level(g, aid),
 					Palette.TEXT_DIM.to_html(false), roundi(float(act["rank"]) * 100.0)])
@@ -389,9 +380,8 @@ func _refresh_enemies() -> void:
 		var a: Dictionary = FarroadCore.ARCH[key]
 		if seen.has(key):
 			var row := HBoxContainer.new()
-			# Ian: "don't list enemy stats on the main page, just when
-			# inspected" -- name (+ rarity color) only; the full stat/growth
-			# breakdown lives in show_enemy_detail_popup now.
+			# the list shows the name (and rarity color) only; the full
+			# stat/growth breakdown is in show_enemy_detail_popup
 			var lbl := _rich_row(_rarity_name(a["name"], a.get("rarity", "common")))
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)
@@ -404,7 +394,7 @@ func _refresh_enemies() -> void:
 		else:
 			_add_item(_unknown_row())
 
-	# Ian: "Catalogue: needs entries for boss variants like the Warden."
+	# boss variants (like the Warden) get entries of their own
 	_finish_list()
 	var bheader := UiKit.make_label("Boss variants", "label")
 	list_container.add_child(bheader)

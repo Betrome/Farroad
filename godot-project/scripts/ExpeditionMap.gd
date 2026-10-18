@@ -1,23 +1,17 @@
 class_name ExpeditionMap
 extends Control
-## 20-item batch, Group K: a compass-style home-base map replacing the flat
-## 8-direction-button row in ExpeditionPanel's send picker. Ian confirmed
-## this is presentation-only ("meander = visual only, no new mechanics")
-## and needs NO new persisted data: `direction`/`ew` (depth along a
-## direction's line, already tracked), `g["directions"][dir]["maxDepth"]`
-## (fog-of-war), and each expedition's own `id` (a stable meander-offset
-## seed) are all real, already-persisted fields. The first custom
-## `_draw()`-based widget in this project -- every other visual surface so
-## far has been built entirely from Control/Node2D primitives
-## (StyleBoxFlat buttons, Polygon2D shapes), never raw canvas drawing.
+## A compass-style home-base map for ExpeditionPanel's send picker. It is
+## presentation only and needs no extra saved data: `direction` and `ew` (depth
+## along a direction's line), `g["directions"][dir]["maxDepth"]` (fog of war),
+## and each expedition's own `id` (a stable seed for its meander offset) are
+## all already saved. It is the project's first custom `_draw()`-based widget;
+## everything else is built from Control / Node2D primitives.
 ##
-## Direction icons and expedition dots are BOTH real Buttons (not raw
-## `_gui_input` hit-testing against `_draw()` geometry) -- more reliable on
-## touch, the same reasoning this project already applied to every other
-## tappable surface. `_draw()` only ever renders the non-interactive parts
-## (the home-base icon and the 8 radiating lines, including their fog-of-
-## war fade) plus a small visual dot UNDER each expedition's own (mostly
-## transparent) tap-target Button.
+## Direction icons and expedition dots are real Buttons, not `_gui_input`
+## hit-testing against `_draw()` geometry, which is more reliable on touch.
+## `_draw()` renders only the non-interactive parts (the home-base icon and the
+## 8 radiating lines, including their fog-of-war fade) plus a small visual dot
+## under each expedition's own (mostly transparent) tap-target Button.
 
 ## Real compass angles (math convention: 0=East, 90=South (Godot's 2D Y
 ## axis points down), 180=West, 270=North) -- these 8 direction ids are
@@ -29,9 +23,8 @@ const DIRECTION_ANGLES_DEG := {
 	"west": 180.0, "northwest": 225.0, "north": 270.0, "northeast": 315.0,
 }
 
-## Ian: real compass abbreviations for the direction-icon buttons -- the
-## old `.left(3)` truncation of the full label ("Nor", "Nort", "Sout")
-## read as cut-off text, not a real abbreviation.
+## Real compass abbreviations for the direction-icon buttons (truncating the
+## full label gave cut-off text like "Nor", "Nort", "Sout").
 const DIRECTION_ABBREV := {
 	"west": "W", "northwest": "NW", "southwest": "SW", "north": "N",
 	"south": "S", "northeast": "NE", "southeast": "SE", "east": "E",
@@ -98,8 +91,8 @@ func _build_direction_buttons() -> void:
 		add_child(btn)
 		_direction_buttons[dir] = btn
 		_style_direction_button(btn, dir)
-		# Ian: "Show furthest wave reached in each direction" -- the
-		# direction's own maxDepth, just inward of its button.
+		# the furthest wave reached in each direction (its maxDepth), just inward
+		# of its button
 		var depth: int = int(g["directions"].get(dir, {}).get("maxDepth", 0))
 		var lbl := Label.new()
 		lbl.text = "W%d" % depth if depth > 0 else "—"
@@ -135,20 +128,19 @@ func _style_direction_button(btn: Button, dir: String) -> void:
 	btn.add_theme_stylebox_override("pressed", normal)
 	btn.add_theme_stylebox_override("disabled", disabled_style)
 
-## Deterministic (hashed off the expedition's own id, never re-randomized
-## on a later refresh) so a redraw never makes an expedition's dot jump
-## sideways -- shrinks toward zero near the home base (scaled by
-## travel_frac) per Ian's own confirmed "visual only" meander.
+## Deterministic (hashed off the expedition's own id, never re-randomized on a
+## later refresh) so a redraw never makes an expedition's dot jump sideways.
+## It shrinks toward zero near the home base (scaled by travel_frac). The
+## meander is visual only.
 func _meander_offset(exp: Dictionary, travel_frac: float) -> float:
 	var h: int = String(exp["id"]).hash()
 	var unit_mag: float = float(h % 1000) / 999.0   # [0, 1]
 	var sign_val: float = 1.0 if (h % 2 == 0) else -1.0
 	return sign_val * unit_mag * _radius * MEANDER_AMPLITUDE_FRAC * travel_frac
 
-## 24-item batch, Group E3: the map's depth scale grows with the deepest
-## exploration so far (rounded up to the next NODE_EVERY), never below
-## EW_VISUAL_REF -- a fixed 150 used to pile everything past wave 150 up
-## at the edge, which would also have hidden every 50-wave node past it.
+## The map's depth scale grows with the deepest exploration so far (rounded up
+## to the next NODE_EVERY), never below EW_VISUAL_REF. A fixed scale would pile
+## everything past EW_VISUAL_REF up at the edge and hide every node past it.
 const NODE_EVERY := 50
 const MIN_NODE_SPACING_PX := 7.0
 
@@ -180,11 +172,9 @@ func _build_dot_button(exp: Dictionary) -> Button:
 
 func _draw() -> void:
 	var ref: float = _visual_ref()
-	# Ian: "add a connected line and node in general direction for every
-	# 50 waves a party explores in their chosen direction." A node at each
-	# multiple of NODE_EVERY along the already-revealed line; if a very
-	# deep direction would crowd them closer than MIN_NODE_SPACING_PX, only
-	# every k-th milestone is drawn so they stay legible.
+	# A node at each multiple of NODE_EVERY along the already-revealed line. If
+	# a very deep direction would crowd them closer than MIN_NODE_SPACING_PX,
+	# only every k-th milestone is drawn so they stay legible.
 	var px_per_node: float = _radius * float(NODE_EVERY) / ref
 	var node_step: int = NODE_EVERY * maxi(1, int(ceil(MIN_NODE_SPACING_PX / maxf(px_per_node, 0.001))))
 	var node_r: float = maxf(2.0, _radius * 0.028)

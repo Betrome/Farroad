@@ -1,23 +1,18 @@
 class_name ExpeditionPanel
 extends Node
-## Milestone 3, Step 3h: the EXPEDITION tab -- real-time idle sending.
-## Structural sibling of MarksPanel.gd (no per-unit tab row -- this is a
-## party-selection picker instead, plus a list of currently-active
-## expeditions).
+## The Expedition tab: send benched units out on real-time expeditions. It
+## has a party picker and a list of the expeditions currently out.
 ##
-## Sending/recalling/collecting call FarroadProgression's real functions
-## directly (pure g-mutation, `now` always an explicit parameter -- see
-## that file's own EXPEDITIONS section comment for why). Unlike every
-## other panel this session, this one does NOT pause BattlePresenter's
-## beat loop while open, and does NOT need `sync_party_change` --
-## expeditions only ever pull from the BENCH (is_on_expedition guards
-## FarroadProgression.available_for_party, mirroring the real
-## benchedUnits() filter exactly), so the currently-fielded Road party is
-## untouched by anything on this screen, and expeditions run their own
-## separate synthetic battles entirely independent of whatever
-## BattlePresenter is animating.
+## Sending, recalling and collecting call FarroadProgression's functions
+## directly (they only change g, and take `now` as a parameter; see the
+## EXPEDITIONS section there). Expeditions only ever take units from the
+## bench (is_on_expedition keeps them out of available_for_party), so nothing
+## here touches the fielded Road party: this panel needs no
+## sync_party_change, and the battle loop isn't paused. Expeditions run their
+## own separate simulated battles, independent of the one BattlePresenter is
+## animating.
 ##
-## Collecting DOES call _notify_currency_changed() (Aether/Marks change).
+## Collecting calls _notify_currency_changed() (Aether and Marks change).
 
 var g: Dictionary
 var _vp: Vector2
@@ -35,8 +30,8 @@ func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	_vp = vp
 	_parent = parent
 	_build_ui(parent)
-	# Ian: the away/heading-home times count in real time while the panel
-	# is open (and the party keeps advancing), not just on reopen.
+	# the away / heading-home times count in real time while the panel is open
+	# (and the party keeps advancing), not just on reopen
 	var t := Timer.new()
 	t.wait_time = 1.0
 	t.ignore_time_scale = true
@@ -95,10 +90,8 @@ func reflow(new_vp: Vector2) -> void:
 	_update_badge.call_deferred()
 
 func _build_ui(parent: Node) -> void:
-	# 24-item batch's own Group C6 recomputed the (now 8-icon, Shop added)
-	# bottom row -- see MarksPanel.gd's own copy of this comment for the
-	# full layout. This panel now sits at 0.3833 (moved earlier in the row
-	# so Road, right after it, stays close to true center).
+	# Bottom-row slot (x as a fraction of vp.x). It sits just before the Road
+	# button so Road stays close to the center of the row.
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.3063, _vp.y * 0.93), icon_size, "Exped", open_menu)
 	_update_badge.call_deferred()
@@ -142,10 +135,8 @@ func _populate_popup() -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	root_vbox.add_child(title)
 
-	# Post-Milestone-3 APK feedback (Group B5): the send picker moved ABOVE
-	# the active-expeditions list -- previously it sat below, meaning it was
-	# scrolled well past the fold whenever an expedition was already active,
-	# exactly when a player is most likely to want to send another one.
+	# the send picker sits above the active-expeditions list, so it stays in
+	# view when an expedition is already out (when sending another is likely)
 	var send_label := Label.new()
 	send_label.text = "Send a party:"
 	root_vbox.add_child(send_label)
@@ -210,12 +201,9 @@ func _populate_wide() -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Same icon-square style every sibling panel's own copy uses (duplicated
-## here, different script, no shared base).
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## Same icon-square style every sibling panel uses (duplicated here: no
+## shared base class). `icon`, when given, shows a real icon texture instead
+## of or alongside the placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
@@ -302,10 +290,9 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 		log_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		vbox.add_child(log_lbl)
 
-	# Ian: "give each expedition you send out its own button to pop up a
-	# log showing battle, events, and dungeons they encounter" -- opens the
-	# FULL exp["log"] history (GameController.show_expedition_log_popup),
-	# distinct from the single most-recent-entry preview line just above.
+	# each expedition has its own Log button: it opens the full exp["log"]
+	# history (GameController.show_expedition_log_popup), not just the single
+	# most recent entry shown in the preview line above
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
 	var log_btn := Button.new()
@@ -323,7 +310,7 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 		UiKit.primary(btn)
 		btn.pressed.connect(_on_collect_pressed.bind(exp["id"]))
 	elif returning and exp.get("recalled", false):
-		# Ian: a recalled party can be sent back out.
+		# a recalled party can be sent back out
 		btn.text = "Explore"
 		btn.pressed.connect(_on_explore_pressed.bind(exp["id"]))
 	elif returning:
@@ -412,19 +399,15 @@ func _refresh_send_picker() -> void:
 		_map_host().add_child(idle_map)
 		return
 
-	# Post-Milestone-3 APK feedback (Group B5): "increase their size" -- every
-	# button in this panel used to rely on plain default Button sizing (no
-	# custom_minimum_size anywhere); a real ~1.35x taller floor here makes
-	# them easier to tap without changing the HFlowContainer auto-layout.
+	# a minimum height about 1.35x the default makes the buttons easier to tap
+	# without changing the HFlowContainer auto-layout
 	var btn_min_size := Vector2(0, 44)
 
-	# 24-item batch, Group E2: "choose party drop down above the ... units
-	# to choose individual units for expedition." Picks from the Party
-	# tab's own saved presets (Group E1). Only BENCHED, not-already-away
-	# members can actually go out on an expedition (the fielded Road party
-	# never leaves), so each entry shows how many of its members are
-	# sendable right now, and choosing one selects exactly those -- the
-	# per-unit toggles below still work for fine-tuning afterward.
+	# A dropdown of the Party tab's saved presets, above the unit toggles. Only
+	# benched units that aren't already away can go out (the fielded Road party
+	# never leaves), so each entry shows how many of its members are sendable
+	# right now, and choosing one selects exactly those. The per-unit toggles
+	# below still work for fine-tuning afterward.
 	var presets: Array = g.get("partyPresets", [])
 	if not presets.is_empty():
 		var preset_opt := OptionButton.new()
@@ -460,14 +443,12 @@ func _refresh_send_picker() -> void:
 		units_row.add_child(btn)
 	send_container.add_child(units_row)
 
-	# Group K (20-item batch): a compass-style home-base map replacing the
-	# flat 8-direction-button row -- home base at center, each direction's
-	# own line radiating outward (fogged past g["directions"][dir]["maxDepth"]),
-	# active expeditions shown as dots along their own line (tap to open
-	# their existing Log popup), a tappable direction icon at each line's
-	# end still wired to the SAME _on_direction_selected(dir) handler below
-	# -- no new selection logic, just a new visual hit-target. Square, sized
-	# off the same popup content width _build_ui computes (popup_size.x - 40).
+	# A compass-style map of the home base at the center, with each direction's
+	# line radiating outward (fogged past g["directions"][dir]["maxDepth"]).
+	# Active expeditions are dots along their own line (tap to open their Log
+	# popup), and a direction icon at each line's end calls
+	# _on_direction_selected(dir) below. Square, sized off the popup content
+	# width _build_ui computes (popup_size.x - 40).
 	var map_size: float = _wide_map_size() if _built_wide else _vp.x * 0.96 - 40.0
 	var exp_map := ExpeditionMap.new()
 	exp_map.setup(g, Vector2(map_size, map_size), selected_direction, _on_direction_selected, _on_log_pressed)
@@ -507,7 +488,7 @@ func _on_send_pressed() -> void:
 		selected_direction = ""
 	refresh()
 
-## Ian: an exclamation point in the corner of the Expedition button when a
+## Shows an exclamation point in the corner of the Expedition button when a
 ## party is ready to be collected.
 func _ready_to_collect() -> bool:
 	for exp in g.get("expeditions", []):

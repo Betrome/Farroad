@@ -45,13 +45,8 @@ func reflow(new_vp: Vector2) -> void:
 	toggle_button = _build_icon_tab(_parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", open_menu)
 
 func _build_ui(parent: Node) -> void:
-	# 24-item batch's own Group C6 recomputed this to an 8-icon row (Shop
-	# added): Units 0.0133, this one 0.1367, Marks 0.2600, Expedition
-	# 0.3833, Road (GameController's own button, moved next to Expedition
-	# to stay near true center) 0.5067, Quests 0.6300, Settings 0.7533,
-	# Shop 0.8767 -- same 0.11*vp.x icon size/0.93*vp.y row as before, just
-	# recomputed for 8 slots instead of 7 (duplicated per-file, no shared
-	# base).
+	# Bottom-row slot: icons are 0.11 * vp.x square on a row at 0.93 * vp.y, with
+	# each panel's x position (a fraction of vp.x) spaced evenly across the row.
 	var icon_size: float = _vp.x * 0.11
 	toggle_button = _build_icon_tab(parent, Vector2(_vp.x * 0.1675, _vp.y * 0.93), icon_size, "Party", open_menu)
 
@@ -102,12 +97,9 @@ func _populate_popup() -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## Same icon-square style every sibling panel's own copy uses (duplicated
-## here, different script, no shared base).
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## Same icon-square style every sibling panel uses (duplicated here: no
+## shared base class). `icon`, when given, shows a real icon texture instead
+## of or alongside the placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 
@@ -125,17 +117,13 @@ func open_menu() -> void:
 func _notify_party_changed() -> void:
 	_parent.sync_party_change()
 
-## Pushes a front/back row edit onto the CURRENT fight's on-field sprite
-## immediately, animated -- see _on_row_toggle_pressed's own comment for
-## why the "self-corrects within one wave" tradeoff was replaced with a
-## real live hop (post-Milestone-3 APK feedback, Group A1).
+## Pushes a front/back row edit onto the current fight's on-field sprite
+## immediately, as a hop to the new slot (see _on_row_toggle_pressed).
 func _notify_row_changed(uid: String) -> void:
 	_parent.sync_row_change(uid)
 
-## Mirrors partyRosterHTML/wirePartyRoster (farroad-ui.js:2722-2746) --
-## fielded units with a Bench button (disabled at 1 remaining), owned-and-
-## benched units with a Field button (disabled at PARTY_CAP). Moved here
-## unchanged from GambitsPanel, which used to own this section too.
+## Fielded units get a Bench button (disabled when only one is left), and
+## owned benched units a Field button (disabled at PARTY_CAP).
 var _bench_page := 0
 const BENCH_PER_PAGE := 12
 
@@ -146,7 +134,7 @@ func _refresh_roster() -> void:
 		_refresh_roster_wide()
 		return
 
-	# Ian: what each row offers, at the top of the Party tab.
+	# what each row offers, at the top of the Party tab
 	for line in FarroadCore.row_summary():
 		var row_lbl := Label.new()
 		row_lbl.text = line
@@ -154,7 +142,7 @@ func _refresh_roster() -> void:
 		row_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		roster_container.add_child(row_lbl)
 
-	# Ian: filter and sort for units (physical / magic focus, rarity, level...)
+	# filter and sort for units (physical / magic focus, rarity, level...)
 	roster_container.add_child(UnitFilter.controls(_refresh_roster))
 
 	_build_presets_section()
@@ -278,8 +266,8 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 		row_btn.tooltip_text = "Tap to move to the %s row" % ("back" if cur_row == "front" else "front")
 		row_btn.pressed.connect(_on_row_toggle_pressed.bind(uid))
 		row.add_child(row_btn)
-		# Ian: jumping to attack stays the default, running is a per-unit
-		# option -- shown once the unit's art has a run animation.
+		# jumping to attack is the default; running is a per-unit option, shown
+		# once the unit's art has a run animation
 		var frames = load("res://sprites/units/%s.tres" % Appearance.sprite_set(g, uid))
 		if frames is SpriteFrames and frames.has_animation("run"):
 			var cur_ap: String = str((g.get("approach", {}) as Dictionary).get(uid, "jump"))
@@ -299,14 +287,10 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 	row.add_child(btn)
 	return row
 
-## Flips the roster definition's own row field (not a per-party-instance
-## copy) -- matches how the real JS's own row-toggle tag mutates BOTH the
-## live unit AND C.ROSTER's def (farroad-ui.js:1740-1745), a mechanic that
-## already existed in the real game but had no Godot UI surface until now.
-## Also pushed onto any matching LIVE g["units"] entry for correctness, and
-## (post-Milestone-3 APK feedback, Group A1) now notifies GameController so
-## the on-field sprite hops to its new slot immediately instead of waiting
-## for the next wave's build_party() -- see _notify_row_changed.
+## Flips the row field on the roster definition (not a per-party copy), and on
+## any matching live g["units"] entry. GameController is notified so the
+## on-field sprite hops to its new slot right away instead of waiting for the
+## next wave's build_party() (see _notify_row_changed).
 func _on_row_toggle_pressed(uid: String) -> void:
 	var def = FarroadCore.roster_by_id(uid)
 	if def == null:
@@ -324,11 +308,10 @@ func _on_row_toggle_pressed(uid: String) -> void:
 	_notify_row_changed(uid)
 	_refresh_roster()
 
-## 24-item batch, Group E1: "save current party as a default party you
-## name. Have up to 10." A name field + Save button, then one row per
-## saved preset (name, its members, Load/Delete). Loading goes through the
-## same _notify_party_changed live-sync a single bench/field edit already
-## uses, so a mid-fight load updates the field immediately too.
+## Saved party presets (up to 10): a name field and Save button, then one row
+## per preset (name, its members, Load/Delete). Loading goes through the same
+## _notify_party_changed live sync a single bench/field edit uses, so a
+## mid-fight load updates the field immediately.
 var preset_name_edit: LineEdit
 
 func _build_presets_section(host: Container = null) -> void:

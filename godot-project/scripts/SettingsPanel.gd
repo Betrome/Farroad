@@ -1,19 +1,15 @@
 class_name SettingsPanel
 extends Node
-## Post-Milestone-3 APK feedback (Group C2): the new "Settings" tab (bottom-
-## row label now "Menu", per Ian's own later ask -- the icon/button/popup
-## underneath is unchanged) -- a "Reset Game" button behind a
-## ConfirmationDialog (same reuse of Godot's confirm-before-destructive-
-## action pattern LorePanel's own refund flow already established),
-## deleting user://save.json and reloading the scene so the player
-## re-enters GameController._ready()'s own existing boot gate (no save
-## found -> character creation) rather than hand-rolling a manual in-place
-## teardown/rebuild of every panel and timer.
+## The Menu tab (bottom-row label "Menu"): settings and utilities. Its
+## "Reset Game" button sits behind a ConfirmationDialog (the same
+## confirm-before-destructive-action pattern LorePanel's refund uses). It
+## deletes the save and reloads the scene, so the player goes back through
+## GameController._ready()'s normal boot (no save found -> character creation)
+## instead of tearing down and rebuilding every panel and timer by hand.
 ##
-## Post-batch feedback: the inline Inventory readout became a button
-## (opens GameController.show_inventory_popup, the same shared small-
-## overlay shape every other detail popup uses), and a "Change Name"
-## button was added (GameController.show_change_name_popup).
+## The Inventory readout is a button (it opens GameController.show_inventory_popup,
+## the same small overlay the other detail popups use), and a "Change Name"
+## button opens GameController.show_change_name_popup.
 
 var g: Dictionary
 var _vp: Vector2
@@ -59,7 +55,7 @@ func _populate_popup() -> void:
 	if _body != null and is_instance_valid(_body):
 		_body.queue_free()
 	_built_wide = _is_wide()
-	# Ian: the same size as the other main menus (96% x 76%), scrolling
+	# the same size as the other main menus (96% x 76%), scrolling
 	var popup_size := Vector2(_vp.x * 0.96, _vp.y * 0.76)
 	if _built_wide:
 		var fr: Rect2i = _parent.full_menu_rect()
@@ -79,13 +75,11 @@ func _populate_popup() -> void:
 	title.add_theme_font_size_override("font_size", 20)
 	vbox.add_child(title)
 
-	# Ian: "add an inventory tab to show aether, marks, and future
-	# currencies" -- then later "change the inventory section to be a
-	# button." Opens the same shared small-overlay popup every other
-	# detail view uses (GameController.show_inventory_popup), which
-	# builds its own live readout fresh each time it's opened -- no local
-	# label to keep refreshed here anymore.
-	# Ian: cloud saves -- the recovery code that moves this game to another device
+	# Inventory (aether, marks and the other currencies): a button that opens
+	# the same small overlay the other detail views use
+	# (GameController.show_inventory_popup). It builds its readout fresh each
+	# time, so there is no label to keep refreshed here.
+	# Cloud saves: the recovery code that moves this game to another device
 	var account_btn := Button.new()
 	account_btn.text = "Cloud save & recovery code"
 	account_btn.pressed.connect(func():
@@ -97,25 +91,23 @@ func _populate_popup() -> void:
 	inventory_btn.pressed.connect(_on_inventory_pressed)
 	vbox.add_child(inventory_btn)
 
-	# 24-item batch: "add a Stats button in the menu" -- opens
-	# GameController.show_stats_popup, same shared detail-overlay shape
-	# Inventory already uses.
+	# Stats: opens GameController.show_stats_popup, the same detail overlay
+	# Inventory uses.
 	var stats_btn := Button.new()
 	stats_btn.text = "Stats"
 	stats_btn.pressed.connect(func():
 		_parent.show_stats_popup())
 	vbox.add_child(stats_btn)
 
-	# (Ian: the name now lives in the Customize screen.)
-	# Ian: male/female main character, changeable any time.
+	# (the name now lives in the Customize screen)
+	# male/female main character, changeable any time
 	var body_btn := Button.new()
 	body_btn.text = "Customize Character"
 	body_btn.pressed.connect(func():
 		_parent.show_change_body_popup())
 	vbox.add_child(body_btn)
 
-	# Group H (20-item batch): Catalogue folded in here so it no longer
-	# needs its own bottom-row icon.
+	# the Catalogue is opened from here, so it needs no bottom-row icon
 	var catalogue_btn := Button.new()
 	catalogue_btn.text = "Catalogue"
 	catalogue_btn.pressed.connect(_on_catalogue_pressed)
@@ -127,8 +119,8 @@ func _populate_popup() -> void:
 		_parent.show_tutorials_popup())
 	vbox.add_child(tuts_btn)
 
-	# Ian: "allow players to skip tutorials" -- unlocks every menu now (a
-	# tutorial's own caption has a Skip for just that one).
+	# skips all tutorials and unlocks every menu (a tutorial's own caption has
+	# a Skip for just that one)
 	var skip_btn := Button.new()
 	skip_btn.text = "Skip all tutorials"
 	skip_btn.disabled = bool(g.get("tutorialSkip", false))
@@ -137,14 +129,14 @@ func _populate_popup() -> void:
 		skip_btn.disabled = true)
 	vbox.add_child(skip_btn)
 
-	# Ian: a feedback button for suggestions and bug reports.
+	# a feedback button for suggestions and bug reports
 	var feedback_btn := Button.new()
 	feedback_btn.text = "Send Feedback"
 	feedback_btn.pressed.connect(func():
 		_parent.show_feedback_popup())
 	vbox.add_child(feedback_btn)
 
-	# Ian: notifications for idle rewards full / an expedition back.
+	# notifications for idle rewards full / an expedition back
 	var notify_btn := CheckButton.new()
 	notify_btn.text = "Notifications"
 	notify_btn.button_pressed = Notifier.enabled()
@@ -192,7 +184,7 @@ func _populate_popup() -> void:
 	notify_sub.add_child(test_btn)
 	notify_sub.add_child(test_note)
 
-	# Ian: patch notes in the game, and a check for a newer version.
+	# patch notes in the game, and a check for a newer version
 	var notes_btn := Button.new()
 	notes_btn.text = "Patch notes"
 	notes_btn.pressed.connect(func():
@@ -217,7 +209,7 @@ func _populate_popup() -> void:
 		auto_btn.toggled.connect(func(on: bool): Updates.set_check_enabled(on))
 		vbox.add_child(auto_btn)
 
-	# Ian: the terms every player agreed to (they cover the gameplay data).
+	# the terms every player agreed to (they cover the gameplay data)
 	var terms_btn := Button.new()
 	terms_btn.text = "Terms of Service"
 	terms_btn.pressed.connect(func():
@@ -229,8 +221,8 @@ func _populate_popup() -> void:
 	reset_btn.pressed.connect(_on_reset_pressed)
 	vbox.add_child(reset_btn)
 
-	# Ian: the player ID on the Menu for easy reference (deletion requests,
-	# bug reports). Tap to copy.
+	# the player ID, for easy reference (deletion requests, bug reports); tap
+	# to copy
 	var id_btn := Button.new()
 	id_btn.text = "ID: " + Analytics.display_id()
 	id_btn.flat = true
@@ -278,10 +270,8 @@ func _split_columns(vbox: VBoxContainer) -> void:
 func _style_popup(p: PopupPanel) -> void:
 	UiKit.style_popup(p)
 
-## icon, when provided, shows a real icon texture instead of/alongside
-## the placeholder text -- every EXISTING call site passes no icon
-## (unchanged behavior) until real button art exists (Ian: "prepare for
-## real button/icon assets").
+## `icon`, when given, shows a real icon texture instead of or alongside the
+## placeholder text; no caller passes one yet.
 func _build_icon_tab(parent: Node, pos: Vector2, size: float, label_text: String, callback: Callable, icon: Texture2D = null) -> Button:
 	return UiKit.icon_tab(parent, pos, size, label_text, callback, icon)
 

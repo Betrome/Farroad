@@ -1,41 +1,26 @@
 class_name LorePanel
 extends Node
-## Milestone 3, Step 3e: the LORE tab -- Lore-bonus purchase/refund, per
-## action. Engine math (apply_bonuses/bonus_price/bonus_applies/bonus_spend/
-## snapshot/pristine_of/action_bonus_total, plus the BONUSES display table)
-## was already fully ported (Milestone 1 Step 1d + this step's own table
-## port); this step is UI + the small orchestration layer
-## FarroadProgression.gd just gained (used_actions/action_holders/
-## unit_active_actions/lore_action_ids/free_lore/unused_lore_refund/
-## claim_lore_refund/buy_bonus/remove_bonus). Structural sibling of
-## AetherPanel.gd specifically -- same tab-row button + popup shape, same
-## unit-picker-including-benched pattern, and directly reuses its
-## battle-tested purchase-row machinery (_add_purchase_cells/
-## _build_purchase_button/_style_purchase_button/PURCHASE_BTN_WIDTH_FRAC,
-## duplicated here -- different script, no shared base class in this
-## project) so this screen starts with AETHER's hard-won column-alignment/
-## horizontal-overflow lessons already applied.
+## The Lore card of the Units menu: Lore-bonus purchase and refund, per
+## action. The bonus math is in FarroadCore (apply_bonuses, bonus_price,
+## bonus_applies, bonus_spend, snapshot, pristine_of, action_bonus_total, plus
+## the BONUSES display table), and FarroadProgression has the orchestration
+## (used_actions, action_holders, unit_active_actions, lore_action_ids,
+## free_lore, unused_lore_refund, claim_lore_refund, buy_bonus, remove_bonus).
+## This panel reuses AetherPanel's purchase-row machinery
+## (_add_purchase_cells, _build_purchase_button, _style_purchase_button,
+## PURCHASE_BTN_WIDTH_FRAC; duplicated here, no shared base class), so its
+## column alignment and overflow handling are already worked out.
 ##
-## Deliberately NOT ported: G.mc-gated MC charge-action-pool branches
-## (acquiredCharges/banked, the "not refundable, kept as part of the
-## party's charge pool" text) -- naturally unreachable while g["mc"] is
-## null (Step 3j), same pattern as GAMBITS/AETHER. Ported anyway for
-## fidelity rather than dropped, since it becomes reachable once Step 3j
-## lands.
+## The main character's acquired charge actions (acquiredCharges, banked, the
+## "not refundable, kept as part of the party's charge pool" text) are handled
+## where they apply.
 ##
-## Post-Milestone-3 APK feedback (Group B1, then revised after real-device
-## testing): this panel no longer owns any UI surface of its own -- see
-## GambitsPanel.gd's own header comment for the full story of why (a
-## nested-popup-closes-everything bug, plus Ian's explicit "show up
-## beneath them, not as new windows" request). UnitsPanel is the sole
-## popup owner now; this panel builds its existing card content directly
-## into whatever container UnitsPanel hands it (build_into).
+## This panel owns no popup of its own. UnitsPanel is the only popup owner (a
+## second popup opened from inside it closed everything), and this panel
+## builds its card into the container UnitsPanel hands it (build_into).
 ##
-## Post-batch feedback: "remove the lore refund button, it's no longer
-## relevant" -- removed (the button, its ConfirmationDialog, and both
-## handlers). FarroadProgression.unused_lore_refund/claim_lore_refund
-## themselves are untouched -- still real, parity-tested engine functions,
-## just no longer exposed through this panel's own UI.
+## There is no refund button; FarroadProgression.unused_lore_refund and
+## claim_lore_refund still exist but this panel does not expose them.
 
 var g: Dictionary
 var _vp: Vector2
@@ -45,10 +30,8 @@ var selected_action_id: String = ""
 
 var card_container: Container
 
-## Post-Milestone-3 APK feedback (round 3): "I need the filters all places
-## actions and gambits show up" -- same dropdown-filter mechanism
-## CataloguePanel/GambitsPanel already established, applied to the
-## Unequipped-actions dropdown.
+## Filters for the Unequipped-actions dropdown, the same dropdown-filter
+## mechanism CataloguePanel and GambitsPanel use.
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
 var action_filter_effect: String = "any"
@@ -65,15 +48,11 @@ const ACTION_CAMP_OPTIONS := ActionFilter.STAT_OPTIONS
 const ACTION_EFFECT_OPTIONS := ActionFilter.EFFECT_OPTIONS
 
 const PURCHASE_BTN_WIDTH_FRAC := 0.24   # of viewport width -- same convention AetherPanel.gd established
-## Post-Milestone-3 APK feedback (Group B3): "have rarity text colors
-## instead of text" (round 4, after Ian reported equipment's own bracket
-## tag was STILL showing uncolored -- the same underlying issue existed
-## here too) -- Button/OptionButton can't render BBCode/per-item text
-## color, but BOTH support a per-item/per-button ICON, so the bracket tag
-## is replaced with a small solid-color swatch icon instead (see
-## _rarity_icon below, same technique EquipmentPanel.gd's own copy uses).
-## Every RichTextLabel site (the action detail card's own header) still
-## uses RARITY_COLOR directly.
+## Rarity is shown by color, not a bracketed text tag. Button and OptionButton
+## can't render BBCode or per-item text color, but both support an icon, so a
+## small solid-color swatch icon is used (see _rarity_icon below, the same
+## technique EquipmentPanel uses). RichTextLabel sites (the action detail
+## card's header) use RARITY_COLOR directly.
 const RARITY_COLOR := {"common": Palette.RARITY_COMMON, "rare": Palette.RARITY_RARE, "legendary": Palette.RARITY_LEGENDARY}
 static var _rarity_icon_cache: Dictionary = {}
 
@@ -95,11 +74,9 @@ func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 func reflow(new_vp: Vector2) -> void:
 	_vp = new_vp
 
-## Called by UnitsPanel every time the LORE sub-tab is shown. `host_popup`
-## is unused here (the refund button/dialog this used to reparent into it
-## was removed per Ian's ask) -- kept only for a consistent
-## build_into(container, uid, host_popup) signature across all folded
-## panels.
+## Called by UnitsPanel every time the Lore sub-tab is shown. `host_popup` is
+## unused here; it is kept for a consistent build_into(container, uid,
+## host_popup) signature across the unit panels.
 func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	selected_uid = uid
 	card_container = container
@@ -141,9 +118,8 @@ func _build_purchase_button(buy_text: String, cost: int, aid: String, callback: 
 	btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return btn
 
-## Thin wrapper -- see FarroadProgression.action_level's own comment for
-## the full explanation (promoted there so GambitsPanel/CataloguePanel can
-## share it too, per post-batch feedback).
+## Thin wrapper; see FarroadProgression.action_level (shared with
+## GambitsPanel and CataloguePanel).
 func _action_level(aid: String) -> int:
 	return FarroadProgression.action_level(g, aid)
 
@@ -158,11 +134,9 @@ func _action_level(aid: String) -> int:
 func _numf(v) -> float:
 	return 0.0 if v == null else float(v)
 
-## Mirrors bonusTotalSummary (farroad-ui.js:566-579) -- compares the
-## action's CURRENT (bonus-applied) fields against its PRISTINE baseline
-## (FarroadCore.pristine_of, already ported) and summarizes what actually
-## changed. Lives here, not FarroadCore.gd -- the real function is in the
-## UI layer too, not core.
+## Compares the action's current (bonus-applied) fields against its pristine
+## baseline (FarroadCore.pristine_of) and summarizes what actually changed.
+## It is display logic, so it lives here rather than in FarroadCore.
 func _bonus_total_summary(aid: String) -> String:
 	var act = FarroadCore.ACTIONS.get(aid)
 	var p = FarroadCore.pristine_of(aid)
@@ -213,11 +187,10 @@ func _refresh_card() -> void:
 	header.add_theme_font_size_override("font_size", 16)
 	card_container.add_child(header)
 
-	# Mirrors renderLore()'s own early return (farroad-ui.js:2046-2048) --
-	# checks the RAW earned total across EVERY action, not any one action's
-	# own free_lore(g, aid): a player who's spent everything they've earned
-	# (free==0) still sees their existing purchases; only a genuinely fresh
-	# total_lore(g)==0 shows this message.
+	# Early return: checks the raw earned total across every action, not any
+	# one action's free_lore(g, aid). A player who has spent everything they
+	# earned (free == 0) still sees their existing purchases; only a fresh
+	# total_lore(g) == 0 shows this message.
 	if FarroadProgression.total_lore(g) == 0.0:
 		card_container.add_child(_rich_line(
 			"[font_size=12]No Lore yet. Lore comes from [b]duplicate[/b] drops, and the curated sequence never repeats itself — so it stays at zero until drops turn random after the wave-20 boss. That is by design, not a stall.[/font_size]"))
@@ -228,10 +201,9 @@ func _refresh_card() -> void:
 		func(id): return FarroadCore.ACTIONS.has(id))
 
 	# Keep selected_action_id valid, then snap it to this unit's own first
-	# equipped action if the previous selection is equipped by someone ELSE
-	# (still "active" globally) but not here -- mirrors the real re-render
-	# fixup exactly (farroad-ui.js:2094/2101-2102). An unequipped selection
-	# (nobody holds it anywhere) persists across a unit switch instead.
+	# equipped action if the previous selection is equipped by someone else
+	# (still "active" globally) but not here. An unequipped selection (nobody
+	# holds it anywhere) persists across a unit switch instead.
 	if selected_action_id == "" or not action_ids.has(selected_action_id):
 		selected_action_id = action_ids[0] if not action_ids.is_empty() else ""
 	if selected_action_id != "":
@@ -241,11 +213,9 @@ func _refresh_card() -> void:
 
 	if not equipped_ids.is_empty():
 		# HFlowContainer (wraps onto multiple lines), not HBoxContainer (never
-		# wraps, would just keep growing wider) -- mirrors the real UI's own
-		# `flex-wrap:wrap` on this exact element (farroad-ui.js:2106) and
-		# matters here specifically: a real unit can have more than 2
-		# equipped slots as it levels, and a measured debug run already
-		# showed 2 short-named actions alone reaching 309 of a 310px budget.
+		# wraps, would keep growing wider). A unit can have more than 2
+		# equipped slots as it levels, and 2 short-named actions alone already
+		# reached 309 of a 310 px budget.
 		var eq_row := HFlowContainer.new()
 		eq_row.add_theme_constant_override("h_separation", 6)
 		eq_row.add_theme_constant_override("v_separation", 4)
@@ -270,13 +240,9 @@ func _refresh_card() -> void:
 		var uneq_label := Label.new()
 		uneq_label.text = "Unequipped actions"
 		card_container.add_child(uneq_label)
-		# Post-Milestone-3 APK feedback (round 5): "I want the filters be in
-		# the actual drop downs when selecting the actions, not above them
-		# ... a header at the top of the list you scroll through to pare it
-		# down some" -- replaces the OptionButton (which can't embed a
-		# filter control inside its own popup) with a trigger button that
-		# opens GameController's shared show_picker_overlay, same shape
-		# GambitsPanel's own condition/action pickers now use.
+		# A trigger button that opens GameController's shared show_picker_overlay,
+		# like GambitsPanel's condition and action pickers, instead of an
+		# OptionButton (which can't embed a filter control in its own popup).
 		var uneq_row := HBoxContainer.new()
 		var uneq_btn := Button.new()
 		unequipped_btn = uneq_btn   # the tutorial points at it
@@ -289,8 +255,7 @@ func _refresh_card() -> void:
 		uneq_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		uneq_btn.pressed.connect(_open_unequipped_picker.bind(unequipped_ids))
 		uneq_row.add_child(uneq_btn)
-		# Post-Milestone-3 APK feedback (round 3): "add the informational
-		# popups for actions wherever they can be selected."
+		# an info icon opens the action's details
 		var uneq_info_btn := Button.new()
 		uneq_info_btn.text = "ⓘ"
 		uneq_info_btn.custom_minimum_size = Vector2(36, 0)
@@ -307,11 +272,10 @@ func _refresh_card() -> void:
 	var b: Dictionary = g["bonuses"].get(aid, {})
 	var holders: Dictionary = FarroadProgression.action_holders(g, aid)
 
-	# v2.13: Lore became per-action -- this line now shows THIS action's own
-	# earned/free pool, not a global total, and each upgrade costs a FLAT
-	# price (no more "costs one more than its last" triangular scaling).
-	# Ian: the action's name with a Details button at the right edge; the full
-	# card lives in the usual pop-up instead of sitting open on the page
+	# Lore is per-action: this line shows this action's own earned / free pool,
+	# and each upgrade costs a flat price.
+	# The action's name with a Details button at the right edge; the full card
+	# is in the usual pop-up instead of sitting open on the page
 	var name_row := HBoxContainer.new()
 	var name_lbl := Label.new()
 	name_lbl.text = "%s  Lv%d" % [act["name"], _action_level(aid)]
@@ -340,12 +304,11 @@ func _refresh_card() -> void:
 		box.add_child(_rich_line("[font_size=12][color=#709fe8]Lore total: %s[/color][/font_size]" % summary))
 	card_container.add_child(box)
 
-	# v2.4: show ONLY bonuses that can do something to this action --
-	# mirrors bonus_applies' own real filtering exactly (farroad-ui.js:2175).
-	# Ian: an upgrade that reaches its max (Broad, Piercing's cap) must stay
-	# listed and adjustable -- bonus_applies turns false once it has taken
-	# effect, so a row is also kept while any stacks are bought; only "+" is
-	# disabled when it can't do anything more.
+	# Show only bonuses that can do something to this action (bonus_applies).
+	# An upgrade that reaches its max (Broad, Piercing's cap) stays listed and
+	# adjustable: bonus_applies turns false once it has taken effect, so a row
+	# is also kept while any stacks are bought; only "+" is disabled when it
+	# can't do anything more.
 	var live_bids: Array = []
 	var can_buy: Dictionary = {}
 	for bid in FarroadCore.BONUSES.keys():
@@ -412,9 +375,8 @@ func _on_action_selected(aid: String) -> void:
 	selected_action_id = aid
 	_refresh_card()
 
-## Post-Milestone-3 APK feedback (round 5): opens the filterable picker
-## overlay instead of a native OptionButton -- same shape GambitsPanel's
-## own condition/action pickers use.
+## Opens the filterable picker overlay instead of a native OptionButton, like
+## GambitsPanel's condition and action pickers.
 func _open_unequipped_picker(candidate_ids: Array) -> void:
 	_parent.show_picker_overlay("Choose an action", func(list_container: Container, backdrop: Node):
 		_populate_unequipped_picker(list_container, backdrop, candidate_ids))
@@ -459,8 +421,7 @@ func _populate_unequipped_picker(list_container: Container, backdrop: Node, cand
 			_refresh_card())
 		list_container.add_child(row_btn)
 
-## Post-Milestone-3 APK feedback (round 3) -- reads selected_action_id
-## fresh at press-time.
+## Reads selected_action_id at press time.
 func _on_unequipped_info_pressed() -> void:
 	if selected_action_id == "":
 		return

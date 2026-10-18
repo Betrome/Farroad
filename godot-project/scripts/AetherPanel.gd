@@ -1,25 +1,16 @@
 class_name AetherPanel
 extends Node
-## Milestone 3, Step 3d: the AETHER tab -- leveling (feed Aether), Recovery,
-## Evade/ATK-Crit/MAG-Crit investment, and the 8-axis Affinity investment.
-## Unlike GAMBITS/LORE's separate concerns, the real renderAether()
-## (farroad-ui.js:1816-1938) is ONE function covering all four -- so this is
-## one panel, structurally a sibling of GambitsPanel.gd (same "owns its own
-## tab-row button + popup" shape, same unit-picker-including-benched
-## pattern), not four separate ones.
+## The Aether card of the Units menu: leveling (feed Aether), Recovery,
+## Evade/ATK-Crit/MAG-Crit investment, and the 8-axis Affinity investment,
+## all in one card.
 ##
-## Every purchase handler calls FarroadProgression.refresh_live_stats(g)
-## (mirrors refreshLiveStats(), farroad-ui.js:1991-2003) so a purchase
-## reaches a unit already mid-fight immediately, the same way GAMBITS'
-## sync_loadout does for a slot edit -- not just starting next wave.
+## Every purchase handler calls FarroadProgression.refresh_live_stats(g), so a
+## purchase reaches a unit already mid-fight immediately, the way GAMBITS'
+## sync_loadout does for a slot edit, not just from the next wave.
 ##
-## Post-Milestone-3 APK feedback (Group B1, then revised after real-device
-## testing): this panel no longer owns any UI surface of its own -- see
-## GambitsPanel.gd's own header comment for the full story of why (a
-## nested-popup-closes-everything bug, plus Ian's explicit "show up
-## beneath them, not as new windows" request). UnitsPanel is the sole
-## popup owner now; this panel builds its existing card content directly
-## into whatever container UnitsPanel hands it (build_into).
+## This panel owns no popup of its own. UnitsPanel is the only popup owner (a
+## second popup opened from inside it closed everything), and this panel
+## builds its card into the container UnitsPanel hands it (build_into).
 
 var g: Dictionary
 var _vp: Vector2
@@ -32,8 +23,8 @@ const AFFINITY_AXIS_LABELS := {"fire": "Fire", "water": "Water", "earth": "Earth
 	"light": "Light", "dark": "Dark", "body": "Body", "spirit": "Spirit"}
 const PCT_STAT_LABELS := {"evade": "Evade", "atkCrit": "ATK Crit", "magCrit": "MAG Crit"}
 
-## Ian: "add a small icon like with actions next to each of the stats and
-## affinities to pop-up a smaller window that states what the stat does."
+## Each stat and affinity has a small info icon that pops up a small window
+## saying what the stat does.
 const LEVEL_INFO := "Feeds Aether to raise this unit's level -- increases every base stat and its own per-level growth, and unlocks more gambit slots at certain levels."
 const RECOVERY_INFO := "Raises the % of missing HP this unit carries over and heals between waves, up to a cap."
 const PCT_STAT_INFO := {
@@ -94,15 +85,14 @@ func _animate_value(node: Control, from_v: float, to_v: float, fmt: Callable, fi
 func _fmt_num(v: float) -> String:
 	return str(int(roundf(v))) if is_equal_approx(v, roundf(v)) else str(snappedf(v, 0.1))
 
-## Ian: "Body and Spirit pop-up: mention physical attacks for body and
-## buffs/debuffs for spirit, not the generic affinity text the others use."
-## Body/Spirit don't work like the 6 elemental axes (no element-tagged
-## actions) -- confirmed against FarroadCore.gd's own actual usage:
-## affinity_factor only reads "body" when act.camp=="atk" (physical), and
-## apply_status/heal_for read "spirit" for buff/heal potency (symmetric
-## aff_boost) and, for debuffs specifically, an asymmetric caster-potency/
-## target-resist formula (aff_boost_resist) -- the other 6 axes' generic
-## "X-aligned actions" text would be actively wrong for either of these.
+## The Body and Spirit pop-ups mention physical attacks (Body) and
+## buffs/debuffs (Spirit) rather than the generic affinity text. They don't
+## work like the 6 elemental axes (there are no element-tagged actions for
+## them): affinity_factor reads "body" only when act.camp == "atk" (physical),
+## and apply_status / heal_for read "spirit" for buff and heal potency
+## (symmetric aff_boost) and, for debuffs, an asymmetric caster-potency /
+## target-resist formula (aff_boost_resist). The "X-aligned actions" text the
+## other 6 axes use would be wrong for either.
 const BODY_INFO := "Body affinity boosts the power of this unit's own physical attacks (on top of any element they also carry), and reduces incoming physical damage from enemies."
 const SPIRIT_INFO := "Spirit affinity boosts this unit's own healing (including drain/lifesteal) given and received, and how strongly its buffs and debuffs land, both as caster and as target. Doesn't affect Recovery, the separate between-wave stat."
 
@@ -115,14 +105,12 @@ func _affinity_info(axis: String) -> String:
 	return "%s affinity boosts the power of this unit's own %s-aligned actions, and reduces incoming %s-aligned damage/effects from enemies." % [
 		label, label, label]
 
-## A small, lightweight popup anchored right next to the icon that opened
-## it -- deliberately NOT the shared full-screen detail overlay
-## (GameController._build_detail_overlay), which is centered/larger by
-## design; this reads as a small tooltip beside the exact stat inspected,
-## per Ian's own "keep it small" ask. Added as a child of the icon's own
-## Window (whatever popup this card currently lives inside -- UnitsPanel's,
-## via get_window()) so it layers correctly without needing to route
-## through GameController's own overlay-nesting machinery.
+## A small popup anchored next to the icon that opened it, like a tooltip
+## beside the stat being inspected. It is deliberately not the shared
+## full-screen detail overlay (GameController._build_detail_overlay), which is
+## larger and centered. It is added as a child of the icon's own Window
+## (whatever popup this card lives inside, UnitsPanel's, via get_window()), so
+## it layers correctly without going through GameController's overlay code.
 func _show_stat_info_popup(anchor: Control, text: String) -> void:
 	var host: Window = anchor.get_window()
 	if host == null:
@@ -341,7 +329,7 @@ func _refresh_card() -> void:
 	header.text = "%s — %s — LV %d%s" % [def["name"], FarroadProgression.unit_title(g, uid), level, row_tag]
 	header.add_theme_font_size_override("font_size", 16)
 	card_container.add_child(header)
-	# Ian: the level itself ticks up too
+	# the level itself ticks up too
 	var head_name: String = str(def["name"])
 	var head_title: String = FarroadProgression.unit_title(g, uid)
 	_track("level", float(level), header, func(v: float): return "%s — %s — LV %d%s" % [head_name, head_title, int(roundf(v)), row_tag])
@@ -391,22 +379,18 @@ func _refresh_card() -> void:
 		"Level up — %d Aether" % exact, "→ LV %d" % (level + 1), exact, false,
 		_on_feed_pressed.bind(uid, exact), false, LEVEL_INFO))
 
-	# Recovery/Evade/Crit share the SAME label/value/button column widths
-	# (explicit floors, not auto-sized) even though Recovery has its own
-	# GridContainer separate from Evade/Crit's -- that's what actually puts
-	# all 4 buttons at the identical x position down the page, not just
-	# giving them the same WIDTH (which alone doesn't align them if the
-	# columns before the button differ between the two grids).
-	# btn_col_frac measured directly against real worst-case button text
-	# (a 5-digit cost, "+1.5% (99999)") at the real default font/padding --
-	# the PRIOR 0.20 was narrower than that real text needed (~106px of
-	# text + 12px button padding vs. the 82px it was given), clipping it;
-	# 0.32 comfortably fits the measured worst case with room to spare.
-	# label_col_frac trimmed 0.28 -> 0.24 to make room for the new info icon
-	# (post-batch feedback) sharing this same column -- the label already
-	# autowraps at this floor (AUTOWRAP_WORD_SMART, set whenever a width
-	# floor is given), so a slightly narrower floor just wraps a long label
-	# like "Post-combat Recovery" a little earlier rather than overflowing.
+	# Recovery and Evade/Crit use the same label / value / button column widths
+	# (explicit floors, not auto-sized) even though they are separate grids.
+	# That is what puts all 4 buttons at the same x position down the page;
+	# equal button widths alone wouldn't align them if the columns before the
+	# button differed between the grids.
+	# btn_col_frac fits the worst-case button text (a 5-digit cost, "+1.5%
+	# (99999)", about 106 px of text plus 12 px of button padding) at the
+	# default font; a narrower column clips it.
+	# label_col_frac leaves room for the info icon sharing the label column.
+	# The label autowraps at this floor (AUTOWRAP_WORD_SMART, set whenever a
+	# width floor is given), so a long label like "Post-combat Recovery" wraps
+	# earlier instead of overflowing.
 	var label_col_frac: float = 0.24
 	var value_col_frac: float = 0.11
 	var btn_col_frac: float = 0.30
@@ -467,9 +451,8 @@ func _refresh_card() -> void:
 			var pct: float = FarroadCore.affinity_mul(raw) * 100.0
 			var cost := FarroadProgression.affinity_cost_to_next(FarroadProgression.affinity_purchased(g, uid).get(axis, 0))
 			var maxed := FarroadProgression.affinity_maxed(g, uid, axis)
-			# btn_width_frac trimmed 0.16 -> 0.13 to make room for the new
-			# compact info icon sharing the label column (post-batch feedback)
-			# -- "+1 (999)" style button text stays comfortably short enough.
+			# btn_width_frac leaves room for the compact info icon sharing the
+			# label column; "+1 (999)" style button text is short enough.
 			_add_labeled_purchase_cells(aff_grid, AFFINITY_AXIS_LABELS[axis], "%+.0f%%" % pct,
 				"+1", cost, maxed, _on_affinity_pressed.bind(uid, axis), 12, 0.13, 0.09, 0.08, _affinity_info(axis),
 				"aff:" + axis, pct, func(v: float): return "%+.0f%%" % v)

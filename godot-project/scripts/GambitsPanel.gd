@@ -1,40 +1,22 @@
 class_name GambitsPanel
 extends Node
-## Milestone 3, Step 3c: the GAMBITS tab -- the loadout/AI-rule editor.
-## Owns its own toggle button + popup (same "panel owns its whole UI
-## surface" shape BattlePresenter's Log/Status popups already established),
-## given the live game-state Dictionary `g` once at setup() and reading/
-## writing it directly from then on -- edits reach a unit mid-fight
-## immediately via FarroadProgression.sync_loadout, not just on the next
-## wave (see that function's own comment).
+## The Gambits card of the Units menu: the loadout / AI-rule editor. It gets
+## the live game-state Dictionary `g` once, at setup(), and reads and writes it
+## directly. Edits reach a unit mid-fight immediately through
+## FarroadProgression.sync_loadout, not just from the next wave.
 ##
-## Party bench/field management used to live in this same panel; moved out
-## to its own PartyPanel.gd (same live-game-Dictionary pattern, own popup).
+## This panel owns no popup of its own. UnitsPanel is the only popup owner (a
+## second popup opened from inside it closed everything, because Godot's
+## embedded windows allow only one exclusive popup at a time), and this panel
+## builds its slot editor into the container UnitsPanel hands it (build_into),
+## reassigning slots_container on each call.
 ##
-## Deliberately out of scope for this first pass (see the plan): the
-## pre-existing-conflict modal a Field click can trigger in the real game
-## (FarroadCore.action_held_by_earlier_fielded already makes any conflict
-## safe at combat time -- silent Strike fallback, never a crash -- so this
-## is UX polish, not a correctness requirement).
+## Party bench / field management is in PartyPanel.
 ##
-## Post-Milestone-3 APK feedback (Group B1, then revised again after
-## real-device testing): this panel no longer owns any UI surface of its
-## own at all -- no icon, no popup. UnitsPanel is the SOLE popup owner for
-## GAMBITS/AETHER/LORE/EQUIPMENT now; this panel just builds its existing
-## slot-editor content directly into whatever container UnitsPanel hands
-## it (build_into), reassigning slots_container each call. This replaced
-## an earlier design (open_for_unit showing this panel's OWN separate
-## full-screen popup) after Ian reported that closing a nested popup (the
-## Group D action-info popup, shown while a GAMBITS-via-Units popup was
-## already open) closed EVERY open popup -- Godot's embedded-window system
-## only tracks one exclusive popup layer at a time, so a second stacked
-## Window silently closed the first the moment it opened; closing the
-## second then left nothing visibly open. Reusing ONE popup (UnitsPanel's)
-## for all of this sidesteps that class of bug entirely, and is also what
-## Ian explicitly asked for: "the tabs within the unit pop-up should show
-## up beneath them, not as new windows... so you can swap between units
-## easily." sync_loadout's live-sync and the Group A4 charge-action swap
-## are unchanged.
+## Not handled: a modal for pre-existing action conflicts when a unit is
+## fielded. FarroadCore.action_held_by_earlier_fielded already makes any
+## conflict safe in combat (a silent Strike fallback), so the modal would only
+## be UX polish.
 
 var g: Dictionary
 var _vp: Vector2
@@ -43,18 +25,13 @@ var selected_uid: String = ""
 
 var slots_container: Container
 
-## Post-Milestone-3 APK feedback (round 3 asked for filters here at all;
-## round 4 moved them beside the IF/THEN controls but still above a plain
-## OptionButton; round 5: "I want the filters be in the actual drop downs
-## when selecting the actions, not above them... a header at the top of
-## the list you scroll through to pare it down some" -- a native
-## OptionButton can't embed a filter control inside its own popup at all,
-## so the condition/action pickers are no longer OptionButtons: tapping
-## the current-selection button now opens GameController's shared
-## show_picker_overlay, whose scrollable list has the filter row as its
-## own first entries, followed by the selectable rows -- one list you
-## scroll through together. Filter STATE is still these same shared
-## instance vars (persists across a unit swap or reopening the picker).
+## The filters live inside the pickers, as a header at the top of the list you
+## scroll through. A native OptionButton can't embed a filter control in its
+## own popup, so the condition and action pickers are not OptionButtons:
+## tapping the current-selection button opens GameController's shared
+## show_picker_overlay, whose scrollable list starts with the filter row,
+## followed by the selectable rows. Filter state is kept in these shared
+## instance vars, so it persists across a unit swap or reopening a picker.
 var cond_filter_group: String = "any"
 var action_filter_target: String = "any"
 var action_filter_camp: String = "any"
@@ -108,10 +85,9 @@ func build_into(container: Container, uid: String, _host_popup: Window) -> void:
 	slots_container = container
 	_refresh_slots()
 
-## Self -> Ally -> Foe, "none" first -- mirrors sortedOwnedConditions's
-## GROUP_ORDER (farroad-ui.js:2773-2780). Every condition id is prefixed
-## foe_/ally_/self_ (or is exactly "none") by construction, so the group is
-## derivable from the id string with no separate group field to port.
+## Self -> Ally -> Foe, "none" first. Every condition id is prefixed
+## foe_ / ally_ / self_ (or is exactly "none"), so the group comes from the id
+## string and needs no separate field.
 func _cond_group_rank(cond_id: String) -> int:
 	if cond_id == "none":
 		return 0
@@ -127,8 +103,8 @@ func _sorted_owned_conditions() -> Array:
 	var arr: Array = g["conditions"].duplicate()
 	if cond_filter_group != "any":
 		arr = arr.filter(func(cid): return cid == "none" or cid.begins_with(cond_filter_group + "_"))
-	# Ian: "organized by most used, then by type" -- usage = how many gambit
-	# slots across every unit's loadout currently use the condition.
+	# organized by most used, then by type; usage = how many gambit slots
+	# across every unit's loadout currently use the condition
 	var used: Dictionary = {}
 	for uid in g.get("loadout", {}).keys():
 		for slot in g["loadout"][uid]:
@@ -161,13 +137,11 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 	opt.item_selected.connect(func(idx2): on_change.call(options[idx2][0]))
 	return UiKit.compact_dropdown(opt)
 
-## Mirrors buildGambits' per-slot condition/action <select> pair
-## (farroad-ui.js:2791-2840) plus the ▲/▼ reorder buttons.
-## Group J (20-item batch): rebuilt every refresh, same "just rebuild
-## everything" convention this panel already uses for its per-slot cards --
-## occupies slot 0 of slots_container, so every per-slot card index below
-## is offset by SLOT_CARD_OFFSET (see _on_reorder's own comment for why
-## that offset matters).
+## The header above the slot cards: Auto-set (a first-pass suggestion, not
+## an optimizer), the Test button and the saved sets. It is rebuilt on every
+## refresh, like the per-slot cards, and occupies slot 0 of slots_container,
+## so every per-slot card index below is offset by SLOT_CARD_OFFSET (see
+## _on_reorder for why that offset matters).
 const SLOT_CARD_OFFSET := 1
 func _build_auto_set_row() -> void:
 	var row := HBoxContainer.new()
@@ -182,7 +156,7 @@ func _build_auto_set_row() -> void:
 	UiKit.primary(btn)
 	btn.pressed.connect(_on_auto_set_pressed)
 	row.add_child(btn)
-	# Ian: test the gambits against training dummies (the same screen as the Quests tab's)
+	# test the gambits against training dummies (the same screen as the Quests tab's)
 	var test_btn := Button.new()
 	test_btn.text = "Test"
 	test_btn.pressed.connect(func():
@@ -301,11 +275,10 @@ func _refresh_slots() -> void:
 		action_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		action_btn.pressed.connect(_open_action_picker.bind(i, s["action"]))
 		action_row.add_child(action_btn)
-		# Post-Milestone-3 APK feedback (Group D): an info icon next to each
-		# slot's action, opening GameController's shared action-detail popup
-		# (also used by CataloguePanel's Actions tab) -- .bind() the CURRENT
-		# action id, not the slot index, since the info icon should describe
-		# whatever's presently selected, same as the button's own label.
+		# an info icon next to each slot's action opens GameController's shared
+		# action-detail popup (also used by CataloguePanel's Actions tab). It
+		# binds the current action id, not the slot index, so it describes
+		# whatever is selected now, like the button's own label.
 		var info_btn := Button.new()
 		info_btn.text = "ⓘ"
 		info_btn.custom_minimum_size = Vector2(36, 0)
@@ -315,11 +288,9 @@ func _refresh_slots() -> void:
 
 	var uid_def = FarroadCore.roster_by_id(selected_uid)
 	if uid_def and uid_def.get("chargeAction"):
-		# Post-Milestone-3 APK feedback (Group A4): swappable only for the MC
-		# ("kesh") with more than one acquired charge action -- mirrors the
-		# real JS's own mcOwns/swappable gates (farroad-ui.js:2881,2893)
-		# exactly. Every other unit (and a single-charge MC) keeps the
-		# existing read-only label.
+		# swappable only for the main character ("kesh") with more than one
+		# acquired charge action; every other unit (and a single-charge main
+		# character) keeps the read-only label
 		var mc = g.get("mc")
 		var acquired: Array = mc["acquiredCharges"] if (selected_uid == "kesh" and mc != null) else []
 		if acquired.size() > 1:
@@ -328,9 +299,8 @@ func _refresh_slots() -> void:
 			swap_lbl.text = "⚡ Charge action:"
 			swap_lbl.modulate = Palette.TEXT_DIM
 			swap_row.add_child(swap_lbl)
-			# Ian: "Change charge action selection to be formatted just like
-			# normal action selection" -- a trigger button (rarity icon,
-			# name, level) opening the same filterable picker overlay.
+			# a trigger button (rarity icon, name, level) that opens the same
+			# filterable picker overlay as a normal action
 			var cur_c = FarroadCore.ACTIONS.get(uid_def["chargeAction"])
 			var charge_btn := Button.new()
 			charge_btn.text = (cur_c["name"] if cur_c else uid_def["chargeAction"]) + " Lv%d" % FarroadProgression.action_level(g, uid_def["chargeAction"])
@@ -338,9 +308,7 @@ func _refresh_slots() -> void:
 			charge_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			charge_btn.pressed.connect(_open_charge_picker.bind(acquired, uid_def["chargeAction"]))
 			swap_row.add_child(charge_btn)
-			# Post-Milestone-3 APK feedback (round 3): "add the informational
-			# popups for actions wherever they can be selected" -- this
-			# dropdown IS a selectable-action control.
+			# this is a selectable-action control, so it gets the info icon too
 			var swap_info_btn := Button.new()
 			swap_info_btn.text = "ⓘ"
 			swap_info_btn.custom_minimum_size = Vector2(36, 0)
@@ -363,9 +331,8 @@ func _refresh_slots() -> void:
 			charge_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 			charge_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			charge_row.add_child(charge_lbl)
-			# Ian: "charge actions (both ally and enemy) need inspect icons
-			# next to them" -- reuses the SAME _on_charge_info_pressed the
-			# swappable (acquired > 1) case above already had.
+			# charge actions get an inspect icon too, using the same
+			# _on_charge_info_pressed as the swappable (acquired > 1) case above
 			var charge_info_btn := Button.new()
 			charge_info_btn.text = "ⓘ"
 			charge_info_btn.custom_minimum_size = Vector2(36, 0)
@@ -373,14 +340,9 @@ func _refresh_slots() -> void:
 			charge_row.add_child(charge_info_btn)
 			slots_container.add_child(charge_row)
 
-## Post-Milestone-3 APK feedback (round 5): opens a filterable picker
-## overlay (GameController.show_picker_overlay) instead of a native
-## OptionButton -- the filter row is the scrollable list's own first
-## entry, everything scrolls together. `populate` is a self-referencing
-## closure (declared, then assigned, so it can call itself from a filter
-## dropdown's own on_change handler to rebuild the list in place without
-## closing the overlay) -- the same recursive-closure shape GDScript
-## lambdas support natively.
+## Opens a filterable picker overlay (GameController.show_picker_overlay)
+## instead of a native OptionButton. The filter row is the first entry of the
+## scrollable list, so everything scrolls together.
 func _open_condition_picker(i: int, current_cond: String) -> void:
 	_parent.show_picker_overlay("Choose condition", func(list_container: Container, backdrop: Node):
 		_populate_condition_picker(list_container, backdrop, i, current_cond))
@@ -424,12 +386,11 @@ func _populate_condition_picker(list_container: Container, backdrop: Node, i: in
 			backdrop.queue_free())
 		list_container.add_child(row_btn)
 
-## Mirrors the action <select> build (farroad-ui.js:2798-2808) -- an
-## option already held by another FIELDED unit (per
+## Opens the action picker, in the same overlay shape as the condition picker
+## above. An action already held by another fielded unit (per
 ## FarroadProgression.action_holder_in_party) is disabled with a tooltip,
-## except the slot's OWN current selection, which is never disabled even
-## if held elsewhere (same aid!==s.action guard the real code uses). Same
-## picker-overlay shape as the condition picker above.
+## except this slot's own current selection, which is never disabled even if
+## held elsewhere.
 func _open_action_picker(i: int, current_action: String) -> void:
 	_parent.show_picker_overlay("Choose action", func(list_container: Container, backdrop: Node):
 		_populate_action_picker(list_container, backdrop, i, current_action))
@@ -469,9 +430,9 @@ func _populate_action_picker(list_container: Container, backdrop: Node, i: int, 
 		var row := HBoxContainer.new()
 		var row_btn := Button.new()
 		var level_tag: String = " Lv%d" % FarroadProgression.action_level(g, aid) if act != null else ""
-		# 24-item batch, Group D1: "(used by X)" moved out of this row's own
-		# label and into the ⓘ detail popup (show_action_detail_popup) --
-		# the row still reads as disabled, and its tooltip still says why.
+		# "(used by X)" is in the info detail popup (show_action_detail_popup)
+		# rather than in this row's label; the row still reads as disabled, and
+		# its tooltip still says why.
 		row_btn.text = (act["name"] if act else aid) + level_tag
 		row_btn.icon = _rarity_icon(act.get("rarity", "common")) if act else null
 		row_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -540,18 +501,15 @@ func _populate_charge_picker(list_container: Container, backdrop: Node, acquired
 
 const REORDER_TWEEN_TIME := 0.25
 
-## Group J (20-item batch): a reorder animation -- captures the two
-## affected slot cards' CURRENT screen Y (offset by SLOT_CARD_OFFSET,
-## since the Auto-set row now occupies slots_container's own child 0)
-## before the swap+rebuild, then after _refresh_slots() rebuilds fresh
-## cards, tweens the two cards now sitting at the swapped indices from
-## their old Y to their freshly laid-out resting Y. Relies on
-## slots_container (a plain VBoxContainer) NOT re-sorting children again
-## mid-tween -- nothing else here calls queue_sort() while the tween runs,
-## so the manual position override holds for its whole duration, the same
-## way this project's other tween-driven animations (BattlePresenter.gd's
-## hop/shake) already rely on nothing else touching the animated node's
-## position concurrently.
+## Reorder with an animation. It captures the two affected slot cards' current
+## screen Y (offset by SLOT_CARD_OFFSET, since the Auto-set row is
+## slots_container's child 0) before the swap and rebuild. After
+## _refresh_slots() rebuilds fresh cards, it tweens the two cards now at the
+## swapped indices from their old Y to their laid-out resting Y. This relies
+## on slots_container (a plain VBoxContainer) not re-sorting its children
+## mid-tween: nothing else here calls queue_sort() while the tween runs, so
+## the manual position override holds for its whole duration. BattlePresenter's
+## hop and shake tweens rely on the same thing.
 func _on_reorder(i: int, delta: int) -> void:
 	var slots: Array = g["loadout"][selected_uid]
 	var j := i + delta
@@ -577,19 +535,18 @@ func _on_reorder(i: int, delta: int) -> void:
 	tw.tween_property(new_card_i, "position:y", target_i, REORDER_TWEEN_TIME)
 	tw.tween_property(new_card_j, "position:y", target_j, REORDER_TWEEN_TIME)
 
-## Post-Milestone-3 APK feedback (Group D) -- reads the slot's CURRENT
-## action fresh at press-time (not a value bound at build-time).
+## Reads the slot's current action at press time (not a value bound at build
+## time).
 func _on_action_info_pressed(i: int) -> void:
 	var action_id: String = g["loadout"][selected_uid][i]["action"]
 	_parent.show_action_detail_popup(action_id)
 
-## Post-Milestone-3 APK feedback (Group A4).
+## Swaps the main character's active charge action.
 func _on_charge_action_changed(action_id: String) -> void:
 	FarroadProgression.set_mc_charge_action(g, action_id)
 	_refresh_slots()
 
-## Post-Milestone-3 APK feedback (round 3) -- reads the MC's CURRENT charge
-## action fresh at press-time.
+## Reads the main character's current charge action at press time.
 func _on_charge_info_pressed() -> void:
 	var uid_def = FarroadCore.roster_by_id(selected_uid)
 	if uid_def == null or not uid_def.get("chargeAction"):

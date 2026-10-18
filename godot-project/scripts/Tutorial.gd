@@ -1,7 +1,7 @@
 class_name Tutorial
 extends Node
-## Ian's guided onboarding: menus unlock at fixed waves, each with a
-## hands-on tutorial. Everything outside the control the player needs is
+## Guided onboarding: menus unlock at fixed waves, each with a hands-on
+## tutorial. Everything outside the control the player needs is
 ## darkened, the Road pauses, and the tutorial only finishes once the real
 ## action is done. Each tutorial pays 1 Crystal (Marks pays 10, spent in the
 ## Shop tutorial right after). The caption's Skip ends just that tutorial
@@ -30,8 +30,8 @@ const TUTS := [
 	{"id": "expedition", "wave": 30, "unlocks": "expedition"},
 ]
 const ALWAYS_OPEN := ["settings", "summary", "aether", "catalogue"]
-## Ian: the PvP Arena opens once wave 50 is cleared (not a tutorial, so
-## skipping tutorials doesn't open it early).
+## The PvP Arena opens once wave 50 is cleared (not a tutorial, so skipping
+## tutorials doesn't open it early).
 const ARENA_WAVE := 50
 
 var gc: GameController
@@ -108,8 +108,8 @@ func _process(delta: float) -> void:
 	_hold_popups()
 	_run_step(delta)
 
-## The Road waits while a tutorial runs or is due to start (Ian: no hits
-## before the first one begins).
+## The Road waits while a tutorial runs or is due to start (no hits before
+## the first one begins).
 func holds_road() -> bool:
 	return active != "" or (not g.get("tutorialSkip", false) and not due().is_empty())
 
@@ -266,7 +266,7 @@ func _grant(id: String, skipped: bool) -> void:
 	g["tutorials"][id] = true
 	g["crystal"] = int(g.get("crystal", 0)) + (10 if id == "marks" else 1)
 	if skipped:
-		# Ian: a skipped tutorial still gives what playing it would have
+		# a skipped tutorial still gives what playing it would have
 		match id:
 			"lore":
 				if not bool(g.get("tutorialLoreGift", false)):
@@ -317,16 +317,16 @@ func _apply_locks() -> void:
 		if b == null or not is_instance_valid(b):
 			continue
 		var open := unlocked(g, key, active)
-		# during a tutorial only the button the current step points at
-		# can be tapped (Ian: tapping another menu mid-step broke it)
+		# during a tutorial only the button the current step points at can be
+		# tapped (tapping another menu mid-step broke it)
 		if active != "" and open:
 			open = cur == b
-		# Ian: units can't be upgraded or edited during a PvP fight (Units,
-		# Party, and Marks/Shop, which can add a unit or action mid-fight)
+		# units can't be upgraded or edited during a PvP fight (Units, Party,
+		# and Marks/Shop, which can add a unit or action mid-fight)
 		if open and key in PVP_LOCKED and gc.pvp_running():
 			open = false
-		# Ian: locked icons are darkened (not greyed out) and a tap on one
-		# says when it opens -- a clear button over the icon takes the tap
+		# locked icons are darkened (not greyed out) and a tap on one says when
+		# it opens; a clear button over the icon takes the tap
 		b.disabled = false
 		var catcher: Button = b.get_node_or_null("LockCatch")
 		if open and catcher != null:
