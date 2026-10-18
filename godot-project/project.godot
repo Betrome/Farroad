@@ -18,10 +18,6 @@ config/version="2.39"
 config/features=PackedStringArray("4.7")
 run/main_scene="res://scenes/Game.tscn"
 
-[autoload]
-
-PatchLoader="*res://scripts/PatchLoader.gd"
-
 [gui]
 
 ; A project-wide DEFAULT theme, not a runtime `root.theme` assignment --
