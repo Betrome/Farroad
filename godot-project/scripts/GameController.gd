@@ -26,7 +26,7 @@ extends Node2D
 ## "fresh game, no mc" fallback, since the real JS has no such path either
 ## (character creation is unconditional whenever no save exists).
 
-const SAVE_PATH := "user://save.json"
+const SaveStore := preload("res://scripts/SaveStore.gd")
 ## How often expeditions get a chance to resolve while the game is
 ## running (mirrors the real farroad-ui.js's own 15s setInterval poll --
 ## see _on_expedition_tick()). Offline catch-up (a much bigger, one-shot
@@ -86,9 +86,7 @@ var currency_row: HBoxContainer
 var aether_cell: Label
 var marks_cell: Label
 var crystal_cell: Label
-var idle_row: HBoxContainer
 var power_level_cell: Label
-var idle_rate_label: Label
 var speed_toggle_btn: Button
 var _speed_2x: bool = false
 var fade_overlay: ColorRect
@@ -200,7 +198,11 @@ func _ready() -> void:
 
 func _boot_after_terms() -> void:
 	if _try_resume_save():
+		await _run_offline_replay()
+		_finish_resume()
 		_start_game()
+	elif _save_unreadable:
+		_show_save_recovery()
 	else:
 		mc_panel = load("res://scripts/McCreatePanel.gd").new()
 		add_child(mc_panel)
@@ -289,16 +291,6 @@ func _start_game() -> void:
 	shop_panel.setup(g, _menu_vp(), self)
 	_build_arena_button()
 	_start_analytics()
-	# Ian: idle income is earned while the game is open too (it used to be
-	# away-only). Real seconds, so 2x speed doesn't double it; time away is
-	# still covered by the welcome-back catch-up from the last save.
-	var idle_t := Timer.new()
-	idle_t.wait_time = IDLE_TICK_SEC
-	idle_t.ignore_time_scale = true
-	idle_t.autostart = true
-	idle_t.timeout.connect(_on_idle_tick)
-	add_child(idle_t)
-	_idle_last_ms = Time.get_ticks_msec()
 	var wd := Timer.new()
 	wd.wait_time = ROAD_WATCHDOG_SEC
 	wd.autostart = true
@@ -413,14 +405,11 @@ func _on_viewport_resized() -> void:
 	# see _build_hud's own comment for the full history.
 	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
 	_place_hud_plate()
-	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
+	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.022))
 	aether_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	marks_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	crystal_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
-	idle_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.093)
-	idle_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
-	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
+	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.0175))
 	speed_toggle_btn.position = Vector2(_vp.x * 0.86, _vp.y * 0.015)
 	speed_toggle_btn.custom_minimum_size = Vector2(_vp.x * 0.12, _vp.y * 0.035)
 	fade_overlay.size = _vp
@@ -464,15 +453,22 @@ func _on_viewport_resized() -> void:
 ## of silently falling back to a fresh mc=null game, matching how the real
 ## JS has no "fresh game, no mc" path at all (showMcCreate() is
 ## unconditional whenever no save exists).
+var _save_unreadable := false     # files exist but neither the save nor its backup can be read
+var _offline_state: Dictionary = {}
+var _resume_now: float = 0.0
+
 func _try_resume_save() -> bool:
 	CatchupRef.apply_cached()   # before the offline catch-up works out its rewards
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if f == null:
+	var rd: Dictionary = SaveStore.read()
+	if rd["state"] == "none":
 		return false
-	var parsed = JSON.parse_string(f.get_as_text())
-	f.close()
-	if parsed == null:
+	if rd["state"] == "unreadable":
+		# never start a new game silently over files that may still be recoverable
+		_save_unreadable = true
 		return false
+	if rd["state"] == "restored":
+		Analytics.add("features", "saveRestoredFromBackup")
+	var parsed: Dictionary = rd["data"]
 	g = FarroadSave.deserialize(parsed)
 	_local_saved_at = int(parsed.get("savedAt", 0))
 	FarroadProgression.apply_custom_mc(g)
@@ -481,22 +477,100 @@ func _try_resume_save() -> bool:
 	UnitView.game_state = g
 	var resume_wave: int = g["wave"] if g.get("wave") else 1
 	# skip_drops=true: this wave was never cleared when saved, so
-	# grant_drops(w) must not treat resuming it as a fresh visit --
-	# same reasoning as the real tryResumeSave()'s own call.
+	# grant_drops(w) must not treat resuming it as a fresh visit.
 	FarroadProgression.start_wave(g, resume_wave, true)
-	var now := Time.get_unix_time_from_system()
-	_offline_summary = FarroadProgression.simulate_offline_progress(g, parsed.get("savedAt"), now)
+	_resume_now = Time.get_unix_time_from_system()
+	# the replay of the time away runs in slices (_run_offline_replay), then _finish_resume
+	_offline_state = FarroadProgression.offline_begin(g, parsed.get("savedAt"), _resume_now)
+	return true
+
+## Replays the time away a little each frame behind a progress screen, so a long absence
+## never freezes the app.
+func _run_offline_replay() -> void:
+	if _offline_state.is_empty():
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 40
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0.06, 0.05, 0.08, 1.0)
+	bg.size = _vp
+	layer.add_child(bg)
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.03))
+	lbl.size = _vp
+	lbl.position = Vector2.ZERO
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	layer.add_child(lbl)
+	while true:
+		lbl.text = "Catching up on your time away... %d%%" % roundi(FarroadProgression.offline_progress(_offline_state) * 100.0)
+		if FarroadProgression.offline_step(g, _offline_state, 8):
+			break
+		await get_tree().process_frame
+	layer.queue_free()
+
+## Everything that used to follow the synchronous replay.
+func _finish_resume() -> void:
+	_offline_summary = FarroadProgression.offline_summary(g, _offline_state) if not _offline_state.is_empty() else {}
 	if not _offline_summary.is_empty():
 		Analytics.add("offline", "seconds", float(_offline_summary.get("elapsed_sec", 0.0)))
 		Analytics.add("offline", "returns")
 		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
 		# Ian: wipes (and clears) fought while the game was closed count in the wave stats too
 		Analytics.waves_offline(_offline_summary.get("wave_results", {}))
-	FarroadProgression.resolve_all_expeditions(g, now)
+	FarroadProgression.resolve_all_expeditions(g, _resume_now)
 	# Ian: the time away must be accurate next launch even after a very
 	# short session -- stamp the save now that this gap has been counted.
 	_save_game()
-	return true
+
+## Shown when a save exists but neither it nor its backup can be read.
+func _show_save_recovery() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 40
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0.06, 0.05, 0.08, 1.0)
+	bg.size = _vp
+	layer.add_child(bg)
+	var vb := VBoxContainer.new()
+	vb.position = Vector2(_vp.x * 0.08, _vp.y * 0.2)
+	vb.custom_minimum_size = Vector2(_vp.x * 0.84, 0)
+	vb.add_theme_constant_override("separation", int(_vp.y * 0.02))
+	layer.add_child(vb)
+	var title := Label.new()
+	title.text = "Your save could not be read"
+	title.add_theme_font_size_override("font_size", int(_vp.y * 0.035))
+	vb.add_child(title)
+	var body := Label.new()
+	body.text = "The save file and its backup are both damaged. Nothing has been changed or deleted.\n\nYou can try again (for example after restoring the files), or start a new game. A new game keeps the damaged files next to the save, renamed .corrupt."
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD
+	body.custom_minimum_size = Vector2(_vp.x * 0.84, 0)
+	vb.add_child(body)
+	var retry := Button.new()
+	retry.text = "Try again"
+	retry.pressed.connect(func(): get_tree().reload_current_scene())
+	vb.add_child(retry)
+	if OS.has_feature("pc"):
+		var folder := Button.new()
+		folder.text = "Show the save folder"
+		folder.pressed.connect(func(): OS.shell_show_in_file_manager(ProjectSettings.globalize_path("user://")))
+		vb.add_child(folder)
+	var fresh := Button.new()
+	fresh.text = "Start a new game"
+	var armed := [false]
+	fresh.pressed.connect(func():
+		if not armed[0]:
+			armed[0] = true
+			fresh.text = "Tap again to start a new game"
+			return
+		SaveStore.set_aside_damaged()
+		_save_unreadable = false
+		layer.queue_free()
+		mc_panel = load("res://scripts/McCreatePanel.gd").new()
+		add_child(mc_panel)
+		mc_panel.setup(_vp, self, _on_mc_confirmed))
+	vb.add_child(fresh)
 
 ## Mirrors boot(7,mc) (farroad-ui.js:3234, the real btnMcConfirm handler --
 ## fresh games always seed 7 in the real game; there is no real-JS
@@ -815,13 +889,9 @@ func _show_update_popup(rel: Dictionary) -> void:
 
 func _save_game() -> void:
 	var snap := FarroadSave.serialize(g, int(Time.get_unix_time_from_system()))
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f == null:
-		push_error("GameController: failed to open %s for writing" % SAVE_PATH)
-		return
-	f.store_string(JSON.stringify(snap))
+	if not SaveStore.write(snap):
+		return   # the existing save is untouched; try again at the next save
 	Analytics.save()
-	f.close()
 	if cloud != null:
 		cloud.mark_dirty()
 
@@ -1163,7 +1233,7 @@ func _build_hud() -> void:
 	_place_hud_plate()
 	currency_row = HBoxContainer.new()
 	currency_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.065)
-	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
+	currency_row.add_theme_constant_override("separation", int(_vp.x * 0.022))
 	add_child(currency_row)
 	aether_cell = _build_currency_label(currency_row)
 	marks_cell = _build_currency_label(currency_row)
@@ -1171,26 +1241,8 @@ func _build_hud() -> void:
 	# cell in the same row as Aether/Marks.
 	crystal_cell = _build_currency_label(currency_row)
 
-	# 24-item batch, Group C4: "move total power down a row, next to idle
-	# income" -- Power moves OUT of currency_row (where it used to sit as
-	# a third cell alongside Aether/Marks, before Crystal took that slot)
-	# into its own row alongside the idle-rate line below.
-	idle_row = HBoxContainer.new()
-	idle_row.position = Vector2(_vp.x * 0.02, _vp.y * 0.093)
-	idle_row.add_theme_constant_override("separation", int(_vp.x * 0.03))
-	add_child(idle_row)
-	# Idle reward rate (Group I, post-Milestone-3 batch) -- shows the
-	# ambient trickle rate feeding Aether/Marks (idle_per_sec already runs
-	# regardless of whether the player is actively fighting -- see
-	# simulate_offline_progress's own comment).
-	idle_rate_label = Label.new()
-	idle_rate_label.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	idle_rate_label.add_theme_color_override("font_color", Palette.TEXT_DIM)
-	idle_row.add_child(idle_rate_label)
-	power_level_cell = Label.new()
-	power_level_cell.add_theme_font_size_override("font_size", int(_vp.y * 0.018))
-	power_level_cell.add_theme_color_override("font_color", Palette.TEXT_DIM)
-	idle_row.add_child(power_level_cell)
+	# Ian: idle rewards are gone; Power sits in the same row as the currencies.
+	power_level_cell = _build_currency_label(currency_row)
 
 	# Ian: "can we add a 2x speed button?" Top-right corner, mirroring
 	# currency_row's own top-left placement. Toggles Engine.time_scale
@@ -1226,7 +1278,7 @@ func _place_hud_plate() -> void:
 	if hud_plate == null:
 		return
 	hud_plate.position = Vector2(_vp.x * 0.01, _vp.y * 0.059)
-	hud_plate.size = Vector2(_vp.x * 0.98, _vp.y * 0.058)
+	hud_plate.size = Vector2(_vp.x * 0.98, _vp.y * 0.036)
 
 func _on_speed_toggle_pressed() -> void:
 	_speed_2x = not _speed_2x
@@ -1250,8 +1302,7 @@ func _build_currency_label(parent: Container) -> Label:
 ## gate (no save found -> character creation) rather than hand-rolling a
 ## manual in-place teardown/rebuild of every panel and timer.
 func _reset_game() -> void:
-	if FileAccess.file_exists(SAVE_PATH):
-		DirAccess.remove_absolute(SAVE_PATH)
+	SaveStore.delete_all()   # the backup too, or it would bring the old game back
 	get_tree().reload_current_scene()
 
 ## Post-Milestone-3 APK feedback (Group B4) -- center of the bottom icon
@@ -1370,21 +1421,6 @@ func _show_welcome_back_popup() -> void:
 	gained.modulate = Palette.GOLD_TEXT
 	gained.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(gained)
-
-	# Ian: closing this screen without collecting lost the idle income, so it
-	# is now added the moment you enter the game; the popup only reports it.
-	var idle_aether: float = s.get("idle_aether_pending", 0.0)
-	var idle_marks: float = s.get("idle_marks_pending", 0.0)
-	if idle_aether > 0.0 or idle_marks > 0.0:
-		FarroadProgression.collect_idle_reward(g)
-		_refresh_hud()
-		_save_game()
-		var idle_lbl := Label.new()
-		idle_lbl.text = "+%d Aether, +%d Marks of idle income (added)" % [roundi(idle_aether), floori(idle_marks)]
-		idle_lbl.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
-		idle_lbl.modulate = Palette.PARTY_BLUE
-		idle_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
-		vbox.add_child(idle_lbl)
 
 	await _finish_detail_overlay(o)
 
@@ -1515,7 +1551,7 @@ func _show_tutorial_complete_popup() -> void:
 	vbox.add_child(title)
 
 	var body := Label.new()
-	body.text = "You've beaten the Roadwarden. From here, the Road only gets harder."
+	body.text = "You've beaten the first boss. From here, the Road only gets harder."
 	body.add_theme_font_size_override("font_size", int(_vp.y * 0.025))
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(body)
@@ -1814,17 +1850,6 @@ func _refresh_hud() -> void:
 	# Ian: the HUD's Power is the fielded party's, on the same scale the
 	# quest/dungeon/Arena recommendations use.
 	power_level_cell.text = "Power %d" % FarroadProgression.party_power(g)
-	var r := FarroadProgression.idle_per_sec_g(g)
-	var marks_rate: float = r["marks"] * FarroadProgression.marks_mul(g)
-	# Ian: "idle rewards: show per 5 minutes, not per hour" -- matches the
-	# real JS reference's own already-established convention exactly
-	# (farroad-ui.js's renderIdleRate: x300/.toFixed(2), chosen there
-	# specifically because a per-hour/per-minute figure rounds to a
-	# misleading "0" at real depth long before the trickle actually stops).
-	idle_rate_label.text = "%.2f Aether/5min   %.2f Marks/5min" % [r["aether"] * 300.0, marks_rate * 300.0]
-	var catchup: float = FarroadProgression.catchup_mul(g)
-	if catchup > 1.01:
-		idle_rate_label.text += "   Catch-up x%.1f" % catchup
 	_live_refresh_menu()
 
 ## Ian: gaining Aether (or a level) while a menu is open must update what the
@@ -2042,17 +2067,13 @@ func _layout_wide() -> void:
 		btn.add_theme_font_size_override("font_size", 12)
 		x += RIBBON_ICON + 8.0
 	x += 16.0
-	var plate_w: float = clampf(_vp.x - x - 100.0, 200.0, 380.0)
+	var plate_w: float = clampf(_vp.x - x - 100.0, 200.0, 500.0)
 	hud_plate.position = Vector2(x, 6.0)
 	hud_plate.size = Vector2(plate_w, rh - 12.0)
-	currency_row.position = Vector2(x + 10.0, 9.0)
+	currency_row.position = Vector2(x + 10.0, (rh - 22.0) / 2.0)
 	currency_row.add_theme_constant_override("separation", 14)
-	idle_row.position = Vector2(x + 10.0, 34.0)
-	idle_row.add_theme_constant_override("separation", 14)
-	for c in [aether_cell, marks_cell, crystal_cell]:
+	for c in [aether_cell, marks_cell, crystal_cell, power_level_cell]:
 		c.add_theme_font_size_override("font_size", 14)
-	idle_rate_label.add_theme_font_size_override("font_size", 12)
-	power_level_cell.add_theme_font_size_override("font_size", 12)
 	speed_toggle_btn.custom_minimum_size = Vector2(70.0, 34.0)
 	speed_toggle_btn.size = Vector2(70.0, 34.0)
 	speed_toggle_btn.position = Vector2(_vp.x - 84.0, (rh - 34.0) / 2.0)
@@ -2782,14 +2803,27 @@ func _start_cloud() -> void:
 	cloud = CloudSave.new()
 	add_child(cloud)
 	cloud.setup(_ranked(), func(): return FarroadSave.serialize(g, int(Time.get_unix_time_from_system())))
+	cloud.held = true   # nothing goes up until this device has been compared with the cloud copy
 	var catchup_ref := CatchupRef.new()
 	add_child(catchup_ref)
 	catchup_ref.setup(_ranked())
 	# a newer save from another device is offered before this one overwrites it
-	var remote := await cloud.fetch()
-	if not remote.is_empty() and int(remote.get("savedAt", 0)) > _local_saved_at + 60:
-		_show_cloud_choice(remote)
-		return
+	var remote: Dictionary = await cloud.fetch()
+	while cloud.fetch_failed:
+		# can't tell what the cloud holds right now: keep the hold and look again shortly
+		await get_tree().create_timer(30.0).timeout
+		if not is_instance_valid(cloud):
+			return
+		remote = await cloud.fetch()
+	if not remote.is_empty():
+		if int(remote.get("savedAt", 0)) > _local_saved_at + 60:
+			_show_cloud_choice(remote)
+			return
+		if int(remote.get("farthest", 1)) > int(g.get("farthest", 1)):
+			# this device is behind the cloud copy (a new or restored game): ask before replacing it
+			_show_cloud_choice(remote, true)
+			return
+	cloud.held = false
 	cloud.upload()
 
 func _cloud_line(snap: Dictionary) -> String:
@@ -2798,32 +2832,39 @@ func _cloud_line(snap: Dictionary) -> String:
 
 ## Another device saved more recently: use that save, or keep this one (which
 ## then becomes the cloud copy).
-func _show_cloud_choice(remote: Dictionary) -> void:
+func _show_cloud_choice(remote: Dictionary, further: bool = false) -> void:
+	# cloud.held is already on: no upload happens until the player chooses (closing this box doesn't count)
 	var o := _build_detail_overlay(Palette.PARTY_BLUE, false, true)
 	var vbox: VBoxContainer = o["vbox"]
+	var chosen := [false]
 	vbox_title(vbox, "Newer save found")
-	vbox.add_child(_wrap_label("Your cloud save is newer than the one on this device."))
+	vbox.add_child(_wrap_label("Your cloud save is further along than the one on this device." if further else "Your cloud save is newer than the one on this device."))
 	vbox.add_child(_wrap_label("Cloud: " + _cloud_line(remote)))
 	vbox.add_child(_wrap_label("This device: " + _cloud_line(FarroadSave.serialize(g, _local_saved_at)), true))
 	var use_btn := Button.new()
 	use_btn.text = "Use the cloud save"
-	use_btn.pressed.connect(func(): _load_snapshot(remote))
+	use_btn.pressed.connect(func():
+		chosen[0] = true
+		_load_snapshot(remote))
 	vbox.add_child(use_btn)
 	var keep_btn := Button.new()
 	keep_btn.text = "Keep this device's save"
 	keep_btn.pressed.connect(func():
+		chosen[0] = true
+		cloud.held = false   # the only thing that lifts the hold
 		o["backdrop"].queue_free()
 		cloud.upload())
 	vbox.add_child(keep_btn)
+	# closed without choosing (the X, Esc, ...): ask again, and the hold stays on meanwhile
+	o["backdrop"].tree_exited.connect(func():
+		if not chosen[0] and is_inside_tree() and cloud != null and is_instance_valid(cloud) and cloud.held:
+			_show_cloud_choice.call_deferred(remote, further))
 	await _finish_detail_overlay(o)
 
 ## Replaces the save on this device with `snap` and restarts from it.
 func _load_snapshot(snap: Dictionary) -> void:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f == null:
+	if not SaveStore.write(snap):
 		return
-	f.store_string(JSON.stringify(snap))
-	f.close()
 	get_tree().reload_current_scene()
 
 ## The recovery code (to carry this game to another device) and the box to
@@ -3793,7 +3834,13 @@ func _status_description(status_id: String, potency: float = 1.0) -> String:
 		var cap: float = FarroadCore.STATUS_MAG_CAP[status_id]
 		mag = maxf(mag, cap) if cap < 0.0 else minf(mag, cap)
 	match status_id:
-		"enfeebled": return "ATK %+.0f%%" % (mag * 100.0)
+		"enfeebled", "empowered": return "ATK %+.0f%%" % (mag * 100.0)
+		"inspired": return "MAG %+.0f%%" % (mag * 100.0)
+		"resolute": return "RES %+.0f%%" % (mag * 100.0)
+		"keen", "dazed": return "Crit chance %+.0f%%" % (mag * 100.0)
+		"drained": return "Charge rate %+.0f%%" % (mag * 100.0)
+		"vulnerable": return "Incoming damage %+.0f%%" % (mag * 100.0)
+		"wounded": return "Healing received %+.0f%%" % (mag * 100.0)
 		"dulled": return "MAG %+.0f%%" % (mag * 100.0)
 		"bracing": return "DEF %+.0f%%" % (mag * 100.0)
 		"sundered": return "DEF %+.0f%%" % (mag * 100.0)
@@ -3810,7 +3857,10 @@ func _status_description(status_id: String, potency: float = 1.0) -> String:
 		"poisoned": return "Loses %.1f%% max HP every time any unit acts" % (mag * 100.0)
 		"confused": return "%d%% chance its single-target actions land on a random unit" % roundi(FarroadCore.CONFUSE_CHANCE * 100.0)
 		"exposed": return "Evade %+.0f%%" % (mag * 100.0)
-		_: return "%+.0f%%" % (mag * 100.0) if mag != 0.0 else ""
+		_:
+			if status_id.begins_with("boon_") or status_id.begins_with("bane_"):
+				return "%s affinity %+.0f" % [status_id.substr(5).capitalize(), mag]
+			return "%+.0f%%" % (mag * 100.0) if mag != 0.0 else ""
 
 ## Post-Milestone-3 APK feedback (round 3): "change enemies and equipment
 ## to have similar popups" -- shared by EquipmentPanel's per-slot info icon
@@ -3998,7 +4048,7 @@ func _show_enemy_detail_popup(arch_key: String, display_name: String = "", boss_
 	vbox.add_child(title)
 	if boss_variant:
 		var bl := Label.new()
-		bl.text = "Boss version of the %s: HP ×%.1f, ATK/MAG ×%.1f, extra Spirit (resists debuffs), drawn larger." % [
+		bl.text = "Warden: a title bestowed on enemies on The Road with great potential. A Warden %s has HP ×%.1f, ATK/MAG ×%.1f, extra Spirit (resists debuffs), and is drawn larger." % [
 			a["name"], FarroadProgression.BOSS_LEN, 1.1 * FarroadProgression.BOSS_HARD_EXTRA]
 		bl.modulate = Palette.GOLD_TEXT
 		bl.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -4149,6 +4199,7 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	var presenter = load("res://scripts/BattlePresenter.gd").new()
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
+	presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
 	presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	presenter.action_info = func(aid, host):
 		overlay_host_override = host
@@ -4387,22 +4438,6 @@ func _on_battle_finished(outcome: String, from: Node = null) -> void:
 	await _on_battle_finished_inner(outcome)
 	_road_changing -= 1
 
-const IDLE_TICK_SEC := 5.0
-var _idle_last_ms: int = 0
-
-func _on_idle_tick() -> void:
-	var now_ms := Time.get_ticks_msec()
-	# at most a minute per tick: a long gap (app suspended) is time away,
-	# which the welcome-back catch-up already pays
-	var dt: float = minf((now_ms - _idle_last_ms) / 1000.0, 60.0)
-	_idle_last_ms = now_ms
-	if g.is_empty() or dt <= 0.0:
-		return
-	var r := FarroadProgression.idle_per_sec_g(g)
-	g["aether"] = float(g.get("aether", 0.0)) + r["aether"] * dt
-	g["marks"] = float(g.get("marks", 0.0)) + r["marks"] * FarroadProgression.marks_mul(g) * dt
-	_refresh_hud()
-
 ## Ian: "Road doesn't resume after quests on occasion." Couldn't reproduce
 ## it, so this safety net checks every few seconds: with no side fight,
 ## tutorial or wave change under way, the Road must have a running, visible
@@ -4513,7 +4548,7 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		# once the party's stopped (Ian: "immediately followed by enemies
 		# entering" -- no held pause), (4) only once they've actually
 		# arrived does the battle loop start.
-		if cleared_wave % ENV_WAVES == 0 and g.get("sideBattle") == null and current_presenter != null:
+		if cleared_wave % ENV_WAVES == 0 and g.get("sideBattle") == null and current_presenter != null and _no_living_enemies(current_presenter):
 			await _gate_ascension()
 			return
 		var old_presenter = current_presenter
@@ -4585,6 +4620,13 @@ const GATE_RUN_TO_STAIRS := 0.9
 const GATE_RUN_UP_STAIRS := 1.3
 const GATE_FADE_THROUGH := 0.35
 const GATE_RUN_STAGGER := 0.3   # seconds between one unit setting off and the next
+
+## The gate is only for a fight that was really won: nothing hostile left standing on the field.
+func _no_living_enemies(pr: Node) -> bool:
+	for v in pr.unit_views_by_id.values():
+		if not v.unit["isParty"] and v.unit["hp"] > 0:
+			return false
+	return true
 
 func _gate_ascension() -> void:
 	var old_presenter = current_presenter
@@ -4810,6 +4852,7 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter = load("res://scripts/BattlePresenter.gd").new()
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	side_presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
+	side_presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
 	side_presenter.title_lookup = func(uid): return FarroadProgression.unit_title(g, str(uid))
 	side_presenter.action_info = func(aid, host):
 		overlay_host_override = host

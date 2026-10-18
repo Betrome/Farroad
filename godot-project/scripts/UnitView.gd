@@ -415,9 +415,9 @@ func _build(unit_size: float) -> void:
 	_name_label.add_theme_font_size_override("font_size", int(name_ref_size * 0.36))
 	# Ian: names get an outline. The names sit on the pale sky, so light text with a
 	# thin black outline (thick outlines fill in the letters at this size).
-	_name_label.add_theme_color_override("font_color", Palette.TEXT_INK)
+	_name_label.add_theme_color_override("font_color", Color.WHITE)
 	_name_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	_name_label.add_theme_constant_override("outline_size", 2)
+	_name_label.add_theme_constant_override("outline_size", 4)
 	_chrome.add_child(_name_label)
 	_name_label.visible = _shows_name()
 
@@ -769,8 +769,8 @@ func hide_chrome() -> void:
 ## Ian: enemies carry no name under them -- only bosses (and the player's
 ## own units) do.
 func _shows_name() -> bool:
-	# Ian: no unit names on the field (the Status page and Log still name everyone).
-	return false
+	# Ian: no unit names on the field, except under bosses (the Status page and Log still name everyone).
+	return bool(unit.get("isBoss", false)) and not unit["isParty"]
 
 func fade_in_chrome(duration: float = 0.5) -> void:
 	_hp_bg.visible = true

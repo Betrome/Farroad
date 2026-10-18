@@ -174,6 +174,7 @@ func start_battle(new_battle: Dictionary, units: Array, stage_enemies_offscreen:
 		(card["panel"] as Control).visible = true
 	if turn_active_frame != null:
 		turn_active_frame.visible = true
+	_fight_wave = int(FarroadCore.current_wave)   # this fight's own wave, kept so later refreshes can't drift
 	_refresh_wave_progress(cleared_waves)
 	_refresh_turn_order()
 	_refresh_enrage()
@@ -780,12 +781,17 @@ const STATUS_NAMES := {
 	"dulled": "Dulled", "slowed": "Slowed", "blinded": "Blinded",
 	"burning": "Burning", "hasted": "Hasted", "warded": "Warded",
 	"taunted": "Taunted", "surging": "Surging", "bracing": "Bracing",
-	"regen": "Regen", "blurred": "Blurred", "poisoned": "Poisoned", "confused": "Confused", "exposed": "Exposed"}
+	"regen": "Regen", "blurred": "Blurred", "poisoned": "Poisoned", "confused": "Confused", "exposed": "Exposed",
+	"empowered": "Empowered",
+	"inspired": "Inspired", "resolute": "Resolute", "keen": "Keen", "dazed": "Dazed", "drained": "Drained", "vulnerable": "Vulnerable", "wounded": "Wounded",
+	"boon_fire": "Fire Boon", "boon_water": "Water Boon", "boon_earth": "Earth Boon", "boon_air": "Air Boon", "boon_light": "Light Boon", "boon_dark": "Dark Boon", "boon_body": "Body Boon", "boon_spirit": "Spirit Boon",
+	"bane_fire": "Fire Bane", "bane_water": "Water Bane", "bane_earth": "Earth Bane", "bane_air": "Air Bane", "bane_light": "Light Bane", "bane_dark": "Dark Bane", "bane_body": "Body Bane", "bane_spirit": "Spirit Bane"}
 const STATUS_GLYPH := {
 	"sundered": "🛡", "frail": "🛡", "enfeebled": "💪", "dulled": "🔮",
 	"slowed": "🐌", "blinded": "👁", "burning": "🔥", "hasted": "💨",
 	"warded": "🛡", "taunted": "⚠", "surging": "⚡", "bracing": "🛡",
-	"regen": "✚", "blurred": "💨", "poisoned": "☠", "confused": "❓", "exposed": "🎯"}
+	"regen": "✚", "blurred": "💨", "poisoned": "☠", "confused": "❓", "exposed": "🎯", "empowered": "⚔",
+	"inspired": "🔮", "resolute": "🛡", "keen": "🎯", "dazed": "💫", "drained": "🔋", "vulnerable": "💔", "wounded": "🩹", "boon_fire": "✨", "boon_water": "✨", "boon_earth": "✨", "boon_air": "✨", "boon_light": "✨", "boon_dark": "✨", "boon_body": "✨", "boon_spirit": "✨", "bane_fire": "☠", "bane_water": "☠", "bane_earth": "☠", "bane_air": "☠", "bane_light": "☠", "bane_dark": "☠", "bane_body": "☠", "bane_spirit": "☠"}
 
 ## Flavor text for a non-party unit's row tag -- mirrors PREF_TEXT
 ## (farroad-core.js:531-533), which this port only kept as numeric weights
@@ -1191,8 +1197,20 @@ func _status_effect_text(u: Dictionary, id: String) -> String:
 			return "DEF %+.0f%%" % pct
 		"frail":
 			return "RES %+.0f%%" % pct
-		"enfeebled":
+		"enfeebled", "empowered":
 			return "ATK %+.0f%%" % pct
+		"inspired":
+			return "MAG %+.0f%%" % pct
+		"resolute":
+			return "RES %+.0f%%" % pct
+		"keen", "dazed":
+			return "%+.0f%% crit chance" % pct
+		"drained":
+			return "%+.0f%% charge rate" % pct
+		"vulnerable":
+			return "%+.0f%% dmg taken" % pct
+		"wounded":
+			return "%+.0f%% healing received" % pct
 		"dulled":
 			return "MAG %+.0f%%" % pct
 		"slowed", "hasted":
@@ -1218,6 +1236,8 @@ func _status_effect_text(u: Dictionary, id: String) -> String:
 		"taunted":
 			return "draws enemy focus"
 		_:
+			if id.begins_with("boon_") or id.begins_with("bane_"):
+				return "%s affinity %+.0f" % [id.substr(5), mag]
 			return ""
 
 ## Split from the popup itself (below) for the same reason
@@ -1386,9 +1406,9 @@ func _build_wave_progress_ui() -> void:
 
 	wave_progress_label = Label.new()
 	wave_progress_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
-	wave_progress_label.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	wave_progress_label.add_theme_color_override("font_color", Color.WHITE)
 	wave_progress_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	wave_progress_label.add_theme_constant_override("outline_size", 2)
+	wave_progress_label.add_theme_constant_override("outline_size", 4)
 	wave_progress_label.position = Vector2(margin, circle_row_y - _vp.y * 0.005 - _vp.y * 0.028)
 	add_child(wave_progress_label)
 
@@ -1407,6 +1427,8 @@ func _build_wave_progress_ui() -> void:
 		var style := StyleBoxFlat.new()
 		style.set_corner_radius_all(int(d / 2.0))
 		style.bg_color = _wave_circle_color(false)
+		style.set_border_width_all(maxi(1, roundi(d * 0.12)))   # Ian: a white border around each dot
+		style.border_color = Color.WHITE
 		panel.add_theme_stylebox_override("panel", style)
 		add_child(panel)
 		wave_progress_circles.append({"panel": panel, "style": style, "wave": w_num})
@@ -1430,12 +1452,19 @@ func _wave_circle_color(lit: bool) -> Color:
 ## own first wave -> nothing lit), and clearing a boss moves the wave into
 ## the next stretch (bounds recompute -> all unlit again). cleared_waves
 ## is still accepted/cached for call-site compatibility but no longer read.
+var _fight_wave := 0
+var catchup_lookup: Callable = Callable()   # set by GameController: the current catch-up reward multiplier
+
 func _refresh_wave_progress(cleared_waves: Dictionary) -> void:
 	_cleared_waves_cache = cleared_waves
-	var cur: int = int(FarroadCore.current_wave)
+	var cur: int = _fight_wave if _fight_wave > 0 else int(FarroadCore.current_wave)
 	var span: int = FarroadProgression.BOSS_EVERY
 	var stretch_start: int = int(floor(float(maxi(cur, 1) - 1) / float(span))) * span + 1
 	wave_progress_label.text = "Wave %d  ·  %d-%d" % [cur, stretch_start, stretch_start + span - 1]
+	if catchup_lookup.is_valid():
+		var cm: float = float(catchup_lookup.call())
+		if cm > 1.01:
+			wave_progress_label.text += "   Catch-up x%.1f" % cm   # Ian: the catch-up multiplier sits beside the wave text
 	for i in range(wave_progress_circles.size()):
 		var entry: Dictionary = wave_progress_circles[i]
 		entry["wave"] = stretch_start + i
@@ -1503,15 +1532,15 @@ func _build_enrage_ui() -> void:
 	var margin: float = _vp.x * 0.016
 	var end_gap: float = _vp.x * 0.03
 	var bar_h: float = _vp.y * 0.012
-	var y: float = status_pos.y + (icon_size - bar_h) / 2.0
+	var y: float = status_pos.y + icon_size - bar_h   # Ian: the bar sits level with the bottom of the Status and Log buttons
 	var w: float = status_pos.x - end_gap - margin
 	enrage_label = Label.new()
-	enrage_label.position = Vector2(margin, y - _vp.y * 0.032)
-	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.024))
+	enrage_label.position = Vector2(margin, y - _vp.y * 0.047)
+	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))   # Ian: make the enrage text more pronounced
 	# Ian: a black outline so it stands out on the ground
-	enrage_label.add_theme_color_override("font_color", Palette.ENEMY_RED_BRIGHT)
+	enrage_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
 	enrage_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	enrage_label.add_theme_constant_override("outline_size", 3)
+	enrage_label.add_theme_constant_override("outline_size", 6)
 	add_child(enrage_label)
 
 	enrage_bg = ColorRect.new()

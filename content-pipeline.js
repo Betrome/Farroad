@@ -116,6 +116,14 @@ function compileArch(rows) {
     // omit-when-default convention every other optional field here uses.
     if (num(r.size, 1.0) !== 1.0) entry.size = num(r.size, 1.0);
     if (r.charge_action) entry.chargeAction = r.charge_action;
+    // Enemy level milestones (every 50 enemy levels): extra1 is the action an enemy gains at level 50,
+    // later tiers (extra2_...) would follow. Each is put in front of the enemy's own slots when it is
+    // built (FarroadProgression.build_enemies), so it gets first call whenever its condition is true.
+    const extras = [];
+    for (let t = 1; r['extra' + t + '_action']; t++) {
+      extras.push({ cond: r['extra' + t + '_condition'] || 'none', action: r['extra' + t + '_action'] });
+    }
+    if (extras.length) entry.extras = extras;
     arch[r.key] = entry;
   });
   return arch;
@@ -144,6 +152,10 @@ function compileActions(rows) {
     if (bool(r.heal)) e.heal = true;
     if (r.element) e.element = r.element;
     if (r.lifesteal !== '') e.lifesteal = num(r.lifesteal);
+    // extra damage against a target carrying a status (e.g. Inferno Burst vs Burning): bonusStatus + bonusMul
+    // cooldown: after using it the unit can't pick it again for this many of its own turns
+    if (r.cooldown !== '' && r.cooldown !== undefined) e.cooldown = num(r.cooldown);
+    if (r.bonus_status) { e.bonusStatus = r.bonus_status; e.bonusMul = num(r.bonus_mul, 1.5); }
     if (r.revive !== '') e.revive = num(r.revive);
     if (r.cleanse !== '') e.cleanse = num(r.cleanse);
     if (r.self_taunt !== '') e.selfTaunt = num(r.self_taunt);

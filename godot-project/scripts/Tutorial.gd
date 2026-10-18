@@ -590,22 +590,21 @@ func _steps_for(id: String) -> Array:
 				{"text": "This bar tracks the waves to the next boss. Beat the boss to move on; if your party falls, you go back a few waves.",
 					"rect": func(): return _controls_rect([p.wave_progress_label] + p.wave_progress_circles.map(func(c): return c["panel"]))},
 				{"text": "Turn order: who acts next, and what they'll do.", "target": func(): return p.turn_order_frame},
-				{"text": "Your currencies: Aether levels up units, Marks pay for pulls, and Crystal buys from the Shop.", "target": func(): return gc.currency_row},
-				{"text": "Idle rewards: what you earn every 5 minutes, even while the game is closed. Power sums up how strong you are.", "target": func(): return gc.idle_row},
+				{"text": "Your currencies: Aether levels up units, Marks pay for pulls, and Crystal buys from the Shop. Power sums up how strong you are.", "target": func(): return gc.currency_row},
 				{"text": "Tap Status to see every unit in the fight.", "target": func(): return p.status_icon_btn,
 					"enter": func(): _close_battle_boxes(),
 					"done": func(): return p.status_popup.visible},
-				{"text": "HP, charge, stats, and any buffs or debuffs, updated live.", "back": 8,
+				{"text": "HP, charge, stats, and any buffs or debuffs, updated live.", "back": 7,
 					"target": func(): return p.status_popup.get_child(0) if p.status_popup.visible else null},
 				{"text": "Now tap Log.", "target": func(): return p.log_icon_btn,
 					"enter": func(): _close_battle_boxes(),
 					"done": func(): return p.log_popup.visible},
-				{"text": "The Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.", "back": 10,
+				{"text": "The Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.", "back": 9,
 					"target": func(): return p.log_popup.get_child(0) if p.log_popup.visible else null},
 			]
 			if gc.wide:
 				# wide window: Status and Log live in the dock, so point at them
-				road_steps = road_steps.slice(0, 8)
+				road_steps = road_steps.slice(0, 7)
 				road_steps.append({"text": "The dock shows the unit you pick: HP, charge, stats, and any buffs or debuffs, updated live. Tap a unit on the field to switch.",
 					"rect": func(): return gc.shell.status_host.get_global_rect()})
 				road_steps.append({"text": "Below it, the Log records every action: who did what, to whom, and for how much. Tap an entry to see the damage math.",
@@ -764,7 +763,7 @@ func _steps_for(id: String) -> Array:
 						if not _popup_open(gc.units_panel):
 							return null
 						for o in gc.units_panel.content_container.find_children("*", "OptionButton", true, false):
-							if o.is_visible_in_tree() and o.item_count > 1:
+							if o.has_meta("gear_slot") and o.is_visible_in_tree() and o.item_count > 1:
 								return o
 						return null,
 					"act": true, "done": func(): return _any_gear_equipped()},

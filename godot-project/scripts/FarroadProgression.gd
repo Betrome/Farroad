@@ -36,7 +36,7 @@ const BOSS_LEN := 1.40   # 1.3-1.5x a normal fight
 # equivalents * 0.92), not ~2.3x.
 const FIRST_BOSS_LEN := 0.92
 
-## Elemental batch: the wave-20 tutorial boss stays the Roadwarden (Stone
+## Elemental batch: the wave-20 tutorial boss stays the Stone Ox Warden (Stone
 ## Ox body, Warden's Maul). Every later boss wave cycles through six named
 ## elemental bosses, one per element -- 40 Pyre Tyrant, 60 Drowned
 ## Matriarch, ... 140 Hollow King, then the Body and Spirit bosses (160 Iron
@@ -1861,6 +1861,22 @@ static func refresh_live_party(g: Dictionary) -> Dictionary:
 ## @param quiet caller-side hook for a future variety-roll log line -- no log
 ## is built here (that's a UI concern), kept only so callers match the real
 ## JS signature exactly.
+## Every ENEMY_EXTRA_LEVELS enemy levels (level 50, 100, ...), each enemy gains one more action from its
+## archetype's `extras` list (farroadenemies.csv, extraN_condition/extraN_action). Each new one goes in
+## slot 1, in front of everything it already had, so it fires whenever its condition is true and the enemy
+## otherwise falls through to its older gambits. Enemy level here is the same curve that scales enemy stats.
+const ENEMY_EXTRA_LEVELS := 50.0
+
+static func enemy_extra_count(w: int) -> int:
+	return int(floor(FarroadCore.level_curve(float(w)) / ENEMY_EXTRA_LEVELS))
+
+static func enemy_slots(a: Dictionary, w: int) -> Array:
+	var slots: Array = (a["slots"] as Array).map(func(sl): return {"cond": sl["cond"], "action": sl["action"]})
+	var extras: Array = a.get("extras", [])
+	for i in mini(enemy_extra_count(w), extras.size()):
+		slots.insert(0, {"cond": extras[i]["cond"], "action": extras[i]["action"]})
+	return slots
+
 static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_boss_key: String = "") -> Array:
 	var boss: bool = is_boss_wave(w) or super_boss_key != ""
 	var variety: bool = (not boss) and w > VARIETY_FROM
@@ -1955,7 +1971,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 		var dmg_mul: float = (FIRST_BOSS_DMG_MUL if is_first_boss else 1.0) * tutorial_atk_mag_mul(w)
 		out.append(FarroadCore.make_unit({
 			"id": "e%d" % j,
-			"name": ("ROADWARDEN" if boss and key == TUTORIAL_BOSS_ARCH else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
+			"name": (a["name"] + " Warden" if boss and key == TUTORIAL_BOSS_ARCH else a["name"]) + (" %d" % (j + 1) if n > 1 else ""),
 			"isParty": false, "level": 1, "slotIndex": 10 + j, "arch": key,
 			"thorns": a.get("thorns", 0), "isBoss": boss, "row": "front" if j < 5 else "back",
 			"stats": {
@@ -1969,7 +1985,7 @@ static func build_enemies(g: Dictionary, w: int, _quiet: bool = false, super_bos
 				"chargeRate": 1.15 if boss else 1.0, "evade": a["evade"]},
 			"chargeAction": "wardensmaul" if boss and key == TUTORIAL_BOSS_ARCH else a.get("chargeAction"),
 			"affinity": a["affinity"],
-			"slots": a["slots"].map(func(sl): return {"cond": sl["cond"], "action": sl["action"]})}))
+			"slots": enemy_slots(a, w)}))
 		# 20-item batch, Group F: bosses get a flat Spirit bonus (own,
 		# freshly-constructed affinity dict -- make_unit already copies
 		# a["affinity"]'s values out into a NEW dict per unit, so this never
@@ -2955,38 +2971,43 @@ static func collect_expedition(g: Dictionary, id: String) -> bool:
 ## src/*.js edit needed, this is purely a Godot-side plumbing change so
 ## GameController can show its own "welcome back" popup instead.
 static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionary:
+	var st: Dictionary = offline_begin(g, saved_at, now)
+	if st.is_empty():
+		return {}
+	while not offline_step(g, st, 1000000000):
+		pass
+	return offline_summary(g, st)
+
+## The same replay in slices, so a long time away doesn't freeze the app on load (a phone is killed
+## after about 5 s without a frame). offline_begin returns {} when the 5s floor wasn't met; call
+## offline_step until it returns true (each call works for about `budget_ms`), then offline_summary.
+static func offline_begin(g: Dictionary, saved_at, now) -> Dictionary:
 	var elapsed_sec: float = maxf(0.0, float(now) - float(saved_at if saved_at != null else now))
 	if elapsed_sec < 5.0:
 		return {}
-	var wave_before: int = int(g["wave"])
-	var wipes_before: int = int(g.get("wipes", 0))
-	var aether_before: float = float(g["aether"])
-	var marks_before: float = float(g["marks"])
 	var capped: float = minf(elapsed_sec, OFFLINE_CAP_SEC)
-	var r := idle_per_sec_g(g)
-	# Ian: "don't add rewards from... idle until collected." Only the FLAT
-	# idle-trickle gain is held back here -- banked into pendingIdleAether/
-	# pendingIdleMarks (accumulates across multiple uncollected resumes,
-	# same as the quest/dungeon pending pools) until the welcome-back
-	# popup's own Collect button credits it. The REPLAYED COMBAT below
-	# (after_wave_cleared's own real per-wave kill_reward) is a different
-	# kind of event -- a wave clear, mechanically identical to one that
-	# happens while actively playing -- and stays auto-applied exactly as
-	# it always has, never gated.
-	var idle_aether_this_time: float = r["aether"] * capped
-	var idle_marks_this_time: float = r["marks"] * marks_mul(g) * capped
-	g["pendingIdleAether"] = float(g.get("pendingIdleAether", 0.0)) + idle_aether_this_time
-	g["pendingIdleMarks"] = float(g.get("pendingIdleMarks", 0.0)) + idle_marks_this_time
-	var remaining: float = capped
-	var guard := 0
-	# wave -> [clears, wipes] fought while away (for the gameplay stats)
-	var wave_results: Dictionary = {}
-	while remaining > 0.0 and guard < 200000:
-		guard += 1
+	return {"elapsed_sec": elapsed_sec, "capped": capped, "remaining": capped, "guard": 0,
+		"wave_before": int(g["wave"]), "wipes_before": int(g.get("wipes", 0)),
+		"aether_before": float(g["aether"]), "marks_before": float(g["marks"]),
+		# wave -> [clears, wipes] fought while away (for the gameplay stats)
+		"wave_results": {}, "done": false}
+
+## 0..1: how much of the time away has been replayed.
+static func offline_progress(st: Dictionary) -> float:
+	if st.is_empty() or float(st["capped"]) <= 0.0:
+		return 1.0
+	return clampf(1.0 - float(st["remaining"]) / float(st["capped"]), 0.0, 1.0)
+
+static func offline_step(g: Dictionary, st: Dictionary, budget_ms: int) -> bool:
+	if st["done"]:
+		return true
+	var t0 := Time.get_ticks_msec()
+	while float(st["remaining"]) > 0.0 and int(st["guard"]) < 200000:
+		st["guard"] = int(st["guard"]) + 1
 		if g.get("battle") == null:
 			break
 		var cost: float = 20.0 + travel_sec(g["wave"])
-		if cost > remaining:
+		if cost > float(st["remaining"]):
 			break
 		var beat_guard := 0
 		while g["battle"]["over"] == null and beat_guard < 4000:
@@ -2994,6 +3015,7 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 			if FarroadCore.step(g["battle"]) == null:
 				break
 		var fought: int = int(g["wave"])
+		var wave_results: Dictionary = st["wave_results"]
 		if not wave_results.has(fought):
 			wave_results[fought] = [0, 0]
 		if g["battle"]["over"] == "party":
@@ -3005,21 +3027,22 @@ static func simulate_offline_progress(g: Dictionary, saved_at, now) -> Dictionar
 			on_wipe(g)
 		else:
 			break
-		remaining -= cost
+		st["remaining"] = float(st["remaining"]) - cost
+		if Time.get_ticks_msec() - t0 >= budget_ms:
+			return false
+	st["done"] = true
+	return true
+
+static func offline_summary(g: Dictionary, st: Dictionary) -> Dictionary:
 	return {
-		"elapsed_sec": elapsed_sec,
-		"wave_before": wave_before,
+		"elapsed_sec": st["elapsed_sec"],
+		"wave_before": st["wave_before"],
 		"wave_after": int(g["wave"]),
-		# aether_gained/marks_gained now cover ONLY what the replayed
-		# combat itself already credited (kill_reward, never gated) --
-		# idle_aether_pending/idle_marks_pending is the flat trickle this
-		# call just banked, awaiting the welcome-back popup's Collect tap.
-		"aether_gained": g["aether"] - aether_before,
-		"marks_gained": g["marks"] - marks_before,
-		"idle_aether_pending": idle_aether_this_time,
-		"idle_marks_pending": idle_marks_this_time,
-		"wipes_gained": int(g.get("wipes", 0)) - wipes_before,
-		"wave_results": wave_results,
+		# what the replayed fights themselves earned (kill_reward); there is no idle trickle any more
+		"aether_gained": g["aether"] - st["aether_before"],
+		"marks_gained": g["marks"] - st["marks_before"],
+		"wipes_gained": int(g.get("wipes", 0)) - st["wipes_before"],
+		"wave_results": st["wave_results"],
 	}
 
 ## Credits the accumulated-but-uncollected idle trickle to

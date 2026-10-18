@@ -38,7 +38,8 @@ static func _clone(v: Variant) -> Variant:
 ## @param now  caller-supplied Unix timestamp (Time.get_unix_time_from_system()) --
 ##             kept a parameter, not a call, so this stays pure and testable.
 static func serialize(g: Dictionary, now: int) -> Dictionary:
-	var snap := {"v": VERSION, "savedAt": now, "seed": g["seed"], "rngCalls": g["rng"].calls if g.get("rng") else 0}
+	var snap := {"v": VERSION, "savedAt": now, "seed": g["seed"], "rngCalls": g["rng"].calls if g.get("rng") else 0,
+		"rngState": g["rng"].a if g.get("rng") else 0}
 	for k in FIELDS:
 		snap[k] = _clone(g.get(k))
 	# Post-Milestone-3 APK feedback (Group C1): Catalogue's own "seen enemy
@@ -65,9 +66,15 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	if snap.is_empty():
 		return {}
 	var rng := FarroadCore.make_rng(snap.get("seed", 7))
-	var calls: int = snap.get("rngCalls", 0)
-	for i in range(calls):
-		rng.next()
+	var calls: int = int(snap.get("rngCalls", 0))
+	if snap.has("rngState"):
+		# the generator's whole state is one 32-bit number: restore it directly (no replay)
+		rng.a = int(snap["rngState"]) & 0xFFFFFFFF
+		rng.calls = calls
+	else:
+		# an older save that only counted draws: replay them once; the next save stores the state
+		for i in range(calls):
+			rng.next()
 	var g := {"seed": snap.get("seed", 7), "rng": rng, "battle": null, "units": null,
 		"enemies": null, "over": null, "sideBattle": null, "roadBattle": null}
 	for k in FIELDS:

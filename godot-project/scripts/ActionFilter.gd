@@ -133,8 +133,15 @@ static func effect_lines(act: Dictionary) -> Array:
 	if rv > 0.0:
 		out.append("Revives a fallen ally with %d%% HP." % roundi(rv * 100.0))
 	var cl := int(act.get("cleanse", 0)) if act.get("cleanse") else 0
-	if cl > 0:
+	if cl >= 99:
+		out.append("Removes all debuffs from each target.")
+	elif cl > 0:
 		out.append("Removes %d debuff%s from each target." % [cl, "" if cl == 1 else "s"])
+	var cdn := int(act.get("cooldown", 0)) if act.get("cooldown") else 0
+	if cdn > 0:
+		out.append("Cooldown: %d turns." % cdn)
+	if act.get("bonusStatus"):
+		out.append("+%d%% damage to %s targets." % [roundi((float(act.get("bonusMul", 1.5)) - 1.0) * 100.0), str(act["bonusStatus"]).capitalize()])
 	var tt := int(act.get("selfTaunt", 0)) if act.get("selfTaunt") else 0
 	if tt > 0:
 		out.append("Taunts: draws foes' attacks for %d turns." % tt)

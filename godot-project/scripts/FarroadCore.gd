@@ -58,20 +58,11 @@ const CAP_CRIT := 1.00
 const CHARGE_FULL := 100
 const BURN_PCT := 0.05
 const REGEN_PCT := 0.06
-# Ian (24-item batch, Group B6): "no max on affinities. Change to flat
-# scaling values but increased cost scaling." AFFINITY_CAP kept ONLY as a
-# reference point for AFFINITY_FLAT_RATE's own calibration (40*0.02=0.80,
-# matching the OLD log curve's own saturation ceiling at that same raw
-# value) -- it no longer clamps anything; affinity_mul below is genuinely
-# uncapped now (60 raw = 1.20, unlike before). affinity_maxed's own hard
-# buy-gate at this value is removed too (FarroadProgression.gd). Flagged,
-# not silently patched: aff_term/aff_boost_resist below assume
-# affinity_mul stays under 1.0 for their own (1-x) terms to stay
-# non-negative -- untouched per the approved plan's own scope, so an
-# extremely deep single-axis investment (raw > 50) could in principle
-# push one of those terms negative. Not expected at realistic Aether
-# costs given AFFINITY_COST_BASE's new steeper curve below, but worth
-# knowing if reported.
+# Affinity has no maximum: affinity_mul is a flat AFFINITY_FLAT_RATE (2%) per raw point, uncapped
+# (60 raw = 1.20). AFFINITY_CAP is kept only as the reference point that rate was set from
+# (40 * 0.02 = 0.80). Because the multiplier is unbounded, a plain (1 - m) defender term would go
+# to zero at raw 50 and negative beyond it, so the terms below are shaped to stay above zero for any
+# value (see _aff_dealt / _aff_taken).
 const AFFINITY_CAP := 40.0
 const AFFINITY_FLAT_RATE := 0.02
 const AFFINITY_BOOST_CAP := 2.0
@@ -100,14 +91,23 @@ static var MIT_REF_ENEMY: float = 0.67   # ... and a typical enemy (DEF about ha
 ## on a random unit, friend or foe), exposed (lower evade).
 const ST: Array[String] = ["sundered", "frail", "enfeebled", "dulled", "slowed",
 	"blinded", "burning", "hasted", "warded", "taunted", "surging", "bracing",
-	"regen", "blurred", "poisoned", "confused", "exposed"]
+	"regen", "blurred", "poisoned", "confused", "exposed", "empowered",
+	"inspired", "resolute", "keen", "dazed", "drained", "vulnerable", "wounded",
+	"boon_fire", "boon_water", "boon_earth", "boon_air", "boon_light", "boon_dark", "boon_body", "boon_spirit",
+	"bane_fire", "bane_water", "bane_earth", "bane_air", "bane_light", "bane_dark", "bane_body", "bane_spirit"]
 const DEBUFFS: Array[String] = ["sundered", "frail", "enfeebled", "dulled",
-	"slowed", "blinded", "burning", "poisoned", "confused", "exposed"]
+	"slowed", "blinded", "burning", "poisoned", "confused", "exposed",
+	"dazed", "drained", "vulnerable", "wounded",
+	"bane_fire", "bane_water", "bane_earth", "bane_air", "bane_light", "bane_dark", "bane_body", "bane_spirit"]
 const POISON_PCT := 0.006        # of max HP, every time anyone acts
 const CONFUSE_CHANCE := 0.5      # chance a confused unit's single-target action goes astray
 const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"sundered": -0.25, "frail": -0.25, "blurred": 0.20, "warded": -0.40,
-	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "burning": BURN_PCT,
+	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "empowered": 0.25, "burning": BURN_PCT,
+	"inspired": 0.25, "resolute": 0.40, "keen": 0.15, "dazed": -0.15, "drained": -0.50,
+	"vulnerable": 0.25, "wounded": -0.50,
+	"boon_fire": 30.0, "boon_water": 30.0, "boon_earth": 30.0, "boon_air": 30.0, "boon_light": 30.0, "boon_dark": 30.0, "boon_body": 10.0, "boon_spirit": 20.0,
+	"bane_fire": -20.0, "bane_water": -20.0, "bane_earth": -20.0, "bane_air": -20.0, "bane_light": -20.0, "bane_dark": -20.0, "bane_body": -10.0, "bane_spirit": -15.0,
 	"regen": REGEN_PCT, "poisoned": POISON_PCT, "exposed": -0.20}
 ## Ian: Magibolt (Spirit) replaces Ember as the default magic action.
 const STARTER_ACTIONS: Array[String] = ["strike", "magibolt"]
@@ -336,7 +336,7 @@ const ALL_CONDITION_IDS: Array[String] = ["none", "foe_any", "foe_lowest_hp", "f
 	"foe_strong_fire", "foe_strong_water", "foe_strong_earth", "foe_strong_air", "foe_strong_light",
 	"foe_strong_dark", "foe_strong_body", "foe_strong_spirit", "foe_weak_body", "foe_weak_spirit",
 	# status
-	"ally_has_debuff", "self_has_debuff", "foe_has_buff", "foe_taunting", "foe_poisoned", "foe_burning",
+	"ally_has_debuff", "self_has_debuff", "foe_has_buff", "foe_taunting", "foe_poisoned", "foe_burning", "foe_has_dot",
 	"foe_blinded", "foe_slowed", "foe_confused", "ally_poisoned", "ally_burning",
 	# party-wide
 	"ally_pack_hurt", "ally_2plus_hurt", "ally_pack_healthy", "ally_2plus_alive", "self_last_standing",
@@ -375,7 +375,9 @@ const CHARGE_UP_COST := 12
 const CHARGE_THRIFT := 15
 const CHARGE_COST_MIN := 40
 const CHARGE_COST_MAX := 400
-const BUFFS: Array[String] = ["hasted", "warded", "taunted", "surging", "bracing", "regen", "blurred"]
+const BUFFS: Array[String] = ["hasted", "warded", "taunted", "surging", "bracing", "regen", "blurred", "empowered",
+	"inspired", "resolute", "keen",
+	"boon_fire", "boon_water", "boon_earth", "boon_air", "boon_light", "boon_dark", "boon_body", "boon_spirit"]
 
 static func is_buff_status(s) -> bool:
 	return BUFFS.has(s)
@@ -556,11 +558,22 @@ static func affinity_mul(raw: float) -> float:
 	var s: float = -1.0 if raw < 0 else 1.0
 	return s * AFFINITY_FLAT_RATE * abs(raw)
 
+## Factor for what an attacker / caster with affinity multiplier `m` puts out. Unchanged (1 + m) for a
+## positive m; a negative m (a Bane, a weakness) gives 1 / (1 - m), which falls toward 0 but never reaches it.
+static func _aff_dealt(m: float) -> float:
+	return 1.0 + m if m >= 0.0 else 1.0 / (1.0 - m)
+
+## Factor for what a defender / target with affinity multiplier `m` lets through. A positive m (resistance)
+## gives 1 / (1 + m): close to the old (1 - m) for small values (m 0.1: 0.909 vs 0.900) but it only
+## approaches 0 instead of crossing it. A negative m (weakness) stays (1 - m), which grows and never goes below 1.
+static func _aff_taken(m: float) -> float:
+	return 1.0 / (1.0 + m) if m >= 0.0 else 1.0 - m
+
 static func aff_term(atk_raw: float, def_raw: float) -> float:
-	return (1 + affinity_mul(atk_raw)) * (1 - affinity_mul(def_raw))
+	return _aff_dealt(affinity_mul(atk_raw)) * _aff_taken(affinity_mul(def_raw))
 
 static func aff_boost(a: float, b: float) -> float:
-	return min(AFFINITY_BOOST_CAP, (1 + affinity_mul(a)) * (1 + affinity_mul(b)))
+	return min(AFFINITY_BOOST_CAP, _aff_dealt(affinity_mul(a)) * _aff_dealt(affinity_mul(b)))
 
 ## 20-item batch, Group F: Ian's confirmed intent for spirit affinity is
 ## an ASYMMETRIC formula, not aff_boost's symmetric one -- the CASTER's
@@ -574,14 +587,14 @@ static func aff_boost(a: float, b: float) -> float:
 ## keep the original symmetric aff_boost unchanged, since an ally
 ## buffing a high-spirit teammate isn't what this ask was about).
 static func aff_boost_resist(caster_spirit: float, target_spirit: float) -> float:
-	return min(AFFINITY_BOOST_CAP, (1 + affinity_mul(caster_spirit)) * (1 - affinity_mul(target_spirit)))
+	return min(AFFINITY_BOOST_CAP, _aff_dealt(affinity_mul(caster_spirit)) * _aff_taken(affinity_mul(target_spirit)))
 
 static func affinity_factor(src: Dictionary, tgt: Dictionary, act: Dictionary) -> float:
 	var m: float = 1.0
 	if act.get("camp") == "atk":
-		m *= aff_term(src["affinity"]["body"], tgt["affinity"]["body"])
+		m *= aff_term(eff_aff(src, "body"), eff_aff(tgt, "body"))
 	if act.get("element"):
-		m *= aff_term(src["affinity"][act["element"]], tgt["affinity"][act["element"]])
+		m *= aff_term(eff_aff(src, str(act["element"])), eff_aff(tgt, str(act["element"])))
 	return m
 
 ## ===== status system (mirrors farroad-core.js:196-267) =====
@@ -616,7 +629,9 @@ static func status_potency(act: Dictionary) -> float:
 ## could reach 100%: instant turns (Hasted), no damage taken (Warded), zero
 ## ATK/MAG/DEF/RES. These are capped; the rest just grow.
 const STATUS_MAG_CAP := {"hasted": -0.80, "warded": -0.80, "enfeebled": -0.80, "dulled": -0.80,
-	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50}
+	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50,
+	"dazed": -0.80, "drained": -0.80, "wounded": -0.80, "keen": 0.60, "vulnerable": 1.00,
+	"boon_fire": 100.0, "boon_water": 100.0, "boon_earth": 100.0, "boon_air": 100.0, "boon_light": 100.0, "boon_dark": 100.0, "boon_body": 100.0, "boon_spirit": 100.0, "bane_fire": -100.0, "bane_water": -100.0, "bane_earth": -100.0, "bane_air": -100.0, "bane_light": -100.0, "bane_dark": -100.0, "bane_body": -100.0, "bane_spirit": -100.0}
 ## Ian: Deepening per level -- +10% on a buff, +20% on a debuff.
 const DEEPEN_BUFF := 0.10
 const DEEPEN_DEBUFF := 0.20
@@ -629,9 +644,9 @@ static func apply_status(u: Dictionary, id: String, t: int, caster_spirit, poten
 	var caster_spirit_f: float = 0.0 if caster_spirit == null else caster_spirit
 	var mul: float
 	if is_buff_status(id):
-		mul = aff_boost(caster_spirit_f, u["affinity"]["spirit"])
+		mul = aff_boost(caster_spirit_f, eff_aff(u, "spirit"))
 	else:
-		mul = aff_boost_resist(caster_spirit_f, u["affinity"]["spirit"])
+		mul = aff_boost_resist(caster_spirit_f, eff_aff(u, "spirit"))
 	if not u.has("stMag") or u["stMag"] == null:
 		u["stMag"] = {}
 	var m: float = base * mul * potency
@@ -641,18 +656,35 @@ static func apply_status(u: Dictionary, id: String, t: int, caster_spirit, poten
 	u["stMag"][id] = m
 
 static func eff_atk(u: Dictionary) -> float:
-	return u["base"]["atk"] * (1 + (mag_of(u, "enfeebled") if has(u, "enfeebled") else 0.0))
+	return u["base"]["atk"] * (1 + (mag_of(u, "empowered") if has(u, "empowered") else 0.0)) * (1 + (mag_of(u, "enfeebled") if has(u, "enfeebled") else 0.0))
 static func eff_mag(u: Dictionary) -> float:
-	return u["base"]["mag"] * (1 + (mag_of(u, "dulled") if has(u, "dulled") else 0.0))
+	return u["base"]["mag"] * (1 + (mag_of(u, "inspired") if has(u, "inspired") else 0.0)) * (1 + (mag_of(u, "dulled") if has(u, "dulled") else 0.0))
 static func eff_def(u: Dictionary) -> float:
 	return u["base"]["def"] * (1 + (mag_of(u, "bracing") if has(u, "bracing") else 0.0)) * (1 + (mag_of(u, "sundered") if has(u, "sundered") else 0.0))
 static func eff_res(u: Dictionary) -> float:
-	return u["base"]["res"] * (1 + (mag_of(u, "frail") if has(u, "frail") else 0.0))
+	return u["base"]["res"] * (1 + (mag_of(u, "resolute") if has(u, "resolute") else 0.0)) * (1 + (mag_of(u, "frail") if has(u, "frail") else 0.0))
 static func eff_evade(u: Dictionary) -> float:
 	return maxf(0.0, u["base"]["evade"] + (mag_of(u, "blurred") if has(u, "blurred") else 0.0)
 		+ (mag_of(u, "exposed") if has(u, "exposed") else 0.0))
 static func eff_charge_rate(u: Dictionary) -> float:
-	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0))
+	return u["base"]["chargeRate"] * (1 + (mag_of(u, "surging") if has(u, "surging") else 0.0)) * (1 + (mag_of(u, "drained") if has(u, "drained") else 0.0))
+
+## Crit chance added by Keen / Dazed on the attacker.
+static func crit_status_bonus(u: Dictionary) -> float:
+	return (mag_of(u, "keen") if has(u, "keen") else 0.0) + (mag_of(u, "dazed") if has(u, "dazed") else 0.0)
+
+## Healing received: Wounded cuts it.
+static func healed_mul(u: Dictionary) -> float:
+	return maxf(0.0, 1.0 + (mag_of(u, "wounded") if has(u, "wounded") else 0.0))
+
+## A unit's affinity on one axis as it is right now: its own value plus any element Boon / Bane on it.
+static func eff_aff(u: Dictionary, ax: String) -> float:
+	var v: float = float(u["affinity"][ax])
+	if has(u, "boon_" + ax):
+		v += mag_of(u, "boon_" + ax)
+	if has(u, "bane_" + ax):
+		v += mag_of(u, "bane_" + ax)
+	return v
 
 static func stat_by_key(u: Dictionary, key) -> float:
 	if key == "mag": return eff_mag(u)
@@ -745,7 +777,7 @@ static func speed_status_mul(u: Dictionary) -> float:
 	return h * sl
 
 static func incoming_mul(u: Dictionary) -> float:
-	return (1 + mag_of(u, "warded")) if has(u, "warded") else 1.0
+	return ((1 + mag_of(u, "warded")) if has(u, "warded") else 1.0) * ((1 + mag_of(u, "vulnerable")) if has(u, "vulnerable") else 1.0)
 
 ## ===== unit/battle construction (mirrors farroad-core.js:666-680) =====
 static func default_affinity() -> Dictionary:
@@ -1046,6 +1078,11 @@ static func resolve_condition(cond_id: String, u: Dictionary, b: Dictionary, act
 				best = x
 				best_pct = share
 		return {"ok": best != null, "target": best}
+	if cond_id == "foe_has_dot":   # a damaging debuff: poisoned or burning
+		for x in foes(b, u):
+			if has(x, "poisoned") or has(x, "burning"):
+				return {"ok": true, "target": x}
+		return {"ok": false, "target": null}
 	if FOE_STATUS_CONDS.has(cond_id):
 		for x in foes(b, u):
 			if has(x, FOE_STATUS_CONDS[cond_id]):
@@ -1264,6 +1301,7 @@ static func cond_label(cond_id: String) -> String:
 		"foe_taunting": return "Foe: taunting"
 		"foe_poisoned": return "Foe: poisoned"
 		"foe_burning": return "Foe: burning"
+		"foe_has_dot": return "Foe: has a damaging debuff"
 		"foe_blinded": return "Foe: blinded"
 		"foe_slowed": return "Foe: slowed"
 		"foe_confused": return "Foe: confused"
@@ -1327,6 +1365,12 @@ static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dict
 		var act = ACTIONS.get(s[i]["action"])
 		if action_held_by_earlier_fielded(b, u, s[i]["action"]):
 			continue
+		# a cooling-down action can't be picked again until enough of the unit's own turns have passed
+		if act != null and act.get("cooldown") and int(u["turnsTaken"]) < int((u.get("cdAt", {}) as Dictionary).get(str(act["id"]), 0)):
+			continue
+		# an enemy doesn't refresh a buff on itself that is still up (Raise Shield, Blood Scent, Slipstream...)
+		if not u["isParty"] and act != null and act.get("tk") == "self" and act.get("applies") and has(u, str(act["applies"])):
+			continue
 		var r := resolve_condition(s[i]["cond"], u, b, act)
 		if r["ok"]:
 			return {"actionId": s[i]["action"], "target": r["target"], "condId": s[i]["cond"],
@@ -1353,7 +1397,7 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 		o["damage"] = 0
 		return o
 	var cb: float = act.get("critBonus", 0.0) + (eval_crit_fn(act, tgt) if act.get("critFnId") else 0.0)
-	o["critChance"] = clamp_f((src["base"]["atkCrit"] if is_phys else src["base"]["magCrit"]) + cb, 0, CAP_CRIT)
+	o["critChance"] = clamp_f((src["base"]["atkCrit"] if is_phys else src["base"]["magCrit"]) + cb + crit_status_bonus(src), 0, CAP_CRIT)
 	o["critRoll"] = 1.0 if det else rng.next()
 	o["crit"] = o["critRoll"] < o["critChance"]
 	o["K"] = k_of(src["level"])
@@ -1395,6 +1439,7 @@ static func heal_mul(b: Dictionary) -> float:
 static func heal_for(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Dictionary, pv: float) -> Dictionary:
 	var v: float = pv * (stat_by_key(src, act["scaleStat"]) if act.get("scaleStat") else eff_mag(src)) * aff_boost(src["affinity"]["spirit"], tgt["affinity"]["spirit"])
 	v *= heal_mul(b)   # PvP halves healing
+	v *= healed_mul(tgt)   # Wounded cuts healing received
 	var amt: int = max(1, floori(v))
 	var before: float = tgt["hp"]
 	tgt["hp"] = min(tgt["maxHp"], tgt["hp"] + amt)
@@ -1456,7 +1501,7 @@ static func step(b: Dictionary) -> Variant:
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
 	if has(u, "regen") and u["hp"] > 0:
-		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * heal_mul(b)))
+		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * heal_mul(b) * healed_mul(u)))
 		var bf = u["hp"]
 		u["hp"] = min(u["maxHp"], u["hp"] + rg)
 		e["regen"] = u["hp"] - bf
@@ -1574,12 +1619,15 @@ static func step(b: Dictionary) -> Variant:
 			for t in targets:
 				e["heals"].append(heal_for(u, t, act, b, pv))
 			if act.get("cleanse"):
+				# cleanse N removes up to N debuffs from each target; 99 or more means every debuff
+				var cleanse_n: int = 999 if int(act["cleanse"]) >= 99 else int(act["cleanse"])
 				for t in targets:
+					var removed := 0
 					for d in DEBUFFS:
-						if has(t, d):
+						if removed < cleanse_n and has(t, d):
 							t["st"][d] = 0
 							e["notes"].append("cleansed " + d)
-							break
+							removed += 1
 		elif pv > 0:
 			for h in range(int(act.get("hits", 1))):
 				var tl: Array = [def_foe(b, u)] if act.get("randomPerHit") else targets
@@ -1588,6 +1636,9 @@ static func step(b: Dictionary) -> Variant:
 						continue
 					# Ian: target-HP actions hit by Broad scale off each foe's own HP.
 					var hit_pv: float = eval_power_fn(act, u, tg) if act.get("powerFnId") in ["execute", "reckoning"] else pv
+					# extra damage against a target carrying a given status (Inferno Burst vs Burning)
+					if act.get("bonusStatus") and has(tg, str(act["bonusStatus"])):
+						hit_pv *= float(act.get("bonusMul", 1.5))
 					var r := resolve_hit(u, tg, act, b, hit_pv)
 					e["hits"].append(r)
 					e["totalDamage"] += r["damage"]
@@ -1602,7 +1653,7 @@ static func step(b: Dictionary) -> Variant:
 							e["notes"].append("stole %d charge from %s" % [roundi(took), tg["name"]])
 					if act.get("lifesteal") and r["damage"] > 0:
 						var hb = u["hp"]
-						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"]) * heal_mul(b)))
+						u["hp"] = min(u["maxHp"], u["hp"] + floori(r["damage"] * act["lifesteal"] * aff_boost(u["affinity"]["spirit"], u["affinity"]["spirit"]) * heal_mul(b) * healed_mul(u)))
 						if u["hp"] > hb:
 							e["heals"].append({"heal": true, "targetName": u["name"], "amount": u["hp"] - hb})
 			if act.get("tk") == "allFoes":
@@ -1678,6 +1729,10 @@ static func step(b: Dictionary) -> Variant:
 	else:
 		u["charge"] += act["charge"] * eff_charge_rate(u)
 	e["chargeAfter"] = u["charge"]
+	if act.get("cooldown"):
+		if not u.has("cdAt"):
+			u["cdAt"] = {}
+		u["cdAt"][str(act["id"])] = int(u["turnsTaken"]) + 1 + int(act["cooldown"])
 	u["turnsTaken"] += 1
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
 	if b["enrage"] and b["beat"] >= int(b.get("enrageAfter", ENRAGE_AFTER)):

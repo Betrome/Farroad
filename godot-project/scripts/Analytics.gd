@@ -19,7 +19,9 @@ extends RefCounted
 const ENDPOINT := "https://script.google.com/macros/s/AKfycbxFolLGYINZayvEHLZfRekGPSyDZYBnkBAQZPDZmuorv8l_8bu9T_i5HseN2-lmqj4m/exec"
 ## Where reports go (ENDPOINT; a test can point it elsewhere).
 static var endpoint: String = ENDPOINT
-const FILE := "user://analytics.json"
+const SaveStore := preload("res://scripts/SaveStore.gd")
+static func file_path() -> String:
+	return SaveStore.user_file("analytics.json")
 const SEND_EVERY_SEC := 24 * 3600
 ## Reports bigger than this are cut down (a Sheet cell holds 50,000 chars).
 const MAX_REPORT_CHARS := 45000
@@ -34,8 +36,8 @@ static func _ensure() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	if FileAccess.file_exists(FILE):
-		var f := FileAccess.open(FILE, FileAccess.READ)
+	if FileAccess.file_exists(file_path()):
+		var f := FileAccess.open(file_path(), FileAccess.READ)
 		if f != null:
 			var parsed = JSON.parse_string(f.get_as_text())
 			if parsed is Dictionary:
@@ -55,7 +57,7 @@ static func _ensure() -> void:
 static func save() -> void:
 	if not _loaded or not _dirty:
 		return
-	var f := FileAccess.open(FILE, FileAccess.WRITE)
+	var f := FileAccess.open(file_path(), FileAccess.WRITE)
 	if f != null:
 		f.store_string(JSON.stringify(state))
 		_dirty = false

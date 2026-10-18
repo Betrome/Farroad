@@ -196,6 +196,7 @@ func _refresh_card() -> void:
 ## GAMBITS' own action <select> already uses for a held-elsewhere action.
 func _build_slot_option(uid: String, slot: String) -> OptionButton:
 	var opt := OptionButton.new()
+	opt.set_meta("gear_slot", slot)   # the Gear tutorial points at these, not at the rarity/sort filters above them
 	var kind := FarroadProgression.equip_kind_for_slot(slot)
 	var cur_id = g.get("equipped", {}).get(uid, {}).get(slot)
 	opt.add_item("— empty —", 0)

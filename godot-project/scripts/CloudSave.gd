@@ -12,6 +12,12 @@ const UPLOAD_EVERY_SEC := 180.0
 var _client: RankedClient
 var _dirty := false
 var _busy := false
+## While true nothing is uploaded: set until the game has compared this device's save with the cloud copy
+## (and, if the cloud copy is further along, until the player has chosen). The 3-minute timer, the
+## app-paused upload and every other caller all go through upload(), so one flag covers them all.
+var held := false
+## True when the last fetch() failed for a reason other than 'nothing stored' (offline, server error).
+var fetch_failed := false
 var get_snapshot: Callable   # -> the save as a Dictionary (GameController's)
 
 func setup(client: RankedClient, snapshot: Callable) -> void:
@@ -32,6 +38,8 @@ func mark_dirty() -> void:
 ## Sends the current save. Returns "" when stored, else the error code
 ## ("offline", "save_refused", ...).
 func upload() -> String:
+	if held:
+		return "held"   # _dirty stays set, so the save goes up once the hold is lifted
 	if _busy or not RankedClient.online() or not get_snapshot.is_valid():
 		return "busy"
 	_busy = true
@@ -47,7 +55,13 @@ func upload() -> String:
 ## The save stored on the server for this account, or {} if none.
 func fetch() -> Dictionary:
 	var res := await _client.call_api("/save/get")
-	if res.has("error") or not (res.get("save") is Dictionary):
+	fetch_failed = false
+	if res.has("error"):
+		# "no_save" / "bad_key": nothing is stored for this account yet. Anything else is a failure.
+		var e := str(res["error"])
+		fetch_failed = e != "no_save" and e != "bad_key"
+		return {}
+	if not (res.get("save") is Dictionary):
 		return {}
 	return res["save"]
 
@@ -72,7 +86,7 @@ static func use_recovery_code(code: String) -> String:
 	Analytics.state["id"] = id
 	Analytics._dirty = true
 	Analytics.save()
-	var f := FileAccess.open(RankedClient.ACCOUNT_FILE, FileAccess.WRITE)
+	var f := FileAccess.open(RankedClient.account_file(), FileAccess.WRITE)
 	if f == null:
 		return "Couldn't store the account on this device."
 	f.store_string(JSON.stringify({"key": key}))

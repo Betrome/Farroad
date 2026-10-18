@@ -10,7 +10,12 @@ extends Node
 ## Where the PvP server lives (Google Cloud Run). For testing against a
 ## server on this PC, start the game with "-- --arena http://127.0.0.1:8910".
 const DEFAULT_URL := "https://farroad-arena-226468542723.us-central1.run.app"
-const ACCOUNT_FILE := "user://arena_account.json"
+const SaveStore := preload("res://scripts/SaveStore.gd")
+
+## A debug build keeps its own account file (see SaveStore) and, unless a test server is named
+## with --arena, stays offline: it never registers test players or uploads saves to the real server.
+static func account_file() -> String:
+	return SaveStore.user_file("arena_account.json")
 const TIMEOUT_SEC := 15.0
 
 static func server_url() -> String:
@@ -18,21 +23,23 @@ static func server_url() -> String:
 	var i := args.find("--arena")
 	if i >= 0 and i + 1 < args.size():
 		return str(args[i + 1]).trim_suffix("/")
+	if OS.is_debug_build():
+		return ""
 	return DEFAULT_URL
 
 static func online() -> bool:
 	return server_url() != ""
 
 static func _key() -> String:
-	if FileAccess.file_exists(ACCOUNT_FILE):
-		var f := FileAccess.open(ACCOUNT_FILE, FileAccess.READ)
+	if FileAccess.file_exists(account_file()):
+		var f := FileAccess.open(account_file(), FileAccess.READ)
 		var d = JSON.parse_string(f.get_as_text())
 		f.close()
 		if d is Dictionary and str(d.get("key", "")).length() >= 32:
 			return str(d["key"])
 	var crypto := Crypto.new()
 	var key := crypto.generate_random_bytes(24).hex_encode()
-	var w := FileAccess.open(ACCOUNT_FILE, FileAccess.WRITE)
+	var w := FileAccess.open(account_file(), FileAccess.WRITE)
 	if w != null:
 		w.store_string(JSON.stringify({"key": key}))
 		w.close()

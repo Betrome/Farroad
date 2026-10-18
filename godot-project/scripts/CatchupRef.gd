@@ -6,7 +6,9 @@ extends Node
 ## or while too few players have cleared a boss for an average to mean anything,
 ## FarroadProgression.CATCHUP_REF_WAVE_DEFAULT stays in force.
 
-const CACHE_FILE := "user://catchup_ref.json"
+const SaveStore := preload("res://scripts/SaveStore.gd")
+static func cache_file() -> String:
+	return SaveStore.user_file("catchup_ref.json")
 const REFRESH_EVERY_SEC := 10800.0   # 3 hours
 ## An average over fewer players than this is just those few people.
 const MIN_PLAYERS := 5
@@ -18,9 +20,9 @@ var _client: RankedClient
 ## Uses the last answer saved on this device. Call early, before any catch-up
 ## reward is worked out.
 static func apply_cached() -> void:
-	if not FileAccess.file_exists(CACHE_FILE):
+	if not FileAccess.file_exists(cache_file()):
 		return
-	var f := FileAccess.open(CACHE_FILE, FileAccess.READ)
+	var f := FileAccess.open(cache_file(), FileAccess.READ)
 	var d = JSON.parse_string(f.get_as_text())
 	f.close()
 	if d is Dictionary:
@@ -51,7 +53,7 @@ func refresh() -> void:
 		return
 	var avg := float(res["bossAvg"])
 	var players := int(res.get("players", 0))
-	var w := FileAccess.open(CACHE_FILE, FileAccess.WRITE)
+	var w := FileAccess.open(cache_file(), FileAccess.WRITE)
 	if w != null:
 		w.store_string(JSON.stringify({"bossAvg": avg, "players": players}))
 		w.close()

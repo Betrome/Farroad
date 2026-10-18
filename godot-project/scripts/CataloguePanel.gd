@@ -412,14 +412,14 @@ func _refresh_enemies() -> void:
 		else:
 			_add_item(_unknown_row())
 
-	# Ian: "Catalogue: needs entries for boss variants like Roadwarden."
+	# Ian: "Catalogue: needs entries for boss variants like the Warden."
 	_finish_list()
 	var bheader := UiKit.make_label("Boss variants", "label")
 	list_container.add_child(bheader)
 	for bv in BOSS_VARIANTS:
 		if seen.has(bv[0]):
 			var brow := HBoxContainer.new()
-			var blbl := _rich_row("[b]%s[/b] — boss %s" % [bv[1], FarroadCore.ARCH[bv[2]]["name"]])
+			var blbl := _rich_row("[b]%s[/b] — a title bestowed on enemies on The Road with great potential" % bv[1])
 			blbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			brow.add_child(blbl)
 			var bbtn := Button.new()
@@ -437,7 +437,7 @@ func _refresh_enemies() -> void:
 
 ## [seen key, display name, archetype] -- bosses that are a stronger
 ## version of a normal enemy (the elemental bosses have their own entries).
-const BOSS_VARIANTS := [["roadwarden", "Roadwarden", "ox"]]
+const BOSS_VARIANTS := [["roadwarden", "Warden", "ox"]]
 
 func _on_enemy_info_pressed(arch_key: String) -> void:
 	if _parent and _parent.has_method("_show_enemy_detail_popup"):

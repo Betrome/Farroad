@@ -120,3 +120,4 @@ ally_charge_gte_50,Ally (not self): charge >= 50%,Ally,Another ally with a charg
 ally_charge_gte_75,Ally (not self): charge >= 75%,Ally,Another ally with a charge action is at least 75% charged,ally charge,most-charged such ally,FALSE,FALSE,Kindle (finish their charge),Never you; needs a charge action.
 ally_charge_lte_25,Ally (not self): charge <= 25%,Ally,Another ally with a charge action is at most 25% charged,ally charge,least-charged such ally,FALSE,FALSE,Kindle / Tithe (jump-start someone),Never you; needs a charge action.
 ally_charge_lte_50,Ally (not self): charge <= 50%,Ally,Another ally with a charge action is at most 50% charged,ally charge,least-charged such ally,FALSE,FALSE,Kindle / Tithe (jump-start someone),Never you; needs a charge action.
+foe_has_dot,Foe: has a damaging debuff,Foe,A foe is poisoned or burning,foe statuses,that foe,FALSE,FALSE,finishers on afflicted foes,
