@@ -19,15 +19,18 @@ const REFRESH_SEC := 60.0
 ## How much of the sun a flat, un-normal-mapped surface picks up (the sun's height is low).
 const FLAT_LIGHT := 0.35
 
+## The sun climbs from the left at dawn (the shadow lies to the right), is overhead at noon (no tail, just
+## an ellipse under the unit) and sinks toward the right at dusk (the shadow lies to the left); `lean` is the
+## tail's length and side as a share of the unit's width (sign = which side).
 ## A look: ambient colour, sun colour/energy/direction (radians; 0 = from straight above,
 ## PI/4 = from the top-right), sun height (0..1, how far above the ground), the blob shadow's
 ## lean (a fraction of its width), length (blob width relative to the unit) and opacity.
-const NOON := {"ambient": Color(0.80, 0.82, 0.92), "sun": Color(1.0, 0.95, 0.82), "energy": 0.6, "rot": PI / 4.0, "height": 0.35, "lean": -0.14, "len": 1.9, "alpha": 0.55}
+const NOON := {"ambient": Color(0.80, 0.82, 0.92), "sun": Color(1.0, 0.95, 0.82), "energy": 0.6, "rot": 0.0, "height": 0.35, "lean": 0.0, "len": 1.9, "alpha": 0.55}
 const DAWN := {"ambient": Color(0.74, 0.72, 0.86), "sun": Color(1.0, 0.74, 0.50), "energy": 0.8, "rot": -1.25, "height": 0.15, "lean": 0.18, "len": 2.6, "alpha": 0.45}
-const DUSK := {"ambient": Color(0.66, 0.58, 0.78), "sun": Color(1.0, 0.52, 0.28), "energy": 0.9, "rot": 1.25, "height": 0.15, "lean": -0.17, "len": 2.8, "alpha": 0.50}
-const NIGHT := {"ambient": Color(0.30, 0.34, 0.58), "sun": Color(0.55, 0.66, 1.0), "energy": 0.45, "rot": PI / 5.0, "height": 0.30, "lean": -0.13, "len": 1.7, "alpha": 0.30}
+const DUSK := {"ambient": Color(0.66, 0.58, 0.78), "sun": Color(1.0, 0.52, 0.28), "energy": 0.9, "rot": 1.25, "height": 0.15, "lean": -0.20, "len": 2.8, "alpha": 0.50}
+const NIGHT := {"ambient": Color(0.30, 0.34, 0.58), "sun": Color(0.55, 0.66, 1.0), "energy": 0.45, "rot": 0.0, "height": 0.30, "lean": 0.0, "len": 1.7, "alpha": 0.30}
 ## Local hour -> look. Between two keys every value is blended.
-const DAY_KEYS := [[0.0, NIGHT], [5.0, NIGHT], [7.0, DAWN], [10.0, NOON], [15.0, NOON], [18.0, DUSK], [20.0, NIGHT], [24.0, NIGHT]]
+const DAY_KEYS := [[0.0, NIGHT], [5.0, NIGHT], [7.0, DAWN], [12.5, NOON], [18.0, DUSK], [20.0, NIGHT], [24.0, NIGHT]]
 ## Sets with a fixed look, whatever the hour: the cave (blue ambient, crystal lights) -- sunless.
 const CAVE := {"ambient": Color(0.30, 0.38, 0.62), "sun": Color(0.45, 0.65, 1.0), "energy": 0.45, "rot": PI / 4.0, "height": 0.30, "lean": -0.13, "len": 1.4, "alpha": 0.45}
 ## The forest canopy dims and greens whatever the hour is doing.

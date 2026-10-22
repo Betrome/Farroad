@@ -292,7 +292,7 @@ func refresh_lighting() -> void:
 	var body_w: float = _art_body_size.x if _art_body_size.x > 0.0 else size * 0.8
 	# round end at the feet; with the sun on, a tail stretches away from it (15% smaller than the oval was)
 	var r: float = body_w * 0.30 * 0.85
-	var tail_len: float = 0.0 if lean == 0.0 else body_w * 0.85 * 0.42 * maxf(0.0, len_mul - 0.6)
+	var tail_len: float = body_w * 0.85 * 3.97 * absf(lean)   # grows smoothly as the sun drops to either side
 	_blob_rest = Vector2(0, size / 2.0 - r * 0.15)
 	_blob.set_shape(r, Vector2(signf(lean) * tail_len, 0.0), float(p.get("alpha", 0.5)))
 	_blob.position = _blob_rest
