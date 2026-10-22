@@ -241,6 +241,7 @@ static func _load_sprite_frames(path: String) -> SpriteFrames:
 var _hp_bar: UiBar
 var _orig_frames: SpriteFrames   # the plain frames (the lit copy swaps in/out with Settings > Dynamic lighting)
 var _blob: Sprite2D              # the blob shadow under the feet
+var air := 0.0                   # height of the current hop above the ground (set by BattlePresenter._hop)
 var _blob_rest := Vector2.ZERO   # where it sits while the unit stands still
 var _charge_bar: UiBar
 var _hp_bg: Control        # aliases of the two bars, so show/hide/fade code stays as is
@@ -765,10 +766,10 @@ var _still_for: float = 0.0
 
 func _process(delta: float) -> void:
 	_sync_chrome()
-	# the blob follows the sprite sideways, and moves the opposite way vertically at a quarter
-	# strength (a unit that leaps up leaves its shadow lower, not far behind)
+	# the blob stays on the ground under the unit; only while it is in the air (a hop's arc)
+	# does it slip the opposite way, a quarter as far as the unit rose
 	if _blob != null and is_instance_valid(_blob) and shape != null:
-		_blob.position = _blob_rest + Vector2(shape.position.x, -shape.position.y * 0.25)
+		_blob.position = _blob_rest + Vector2(shape.position.x, shape.position.y + air * 1.25)
 	if shape is AnimatedSprite2D and float(unit["hp"]) > 0.0 and is_visible_in_tree():
 		var asp: AnimatedSprite2D = shape
 		if asp.is_playing():

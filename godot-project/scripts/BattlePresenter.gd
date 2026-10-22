@@ -2587,9 +2587,12 @@ func _apply_status_notes(e: Dictionary, stagger: Dictionary) -> void:
 func _hop(actor: UnitView, from: Vector2, to: Vector2, duration: float = HOP_TIME) -> void:
 	var height: float = _vp.y * HOP_HEIGHT_FRAC
 	var tw := create_tween()
-	tw.tween_method(func(t: float): actor.shape.position = from.lerp(to, t) + Vector2(0, -height * sin(t * PI)),
+	tw.tween_method(func(t: float):
+			actor.air = height * sin(t * PI)   # how far off the ground the arc has lifted it (the blob shadow reads this)
+			actor.shape.position = from.lerp(to, t) + Vector2(0, -actor.air),
 		0.0, 1.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
+	actor.air = 0.0
 
 ## A straight-line dash to the target, an alternative to the arcing hop (same
 ## signature and local-offset convention as _hop()). Used only for a unit whose
