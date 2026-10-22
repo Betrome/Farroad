@@ -765,10 +765,10 @@ var _still_for: float = 0.0
 
 func _process(delta: float) -> void:
 	_sync_chrome()
-	# the blob follows the sprite sideways, and moves the opposite way vertically at half
+	# the blob follows the sprite sideways, and moves the opposite way vertically at a quarter
 	# strength (a unit that leaps up leaves its shadow lower, not far behind)
 	if _blob != null and is_instance_valid(_blob) and shape != null:
-		_blob.position = _blob_rest + Vector2(shape.position.x, -shape.position.y * 0.5)
+		_blob.position = _blob_rest + Vector2(shape.position.x, -shape.position.y * 0.25)
 	if shape is AnimatedSprite2D and float(unit["hp"]) > 0.0 and is_visible_in_tree():
 		var asp: AnimatedSprite2D = shape
 		if asp.is_playing():
