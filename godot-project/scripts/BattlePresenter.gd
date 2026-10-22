@@ -1552,7 +1552,14 @@ func _build_enrage_ui() -> void:
 	enrage_label.position = Vector2(margin, y - _vp.y * 0.036)
 	# the same size as the wave text above it, red with a white outline
 	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
-	enrage_label.add_theme_color_override("font_color", Color(0.82, 0.2, 0.17))
+	# The colour is already fully opaque; the thin strokes anti-alias into the white outline and read as
+	# washed out, so the glyphs are emboldened to give the fill solid pixels.
+	var fv := FontVariation.new()
+	var proj_theme := ThemeDB.get_project_theme()
+	fv.base_font = proj_theme.default_font if proj_theme != null and proj_theme.default_font != null else ThemeDB.fallback_font
+	fv.variation_embolden = 0.7
+	enrage_label.add_theme_font_override("font", fv)
+	enrage_label.add_theme_color_override("font_color", Color(0.82, 0.2, 0.17, 1.0))
 	enrage_label.add_theme_color_override("font_outline_color", Color.WHITE)
 	enrage_label.add_theme_constant_override("outline_size", 3)
 	add_child(enrage_label)

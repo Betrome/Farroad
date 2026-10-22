@@ -53,6 +53,8 @@ func _draw() -> void:
 		var pts := _outline(layer, sgn, length)
 		if pts.size() < 3:
 			continue
+		if Geometry2D.triangulate_polygon(pts).is_empty():
+			continue
 		var cols := PackedColorArray()
 		for p in pts:
 			var u: float = clampf(p.x * sgn / maxf(length, 1.0), 0.0, 1.0) if length >= 2.0 else 0.0
