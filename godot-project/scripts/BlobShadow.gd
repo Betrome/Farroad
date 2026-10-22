@@ -1,16 +1,22 @@
 class_name BlobShadow
 extends Node2D
-## A unit's ground shadow: a round end at the feet (squashed a little for the camera's
-## angle) with a tail stretching away from the sun, drawn as one soft-edged shape.
-## A larger, fainter copy underneath gives the edge its softness.
+## A unit's ground shadow: a round end at the feet and a tail stretching away from the
+## sun that narrows to a pointed, elliptical far end. The edge is hardest at the feet and
+## softens with distance: several stacked layers of the same outline, each a little wider
+## than the last, and the gap between them grows along the tail.
 
-var radius := 10.0       # the round end at the feet
-var tail := Vector2.ZERO # where the far end sits, relative to the feet (zero = just a circle)
+var radius := 10.0        # the round end at the feet
+var tail := Vector2.ZERO  # where the far end sits, relative to the feet (zero = just a circle)
 var opacity := 0.5
-const SQUASH := 0.75     # vertical squash of the whole shape
-const TAIL_END_FRAC := 0.65   # the far end's radius relative to the feet end's
-const FEATHER := 1.28    # the faint outer layer is this much bigger
-const SEGMENTS := 20
+const SQUASH := 0.75      # vertical squash of the whole shape
+const TIP_FRAC := 0.22    # half-width at the far end, relative to the feet end's radius
+const CAP_FRAC := 1.8     # the far end's cap is this many half-widths long (pointy, not round)
+const LAYERS := 4
+const SOFT_NEAR := 0.07   # how far each layer grows outward at the feet ...
+const SOFT_FAR := 0.55    # ... and at the far end
+const FADE := 0.45        # how much fainter the far end is than the feet
+const STEPS := 14
+const ARC := 10
 
 func set_shape(r: float, t: Vector2, a: float) -> void:
 	radius = r
@@ -18,24 +24,44 @@ func set_shape(r: float, t: Vector2, a: float) -> void:
 	opacity = a
 	queue_redraw()
 
-func _hull(r: float) -> PackedVector2Array:
+func _half_width(u: float) -> float:
+	var s := u * u * (3.0 - 2.0 * u)   # smoothstep: holds its width near the feet, then narrows
+	return radius * lerpf(1.0, TIP_FRAC, pow(s, 0.9))
+
+func _outline(layer: int, sgn: float, length: float) -> PackedVector2Array:
 	var pts := PackedVector2Array()
-	for i in SEGMENTS:
-		var ang := TAU * float(i) / float(SEGMENTS)
-		pts.append(Vector2(cos(ang), sin(ang)) * r)
-		if tail != Vector2.ZERO:
-			pts.append(tail + Vector2(cos(ang), sin(ang)) * r * TAIL_END_FRAC)
-	var hull := Geometry2D.convex_hull(pts)
-	for i in hull.size():
-		hull[i] = Vector2(hull[i].x, hull[i].y * SQUASH)
-	if hull.size() > 1 and hull[0] == hull[hull.size() - 1]:
-		hull.remove_at(hull.size() - 1)   # convex_hull closes the loop; a polygon doesn't want the repeat
-	return hull
+	# top edge, feet -> far end
+	for k in range(STEPS + 1):
+		var u := float(k) / float(STEPS)
+		var w := _half_width(u) * (1.0 + float(layer) * lerpf(SOFT_NEAR, SOFT_FAR, u))
+		pts.append(Vector2(sgn * length * u, -w * SQUASH))
+	# the pointy cap, top to bottom
+	var w_end := _half_width(1.0) * (1.0 + float(layer) * SOFT_FAR)
+	for k in range(1, ARC):
+		var ang := -PI / 2.0 + PI * float(k) / float(ARC)
+		pts.append(Vector2(sgn * (length + cos(ang) * w_end * CAP_FRAC), sin(ang) * w_end * SQUASH))
+	# bottom edge, far end -> feet
+	for k in range(STEPS, -1, -1):
+		var u := float(k) / float(STEPS)
+		var w := _half_width(u) * (1.0 + float(layer) * lerpf(SOFT_NEAR, SOFT_FAR, u))
+		pts.append(Vector2(sgn * length * u, w * SQUASH))
+	# the round end behind the feet
+	var w0 := radius * (1.0 + float(layer) * SOFT_NEAR)
+	for k in range(1, ARC):
+		var ang := PI / 2.0 + PI * float(k) / float(ARC)
+		pts.append(Vector2(sgn * cos(ang) * w0, sin(ang) * w0 * SQUASH))
+	return pts
 
 func _draw() -> void:
-	var outer := _hull(radius * FEATHER)
-	if outer.size() >= 3:
-		draw_colored_polygon(outer, Color(0, 0, 0, opacity * 0.35))
-	var core := _hull(radius)
-	if core.size() >= 3:
-		draw_colored_polygon(core, Color(0, 0, 0, opacity * 0.75))
+	var sgn: float = -1.0 if tail.x < 0.0 else 1.0
+	var length: float = absf(tail.x)
+	var a: float = opacity * 0.32
+	for layer in range(LAYERS - 1, -1, -1):
+		var pts := _outline(layer, sgn, length)
+		if pts.size() < 3:
+			continue
+		var cols := PackedColorArray()
+		for p in pts:
+			var u: float = clampf(absf(p.x) / maxf(length, 1.0), 0.0, 1.0) if p.x * sgn > 0.0 else 0.0
+			cols.append(Color(0, 0, 0, a * (1.0 - FADE * u)))
+		draw_polygon(pts, cols)
