@@ -1,6 +1,6 @@
 [
   {
-    "version": "2.39",
+    "version": "2.40",
     "title": "Dynamic lighting, shadows and quality of life",
     "notes": [
       "**Lighting:** the battle now has a sun (or moon) that follows your device's clock: dawn, noon, dusk and night each tint the scene and shade the characters. The cave is lit blue with small lights on its crystals. Turn it off in Settings > Dynamic lighting.",
