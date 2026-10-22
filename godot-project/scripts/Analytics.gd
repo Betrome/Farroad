@@ -139,6 +139,18 @@ If these terms change, you'll be asked to agree again before playing.
 
 By tapping Agree and continue, you agree to these terms.""" % [TERMS_VERSION, display_id()]
 
+## A device setting (analytics.json), loading the file first if nothing has yet.
+static func get_setting(key: String, default) -> Variant:
+	_ensure()
+	return state.get(key, default)
+
+## A device setting (analytics.json): written and saved at once.
+static func set_setting(key: String, value) -> void:
+	enabled()   # loads the device settings file
+	state[key] = value
+	_dirty = true
+	save()
+
 ## ---- counting ----
 
 ## counters[group][key] += n

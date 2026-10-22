@@ -16,23 +16,21 @@ extends Node
 
 const SUN_LAYER := 4   # light-mask bit (1 = default, 2 = AttackFX's UNIT_LIGHT_LAYER)
 const REFRESH_SEC := 60.0
-## How much of the sun a flat, un-normal-mapped surface picks up (the sun's height is low).
-const FLAT_LIGHT := 0.35
 
 ## The sun climbs from the left at dawn (the shadow lies to the right), is overhead at noon (no tail, just
 ## an ellipse under the unit) and sinks toward the right at dusk (the shadow lies to the left); `lean` is the
 ## tail's length and side as a share of the unit's width (sign = which side).
 ## A look: ambient colour, sun colour/energy/direction (radians; 0 = from straight above,
 ## PI/4 = from the top-right), sun height (0..1, how far above the ground), the blob shadow's
-## lean (a fraction of its width), length (blob width relative to the unit) and opacity.
-const NOON := {"ambient": Color(0.80, 0.82, 0.92), "sun": Color(1.0, 0.95, 0.82), "energy": 0.6, "rot": 0.0, "height": 0.35, "lean": 0.0, "len": 1.9, "alpha": 0.55}
-const DAWN := {"ambient": Color(0.74, 0.72, 0.86), "sun": Color(1.0, 0.74, 0.50), "energy": 0.8, "rot": -1.25, "height": 0.15, "lean": 0.18, "len": 2.6, "alpha": 0.45}
-const DUSK := {"ambient": Color(0.66, 0.58, 0.78), "sun": Color(1.0, 0.52, 0.28), "energy": 0.9, "rot": 1.25, "height": 0.15, "lean": -0.20, "len": 2.8, "alpha": 0.50}
-const NIGHT := {"ambient": Color(0.30, 0.34, 0.58), "sun": Color(0.55, 0.66, 1.0), "energy": 0.45, "rot": 0.0, "height": 0.30, "lean": 0.0, "len": 1.7, "alpha": 0.30}
+## lean (the shadow tail's length and side as a share of the unit's width) and opacity.
+const NOON := {"ambient": Color(0.80, 0.82, 0.92), "sun": Color(1.0, 0.95, 0.82), "energy": 0.6, "rot": 0.0, "height": 0.35, "lean": 0.0, "alpha": 0.55}
+const DAWN := {"ambient": Color(0.74, 0.72, 0.86), "sun": Color(1.0, 0.74, 0.50), "energy": 0.8, "rot": -1.25, "height": 0.15, "lean": 0.18, "alpha": 0.45}
+const DUSK := {"ambient": Color(0.66, 0.58, 0.78), "sun": Color(1.0, 0.52, 0.28), "energy": 0.9, "rot": 1.25, "height": 0.15, "lean": -0.20, "alpha": 0.50}
+const NIGHT := {"ambient": Color(0.30, 0.34, 0.58), "sun": Color(0.55, 0.66, 1.0), "energy": 0.45, "rot": 0.0, "height": 0.30, "lean": 0.0, "alpha": 0.30}
 ## Local hour -> look. Between two keys every value is blended.
 const DAY_KEYS := [[0.0, NIGHT], [5.0, NIGHT], [7.0, DAWN], [12.5, NOON], [18.0, DUSK], [20.0, NIGHT], [24.0, NIGHT]]
 ## Sets with a fixed look, whatever the hour: the cave (blue ambient, crystal lights) -- sunless.
-const CAVE := {"ambient": Color(0.30, 0.38, 0.62), "sun": Color(0.45, 0.65, 1.0), "energy": 0.45, "rot": PI / 4.0, "height": 0.30, "lean": -0.13, "len": 1.4, "alpha": 0.45}
+const CAVE := {"ambient": Color(0.30, 0.38, 0.62), "sun": Color(0.45, 0.65, 1.0), "energy": 0.45, "rot": PI / 4.0, "height": 0.30, "lean": -0.13, "alpha": 0.45}
 ## The forest canopy dims and greens whatever the hour is doing.
 const FOREST_TINT := Color(0.78, 0.90, 0.72)
 const FOREST_SUN_MUL := 0.75
@@ -47,23 +45,20 @@ const CRYSTAL_COLOR := Color(0.40, 0.78, 1.0)
 static var params: Dictionary = {}
 static var _lit_cache: Dictionary = {}   # SpriteFrames instance id -> lit copy
 
-var _gc: Node = null
+var _gc: GameController = null
 var _sun: PointLight2D = null   # a far-off point light: DirectionalLight2D ignores the cull mask in 4.7 and lit the whole HUD
 static var _white_tex: Texture2D
 const SUN_DISTANCE := 700.0
 var _glow_tex: Texture2D
 
 static func enabled() -> bool:
-	return bool(Analytics.state.get("lighting", true)) if not Analytics.state.is_empty() else true
+	return bool(Analytics.get_setting("lighting", true))
 
 static func set_enabled(on: bool) -> void:
-	Analytics.enabled()   # loads the device settings file
-	Analytics.state["lighting"] = on
-	Analytics._dirty = true
-	Analytics.save()
+	Analytics.set_setting("lighting", on)
 
 ## `gc` is the GameController: it owns background_layer, foreground_layer and bg_set.
-func setup(gc: Node) -> void:
+func setup(gc: GameController) -> void:
 	_gc = gc
 	var t := Timer.new()
 	t.wait_time = REFRESH_SEC
@@ -123,7 +118,7 @@ func refresh() -> void:
 		_apply_to_art(false)
 		get_tree().call_group("lit_units", "refresh_lighting")
 		return
-	params = look_for(str(_gc.get("bg_set")), _local_hour())
+	params = look_for(_gc.bg_set, _local_hour())
 	if _sun == null:
 		_sun = PointLight2D.new()
 		_sun.range_item_cull_mask = SUN_LAYER
@@ -140,7 +135,8 @@ func refresh() -> void:
 	# height whose angle gives a flat surface the same light a directional sun at params.height would
 	var rot: float = params["rot"]
 	var hgt: float = float(params["height"])
-	var centre: Vector2 = Vector2((_gc.get("bvp") as Vector2).x / 2.0, (_gc.get("bvp") as Vector2).y / 2.0 + float((_gc.get("_bpos") as Vector2).y))
+	var area := _gc.battle_rect()
+	var centre: Vector2 = area.position + area.size / 2.0
 	_sun.position = centre + Vector2(sin(rot), -cos(rot)) * SUN_DISTANCE
 	_sun.height = SUN_DISTANCE * hgt / sqrt(maxf(0.01, 1.0 - hgt * hgt))
 	_apply_to_art(true)
@@ -153,7 +149,7 @@ func _free_sun() -> void:
 
 func _apply_to_art(on: bool) -> void:
 	var tint := _art_tint() if on else Color.WHITE
-	for root in [_gc.get("background_layer"), _gc.get("foreground_layer")]:
+	for root in [_gc.background_layer, _gc.foreground_layer]:
 		if root != null and is_instance_valid(root):
 			_tint_tree(root, tint, on, 0)
 
@@ -172,13 +168,13 @@ func on_background_rebuilt() -> void:
 	if _gc == null or not is_instance_valid(_gc):
 		return
 	refresh()
-	if not enabled() or str(_gc.get("bg_set")) != "cave":
+	if not enabled() or _gc.bg_set != "cave":
 		return
-	var bl: Node = _gc.get("background_layer")
+	var bl: Node = _gc.background_layer
 	if bl == null or bl.get_child_count() < 3:
 		return
 	var near: Node = bl.get_child(2)
-	var vis_w: float = float((_gc.get("bvp") as Vector2).x)
+	var vis_w: float = _gc.battle_rect().size.x
 	if _glow_tex == null:
 		var g := Gradient.new()
 		g.set_color(0, Color.WHITE)
@@ -216,10 +212,12 @@ func on_background_rebuilt() -> void:
 
 ## A copy of `frames` with each frame wrapped in a CanvasTexture carrying its baked
 ## normal map (<frame>_n.png). Frames without one stay as they are.
+## (Sprites drawn with a negative scale.x, the PvP rivals, need nothing special: Godot transforms the
+## normal with the item, so a mirrored sprite is lit from the correct side -- checked with a dome test.)
 static func lit_frames(frames: SpriteFrames) -> SpriteFrames:
 	if frames == null:
 		return null
-	var key := frames.get_instance_id()
+	var key = str(frames.resource_path if frames.resource_path != "" else frames.get_instance_id())
 	if _lit_cache.has(key):
 		return _lit_cache[key]
 	var out := SpriteFrames.new()
@@ -249,6 +247,6 @@ static func unit_tint() -> Color:
 	if params.is_empty():
 		return Color.WHITE
 	var sun: Color = params["sun"]
-	var e: float = float(params["energy"]) * FLAT_LIGHT
+	var e: float = float(params["energy"]) * float(params["height"])   # a flat surface picks up the sun by its height (N.L)
 	var amb: Color = params["ambient"]
 	return Color((amb.r + sun.r * e) / (1.0 + sun.r * e), (amb.g + sun.g * e) / (1.0 + sun.g * e), (amb.b + sun.b * e) / (1.0 + sun.b * e))

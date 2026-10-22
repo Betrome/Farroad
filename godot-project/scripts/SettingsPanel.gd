@@ -142,7 +142,7 @@ func _populate_popup() -> void:
 	light_btn.button_pressed = Lighting.enabled()
 	light_btn.toggled.connect(func(on: bool):
 		Lighting.set_enabled(on)
-		_parent.call("apply_lighting_setting"))
+		_parent.apply_lighting_setting())
 	vbox.add_child(light_btn)
 	var light_note := Label.new()
 	light_note.text = "Turn off for better battery life or a plain look on older phones."

@@ -198,6 +198,9 @@ func _rebuild_trail() -> void:
 		return
 	var life: float = 1.0 if age < 0.0 else 1.0 - age / TRAIL_LIFE      # smear frame: held
 	var tail: float = (1.0 - float(_arc["shown"])) + (1.0 - life) * 0.85   # 0..1 along the sweep
+	if tail >= 0.98:
+		_trail.polygon = PackedVector2Array()   # the crescent has shrunk to nothing: no area to triangulate
+		return
 	var pivot: Vector2 = _arc["pivot"]
 	var r: float = _arc["r"]
 	var a0: float = _arc["a0"]

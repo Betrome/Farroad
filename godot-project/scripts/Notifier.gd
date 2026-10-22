@@ -16,24 +16,18 @@ var _scheduler: Node = null   # NotificationScheduler (Android only)
 var _ready_android := false
 
 static func enabled() -> bool:
-	return bool(Analytics.state.get("notify", true)) if not Analytics.state.is_empty() else true
+	return bool(Analytics.get_setting("notify", true))
 
 static func set_enabled(on: bool) -> void:
-	Analytics.enabled()   # loads the device settings file
-	Analytics.state["notify"] = on
-	Analytics._dirty = true
-	Analytics.save()
+	Analytics.set_setting("notify", on)
 
 ## Each kind of alert has its own switch ("idle" = rewards full, "expedition" =
 ## a party is home), under the master one.
 static func kind_enabled(kind: String) -> bool:
-	return enabled() and (bool(Analytics.state.get("notify_" + kind, true)) if not Analytics.state.is_empty() else true)
+	return enabled() and bool(Analytics.get_setting("notify_" + kind, true))
 
 static func set_kind_enabled(kind: String, on: bool) -> void:
-	Analytics.enabled()
-	Analytics.state["notify_" + kind] = on
-	Analytics._dirty = true
-	Analytics.save()
+	Analytics.set_setting("notify_" + kind, on)
 
 ## Which delivery this device uses.
 static func platform() -> String:

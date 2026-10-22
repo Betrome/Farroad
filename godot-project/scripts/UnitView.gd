@@ -257,7 +257,7 @@ static var name_ref_size := 46.0
 ## Blob shadow under the unit, and (while dynamic lighting is on) the sun's tint,
 ## light mask and normal-mapped frames. Lighting.refresh() calls refresh_lighting()
 ## on every unit view when the hour, the environment or the setting changes.
-func _setup_lighting(half: float) -> void:
+func _setup_lighting() -> void:
 	_blob = BlobShadow.new()
 	_blob.light_mask = 0   # a shadow isn't lit
 	add_child(_blob)
@@ -279,15 +279,17 @@ func refresh_lighting() -> void:
 			var anim: StringName = asp.animation
 			var fr: int = asp.frame
 			var playing: bool = asp.is_playing()
+			# no frame_changed while swapping: it would re-run the weapon FX for the frame we restore
+			asp.set_block_signals(true)
 			asp.sprite_frames = want
 			asp.animation = anim
 			asp.frame = fr
 			if playing:
 				asp.play(anim)
+			asp.set_block_signals(false)
 	if _blob == null or not is_instance_valid(_blob):
 		return
 	var p: Dictionary = Lighting.params
-	var len_mul: float = float(p.get("len", 1.5))
 	var lean: float = float(p.get("lean", 0.0))
 	var body_w: float = _art_body_size.x if _art_body_size.x > 0.0 else size * 0.8
 	# round end at the feet; with the sun on, a tail stretches away from it (15% smaller than the oval was)
@@ -409,7 +411,7 @@ func _build(unit_size: float) -> void:
 			_boss_ring.z_index = -1
 			shape.add_child(_boss_ring)
 
-	_setup_lighting(half)
+	_setup_lighting()
 
 	# The UI kit's bars (UiBar): recessed trough, lit fill, a pale "recent damage"
 	# segment on a hit; HP turns green -> yellow -> red, charge is orange with

@@ -32,7 +32,7 @@ static func is_newer(a: String, b: String) -> bool:
 
 ## Settings: whether the game looks for a new version when it starts.
 static func check_enabled() -> bool:
-	return bool(Analytics.state.get("updateCheck", true)) if not Analytics.state.is_empty() else true
+	return bool(Analytics.get_setting("updateCheck", true))
 
 static func set_check_enabled(on: bool) -> void:
 	Analytics.enabled()

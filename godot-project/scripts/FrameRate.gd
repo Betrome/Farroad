@@ -3,7 +3,9 @@ extends Node
 ## Frame-rate option (Settings > Frame rate) and, in debug builds, an fps readout.
 ## Only the drawing rate changes: combat, timers and offline progress run on time,
 ## not on frames (see Lighting/UnitView: everything animated uses seconds or delta).
-## 0 = the device's own refresh rate, capped at DEFAULT_CAP (today's behaviour).
+## "Default" (stored as 0) caps the game at DEFAULT_CAP (60 fps) to save battery; screens that
+## refresh faster can pick 90 or 120 explicitly. (Before this option the game was never capped
+## and followed the screen, so Default is lower than that on 90/120 Hz phones.)
 
 const OPTIONS := [0, 30, 60, 90, 120]
 const DEFAULT_CAP := 60
@@ -12,13 +14,10 @@ var _label: Label
 var _acc := 0.0
 
 static func chosen() -> int:
-	return int(Analytics.state.get("fps", 0)) if not Analytics.state.is_empty() else 0
+	return int(Analytics.get_setting("fps", 0))
 
 static func set_chosen(v: int) -> void:
-	Analytics.enabled()   # loads the device settings file
-	Analytics.state["fps"] = v
-	Analytics._dirty = true
-	Analytics.save()
+	Analytics.set_setting("fps", v)
 	apply()
 
 ## The screen's refresh rate, or 0 if the platform doesn't say.

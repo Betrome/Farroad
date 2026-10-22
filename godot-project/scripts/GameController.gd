@@ -135,6 +135,10 @@ static func _size_desktop_window() -> void:
 	DisplayServer.window_set_position(usable.position + (usable.size - size) / 2)
 
 func _ready() -> void:
+	# the frame-rate cap (and the debug fps readout) applies from the very first screen
+	var frame_rate := FrameRate.new()
+	frame_rate.name = "FrameRate"
+	add_child(frame_rate)
 	UiKit.auto_top_light(get_tree())
 	_apply_desktop_scaling()
 	get_window().size_changed.connect(_apply_desktop_scaling)
@@ -928,10 +932,6 @@ func _build_background_layer() -> void:
 	foreground_layer.position = Vector2(0.0, _bpos.y)
 	foreground_layer.size = bvp
 	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
-	if get_node_or_null("FrameRate") == null:
-		var fr := FrameRate.new()
-		fr.name = "FrameRate"
-		add_child(fr)
 	lighting = Lighting.new()
 	add_child(lighting)
 	lighting.setup(self)
@@ -992,6 +992,10 @@ func _desired_bg_set() -> String:
 		if SIDE_SETS.has(k):
 			return SIDE_SETS[k]
 	return _road_set_for_wave(int(g.get("wave", 1)))
+
+## The battle area (position and size) in this node's coordinates.
+func battle_rect() -> Rect2:
+	return Rect2(_bpos, bvp)
 
 ## Settings > Dynamic lighting was switched: rebuild the art so the cave's crystal lights come or go.
 func apply_lighting_setting() -> void:

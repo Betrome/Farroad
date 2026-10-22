@@ -85,6 +85,8 @@ static func over(fg: Color, bg: Color, alpha: float) -> Color:
 ## Draws a vertical light-to-clear gradient over a rect (the "top light" of a
 ## capsule or bar fill).
 static func top_light(c: CanvasItem, r: Rect2, color: Color, strength: float) -> void:
+	if r.size.x < 1.0 or r.size.y < 1.0:
+		return   # a sliver (e.g. a bar tweening to empty) has no area to triangulate
 	var pts := PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
 	var top := Color(color, strength)
 	var clear := Color(color, 0.0)
@@ -123,6 +125,8 @@ static func style_button(btn: Button, kind: String = "secondary", force_state: S
 			state = "disabled" if btn.disabled else ("pressed" if btn.button_pressed or btn.is_pressed() else "normal")
 		if state == "pressed" or state == "disabled":
 			return
+		if btn.size.x < btn.size.y + 2.0:
+			return   # narrower than a capsule is tall: the two arcs would cross
 		var pts := capsule_top(btn.size.x, btn.size.y, 1.5)
 		var rr: float = btn.size.y / 2.0
 		var cols := PackedColorArray()
@@ -430,7 +434,7 @@ static func auto_top_light(tree: SceneTree) -> void:
 			n.set_meta("ui_light", true)
 			var b: Button = n
 			b.draw.connect(func():
-				if b.disabled or b.is_pressed() or b.size.y < 24.0:
+				if b.disabled or b.is_pressed() or b.size.y < 24.0 or b.size.x < b.size.y + 2.0:
 					return
 				var sb: StyleBox = b.get_theme_stylebox("normal")
 				if not (sb is StyleBoxFlat) or (sb as StyleBoxFlat).corner_radius_top_left < 12:
