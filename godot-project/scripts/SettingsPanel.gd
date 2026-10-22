@@ -151,6 +151,36 @@ func _populate_popup() -> void:
 	light_note.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	vbox.add_child(light_note)
 
+	# debug builds only: pin the time of day to see every lighting look
+	if OS.is_debug_build():
+		var tod_lbl := Label.new()
+		vbox.add_child(tod_lbl)
+		var tod := HSlider.new()
+		tod.min_value = 0.0
+		tod.max_value = 24.0
+		tod.step = 0.25
+		tod.custom_minimum_size = Vector2(0, 48)
+		tod.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var set_label := func(h: float):
+			tod_lbl.text = "Time of day (debug): %s" % ("real clock" if h < 0.0 else "%02d:%02d" % [int(h), int(round((h - floor(h)) * 60.0))])
+		tod.value = Lighting.hour_override if Lighting.hour_override >= 0.0 else Lighting._local_hour()
+		set_label.call(Lighting.hour_override)
+		tod.value_changed.connect(func(v: float):
+			Lighting.hour_override = v
+			set_label.call(v)
+			if _parent.lighting != null:
+				_parent.lighting.refresh())
+		vbox.add_child(tod)
+		var real_btn := Button.new()
+		real_btn.text = "Use the real clock"
+		real_btn.pressed.connect(func():
+			Lighting.hour_override = -1.0
+			set_label.call(-1.0)
+			tod.set_value_no_signal(Lighting._local_hour())
+			if _parent.lighting != null:
+				_parent.lighting.refresh())
+		vbox.add_child(real_btn)
+
 	# notifications for idle rewards full / an expedition back
 	var notify_btn := CheckButton.new()
 	notify_btn.text = "Notifications"
