@@ -136,6 +136,21 @@ func _populate_popup() -> void:
 		_parent.show_feedback_popup())
 	vbox.add_child(feedback_btn)
 
+	# graphics: the sun/moon tint, sprite shading, leaning blob shadows and cave crystal lights
+	var light_btn := CheckButton.new()
+	light_btn.text = "Dynamic lighting"
+	light_btn.button_pressed = Lighting.enabled()
+	light_btn.toggled.connect(func(on: bool):
+		Lighting.set_enabled(on)
+		_parent.call("apply_lighting_setting"))
+	vbox.add_child(light_btn)
+	var light_note := Label.new()
+	light_note.text = "Turn off for better battery life or a plain look on older phones."
+	light_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	light_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	light_note.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	vbox.add_child(light_note)
+
 	# notifications for idle rewards full / an expedition back
 	var notify_btn := CheckButton.new()
 	notify_btn.text = "Notifications"

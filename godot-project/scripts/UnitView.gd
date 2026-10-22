@@ -239,6 +239,8 @@ static func _load_sprite_frames(path: String) -> SpriteFrames:
 	return null
 
 var _hp_bar: UiBar
+var _orig_frames: SpriteFrames   # the plain frames (the lit copy swaps in/out with Settings > Dynamic lighting)
+var _blob: Sprite2D              # the blob shadow under the feet
 var _charge_bar: UiBar
 var _hp_bg: Control        # aliases of the two bars, so show/hide/fade code stays as is
 var _hp_fg: Control
@@ -249,6 +251,49 @@ var _name_label: Label
 ## Name text is one size for every unit (the standard player-sized unit), however
 ## big or small the sprite is. Set by BattlePresenter from the screen height.
 static var name_ref_size := 46.0
+
+## Blob shadow under the unit, and (while dynamic lighting is on) the sun's tint,
+## light mask and normal-mapped frames. Lighting.refresh() calls refresh_lighting()
+## on every unit view when the hour, the environment or the setting changes.
+func _setup_lighting(half: float) -> void:
+	_blob = Sprite2D.new()
+	_blob.texture = Lighting.blob_texture()
+	_blob.light_mask = 0   # a shadow isn't lit
+	add_child(_blob)
+	move_child(_blob, 0)   # behind the sprite
+	if not is_in_group("lit_units"):
+		add_to_group("lit_units")
+	refresh_lighting()
+
+func refresh_lighting() -> void:
+	if shape == null or not is_instance_valid(shape):
+		return
+	var on: bool = not Lighting.params.is_empty()
+	shape.self_modulate = Lighting.unit_tint() if on else Color.WHITE
+	shape.light_mask = 1 | UNIT_LIGHT_LAYER | (Lighting.SUN_LAYER if on else 0)
+	if shape is AnimatedSprite2D and _orig_frames != null:
+		var asp: AnimatedSprite2D = shape
+		var want: SpriteFrames = Lighting.lit_frames(_orig_frames) if on else _orig_frames
+		if asp.sprite_frames != want:
+			var anim: StringName = asp.animation
+			var fr: int = asp.frame
+			var playing: bool = asp.is_playing()
+			asp.sprite_frames = want
+			asp.animation = anim
+			asp.frame = fr
+			if playing:
+				asp.play(anim)
+	if _blob == null or not is_instance_valid(_blob):
+		return
+	var p: Dictionary = Lighting.params
+	var len_mul: float = float(p.get("len", 1.5))
+	var lean: float = float(p.get("lean", 0.0))
+	var body_w: float = _art_body_size.x if _art_body_size.x > 0.0 else size * 0.8
+	var w: float = body_w * 1.32 * len_mul
+	var h: float = w * 0.30 / len_mul
+	_blob.scale = Vector2(w, h) / 64.0
+	_blob.position = Vector2(lean * w, size / 2.0 - h * 0.12)
+	_blob.modulate = Color(1, 1, 1, float(p.get("alpha", 0.5)))
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u
@@ -289,6 +334,9 @@ func _build(unit_size: float) -> void:
 
 	var style: Dictionary = _style_for(unit)
 	var frames: SpriteFrames = _load_sprite_frames(_sprite_frames_path_for(unit))
+	_orig_frames = frames
+	if frames != null and Lighting.enabled():
+		frames = Lighting.lit_frames(frames)   # the same frames with their normal maps attached
 	_boss_ring = null
 	_art_body_size = Vector2.ZERO
 
@@ -358,6 +406,8 @@ func _build(unit_size: float) -> void:
 			_boss_ring.scale = Vector2(1.22, 1.22)
 			_boss_ring.z_index = -1
 			shape.add_child(_boss_ring)
+
+	_setup_lighting(half)
 
 	# The UI kit's bars (UiBar): recessed trough, lit fill, a pale "recent damage"
 	# segment on a hit; HP turns green -> yellow -> red, charge is orange with

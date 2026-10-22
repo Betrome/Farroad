@@ -928,6 +928,9 @@ func _build_background_layer() -> void:
 	foreground_layer.position = Vector2(0.0, _bpos.y)
 	foreground_layer.size = bvp
 	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
+	lighting = Lighting.new()
+	add_child(lighting)
+	lighting.setup(self)
 	_rebuild_background_marks()
 
 ## A soft vertical gradient (a warm "sky" tone fading into the existing
@@ -985,6 +988,11 @@ func _desired_bg_set() -> String:
 		if SIDE_SETS.has(k):
 			return SIDE_SETS[k]
 	return _road_set_for_wave(int(g.get("wave", 1)))
+
+## Settings > Dynamic lighting was switched: rebuild the art so the cave's crystal lights come or go.
+func apply_lighting_setting() -> void:
+	if background_layer != null:
+		_rebuild_background_marks()
 
 func _refresh_background() -> void:
 	set_background(_desired_bg_set())
@@ -1063,6 +1071,8 @@ func _rebuild_background_marks() -> void:
 		_bg_nodes.append({"node": layer, "speed": float(BG_LAYER_SPEEDS[i]), "tile_w": tile_w})
 	_set_bg_scroll(bg_scroll)
 	_rebuild_foreground(s)
+	if lighting != null:
+		lighting.on_background_rebuilt()
 
 ## The front trees: a tree at each screen edge when the party is standing, and a queue of
 ## the next pair waiting off to the right. While the party travels they all slide left
@@ -1079,6 +1089,7 @@ const BG_FG_TREES := 1
 const BG_TREE_STRETCH := 24.0
 const BG_FG_GAP := 0.0    # trees are exactly one screen apart; a tree's two halves touch
 var foreground_layer: Control
+var lighting: Lighting = null   # sun tint, normal-map shading, blob shadows, cave crystal lights (Settings > Dynamic lighting)
 var _fg_nodes: Array = []             # [{node, base_x}]
 var _fg_travel := 0.0                 # how far the front trees move in one wave transition
 var _fg_p := 0.0                      # 0 = standing, 1 = one full transition done

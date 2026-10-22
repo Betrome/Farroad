@@ -95,7 +95,7 @@ const DEBUFFS: Array[String] = ["sundered", "frail", "enfeebled", "dulled",
 	"dazed", "drained", "vulnerable", "wounded",
 	"bane_fire", "bane_water", "bane_earth", "bane_air", "bane_light", "bane_dark", "bane_body", "bane_spirit"]
 const POISON_PCT := 0.006        # of max HP, every time anyone acts
-const CONFUSE_CHANCE := 0.5      # chance a confused unit's single-target action goes astray
+const CONFUSE_CHANCE := 0.4      # base chance a confused unit's single-target action goes astray (six Deepening tiers: 40% .. 80%)
 const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"sundered": -0.25, "frail": -0.25, "blurred": 0.20, "warded": -0.40,
 	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "empowered": 0.25, "burning": BURN_PCT,
@@ -584,7 +584,7 @@ static func status_potency(act: Dictionary) -> float:
 const STATUS_MAG_CAP := {"hasted": -0.80, "warded": -0.80, "enfeebled": -0.80, "dulled": -0.80,
 	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50,
 	"dazed": -0.80, "drained": -0.80, "wounded": -0.80, "keen": 0.60, "vulnerable": 1.00,
-	"blinded": 0.60, "confused": 1.00,
+	"blinded": 0.60, "confused": 0.80,
 	"boon_fire": 100.0, "boon_water": 100.0, "boon_earth": 100.0, "boon_air": 100.0, "boon_light": 100.0, "boon_dark": 100.0, "boon_body": 100.0, "boon_spirit": 100.0, "bane_fire": -100.0, "bane_water": -100.0, "bane_earth": -100.0, "bane_air": -100.0, "bane_light": -100.0, "bane_dark": -100.0, "bane_body": -100.0, "bane_spirit": -100.0}
 ## Deepening per level: +10% on a buff, +20% on a debuff.
 const DEEPEN_BUFF := 0.10
