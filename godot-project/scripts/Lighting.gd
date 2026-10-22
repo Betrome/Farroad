@@ -233,7 +233,7 @@ static func blob_texture() -> Texture2D:
 	if _blob_tex == null:
 		var g := Gradient.new()
 		# solid through the middle, fading only toward the edge (a hard-edged shadow)
-		g.offsets = PackedFloat32Array([0.0, 0.56, 1.0])
+		g.offsets = PackedFloat32Array([0.0, 0.50, 1.0])
 		g.colors = PackedColorArray([Color(0, 0, 0, 1), Color(0, 0, 0, 0.9), Color(0, 0, 0, 0)])
 		var t := GradientTexture2D.new()
 		t.gradient = g

@@ -241,6 +241,7 @@ static func _load_sprite_frames(path: String) -> SpriteFrames:
 var _hp_bar: UiBar
 var _orig_frames: SpriteFrames   # the plain frames (the lit copy swaps in/out with Settings > Dynamic lighting)
 var _blob: Sprite2D              # the blob shadow under the feet
+var _blob_rest := Vector2.ZERO   # where it sits while the unit stands still
 var _charge_bar: UiBar
 var _hp_bg: Control        # aliases of the two bars, so show/hide/fade code stays as is
 var _hp_fg: Control
@@ -289,10 +290,11 @@ func refresh_lighting() -> void:
 	var len_mul: float = float(p.get("len", 1.5))
 	var lean: float = float(p.get("lean", 0.0))
 	var body_w: float = _art_body_size.x if _art_body_size.x > 0.0 else size * 0.8
-	var w: float = body_w * 1.32 * len_mul
+	var w: float = body_w * 1.056 * len_mul   # (20% smaller than the first version)
 	var h: float = w * 0.30 / len_mul
 	_blob.scale = Vector2(w, h) / 64.0
-	_blob.position = Vector2(lean * w, size / 2.0 - h * 0.12)
+	_blob_rest = Vector2(lean * w, size / 2.0 - h * 0.12)
+	_blob.position = _blob_rest
 	_blob.modulate = Color(1, 1, 1, float(p.get("alpha", 0.5)))
 
 func setup(u: Dictionary, unit_size: float) -> void:
@@ -763,6 +765,10 @@ var _still_for: float = 0.0
 
 func _process(delta: float) -> void:
 	_sync_chrome()
+	# the blob follows the sprite sideways, and moves the opposite way vertically at half
+	# strength (a unit that leaps up leaves its shadow lower, not far behind)
+	if _blob != null and is_instance_valid(_blob) and shape != null:
+		_blob.position = _blob_rest + Vector2(shape.position.x, -shape.position.y * 0.5)
 	if shape is AnimatedSprite2D and float(unit["hp"]) > 0.0 and is_visible_in_tree():
 		var asp: AnimatedSprite2D = shape
 		if asp.is_playing():
