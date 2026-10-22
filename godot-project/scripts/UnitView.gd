@@ -240,7 +240,7 @@ static func _load_sprite_frames(path: String) -> SpriteFrames:
 
 var _hp_bar: UiBar
 var _orig_frames: SpriteFrames   # the plain frames (the lit copy swaps in/out with Settings > Dynamic lighting)
-var _blob: Sprite2D              # the blob shadow under the feet
+var _blob: BlobShadow            # the shadow under the feet
 var air := 0.0                   # height of the current hop above the ground (set by BattlePresenter._hop)
 var _blob_rest := Vector2.ZERO   # where it sits while the unit stands still
 var _charge_bar: UiBar
@@ -258,8 +258,7 @@ static var name_ref_size := 46.0
 ## light mask and normal-mapped frames. Lighting.refresh() calls refresh_lighting()
 ## on every unit view when the hour, the environment or the setting changes.
 func _setup_lighting(half: float) -> void:
-	_blob = Sprite2D.new()
-	_blob.texture = Lighting.blob_texture()
+	_blob = BlobShadow.new()
 	_blob.light_mask = 0   # a shadow isn't lit
 	add_child(_blob)
 	move_child(_blob, 0)   # behind the sprite
@@ -291,12 +290,12 @@ func refresh_lighting() -> void:
 	var len_mul: float = float(p.get("len", 1.5))
 	var lean: float = float(p.get("lean", 0.0))
 	var body_w: float = _art_body_size.x if _art_body_size.x > 0.0 else size * 0.8
-	var w: float = body_w * 1.056 * len_mul   # (20% smaller than the first version)
-	var h: float = w * 0.30 / len_mul
-	_blob.scale = Vector2(w, h) / 64.0
-	_blob_rest = Vector2(lean * w, size / 2.0 - h * 0.12)
+	# round end at the feet; with the sun on, a tail stretches away from it (15% smaller than the oval was)
+	var r: float = body_w * 0.30 * 0.85
+	var tail_len: float = 0.0 if lean == 0.0 else body_w * 0.85 * 0.42 * maxf(0.0, len_mul - 0.6)
+	_blob_rest = Vector2(0, size / 2.0 - r * 0.15)
+	_blob.set_shape(r, Vector2(signf(lean) * tail_len, 0.0), float(p.get("alpha", 0.5)))
 	_blob.position = _blob_rest
-	_blob.modulate = Color(1, 1, 1, float(p.get("alpha", 0.5)))
 
 func setup(u: Dictionary, unit_size: float) -> void:
 	unit = u

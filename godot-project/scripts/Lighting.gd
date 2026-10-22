@@ -42,11 +42,12 @@ const CRYSTAL_COLOR := Color(0.40, 0.78, 1.0)
 
 ## The look in force right now (read by UnitView for its tint and blob). Empty while off.
 static var params: Dictionary = {}
-static var _blob_tex: Texture2D
 static var _lit_cache: Dictionary = {}   # SpriteFrames instance id -> lit copy
 
 var _gc: Node = null
-var _sun: DirectionalLight2D = null
+var _sun: PointLight2D = null   # a far-off point light: DirectionalLight2D ignores the cull mask in 4.7 and lit the whole HUD
+static var _white_tex: Texture2D
+const SUN_DISTANCE := 700.0
 var _glow_tex: Texture2D
 
 static func enabled() -> bool:
@@ -121,13 +122,24 @@ func refresh() -> void:
 		return
 	params = look_for(str(_gc.get("bg_set")), _local_hour())
 	if _sun == null:
-		_sun = DirectionalLight2D.new()
+		_sun = PointLight2D.new()
 		_sun.range_item_cull_mask = SUN_LAYER
 		_gc.add_child(_sun)
+	if _white_tex == null:
+		var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		img.fill(Color.WHITE)
+		_white_tex = ImageTexture.create_from_image(img)
+	_sun.texture = _white_tex
+	_sun.texture_scale = 1200.0   # 4 px x 1200: covers the whole screen from the sun's position
 	_sun.color = params["sun"]
 	_sun.energy = params["energy"]
-	_sun.rotation = params["rot"]
-	_sun.height = params["height"]
+	# the sun sits SUN_DISTANCE away, up and to the side (rot = 0 straight above, PI/4 top-right), at the
+	# height whose angle gives a flat surface the same light a directional sun at params.height would
+	var rot: float = params["rot"]
+	var hgt: float = float(params["height"])
+	var centre: Vector2 = Vector2((_gc.get("bvp") as Vector2).x / 2.0, (_gc.get("bvp") as Vector2).y / 2.0 + float((_gc.get("_bpos") as Vector2).y))
+	_sun.position = centre + Vector2(sin(rot), -cos(rot)) * SUN_DISTANCE
+	_sun.height = SUN_DISTANCE * hgt / sqrt(maxf(0.01, 1.0 - hgt * hgt))
 	_apply_to_art(true)
 	get_tree().call_group("lit_units", "refresh_lighting")
 
@@ -228,22 +240,6 @@ static func lit_frames(frames: SpriteFrames) -> SpriteFrames:
 		out.set_meta(m, frames.get_meta(m))
 	_lit_cache[key] = out
 	return out
-
-static func blob_texture() -> Texture2D:
-	if _blob_tex == null:
-		var g := Gradient.new()
-		# solid through the middle, fading only toward the edge (a hard-edged shadow)
-		g.offsets = PackedFloat32Array([0.0, 0.50, 1.0])
-		g.colors = PackedColorArray([Color(0, 0, 0, 1), Color(0, 0, 0, 0.9), Color(0, 0, 0, 0)])
-		var t := GradientTexture2D.new()
-		t.gradient = g
-		t.fill = GradientTexture2D.FILL_RADIAL
-		t.fill_from = Vector2(0.5, 0.5)
-		t.fill_to = Vector2(1.0, 0.5)
-		t.width = 64
-		t.height = 64
-		_blob_tex = t
-	return _blob_tex
 
 ## The unit-sprite tint that matches the art's (see _art_tint).
 static func unit_tint() -> Color:
