@@ -928,6 +928,10 @@ func _build_background_layer() -> void:
 	foreground_layer.position = Vector2(0.0, _bpos.y)
 	foreground_layer.size = bvp
 	bg_set = _desired_bg_set() if _bg_set_complete(_desired_bg_set()) else BG_SET_DEFAULT
+	if get_node_or_null("FrameRate") == null:
+		var fr := FrameRate.new()
+		fr.name = "FrameRate"
+		add_child(fr)
 	lighting = Lighting.new()
 	add_child(lighting)
 	lighting.setup(self)

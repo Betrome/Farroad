@@ -151,6 +151,23 @@ func _populate_popup() -> void:
 	light_note.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
 	vbox.add_child(light_note)
 
+	# frame rate: only the drawing rate; the game's logic runs on time
+	var fps_row := HBoxContainer.new()
+	var fps_lbl := Label.new()
+	fps_lbl.text = "Frame rate"
+	fps_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fps_row.add_child(fps_lbl)
+	var fps_opt := OptionButton.new()
+	var fps_choices: Array = FrameRate.available()
+	for i in fps_choices.size():
+		fps_opt.add_item(FrameRate.label_for(int(fps_choices[i])), i)
+		if int(fps_choices[i]) == FrameRate.chosen():
+			fps_opt.select(i)
+	fps_opt.item_selected.connect(func(i: int):
+		FrameRate.set_chosen(int(fps_choices[i])))
+	fps_row.add_child(fps_opt)
+	vbox.add_child(fps_row)
+
 	# debug builds only: pin the time of day to see every lighting look
 	if OS.is_debug_build():
 		var tod_lbl := Label.new()
