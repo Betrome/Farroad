@@ -1554,7 +1554,7 @@ func _build_enrage_ui() -> void:
 	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
 	enrage_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
 	enrage_label.add_theme_color_override("font_outline_color", Color.WHITE)
-	enrage_label.add_theme_constant_override("outline_size", 4)
+	enrage_label.add_theme_constant_override("outline_size", 3)
 	add_child(enrage_label)
 
 	enrage_bg = ColorRect.new()
@@ -1566,7 +1566,7 @@ func _build_enrage_ui() -> void:
 	enrage_fg = ColorRect.new()
 	enrage_fg.position = enrage_bg.position
 	enrage_fg.size = Vector2(0, enrage_bg.size.y)
-	enrage_fg.color = Color(0.85, 0.2, 0.2)
+	enrage_fg.color = Color(0.72, 0.15, 0.15)
 	add_child(enrage_fg)
 
 var _enrage_tween: Tween
@@ -1599,8 +1599,6 @@ func drain_enrage(duration: float) -> void:
 	_enrage_tween = create_tween()
 	_enrage_tween.set_parallel(true)
 	_enrage_tween.tween_property(enrage_fg, "size:x", 0.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	if enrage_label != null and is_instance_valid(enrage_label):
-		_enrage_tween.tween_property(enrage_label, "modulate:a", 0.0, duration)
 
 func _refresh_enrage() -> void:
 	# Enrage is off entirely for the Road's solo tutorial stretch (waves 1-20,
