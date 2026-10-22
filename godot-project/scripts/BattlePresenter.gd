@@ -1552,7 +1552,7 @@ func _build_enrage_ui() -> void:
 	enrage_label.position = Vector2(margin, y - _vp.y * 0.036)
 	# the same size as the wave text above it, red with a white outline
 	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
-	enrage_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
+	enrage_label.add_theme_color_override("font_color", Color(0.82, 0.2, 0.17))
 	enrage_label.add_theme_color_override("font_outline_color", Color.WHITE)
 	enrage_label.add_theme_constant_override("outline_size", 3)
 	add_child(enrage_label)
@@ -1566,7 +1566,7 @@ func _build_enrage_ui() -> void:
 	enrage_fg = ColorRect.new()
 	enrage_fg.position = enrage_bg.position
 	enrage_fg.size = Vector2(0, enrage_bg.size.y)
-	enrage_fg.color = Color(0.72, 0.15, 0.15)
+	enrage_fg.color = Color(0.85, 0.2, 0.2)
 	add_child(enrage_fg)
 
 var _enrage_tween: Tween
