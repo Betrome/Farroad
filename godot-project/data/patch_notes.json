@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.39",
+    "title": "Dynamic lighting, shadows and quality of life",
+    "notes": [
+      "**Lighting:** the battle now has a sun (or moon) that follows your device's clock: dawn, noon, dusk and night each tint the scene and shade the characters. The cave is lit blue with small lights on its crystals. Turn it off in Settings > Dynamic lighting.",
+      "**Shadows:** every unit has a ground shadow. It is an ellipse at noon and grows a soft, pointed tail away from the sun toward dawn and dusk, and it follows the unit when it moves or jumps.",
+      "**Frame rate:** Settings > Frame rate lets you choose Default (60), 30, 60, 90 or 120 fps. Only the options your screen can show are listed.",
+      "**Expeditions:** collecting expeditions now pops up everything you received.",
+      "**Units:** the summary page shows each unit's power at the top, and unit lists can be sorted by power.",
+      "**Gear and Lore:** Auto-set gear picks the best gear for a unit by rarity and affinity. Auto-level spreads free Lore evenly across an action's upgrades (never Broad).",
+      "**Pulls:** duplicate pulls in the same session now stack on one card (for example \"Name x3\").",
+      "**Combat:** Unravel, a new action, removes a random buff from each enemy it hits. Blind and Confusion now get stronger with Deepening in six steps (Blind tops out at 60%, Confusion at 80%).",
+      "**Battle:** the turn order appears half a second sooner. The enrage bar drains while your party runs to the next wave, and the enrage text is larger, bolder and easier to read.",
+      "**Loading:** catching up on time away now shows a title screen with a loading bar.",
+      "**Notifications:** if Android is blocking notifications or alarms for Farroad, Settings now says so and has a Fix button.",
+      "**Fixes:** guards against a rare drawing error, and a frame-rate or lighting choice you made now applies from the first screen on every launch."
+    ]
+  },
+  {
     "version": "2.38",
     "title": "Pull results, animations and wider windows",
     "notes": [
