@@ -162,6 +162,9 @@ func schedule_away() -> void:
 				_pending_schedule = _scheduler != null
 				return
 			cancel_scheduled()
+			# record what is off at the moment alerts are scheduled, to learn how often it is
+			for prob in android_problems():
+				Analytics.add("features", "notifyOff:" + str(prob))
 			for item in plan():
 				_schedule(item["slot"], item["title"], item["text"], item["delay"])
 		"windows":
@@ -169,6 +172,45 @@ func schedule_away() -> void:
 		"web":
 			cancel_scheduled()
 			_web_schedule(plan())
+
+## Android only: which of the system settings that delivery depends on are off
+## right now -- "post" (notifications blocked for the app) and "exact" (the
+## "Alarms & reminders" permission, without which alarms arrive late). Empty on
+## other platforms, or before the plugin has started.
+func android_problems() -> Array:
+	var out: Array = []
+	if platform() != "android" or not _ready_android or _scheduler == null:
+		return out
+	if not _scheduler.has_post_notifications_permission():
+		out.append("post")
+	if not _scheduler.has_schedule_exact_alarm_permission():
+		out.append("exact")
+	return out
+
+## A plain-language line for the Menu about what is off (or "" if all is well).
+func android_problem_text() -> String:
+	var p := android_problems()
+	if p.has("post"):
+		return "Android is blocking notifications for Farroad. This can happen after Do Not Disturb or a system clean-up; tap Fix to allow them again."
+	if p.has("exact"):
+		return "Android is holding alarms back (\"Alarms & reminders\" is off for Farroad), so notifications can arrive late or not at all. Tap Fix."
+	return ""
+
+var _fix_taps := 0
+
+## Asks for whatever is missing; if asking again does nothing (Android stops
+## prompting after a refusal), opens the app's own settings page instead.
+func android_fix() -> void:
+	if platform() != "android" or not _ready_android or _scheduler == null:
+		return
+	var p := android_problems()
+	_fix_taps += 1
+	if p.has("post") and _fix_taps == 1:
+		_scheduler.request_post_notifications_permission()
+	elif p.has("exact") and not p.has("post") and _fix_taps == 1:
+		_scheduler.request_schedule_exact_alarm_permission()
+	else:
+		_scheduler.open_app_info_settings()
 
 func _schedule(id: int, title: String, text: String, delay_sec: int) -> void:
 	var data = load("res://addons/NotificationSchedulerPlugin/model/NotificationData.gd").new()

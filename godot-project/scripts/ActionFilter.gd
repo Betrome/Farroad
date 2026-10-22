@@ -136,6 +136,9 @@ static func effect_lines(act: Dictionary) -> Array:
 		out.append("Removes all debuffs from each target.")
 	elif cl > 0:
 		out.append("Removes %d debuff%s from each target." % [cl, "" if cl == 1 else "s"])
+	var dsp := int(act.get("dispel", 0)) if act.get("dispel") else 0
+	if dsp > 0:
+		out.append("Strips %d random buff%s from each target it hits." % [dsp, "" if dsp == 1 else "s"])
 	var cdn := int(act.get("cooldown", 0)) if act.get("cooldown") else 0
 	if cdn > 0:
 		out.append("Cooldown: %d turns." % cdn)

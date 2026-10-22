@@ -164,6 +164,19 @@ func _populate_popup() -> void:
 		"web": "Sent while this page stays open in a background tab (a closed tab can't send them).",
 	}.get(Notifier.platform(), "Notifications aren't available on this device.")
 	notify_sub.add_child(notify_note)
+	if Notifier.platform() == "android":
+		var problem_text: String = _parent.notifier.android_problem_text() if _parent.notifier != null else ""
+		if problem_text != "":
+			var problem_lbl := Label.new()
+			problem_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			problem_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			problem_lbl.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+			problem_lbl.text = problem_text
+			notify_sub.add_child(problem_lbl)
+			var fix_btn := Button.new()
+			fix_btn.text = "Fix"
+			fix_btn.pressed.connect(func(): _parent.notifier.android_fix())
+			notify_sub.add_child(fix_btn)
 	if Notifier.platform() == "web":
 		var perm_btn := Button.new()
 		perm_btn.text = "Allow notifications in this browser"

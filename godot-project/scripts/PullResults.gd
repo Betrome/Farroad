@@ -72,9 +72,9 @@ static func build(vbox: VBoxContainer, results: Array, vp: Vector2) -> void:
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(grid)
 	var totals := {"aether": 0, "lore": 0, "newUnits": 0, "new": 0, "dups": 0}
+	var seen: Dictionary = {}   # identity key -> the card info already shown for that item
 	for r in results:
 		var info := describe(r)
-		infos.append(info)
 		if info["dup"]:
 			totals["dups"] += 1
 			totals["aether"] += int(info["aether"])
@@ -83,6 +83,22 @@ static func build(vbox: VBoxContainer, results: Array, vp: Vector2) -> void:
 			totals["new"] += 1
 			if str(r.get("kind", "")) == "unit":
 				totals["newUnits"] += 1
+		# The same item again in this session adds 1 to its existing card (and
+		# its gains) instead of getting a card of its own.
+		var key := _identity_key(r)
+		if key != "" and seen.has(key):
+			var first: Dictionary = seen[key]
+			first["count"] = int(first["count"]) + 1
+			first["aether"] = int(first["aether"]) + int(info["aether"])
+			first["lore"] = int(first["lore"]) + int(info["lore"])
+			if str(first["loreOn"]) != str(info["loreOn"]):
+				first["loreOn"] = ""   # the Lore went to different actions
+			_set_count(cards[int(first["cardIdx"])], first)
+			continue
+		info["count"] = 1
+		info["cardIdx"] = cards.size()
+		seen[key] = info
+		infos.append(info)
 		var card := _make_card(info)
 		card.modulate.a = 0.0
 		grid.add_child(card)
@@ -115,6 +131,19 @@ static func build(vbox: VBoxContainer, results: Array, vp: Vector2) -> void:
 		vbox.add_child(skip)
 		vbox.move_child(skip, grid.get_index())      # Ian: Skip sits at the top, above the cards
 	_play(vbox, cards, infos, footer, state)
+
+## Which item a result is about, so the same one pulled twice shares a card.
+static func _identity_key(r: Dictionary) -> String:
+	var kind: String = str(r.get("kind", ""))
+	var family: String = "unit" if kind == "unit_dup" else kind
+	var id: String = str(r.get("id", ""))
+	return "" if id == "" else family + ":" + id
+
+## Shows "xN" on a card that has been pulled N times this session.
+static func _set_count(card: Control, info: Dictionary) -> void:
+	var nm: Label = card.get_node_or_null("Box/Name")
+	if nm != null:
+		nm.text = "%s  x%d" % [str(info["name"]), int(info["count"])]
 
 static func _rarity_color(rarity: String) -> Color:
 	return RARITY_COL.get(rarity, RARITY_COL["common"])
@@ -177,7 +206,7 @@ static func _play(host: Control, cards: Array, infos: Array, footer: Label, stat
 		tw.tween_property(card, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		if str(info["rarity"]) != "common" or str(info["tag"]).begins_with("NEW COMPANION"):
 			_glow(host, card, _rarity_color(str(info["rarity"])))
-		if info["dup"]:
+		if _has_gain(info):
 			_convert(host, card, info)
 		await host.get_tree().create_timer(gap).timeout
 	if is_instance_valid(footer):
@@ -209,7 +238,7 @@ static func _convert(host: Control, card: Control, info: Dictionary) -> void:
 		gains.append(["+%d Aether" % int(info["aether"]), AETHER_COL])
 	if int(info["lore"]) > 0:
 		gains.append(["+%d Lore" % int(info["lore"]), LORE_COL])
-	if nm != null:
+	if nm != null and info["dup"]:
 		var tw := host.create_tween()
 		tw.tween_property(nm, "modulate:a", 0.35, 0.3)
 	var k := 0
@@ -218,8 +247,12 @@ static func _convert(host: Control, card: Control, info: Dictionary) -> void:
 		k += 1
 	_settle_dup(card, info, 0.55)
 
+## Whether the card converts something (a duplicate, or extra copies pulled this session).
+static func _has_gain(info: Dictionary) -> bool:
+	return bool(info["dup"]) or (int(info.get("count", 1)) > 1 and (int(info["aether"]) > 0 or int(info["lore"]) > 0))
+
 static func _settle_dup(card: Control, info: Dictionary, delay: float = 0.0) -> void:
-	if not info["dup"]:
+	if not _has_gain(info):
 		return
 	var tag: Label = card.get_node_or_null("Box/Tag")
 	var sub: Label = card.get_node_or_null("Box/Sub")

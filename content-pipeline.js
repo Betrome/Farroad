@@ -158,6 +158,8 @@ function compileActions(rows) {
     if (r.bonus_status) { e.bonusStatus = r.bonus_status; e.bonusMul = num(r.bonus_mul, 1.5); }
     if (r.revive !== '') e.revive = num(r.revive);
     if (r.cleanse !== '') e.cleanse = num(r.cleanse);
+    // dispel: strips this many random buffs from each foe it hits
+    if (r.dispel !== '' && r.dispel !== undefined) e.dispel = num(r.dispel);
     if (r.self_taunt !== '') e.selfTaunt = num(r.self_taunt);
     // Ian: "the mire hound gets stuck in a loop using quickened howl."
     // Root cause: 'enemy_charge' (every enemy/boss-only charge action --

@@ -354,17 +354,25 @@ func _on_explore_pressed(id: String) -> void:
 	refresh()
 
 func _on_collect_all_pressed() -> void:
-	var any := false
+	var total := {"count": 0, "aether": 0.0, "marks": 0.0, "finds": []}
 	for id in (g["expeditions"] as Array).filter(func(e): return e.get("arrivedAt") != null).map(func(e): return e["id"]):
-		if FarroadProgression.collect_expedition(g, id):
-			any = true
-	if any:
+		var r: Dictionary = FarroadProgression.collect_expedition_result(g, id)
+		if r.is_empty():
+			continue
+		total["count"] += 1
+		total["aether"] += float(r["aether"])
+		total["marks"] += float(r["marks"])
+		total["finds"].append_array(r["finds"])
+	if total["count"] > 0:
 		_notify_currency_changed()
+		_parent.show_expedition_collected(total)
 	refresh()
 
 func _on_collect_pressed(id: String) -> void:
-	if FarroadProgression.collect_expedition(g, id):
+	var r: Dictionary = FarroadProgression.collect_expedition_result(g, id)
+	if not r.is_empty():
 		_notify_currency_changed()
+		_parent.show_expedition_collected({"count": 1, "aether": r["aether"], "marks": r["marks"], "finds": r["finds"]})
 	refresh()
 
 ## Mirrors the send picker: click-to-toggle benched units up to

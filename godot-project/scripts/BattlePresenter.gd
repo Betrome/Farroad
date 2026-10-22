@@ -360,6 +360,24 @@ func set_chrome_visible(on: bool) -> void:
 	if on:
 		_slide_turn_cards_in()
 
+## Brings just the turn-order strip in, ahead of the rest of the held-back chrome
+## (set_chrome_visible), and slides its cards in.
+func show_turn_order_early() -> void:
+	for n in [turn_order_frame, turn_order_header, turn_active_frame]:
+		if n != null and is_instance_valid(n):
+			(n as Control).visible = true
+	for card in turn_cards:
+		(card["panel"] as Control).visible = true
+	_slide_turn_cards_in()
+
+## Hides the turn-order strip (the old fight's, while the next one's slides in).
+func hide_turn_order() -> void:
+	for n in [turn_order_frame, turn_order_header, turn_active_frame]:
+		if n != null and is_instance_valid(n):
+			(n as Control).visible = false
+	for card in turn_cards:
+		(card["panel"] as Control).visible = false
+
 func begin_combat() -> void:
 	_snap_turn_cards_home()
 	_run_battle_loop()
@@ -1160,9 +1178,8 @@ func _def_res_hint(u: Dictionary) -> Dictionary:
 ## - burning/regen are stored as a POSITIVE magnitude representing the DOT/
 ##   HOT %-of-maxHp amount (see step()'s own e["dot"]/e["regen"] math) --
 ##   burning is flipped negative here since it's harmful, regen shown positive.
-## - blinded's +30% enemy-evade-chance and taunted's threat multiplier are
-##   flat literals in resolve_hit()/threat_of(), never stored in
-##   STATUS_BASE_MAG, so they're not derived from mag_of() at all.
+## - taunted's threat multiplier is a flat literal in threat_of(), never stored
+##   in STATUS_BASE_MAG, so it isn't derived from mag_of().
 func _status_effect_text(u: Dictionary, id: String) -> String:
 	var mag: float = FarroadCore.mag_of(u, id)
 	var pct: float = mag * 100.0
@@ -1200,11 +1217,11 @@ func _status_effect_text(u: Dictionary, id: String) -> String:
 		"regen":
 			return "+%.0f%% max HP/turn" % pct
 		"blinded":
-			return "attacks 30% more likely to miss"
+			return "attacks %.0f%% more likely to miss" % pct
 		"poisoned":
 			return "-%.1f%% max HP whenever anyone acts" % pct
 		"confused":
-			return "%d%% chance its attacks hit a random unit" % roundi(FarroadCore.CONFUSE_CHANCE * 100.0)
+			return "%.0f%% chance its attacks hit a random unit" % pct
 		"exposed":
 			return "%+.0f%% evade" % pct
 		"taunted":
@@ -1532,12 +1549,12 @@ func _build_enrage_ui() -> void:
 	var y: float = status_pos.y + icon_size - bar_h   # Ian: the bar sits level with the bottom of the Status and Log buttons
 	var w: float = status_pos.x - end_gap - margin
 	enrage_label = Label.new()
-	enrage_label.position = Vector2(margin, y - _vp.y * 0.047)
-	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.03))   # Ian: make the enrage text more pronounced
-	# a black outline so it stands out on the ground
+	enrage_label.position = Vector2(margin, y - _vp.y * 0.036)
+	# the same size as the wave text above it, red with a white outline
+	enrage_label.add_theme_font_size_override("font_size", int(_vp.y * 0.022))
 	enrage_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.25))
-	enrage_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	enrage_label.add_theme_constant_override("outline_size", 6)
+	enrage_label.add_theme_color_override("font_outline_color", Color.WHITE)
+	enrage_label.add_theme_constant_override("outline_size", 4)
 	add_child(enrage_label)
 
 	enrage_bg = ColorRect.new()
@@ -1571,6 +1588,19 @@ func _set_enrage_fill(frac: float) -> void:
 	_enrage_tween = create_tween()
 	_enrage_tween.tween_method(func(t: float):
 		enrage_fg.size = Vector2(lerpf(from_w, target.x, WaveRipple.ease_out(t)), target.y), 0.0, 1.0, 0.4)
+
+## Drains the enrage bar (and fades its text) to nothing over `duration`; used
+## while the party runs to the next wave.
+func drain_enrage(duration: float) -> void:
+	if enrage_fg == null or not is_instance_valid(enrage_fg):
+		return
+	if _enrage_tween != null and _enrage_tween.is_valid():
+		_enrage_tween.kill()
+	_enrage_tween = create_tween()
+	_enrage_tween.set_parallel(true)
+	_enrage_tween.tween_property(enrage_fg, "size:x", 0.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	if enrage_label != null and is_instance_valid(enrage_label):
+		_enrage_tween.tween_property(enrage_label, "modulate:a", 0.0, duration)
 
 func _refresh_enrage() -> void:
 	# Enrage is off entirely for the Road's solo tutorial stretch (waves 1-20,

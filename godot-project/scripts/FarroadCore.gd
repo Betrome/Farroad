@@ -101,6 +101,7 @@ const STATUS_BASE_MAG := {"enfeebled": -0.25, "dulled": -0.25, "bracing": 0.40,
 	"slowed": 0.50, "hasted": -0.40, "surging": 1.00, "empowered": 0.25, "burning": BURN_PCT,
 	"inspired": 0.25, "resolute": 0.40, "keen": 0.15, "dazed": -0.15, "drained": -0.50,
 	"vulnerable": 0.25, "wounded": -0.50,
+	"blinded": 0.30, "confused": CONFUSE_CHANCE,
 	"boon_fire": 25.0, "boon_water": 25.0, "boon_earth": 25.0, "boon_air": 25.0, "boon_light": 25.0, "boon_dark": 25.0, "boon_body": 10.0, "boon_spirit": 20.0,
 	"bane_fire": -20.0, "bane_water": -20.0, "bane_earth": -20.0, "bane_air": -20.0, "bane_light": -20.0, "bane_dark": -20.0, "bane_body": -10.0, "bane_spirit": -15.0,
 	"regen": REGEN_PCT, "poisoned": POISON_PCT, "exposed": -0.20}
@@ -583,6 +584,7 @@ static func status_potency(act: Dictionary) -> float:
 const STATUS_MAG_CAP := {"hasted": -0.80, "warded": -0.80, "enfeebled": -0.80, "dulled": -0.80,
 	"sundered": -0.80, "frail": -0.80, "blurred": 0.50, "exposed": -0.50,
 	"dazed": -0.80, "drained": -0.80, "wounded": -0.80, "keen": 0.60, "vulnerable": 1.00,
+	"blinded": 0.60, "confused": 1.00,
 	"boon_fire": 100.0, "boon_water": 100.0, "boon_earth": 100.0, "boon_air": 100.0, "boon_light": 100.0, "boon_dark": 100.0, "boon_body": 100.0, "boon_spirit": 100.0, "bane_fire": -100.0, "bane_water": -100.0, "bane_earth": -100.0, "bane_air": -100.0, "bane_light": -100.0, "bane_dark": -100.0, "bane_body": -100.0, "bane_spirit": -100.0}
 ## Deepening per level: +10% on a buff, +20% on a debuff.
 const DEEPEN_BUFF := 0.10
@@ -1331,7 +1333,8 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	var is_phys: bool = act.get("camp") == "atk"
 	var o := {"isPhys": is_phys, "evaded": false, "crit": false,
 		"actionName": act["name"], "targetName": tgt["name"]}
-	o["evadeChance"] = clamp_f(eff_evade(tgt) + (0.30 if has(src, "blinded") else 0.0), 0, CAP_EVADE + 0.30)
+	var blind: float = mag_of(src, "blinded") if has(src, "blinded") else 0.0   # scales with Deepening / rarity like other debuffs
+	o["evadeChance"] = clamp_f(eff_evade(tgt) + blind, 0, CAP_EVADE + blind)
 	o["evadeRoll"] = 1.0 if det else rng.next()
 	if o["evadeRoll"] < o["evadeChance"]:
 		o["evaded"] = true
@@ -1503,7 +1506,7 @@ static func step(b: Dictionary) -> Variant:
 	var primary = resolve_target(act, ch["target"], u, b)
 	if primary != null and has(u, "confused") and (act.get("tk") == "foe" or act.get("tk") == "ally"):
 		var roll: float = 0.0 if b["det"] else b["rng"].next()
-		if roll < CONFUSE_CHANCE:
+		if roll < mag_of(u, "confused"):
 			var pool: Array = b["units"].filter(func(x): return x["hp"] > 0)
 			if not pool.is_empty():
 				primary = pool[0 if b["det"] else b["rng"].next_int(pool.size())]
@@ -1599,6 +1602,19 @@ static func step(b: Dictionary) -> Variant:
 						if speed_before > 0.0 and speed_after != speed_before and t["nextActAt"] > b["t"]:
 							t["nextActAt"] = b["t"] + maxi(1, roundi(float(t["nextActAt"] - b["t"]) * speed_after / speed_before))
 					e["notes"].append(("refreshed " if already else "applied ") + act["applies"] + " on " + t["name"])
+		# dispel: strips that many random buffs from each target that was hit
+		if act.get("dispel"):
+			for t in targets:
+				if t["hp"] <= 0:
+					continue
+				if hit_attempted.has(t["id"]) and not hit_landed.has(t["id"]):
+					continue
+				var present: Array = BUFFS.filter(func(s): return has(t, s))
+				for _i in mini(int(act["dispel"]), present.size()):
+					var pick: String = present[0 if b["det"] else b["rng"].next_int(present.size())]
+					t["st"][pick] = 0
+					present.erase(pick)
+					e["notes"].append("dispelled %s on %s" % [pick, t["name"]])
 		# charge-sharing actions. giveCharge: each target (never the user)
 		# gains that much charge. siphonCharge: the user gives up to that much
 		# of its own charge, split evenly among the other targets.

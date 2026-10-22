@@ -297,6 +297,14 @@ func _refresh_card() -> void:
 		"[b][color=#709fe8]%d[/color][/b] [font_size=12]of %d Lore free for %s — each non-broad upgrade costs a flat 1 Lore[/font_size]" % [
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
+	var auto_btn := Button.new()
+	auto_btn.text = "Auto-level: spread the free Lore evenly (never Broad)"
+	auto_btn.disabled = free < 1.0
+	auto_btn.pressed.connect(func():
+		FarroadProgression.auto_level_action(g, aid)
+		_refresh_card())
+	card_container.add_child(auto_btn)
+
 	var box := VBoxContainer.new()
 
 	var summary := _bonus_total_summary(aid)

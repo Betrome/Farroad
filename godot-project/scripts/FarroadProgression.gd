@@ -1097,6 +1097,37 @@ static func equip_available_count(g: Dictionary, item_id: String) -> int:
 ## Rejects a slot / kind mismatch, no-ops (returns true) if already worn in that
 ## exact slot, rejects if no free copy is available, else equips. Equipping has
 ## no cost; the only constraint is copy count.
+## Fits a unit with the best gear that is free: its current gear is taken off first,
+## then each slot gets the owned, unused item scoring highest. The score is the
+## item's rarity first, then its affinity bonuses weighted toward the unit's own
+## natural affinities (so Fire gear goes to a fire-leaning unit), with the stat
+## total only as a tie-break.
+static func auto_assign_gear(g: Dictionary, uid: String) -> void:
+	var def = FarroadCore.roster_by_id(uid)
+	var natural: Dictionary = def.get("affinity", {}) if def != null else {}
+	for slot in FarroadCore.EQUIPMENT_SLOTS:
+		unequip_item(g, uid, slot)
+	for slot in FarroadCore.EQUIPMENT_SLOTS:
+		var kind := equip_kind_for_slot(slot)
+		var best := ""
+		var best_score := -INF
+		for id in g["equipInv"].keys():
+			var item = FarroadCore.EQUIPMENT.get(id)
+			if item == null or str(item.get("slot", "")) != kind or equip_available_count(g, id) <= 0:
+				continue
+			var score: float = float(RARITY_RANK_GEAR.get(str(item.get("rarity", "common")), 0)) * 1000.0
+			for ax in AFFINITY_AXES:
+				var v: float = float(item.get("affinity", {}).get(ax, 0.0))
+				score += v * (1.0 + 0.5 * maxf(0.0, float(natural.get(ax, 0.0))))
+			score += (float(item.get("atk", 0)) + float(item.get("mag", 0)) + float(item.get("def", 0)) + float(item.get("res", 0)) + float(item.get("spd", 0)) + float(item.get("hp", 0))) * 0.01
+			if score > best_score:
+				best_score = score
+				best = id
+		if best != "":
+			equip_item(g, uid, slot, best)
+
+const RARITY_RANK_GEAR := {"common": 0, "rare": 1, "legendary": 2}
+
 static func equip_item(g: Dictionary, uid: String, slot: String, item_id: String) -> bool:
 	var item = FarroadCore.EQUIPMENT.get(item_id)
 	if item == null or item["slot"] != equip_kind_for_slot(slot):
@@ -1616,6 +1647,30 @@ static func buy_bonus(g: Dictionary, aid: String, bid: String) -> void:
 		g["bonuses"][aid] = {}
 	g["bonuses"][aid][bid] = int(g["bonuses"][aid].get(bid, 0)) + 1
 	FarroadCore.apply_bonuses(g["bonuses"])
+
+## Spends the action's free Lore one stack at a time on whichever applicable
+## upgrade has the fewest stacks (so they end up level), never on Broad. Returns
+## how many stacks were bought.
+static func auto_level_action(g: Dictionary, aid: String) -> int:
+	var act = FarroadCore.ACTIONS.get(aid)
+	if act == null:
+		return 0
+	var bought := 0
+	while free_lore(g, aid) >= 1.0:
+		var best := ""
+		var best_n := 1 << 30
+		for bid in FarroadCore.BONUSES.keys():
+			if bid == "broad" or not FarroadCore.bonus_applies(FarroadCore.ACTIONS[aid], bid):
+				continue
+			var n: int = int(g["bonuses"].get(aid, {}).get(bid, 0))
+			if n < best_n:
+				best_n = n
+				best = bid
+		if best == "":
+			break
+		buy_bonus(g, aid, best)
+		bought += 1
+	return bought
 
 ## Removes one stack of bonus `bid` from action `aid` (distinct from the bulk
 ## claim_lore_refund above), deleting the bid entry once it hits 0.
@@ -2709,50 +2764,67 @@ static func find_name(f: Dictionary) -> String:
 			return "gambit: " + FarroadCore.cond_label(f["id"])
 	return "?"
 
-static func grant_find(g: Dictionary, f: Dictionary) -> void:
+## Grants one expedition find. Returns a result Dictionary in the same shape as
+## a pull's ({kind, id, duplicate, ...}) so PullResults can show it.
+static func grant_find(g: Dictionary, f: Dictionary) -> Dictionary:
 	var id: String = str(f.get("id", ""))
-	match str(f.get("kind", "")):
+	var kind: String = str(f.get("kind", ""))
+	var r := {"kind": kind, "id": id, "duplicate": false}
+	match kind:
 		"equip":
 			g["equipInv"][id] = int(g["equipInv"].get(id, 0)) + 1
+			r["duplicate"] = int(g["equipInv"][id]) > 1
+			r["ownedCount"] = int(g["equipInv"][id])
 		"action":
 			g["actionCounts"][id] = int(g["actionCounts"].get(id, 0)) + 1
-			if bool(FarroadCore.ACTIONS.get(id, {}).get("isCharge", false)) and g.get("mc") != null:
+			r["isCharge"] = bool(FarroadCore.ACTIONS.get(id, {}).get("isCharge", false))
+			if r["isCharge"] and g.get("mc") != null:
 				g["mc"]["acquiredCharges"] = g["mc"].get("acquiredCharges", [])
 				if g["mc"]["acquiredCharges"].has(id):
 					_credit_lore(g, id)
+					r["duplicate"] = true
 				else:
 					g["mc"]["acquiredCharges"].append(id)
 			elif (g["actions"] as Array).has(id):
 				_credit_lore(g, id)
+				r["duplicate"] = true
 			else:
 				g["actions"].append(id)
 		"cond":
 			g["condCounts"][id] = int(g["condCounts"].get(id, 0)) + 1
 			if (g["conditions"] as Array).has(id):
-				_credit_dup_gambit(g)
+				r["duplicate"] = true
+				r["aetherGain"] = _credit_dup_gambit(g)
 			else:
 				g["conditions"].append(id)
-	Analytics.add("expeditionFinds", "%s:%s" % [f.get("kind", ""), id])
+	Analytics.add("expeditionFinds", "%s:%s" % [kind, id])
+	return r
 
 ## Only reachable once arrivedAt is set; grants the bank into the real economy
 ## and removes the expedition.
 static func collect_expedition(g: Dictionary, id: String) -> bool:
+	return not collect_expedition_result(g, id).is_empty()
+
+## Collects an arrived expedition and returns what it paid:
+## {aether, marks, finds: [pull-shaped results]}, or {} if it can't be collected.
+static func collect_expedition_result(g: Dictionary, id: String) -> Dictionary:
 	var exp = null
 	for e in g["expeditions"]:
 		if e["id"] == id:
 			exp = e
 	if exp == null or exp.get("arrivedAt") == null:
-		return false
+		return {}
+	var result := {"aether": float(exp["bank"]["aether"]), "marks": float(exp["bank"]["marks"]), "finds": []}
 	g["aether"] = float(g["aether"]) + float(exp["bank"]["aether"])
 	g["marks"] = float(g["marks"]) + float(exp["bank"]["marks"])
 	for f in exp["bank"].get("finds", []):
-		grant_find(g, f)
+		result["finds"].append(grant_find(g, f))
 	Analytics.add("expedition", "collected")
 	Analytics.add("expedition", "aetherCollected", float(exp["bank"]["aether"]))
 	Analytics.add("expedition", "marksCollected", float(exp["bank"]["marks"]))
 	Analytics.add("expeditionDepths", str(int(exp.get("ew", 0)) / 10 * 10))
 	g["expeditions"] = g["expeditions"].filter(func(e2): return e2["id"] != exp["id"])
-	return true
+	return result
 
 ## The offline catch-up: a 5 s no-op floor, a 12 h cap, credits the full idle
 ## trickle unconditionally for the capped duration, then replays real Road combat
@@ -3091,6 +3163,10 @@ static func unit_power_stats(g: Dictionary, uid: String) -> float:
 	apply_pct_stat_investment(g, uid, st)
 	apply_equipment_stats(g, uid, st)
 	return float(st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"])
+
+## One unit's Power, on the same scale as the party's (stat total / POWER_STAT_DIVISOR).
+static func unit_power(g: Dictionary, uid: String) -> int:
+	return maxi(1, roundi(unit_power_stats(g, uid) / POWER_STAT_DIVISOR))
 
 static func dungeon_power(dungeon: Dictionary) -> int:
 	var best := 1

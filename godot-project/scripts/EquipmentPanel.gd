@@ -108,6 +108,16 @@ func _refresh_card() -> void:
 	header.text = "[font_size=16][color=#%s]%s[/color][/font_size]" % [rarity_color.to_html(false), def["name"]]
 	card_container.add_child(header)
 
+	# fits the unit with the best free gear: rarity first, then its natural affinities
+	var auto_btn := Button.new()
+	auto_btn.text = "Auto-set gear"
+	auto_btn.tooltip_text = "Picks the best owned gear by rarity and the unit's natural affinities"
+	auto_btn.pressed.connect(func():
+		FarroadProgression.auto_assign_gear(g, uid)
+		FarroadProgression.refresh_live_stats(g)
+		_refresh_card())
+	card_container.add_child(auto_btn)
+
 	# gear filtering and sorting by stat (applies to every slot's list)
 	card_container.add_child(ActionFilter.gear_controls(_refresh_card))
 	card_container.add_child(UnitSets.build(g, uid, "gear", func():

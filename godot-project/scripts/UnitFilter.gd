@@ -7,7 +7,7 @@ extends RefCounted
 const FOCUS_OPTIONS := [["any", "Any focus"], ["physical", "Physical"], ["magic", "Magic"], ["hybrid", "Balanced"]]
 const RARITY_OPTIONS := [["any", "Any rarity"], ["common", "Common"], ["rare", "Rare"], ["legendary", "Legendary"]]
 const SORT_OPTIONS := [["default", "Default order"], ["alpha", "Sort: A–Z"], ["level", "Sort: Level"],
-	["rarity", "Sort: Rarity"], ["atk", "Sort: ATK"], ["mag", "Sort: MAG"], ["spd", "Sort: SPD"]]
+	["rarity", "Sort: Rarity"], ["power", "Sort: Power"], ["atk", "Sort: ATK"], ["mag", "Sort: MAG"], ["spd", "Sort: SPD"]]
 const RARITY_RANK := {"common": 0, "rare": 1, "legendary": 2}
 ## A unit leans physical/magic when that stat is at least this much higher.
 const FOCUS_GAP := 1.15
@@ -65,6 +65,7 @@ static func apply(g: Dictionary, uids: Array, keep: Array = []) -> Array:
 			return 0.0
 		match sort_mode:
 			"level": return float(FarroadProgression.level_of(g, uid))
+			"power": return float(FarroadProgression.unit_power(g, uid))
 			"rarity": return float(RARITY_RANK.get(str(def.get("rarity", "common")), 0))
 			"atk", "mag", "spd":
 				return float(FarroadProgression.stats_at(uid, def["stats"], float(def["hp"]), FarroadProgression.level_of(g, uid))[sort_mode])

@@ -471,6 +471,7 @@ func _try_resume_save() -> bool:
 func _run_offline_replay() -> void:
 	if _offline_state.is_empty():
 		return
+	# A title screen with a loading bar at the bottom while the time away is replayed.
 	var layer := CanvasLayer.new()
 	layer.layer = 40
 	add_child(layer)
@@ -478,15 +479,46 @@ func _run_offline_replay() -> void:
 	bg.color = Color(0.06, 0.05, 0.08, 1.0)
 	bg.size = vp
 	layer.add_child(bg)
+	var title := Label.new()
+	title.text = "FARROAD"
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.085))
+	title.add_theme_color_override("font_color", UiKit.BAND)
+	title.add_theme_color_override("font_outline_color", Color(0.02, 0.02, 0.03))
+	title.add_theme_constant_override("outline_size", 8)
+	title.size = Vector2(vp.x, vp.y * 0.12)
+	title.position = Vector2(0.0, vp.y * 0.34)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	layer.add_child(title)
+	var rule := ColorRect.new()
+	rule.color = UiKit.SILVER_DIM
+	rule.size = Vector2(vp.x * 0.5, 2.0)
+	rule.position = Vector2(vp.x * 0.25, vp.y * 0.34 + vp.y * 0.125)
+	layer.add_child(rule)
+	var bar_w: float = vp.x * 0.72
+	var bar_h: float = vp.y * 0.012
+	var bar_x: float = (vp.x - bar_w) / 2.0
+	var bar_y: float = vp.y * 0.9
 	var lbl := Label.new()
-	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.03))
-	lbl.size = vp
-	lbl.position = Vector2.ZERO
+	lbl.add_theme_font_size_override("font_size", int(vp.y * 0.02))
+	lbl.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	lbl.size = Vector2(vp.x, vp.y * 0.03)
+	lbl.position = Vector2(0.0, bar_y - vp.y * 0.04)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	layer.add_child(lbl)
+	var bar_bg := ColorRect.new()
+	bar_bg.color = Color(0.16, 0.14, 0.18)
+	bar_bg.size = Vector2(bar_w, bar_h)
+	bar_bg.position = Vector2(bar_x, bar_y)
+	layer.add_child(bar_bg)
+	var bar_fg := ColorRect.new()
+	bar_fg.color = UiKit.BAND
+	bar_fg.size = Vector2(0.0, bar_h)
+	bar_fg.position = bar_bg.position
+	layer.add_child(bar_fg)
 	while true:
-		lbl.text = "Catching up on your time away... %d%%" % roundi(FarroadProgression.offline_progress(_offline_state) * 100.0)
+		var frac: float = FarroadProgression.offline_progress(_offline_state)
+		lbl.text = "Catching up on your time away... %d%%" % roundi(frac * 100.0)
+		bar_fg.size.x = bar_w * clampf(frac, 0.0, 1.0)
 		if FarroadProgression.offline_step(g, _offline_state, 8):
 			break
 		await get_tree().process_frame
@@ -1667,6 +1699,28 @@ func show_pull_results(results: Array) -> void:
 	var o := _build_detail_overlay(Palette.PARTY_BLUE)
 	vbox_title(o["vbox"], "Pull result" if results.size() == 1 else "%d pulls" % results.size())
 	PullResults.build(o["vbox"], results, vp)
+	await _finish_detail_overlay(o)
+
+## What an expedition (or all of them, for Collect All) paid: Aether, Marks, and
+## every find as a card (duplicates of one item share a card).
+func show_expedition_collected(summary: Dictionary) -> void:
+	var o := _build_detail_overlay(Palette.PARTY_BLUE)
+	var n: int = int(summary.get("count", 1))
+	vbox_title(o["vbox"], "Expedition collected" if n == 1 else "%d expeditions collected" % n)
+	var gains: Array = []
+	if float(summary.get("aether", 0.0)) > 0.0:
+		gains.append("+%d Aether" % roundi(float(summary["aether"])))
+	if float(summary.get("marks", 0.0)) > 0.0:
+		gains.append("+%d Marks" % roundi(float(summary["marks"])))
+	var gain_lbl := Label.new()
+	gain_lbl.text = "  ·  ".join(gains) if not gains.is_empty() else "No Aether or Marks this time."
+	gain_lbl.add_theme_font_size_override("font_size", 18)
+	gain_lbl.add_theme_color_override("font_color", PullResults.AETHER_COL)
+	gain_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	o["vbox"].add_child(gain_lbl)
+	var finds: Array = summary.get("finds", [])
+	if not finds.is_empty():
+		PullResults.build(o["vbox"], finds, vp)
 	await _finish_detail_overlay(o)
 
 ## A sparkly flourish when a unit levels up (called by the Aether screen).
@@ -3708,10 +3762,8 @@ func _sanitize_mc_name(raw: String) -> String:
 ## Says exactly what buffs and debuffs do. Every magnitude-based status reads
 ## its real number straight from FarroadCore.STATUS_BASE_MAG (the same table
 ## apply_status / eff_atk / eff_def / etc. use), so this can never drift out
-## of sync with the combat math. "taunted" and "blinded" have no single named
-## magnitude constant to read (taunted is a pure behavioral flag; blinded's
-## +30% evade-chance bonus is a literal inline constant in resolve_hit), so
-## their text is hand-written to match.
+## of sync with the combat math. "taunted" has no magnitude (it is a pure
+## behavioral flag), so its text is hand-written.
 func _status_description(status_id: String, potency: float = 1.0) -> String:
 	var mag: float = FarroadCore.STATUS_BASE_MAG.get(status_id, 0.0) * potency
 	if FarroadCore.STATUS_MAG_CAP.has(status_id):
@@ -3737,9 +3789,9 @@ func _status_description(status_id: String, potency: float = 1.0) -> String:
 		"burning": return "Loses %.0f%% max HP per turn" % (mag * 100.0)
 		"regen": return "Heals %.0f%% max HP per turn" % (mag * 100.0)
 		"taunted": return "Forces enemies to target this unit"
-		"blinded": return "Attacks are 30% more likely to be evaded"
+		"blinded": return "Attacks are %.0f%% more likely to be evaded" % (mag * 100.0)
 		"poisoned": return "Loses %.1f%% max HP every time any unit acts" % (mag * 100.0)
-		"confused": return "%d%% chance its single-target actions land on a random unit" % roundi(FarroadCore.CONFUSE_CHANCE * 100.0)
+		"confused": return "%.0f%% chance its single-target actions land on a random unit" % (mag * 100.0)
 		"exposed": return "Evade %+.0f%%" % (mag * 100.0)
 		_:
 			if status_id.begins_with("boon_") or status_id.begins_with("bane_"):
@@ -4435,6 +4487,8 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		_animate_wave_retreat(old_presenter)
 		# Every time below is in seconds from the moment the party starts running.
 		var total: float = _wave_total_time(old_presenter)       # the last ally has reached its mark
+		if old_presenter != null:
+			old_presenter.drain_enrage(total * 0.8)   # the enrage bar empties while the party runs
 		# Enemies run in too, with the same spread. The next fight is built now,
 		# with its party and its on-screen UI held back, so its enemies can be
 		# running in while the forest is still scrolling.
@@ -4455,7 +4509,14 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		await get_tree().create_timer(enemy_start).timeout
 		if is_instance_valid(next) and next == current_presenter:
 			next.run_enemies_in_pack(ENEMY_FAST_RUN_TIME, WAVE_RUN_VARIANCE)
-		await get_tree().create_timer(maxf(0.0, total - enemy_start)).timeout
+		# the new turn order slides in a little before the swap, over the old strip
+		var early: float = minf(TURN_ORDER_EARLY, maxf(0.0, total - enemy_start))
+		await get_tree().create_timer(maxf(0.0, total - enemy_start - early)).timeout
+		if is_instance_valid(next) and next == current_presenter:
+			if old_presenter != null and is_instance_valid(old_presenter):
+				old_presenter.hide_turn_order()
+			next.show_turn_order_early()
+		await get_tree().create_timer(early).timeout
 		# the allies are all at their marks: swap the old picture for the new one
 		if old_presenter != null and is_instance_valid(old_presenter):
 			old_presenter.queue_free()
@@ -4486,6 +4547,8 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		await _fade_in()
 
 const FADE_HALF_SEC := 0.5
+## How long before the swap to the next wave the new turn order starts sliding in.
+const TURN_ORDER_EARLY := 0.5
 
 ## ===== The ascent: after the wave 100, 200, ... boss =====
 ## A glowing gate appears on the right and opens, stairs descend from it, the party runs up them and

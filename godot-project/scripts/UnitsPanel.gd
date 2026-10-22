@@ -403,6 +403,13 @@ func _build_summary_card() -> void:
 		def.get("row", "front"), ("Fielded" if g["party"].has(selected_uid) else "Benched")]
 	content_container.add_child(name_lbl)
 
+	# the unit's Power, on the same scale as the party's Power in the HUD
+	var power_lbl := Label.new()
+	power_lbl.text = "Power %d" % FarroadProgression.unit_power(g, selected_uid)
+	power_lbl.add_theme_font_size_override("font_size", 20)
+	power_lbl.add_theme_color_override("font_color", UiKit.BAND)
+	content_container.add_child(power_lbl)
+
 	# the item given at wave 100: redo the main character's stats
 	if selected_uid == "kesh" and g.get("mc") != null and int(g.get("mcRespecs", 0)) > 0:
 		var remake := Button.new()
