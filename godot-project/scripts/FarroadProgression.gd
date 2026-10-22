@@ -2253,7 +2253,13 @@ static var EXPED_REST: bool = true
 static var EXPED_REST_BELOW: float = 0.35
 static var EXPED_REST_UNTIL: float = 0.70
 static var EXPED_REST_WAVES: float = 2.0
-const EXPED_CAP_SEC := OFFLINE_CAP_SEC
+## Expeditions have no time cap: a party keeps going until it turns back (its HP falls under
+## EXPED_RETURN_HP_FRAC) however long you were away. A catch-up pass can be given a time
+## budget (resolve_expedition's budget_ms); what it doesn't get to is simply left for the next
+## call, which is safe because each expedition's randomness is its own stream, so the result
+## doesn't depend on how the catch-up was chunked.
+## The notification forecast plays a trip forward this far at most.
+const EXPED_PREDICT_SEC := 24 * 3600
 const EXPED_DISCOVERY_CHANCE := 0.08
 ## Non-combat road events. EXPED_EVENT_CHANCE is the per-node chance a stretch
 ## of road is one of these instead of a fight (first-pass value, easily
@@ -2463,7 +2469,7 @@ static func check_arrival(exp: Dictionary, now) -> void:
 ## restores FarroadCore's global current wave via set_wave(saved_wave) before
 ## returning: build_enemies's own set_wave call would otherwise leave the Road's
 ## wave-scaling state pointed at the expedition's ew.
-static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
+static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: int = 0) -> void:
 	if exp.get("homeAt") != null:
 		check_arrival(exp, now)
 		return
@@ -2471,7 +2477,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	if elapsed_sec < 5.0:
 		return
 	var resolve_started_at: float = exp["lastResolvedAt"]
-	var capped: float = minf(elapsed_sec, EXPED_CAP_SEC)
+	var capped: float = elapsed_sec
+	var deadline_ms: int = Time.get_ticks_msec() + budget_ms if budget_ms > 0 else 0
 	var mul: float = direction_mul(exp["direction"])
 	var remaining: float = capped
 	var guard := 0
@@ -2487,6 +2494,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	xr.a = int(exp["rngA"]) if exp.get("rngA") != null else (str(exp["id"]).hash() & 0xFFFFFFFF)
 	g["rng"] = xr
 	while remaining > 0.0 and guard < 200000:
+		if deadline_ms > 0 and guard > 0 and Time.get_ticks_msec() >= deadline_ms:
+			break   # out of time for this pass; the unspent time carries to the next one
 		guard += 1
 		var stream_a: int = xr.a
 		var stream_calls: int = xr.calls
@@ -2564,8 +2573,8 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now) -> void:
 	FarroadCore.set_wave(saved_wave)
 	# A step costs ~28 s but the game checks every 15 s; setting lastResolvedAt =
 	# now would throw away the part-step each time, so nothing would ever advance
-	# while playing. The unspent time is kept (time past the 12 h cap is still
-	# dropped).
+	# while playing. The unspent time is kept, so a pass that ran out of budget
+	# carries on from here next time.
 	exp["lastResolvedAt"] = float(now) - remaining
 	if turned_back:
 		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
@@ -2703,9 +2712,16 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 		push_expedition_log(exp, "%s were ambushed by %s and had to fall back — no reward." % [names, foe], now)
 
 ## Resolves every active expedition.
-static func resolve_all_expeditions(g: Dictionary, now) -> void:
+static func resolve_all_expeditions(g: Dictionary, now, budget_ms: int = 0) -> void:
+	var end_ms: int = Time.get_ticks_msec() + budget_ms if budget_ms > 0 else 0
 	for exp in g["expeditions"]:
-		resolve_expedition(g, exp, now)
+		if end_ms > 0:
+			var left: int = end_ms - Time.get_ticks_msec()
+			if left <= 0:
+				break   # the rest are caught up on the next call
+			resolve_expedition(g, exp, now, left)
+		else:
+			resolve_expedition(g, exp, now)
 
 ## Catches up first (which may itself trigger a full or partial auto turn-back),
 ## then forces a turn-back right now if still out. There is no reward penalty:

@@ -64,7 +64,7 @@ func _tick_live() -> void:
 		if not g["expeditions"].has(exp):
 			changed = true
 			continue
-		FarroadProgression.resolve_expedition(g, exp, now)   # advances / notices arrival
+		FarroadProgression.resolve_expedition(g, exp, now, 600)   # advances / notices arrival
 		if _state_key(exp) != row[3]:
 			changed = true   # new state needs a different button
 			continue

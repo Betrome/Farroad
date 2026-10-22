@@ -358,7 +358,7 @@ func _on_expedition_tick() -> void:
 	for e in g.get("expeditions", []):
 		if e.get("arrivedAt") == null:
 			out_ids.append(e["id"])
-	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system())
+	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system(), 400)   # a long-running party is caught up a bit at a time
 	if notifier != null:
 		for e in g.get("expeditions", []):
 			if e.get("arrivedAt") != null and out_ids.has(e["id"]):
@@ -537,7 +537,7 @@ func _finish_resume() -> void:
 		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
 		# wipes (and clears) fought while the game was closed count in the wave stats too
 		Analytics.waves_offline(_offline_summary.get("wave_results", {}))
-	FarroadProgression.resolve_all_expeditions(g, _resume_now)
+	FarroadProgression.resolve_all_expeditions(g, _resume_now, 1200)   # the rest is caught up by the 15 s tick
 	# the time away must be accurate next launch even after a very short
 	# session, so the save is stamped now that this gap has been counted
 	save_game()

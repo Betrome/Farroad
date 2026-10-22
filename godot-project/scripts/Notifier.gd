@@ -353,7 +353,7 @@ static func _return_text(exp: Dictionary) -> String:
 
 ## When a party that is still out will turn back, found by playing the trip
 ## forward on a deep copy of the game (never the real one). -1 if it won't
-## turn back within the longest stretch a single catch-up covers.
+## turn back within EXPED_PREDICT_SEC (a party that runs longer gets no notification).
 func _predict_home(idx: int, now: float) -> float:
 	var gc: Dictionary = {}
 	for k in g.keys():
@@ -367,5 +367,5 @@ func _predict_home(idx: int, now: float) -> float:
 	if idx >= exps.size():
 		return -1.0
 	var exp: Dictionary = exps[idx]
-	FarroadProgression.resolve_expedition(gc, exp, now + FarroadProgression.OFFLINE_CAP_SEC)
+	FarroadProgression.resolve_expedition(gc, exp, now + FarroadProgression.EXPED_PREDICT_SEC)
 	return float(exp["homeAt"]) if exp.get("homeAt") != null else -1.0
