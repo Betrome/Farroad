@@ -64,7 +64,7 @@ func _tick_live() -> void:
 		if not g["expeditions"].has(exp):
 			changed = true
 			continue
-		FarroadProgression.resolve_expedition(g, exp, now, 600)   # advances / notices arrival
+		FarroadProgression.resolve_expedition(g, exp, now, 6)   # advances / notices arrival (the long catch-ups are sliced by the game)
 		if _state_key(exp) != row[3]:
 			changed = true   # new state needs a different button
 			continue
@@ -333,6 +333,8 @@ func _state_text(exp: Dictionary, now: float) -> String:
 		var remain: int = maxi(0, roundi(float(exp["homeAt"]) - now))
 		return "Heading home, back in %s." % _fmt_duration(remain)
 	var away: int = maxi(0, roundi(now - float(exp["startedAt"])))
+	if exp.get("recallPending", false):
+		return "Recalling — catching up on the time away (%s, wave %d)." % [_fmt_duration(away), int(exp["ew"])]
 	return "Away %s, reached wave %d." % [_fmt_duration(away), int(exp["ew"])]
 
 func _fmt_duration(sec: int) -> String:
@@ -347,6 +349,7 @@ func _on_log_pressed(exp: Dictionary) -> void:
 
 func _on_recall_pressed(id: String) -> void:
 	FarroadProgression.recall_expedition(g, id, _now())
+	_parent.note_expedition_backlog()
 	refresh()
 
 func _on_explore_pressed(id: String) -> void:

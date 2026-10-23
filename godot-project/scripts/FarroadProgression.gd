@@ -2496,13 +2496,16 @@ static func check_arrival(exp: Dictionary, now) -> void:
 ## restores FarroadCore's global current wave via set_wave(saved_wave) before
 ## returning: build_enemies's own set_wave call would otherwise leave the Road's
 ## wave-scaling state pointed at the expedition's ew.
-static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: int = 0) -> void:
+## Returns true when the party is caught up to `now` (false when the time budget ran out first).
+static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: int = 0) -> bool:
 	if exp.get("homeAt") != null:
 		check_arrival(exp, now)
-		return
+		return true
 	var elapsed_sec: float = maxf(0.0, float(now) - float(exp["lastResolvedAt"]))
 	if elapsed_sec < 5.0:
-		return
+		_finish_pending_recall(g, exp, now)
+		return true
+	var out_of_time := false
 	var resolve_started_at: float = exp["lastResolvedAt"]
 	var capped: float = elapsed_sec
 	var deadline_ms: int = Time.get_ticks_msec() + budget_ms if budget_ms > 0 else 0
@@ -2522,6 +2525,7 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: i
 	g["rng"] = xr
 	while remaining > 0.0 and guard < 200000:
 		if deadline_ms > 0 and guard > 0 and Time.get_ticks_msec() >= deadline_ms:
+			out_of_time = true
 			break   # out of time for this pass; the unspent time carries to the next one
 		guard += 1
 		var stream_a: int = xr.a
@@ -2604,7 +2608,20 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: i
 	# carries on from here next time.
 	exp["lastResolvedAt"] = float(now) - remaining
 	if turned_back:
+		exp.erase("recallPending")
 		begin_return_trip(exp, resolve_started_at + (capped - remaining), "injuries mounted and the party turned back.", now)
+	elif not out_of_time:
+		_finish_pending_recall(g, exp, now)
+	return not out_of_time
+
+## A recall asked while the party was still catching up on its time away takes effect once it has caught up.
+static func _finish_pending_recall(g: Dictionary, exp: Dictionary, now) -> void:
+	if exp.get("recallPending", false) and exp.get("homeAt") == null:
+		exp.erase("recallPending")
+		begin_return_trip(exp, now, "recalled.", now)
+		exp["recalled"] = true
+		if not g.get("_dryRun", false):
+			Analytics.add("expedition", "recalled")
 
 ## Shared by both node kinds (fight won / road event) -- extracted from
 ## resolve_expedition's own win branch unchanged. A while, not if -- a big
@@ -2739,16 +2756,21 @@ static func roll_expedition_discovery(g: Dictionary, exp: Dictionary, mul: float
 		push_expedition_log(exp, "%s were ambushed by %s and had to fall back — no reward." % [names, foe], now)
 
 ## Resolves every active expedition.
-static func resolve_all_expeditions(g: Dictionary, now, budget_ms: int = 0) -> void:
+## Returns true when every expedition is caught up.
+static func resolve_all_expeditions(g: Dictionary, now, budget_ms: int = 0) -> bool:
 	var end_ms: int = Time.get_ticks_msec() + budget_ms if budget_ms > 0 else 0
+	var all_done := true
 	for exp in g["expeditions"]:
 		if end_ms > 0:
 			var left: int = end_ms - Time.get_ticks_msec()
 			if left <= 0:
-				break   # the rest are caught up on the next call
-			resolve_expedition(g, exp, now, left)
+				all_done = false
+				continue   # the rest are caught up on the next call
+			if not resolve_expedition(g, exp, now, left):
+				all_done = false
 		else:
 			resolve_expedition(g, exp, now)
+	return all_done
 
 ## Catches up first (which may itself trigger a full or partial auto turn-back),
 ## then forces a turn-back right now if still out. There is no reward penalty:
@@ -2761,11 +2783,10 @@ static func recall_expedition(g: Dictionary, id: String, now) -> bool:
 			exp = e
 	if exp == null:
 		return false
-	resolve_expedition(g, exp, now)
-	if g["expeditions"].has(exp) and exp.get("homeAt") == null:
-		begin_return_trip(exp, now, "recalled.", now)
-		exp["recalled"] = true
-		Analytics.add("expedition", "recalled")
+	# the catch-up of the time away is done a little at a time by the game (never all at once on the
+	# tap), so the recall is marked and takes effect when the party has caught up
+	exp["recallPending"] = true
+	resolve_expedition(g, exp, now, 8)
 	return true
 
 ## A recalled party heading home can be sent back out ("Explore"): it turns

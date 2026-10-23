@@ -354,12 +354,52 @@ func skip_tutorials() -> void:
 ## rebuilding UI nobody can see.
 var notifier: Notifier = null
 
-func _on_expedition_tick() -> void:
+## True while some expedition still has a long stretch to catch up (a long absence, or a Recall waiting for it).
+## _process then works on it a few milliseconds a frame, so the game never stalls for it.
+var _exp_backlog := false
+const EXP_SLICE_MS := 6
+var _exp_refresh_at := 0.0
+
+func _slice_expeditions() -> void:
+	if not _exp_backlog or g.is_empty():
+		return
+	var out_ids: Array = _out_expedition_ids()
+	var done: bool = FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system(), EXP_SLICE_MS)
+	_expedition_progress_done(out_ids)
+	if done:
+		_exp_backlog = false
+		save_game()
+	var t := Time.get_ticks_msec()
+	if t >= _exp_refresh_at or done:
+		_exp_refresh_at = t + 1000
+		if expedition_panel.popup.visible:
+			expedition_panel.refresh()
+
+func _out_expedition_ids() -> Array:
 	var out_ids: Array = []
 	for e in g.get("expeditions", []):
 		if e.get("arrivedAt") == null:
 			out_ids.append(e["id"])
-	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system(), 400)   # a long-running party is caught up a bit at a time
+	return out_ids
+
+func _expedition_progress_done(out_ids: Array) -> void:
+	if notifier != null:
+		for e in g.get("expeditions", []):
+			if e.get("arrivedAt") != null and out_ids.has(e["id"]):
+				notifier.on_expedition_arrived(e)   # Windows, when not focused
+
+## Works out whether any expedition has a stretch to catch up that is worth doing in slices.
+func note_expedition_backlog() -> void:
+	var now := Time.get_unix_time_from_system()
+	for e in g.get("expeditions", []):
+		if e.get("homeAt") == null and (now - float(e["lastResolvedAt"]) >= 90.0 or e.get("recallPending", false)):
+			_exp_backlog = true
+			return
+
+func _on_expedition_tick() -> void:
+	var out_ids: Array = _out_expedition_ids()
+	FarroadProgression.resolve_all_expeditions(g, Time.get_unix_time_from_system(), EXP_SLICE_MS)
+	note_expedition_backlog()
 	if notifier != null:
 		for e in g.get("expeditions", []):
 			if e.get("arrivedAt") != null and out_ids.has(e["id"]):
@@ -538,7 +578,8 @@ func _finish_resume() -> void:
 		Analytics.add("offline", "waveGain", float(int(_offline_summary.get("wave_after", 0)) - int(_offline_summary.get("wave_before", 0))))
 		# wipes (and clears) fought while the game was closed count in the wave stats too
 		Analytics.waves_offline(_offline_summary.get("wave_results", {}))
-	FarroadProgression.resolve_all_expeditions(g, _resume_now, 1200)   # the rest is caught up by the 15 s tick
+	FarroadProgression.resolve_all_expeditions(g, _resume_now, EXP_SLICE_MS)   # the rest is caught up a few ms a frame (_process)
+	note_expedition_backlog()
 	# the time away must be accurate next launch even after a very short
 	# session, so the save is stamped now that this gap has been counted
 	save_game()
@@ -1885,6 +1926,7 @@ func _input(event: InputEvent) -> void:
 var _last_win_size := Vector2i.ZERO
 
 func _process(_delta: float) -> void:
+	_slice_expeditions()
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_last_input_ms = Time.get_ticks_msec()
 	# maximizing or snapping the window changes its size without always raising
