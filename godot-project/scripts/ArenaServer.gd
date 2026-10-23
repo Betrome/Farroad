@@ -23,6 +23,7 @@ extends Node
 ##   /opponents {id, key}                  -> teams near your rating
 ##   /fight     {id, key, opponent}        -> the fight's seed, both teams, result
 ##   /leaderboard {}                       -> the top players
+##   /season/claim {id, key, season}       -> takes a finished season's reward off your record (only with seasons on)
 ##   /version   {}                         -> the game build fights need
 ##   /stats     {}                         -> {bossAvg, players}: the average highest-cleared
 ##                                            boss wave of players who have cleared one (the
@@ -38,6 +39,14 @@ const HISTORY_SIZE := 50
 const REQUEST_TIMEOUT_MS := 20000
 
 var port := DEFAULT_PORT
+## Weekly seasons (see Seasons.gd) run only when the server is started with FARROAD_SEASONS=1 (or
+## --seasons). Off, the server behaves exactly as it did before seasons existed.
+var seasons_enabled := false
+## Tests only (--time-offset=SECONDS): moves the server's clock.
+var time_offset := 0
+var _season_current := -1
+var _season_loaded := false
+var _season_first := -1   # the first season ever run (season 1), so seasons can be shown as 1, 2, 3...
 var server := TCPServer.new()
 var clients: Array = []   # [{peer, buf, started, busy}]
 var store: ArenaStore
@@ -50,6 +59,10 @@ func _ready() -> void:
 	var env_port := OS.get_environment("PORT")
 	if env_port.is_valid_int():
 		port = int(env_port)
+	seasons_enabled = OS.get_environment("FARROAD_SEASONS") == "1" or args.has("--seasons")
+	for a in args:
+		if a.begins_with("--time-offset="):
+			time_offset = int(a.substr(14))
 	var use_firestore := OS.get_environment("FARROAD_STORE") == "firestore" or args.has("--firestore")
 	store = FirestoreStore.new() if use_firestore else ArenaStore.new()
 	for i in args.size():
@@ -64,6 +77,8 @@ func _ready() -> void:
 		return
 	await _seed_rivals()
 	await _backfill_boss_stats()
+	if seasons_enabled:
+		await _season_tick()
 	var bind := "127.0.0.1" if args.has("--local-only") else "*"
 	var err := server.listen(port, bind)
 	if err != OK:
@@ -191,6 +206,8 @@ func _route(req: Dictionary) -> Array:
 	var body = JSON.parse_string(req["body"]) if req["body"] != "" else {}
 	if not (body is Dictionary):
 		return [400, {"error": "bad_json"}]
+	if seasons_enabled:
+		await _season_tick()
 	match req["path"]:
 		"/leaderboard": return [200, await _leaderboard()]
 		"/stats": return [200, await _stats()]
@@ -200,6 +217,7 @@ func _route(req: Dictionary) -> Array:
 		"/fight": return await _fight(body)
 		"/save/put": return await _save_put(body)
 		"/save/get": return await _save_get(body)
+		"/season/claim": return await _season_claim(body)
 	return [404, {"error": "not_found"}]
 
 ## ===== accounts =====
@@ -208,7 +226,7 @@ func _hash(key: String) -> String:
 	return key.sha256_text()
 
 func _now() -> int:
-	return int(Time.get_unix_time_from_system())
+	return int(Time.get_unix_time_from_system()) + time_offset
 
 ## The caller's record (created on first use when `create`), or null.
 func _auth(body: Dictionary, create: bool = false):
@@ -255,8 +273,11 @@ func _hello(body: Dictionary) -> Array:
 	if body.has("name"):
 		rec["name"] = _clean_name(body["name"])
 		await store.put_player(rec)
-	return [200, {"me": _public(rec), "game": Ranked.game_version(), "hasTeam": rec.get("team") != null,
-		"history": rec.get("history", [])}]
+	var out := {"me": _public(rec), "game": Ranked.game_version(), "hasTeam": rec.get("team") != null,
+		"history": rec.get("history", [])}
+	if seasons_enabled:
+		out["season"] = _season_info(rec)
+	return [200, out]
 
 func _team(body: Dictionary) -> Array:
 	var rec = await _auth(body)
@@ -334,6 +355,9 @@ func _fight(body: Dictionary) -> Array:
 	rec["rating"] = ratings[0]
 	opp["rating"] = ratings[1]
 	rec["wins" if won else "losses"] = int(rec["wins" if won else "losses"]) + 1
+	if seasons_enabled:
+		_season_touch(rec)
+		rec["seasonFights"] = int(rec["seasonFights"]) + 1
 	opp["defLosses" if won else "defWins"] = int(opp["defLosses" if won else "defWins"]) + 1
 	# each side's record notes the other side's Power at the time
 	_log(rec, {"at": _now(), "vs": opp["name"], "power": int(opp.get("power", 0)), "attack": true, "won": won, "delta": int(rec["rating"]) - before})
@@ -342,6 +366,83 @@ func _fight(body: Dictionary) -> Array:
 	await store.put_player(opp)
 	return [200, {"seed": seed, "won": won, "turns": result["turns"], "me": rec["team"], "them": opp["team"],
 		"themName": opp["name"], "rating": int(rec["rating"]), "delta": int(rec["rating"]) - before}]
+
+## ===== weekly seasons (only when seasons_enabled; see Seasons.gd) =====
+
+const SEASON_DOC := "season"
+
+## A player's season counters belong to one season; a new season starts them at zero.
+func _season_touch(rec: Dictionary) -> void:
+	if int(rec.get("seasonId", -1)) != _season_current:
+		rec["seasonId"] = _season_current
+		rec["seasonFights"] = 0
+
+func _season_info(rec: Dictionary) -> Dictionary:
+	var fights: int = int(rec.get("seasonFights", 0)) if int(rec.get("seasonId", -1)) == _season_current else 0
+	return {"id": _season_current, "number": _season_current - _season_first + 1, "endsAt": Seasons.season_end(_season_current), "minFights": Seasons.MIN_FIGHTS,
+		"fights": fights, "pending": rec.get("seasonPending", [])}
+
+## Notices when the clock has moved into a new season and closes the one that ended.
+func _season_tick() -> void:
+	var now_season := Seasons.season_of(_now())
+	if _season_loaded and now_season == _season_current:
+		return
+	var doc: Dictionary = await store.get_meta_doc(SEASON_DOC)
+	var stored := int(doc.get("current", -1))
+	_season_first = int(doc.get("first", now_season))
+	if stored >= 0 and stored < now_season:
+		_season_current = now_season
+		await _close_season(stored)
+	_season_current = now_season
+	_season_loaded = true
+	if stored != now_season:
+		await store.put_meta_doc(SEASON_DOC, {"current": now_season, "first": _season_first})
+
+## Ranks everyone who fought enough in season `old`, leaves each a pending reward, and pulls every
+## real player's rating part of the way back to the starting rating.
+func _close_season(old: int) -> void:
+	var players: Array = await store.all_players()
+	var qualifiers: Array = players.filter(func(p):
+		return not bool(p.get("rival", false)) and p.get("team") != null and int(p.get("seasonId", -1)) == old 			and int(p.get("seasonFights", 0)) >= Seasons.MIN_FIGHTS)
+	qualifiers.sort_custom(func(a, b): return int(a["rating"]) > int(b["rating"]))
+	var rank_of := {}
+	for i in qualifiers.size():
+		rank_of[qualifiers[i]["id"]] = i + 1
+	for p in players:
+		if bool(p.get("rival", false)):
+			continue
+		if rank_of.has(p["id"]):
+			var tier := Seasons.tier_for(int(p["rating"]), int(rank_of[p["id"]]))
+			var pend: Array = p.get("seasonPending", [])
+			pend.append({"season": old, "number": old - _season_first + 1, "tier": tier["id"], "rank": int(rank_of[p["id"]]), "of": qualifiers.size(),
+				"rating": int(p["rating"]), "fights": int(p.get("seasonFights", 0))})
+			p["seasonPending"] = pend.slice(-8)
+		p["rating"] = Seasons.carried_rating(float(p["rating"]), float(Ranked.START_RATING))
+		p["seasonFights"] = 0
+		p["seasonId"] = old + 1
+		await store.put_player(p)
+	print("Farroad server: season %d closed, %d qualified" % [old, qualifiers.size()])
+
+func _season_claim(body: Dictionary) -> Array:
+	var rec = await _auth(body)
+	if rec == null:
+		return [403, {"error": "bad_key"}]
+	var want := int(body.get("season", -1))
+	var pend: Array = rec.get("seasonPending", [])
+	for i in pend.size():
+		if int(pend[i]["season"]) == want:
+			var entry: Dictionary = pend[i]
+			pend.remove_at(i)
+			rec["seasonPending"] = pend
+			# what this pays shows up in the player's next upload: it is credited so that upload passes
+			var credit: Dictionary = rec["credit"] if rec.get("credit") is Dictionary else SaveCheck.new_credit(_now())
+			SaveCheck.accrue(credit, _now())
+			var t := Seasons.tier_by_id(String(entry["tier"]))
+			SaveCheck.add_claim(credit, float(t["crystal"]), float(int(t["pulls"]) * FarroadProgression.pull_cost(1)), float(t["distilled"]))
+			rec["credit"] = credit
+			await store.put_player(rec)
+			return [200, {"claimed": entry}]
+	return [404, {"error": "nothing_to_claim"}]
 
 ## ===== cloud saves =====
 const SAVE_MAX_BYTES := 400000
@@ -358,11 +459,15 @@ func _save_put(body: Dictionary) -> Array:
 		return [400, {"error": "bad_save"}]
 	var prev: Dictionary = rec["save"] if rec.get("save") is Dictionary else {}
 	var elapsed: float = float(_now() - int(rec.get("saveAt", _now())))
-	var why := SaveCheck.check(prev, snap, elapsed)
+	var credit: Dictionary = rec["credit"] if rec.get("credit") is Dictionary else SaveCheck.new_credit(_now())
+	SaveCheck.accrue(credit, _now())
+	var why := SaveCheck.check(prev, snap, elapsed, credit)
 	if why != "":
 		_flag(rec, "save_" + why)
 		await store.put_player(rec)
 		return [409, {"error": "save_refused", "why": why}]
+	SaveCheck.spend_credit(credit, prev, snap, elapsed)
+	rec["credit"] = credit
 	rec["save"] = snap
 	rec["saveAt"] = _now()
 	if snap.get("mc") is Dictionary:

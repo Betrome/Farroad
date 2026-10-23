@@ -371,6 +371,18 @@ func _refresh_card() -> void:
 	slots_lbl.modulate = Palette.TEXT_DIM
 	card_container.add_child(slots_lbl)
 
+	# Smarter auto-spend: buys whatever adds the most strength per Aether (see AutoInvest.gd).
+	var auto_row := HBoxContainer.new()
+	auto_row.add_theme_constant_override("separation", 8)
+	for entry in [["Auto-invest", false], ["Auto-invest party", true]]:
+		var ab := Button.new()
+		ab.text = entry[0]
+		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ab.disabled = float(g.get("aether", 0)) < 1.0
+		ab.pressed.connect(_show_auto_invest.bind(bool(entry[1])))
+		auto_row.add_child(ab)
+	card_container.add_child(auto_row)
+
 	# Feed / leveling -- moved above Recovery per direct request. Only the
 	# exact-cost-to-next-level button remains; the flat +50/+250 feed
 	# buttons were dropped, also per direct request.
@@ -378,6 +390,15 @@ func _refresh_card() -> void:
 	card_container.add_child(_purchase_row(
 		"Level up — %d Aether" % exact, "→ LV %d" % (level + 1), exact, false,
 		_on_feed_pressed.bind(uid, exact), false, LEVEL_INFO))
+	# Distilled Aether (an Arena season reward): one level without the Aether, when you are short.
+	var distilled: int = int(g.get("distilled", 0))
+	if distilled > 0:
+		var dbtn := Button.new()
+		dbtn.text = "Use Distilled Aether: +1 level (%d left)" % distilled
+		dbtn.disabled = not FarroadProgression.can_use_distilled(g, uid)
+		dbtn.tooltip_text = "Raises this unit one level for free. Available when you don't have enough Aether for the next level."
+		dbtn.pressed.connect(_on_distilled_pressed.bind(uid))
+		card_container.add_child(dbtn)
 
 	# Recovery and Evade/Crit use the same label / value / button column widths
 	# (explicit floors, not auto-sized) even though they are separate grids.
@@ -463,6 +484,75 @@ func _refresh_card() -> void:
 ## refreshed on a wave transition -- fine for Marks (nothing spends it yet),
 ## wrong for Aether, which every purchase below actually changes right now,
 ## not next wave.
+## Shows what Auto-invest would buy (for the selected unit, or split evenly over the fielded party)
+## and buys it on confirm.
+func _show_auto_invest(party: bool) -> void:
+	var uids: Array = g["party"].duplicate() if party else [selected_uid]
+	if uids.is_empty() or selected_uid == "":
+		return
+	var budget_each: float = floorf(float(g["aether"]) / float(uids.size()))
+	var plans := {}
+	var any := false
+	for uid in uids:
+		plans[uid] = AutoInvest.plan(g, uid, budget_each)
+		if not (plans[uid]["steps"] as Array).is_empty():
+			any = true
+	var o := _parent.build_overlay_window(false)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "AUTO-INVEST" + (" (PARTY)" if party else "")
+	title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title)
+	var intro := Label.new()
+	intro.text = "Buys what adds the most strength for each Aether: levels, Recovery, Evade and crit, and affinities." 		+ (" Your Aether is split evenly across the party." if party else "")
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.modulate = Palette.TEXT_DIM
+	vbox.add_child(intro)
+	var total := 0.0
+	for uid in uids:
+		var p: Dictionary = plans[uid]
+		var def = FarroadCore.roster_by_id(uid)
+		var name_lbl := Label.new()
+		name_lbl.text = "%s — spends %s Aether (Power %d to %d)" % [def["name"] if def else uid, _fmt_num(float(p["spent"])), int(p["power_before"]), int(p["power_after"])]
+		name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vbox.add_child(name_lbl)
+		var lines := AutoInvest.describe(g, uid, p)
+		var detail := Label.new()
+		detail.text = "Nothing affordable." if lines.is_empty() else ", ".join(lines)
+		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		detail.modulate = Palette.TEXT_DIM
+		vbox.add_child(detail)
+		total += float(p["spent"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	vbox.add_child(row)
+	var buy := Button.new()
+	buy.text = "Spend %s Aether" % _fmt_num(total)
+	buy.disabled = not any
+	buy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(buy)
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(cancel)
+	var backdrop: ColorRect = o["backdrop"]
+	cancel.pressed.connect(func(): backdrop.queue_free())
+	buy.pressed.connect(func():
+		var levels_before := {}
+		for uid in uids:
+			levels_before[uid] = FarroadProgression.level_of(g, uid)
+		for uid in uids:
+			AutoInvest.apply(g, uid, plans[uid])
+		backdrop.queue_free()
+		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
+		for uid in uids:
+			var after: int = FarroadProgression.level_of(g, uid)
+			if after > int(levels_before[uid]):
+				_parent.level_up_fx(uid, after)
+		_refresh_card())
+	await _parent.finish_overlay_window(o)
+
 func _notify_currency_changed() -> void:
 	_parent.refresh_hud()
 
@@ -482,6 +572,17 @@ func _on_feed_pressed(uid: String, amount: int) -> void:
 		var lv_after: int = FarroadProgression.level_of(g, uid)
 		if lv_after > lv_before:
 			_parent.level_up_fx(uid, lv_after)
+	_refresh_card()
+
+func _on_distilled_pressed(uid: String) -> void:
+	var lv_before: int = FarroadProgression.level_of(g, uid)
+	if FarroadProgression.use_distilled(g, uid):
+		_notify_currency_changed()
+		FarroadProgression.refresh_live_stats(g)
+		var lv_after: int = FarroadProgression.level_of(g, uid)
+		if lv_after > lv_before:
+			_parent.level_up_fx(uid, lv_after)
+		_parent.save_game()
 	_refresh_card()
 
 func _on_pct_stat_pressed(uid: String, stat: String) -> void:

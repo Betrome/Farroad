@@ -27,7 +27,7 @@ const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "l
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
 	"affinities", "statInvest", "equipInv", "equipped",
 	"superBossQuests", "superBossesUnlocked", "superBossesCleared",
-	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup"]
+	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup", "goals", "distilled", "raid", "path"]
 
 ## Deep copy through JSON. Safe because saved fields are only plain Dictionaries, Arrays and numbers/strings.
 static func _clone(v: Variant) -> Variant:
@@ -141,6 +141,10 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["crystal"] = g.get("crystal") if g.get("crystal") else 0
 	g["wipes"] = g.get("wipes") if g.get("wipes") else 0
 	g["enemiesDefeated"] = g.get("enemiesDefeated") if g.get("enemiesDefeated") else 0
+	g["goals"] = g.get("goals") if g.get("goals") is Dictionary else {}
+	g["distilled"] = int(g.get("distilled")) if g.get("distilled") else 0
+	g["raid"] = g.get("raid") if g.get("raid") is Dictionary else {}
+	g["path"] = g.get("path") if g.get("path") is Dictionary else {}
 	g["pendingIdleAether"] = g.get("pendingIdleAether") if g.get("pendingIdleAether") else 0.0
 	g["pendingIdleMarks"] = g.get("pendingIdleMarks") if g.get("pendingIdleMarks") else 0.0
 	g["mcRespecs"] = int(g.get("mcRespecs")) if g.get("mcRespecs") else 0

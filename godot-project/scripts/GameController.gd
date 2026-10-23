@@ -304,6 +304,7 @@ func _start_game() -> void:
 		p.popup.window_input.connect(_on_shortcut_event)
 	_layout_wide()
 	_begin_next_fight()
+	_resume_path_fight.call_deferred()
 	_whats_new_if_updated()
 	if Updates.check_enabled() and not OS.has_feature("web"):
 		get_tree().create_timer(6.0).timeout.connect(func(): check_updates(false))
@@ -978,7 +979,7 @@ var bg_set := BG_SET_DEFAULT
 ## repeats until more are made). Dungeons are the cave, the Arena (PvP) is the colosseum.
 const ENV_WAVES := 100
 const ROAD_SETS := ["prairie", "forest", "mountains"]
-const SIDE_SETS := {"dungeon": "cave", "pvp": "colosseum"}
+const SIDE_SETS := {"dungeon": "cave", "pvp": "colosseum", "raid": "colosseum", "path": "forest"}
 
 func _road_set_for_wave(w: int) -> String:
 	var tier: int = clampi((maxi(1, w) - 1) / ENV_WAVES, 0, ROAD_SETS.size() - 1)
@@ -1748,6 +1749,20 @@ func level_up_fx(uid: String, new_level: int) -> void:
 	var nm: String = def["name"] if def else uid
 	LevelUpFx.play(self, vp, Vector2(vp.x * 0.5, vp.y * 0.24), nm, new_level)
 
+func _show_raid_result_popup(event: Dictionary) -> void:
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.text = "%s defeated!" % event["name"] if event["defeated"] else "Raid attempt over"
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.034))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(title)
+	vbox.add_child(_wrap_label("You took %.1f%% of %s's HP this attempt, %.1f%% of the week's total so far." % [float(event["attemptPct"]) * 100.0, event["name"], minf(1.0, float(event["pct"])) * 100.0]))
+	var tier: Dictionary = Raids.tier_by_id(str(event["tier"])) if str(event["tier"]) != "" else {}
+	vbox.add_child(_wrap_label(("Tier so far: %s." % tier["name"]) if not tier.is_empty() else "Reach 10% of its HP this week for the first reward tier.", true))
+	vbox.add_child(_wrap_label("Attempts left today: %d." % int(event["left"]), true))
+	await _finish_detail_overlay(o)
+
 func _show_quest_result_popup(event: Dictionary) -> void:
 	var kind: String = event["kind"]
 	var title_text: String
@@ -1822,6 +1837,28 @@ func _show_quest_result_popup(event: Dictionary) -> void:
 		vbox.add_child(gear)
 
 	await _finish_detail_overlay(o)
+
+## The Goals window (daily / weekly goals), opened from the Goals button above the Log button.
+func open_goals_window() -> void:
+	GoalsWindow.open(self)
+
+## Overlay helpers for GoalsWindow (a small centred card on the game's own layer).
+func build_overlay_window(on_game: bool = true, full: bool = false) -> Dictionary:
+	return _build_detail_overlay(Palette.GOLD_PRESSED, full, on_game)
+
+func finish_overlay_window(o: Dictionary) -> void:
+	await _finish_detail_overlay(o)
+
+## A goal's Crystal was claimed: show the new total and save.
+func goal_claimed() -> void:
+	refresh_hud()
+	save_game()
+
+## Updates the dot on the Goals button of whichever battle views exist.
+func refresh_goals_badges() -> void:
+	for p in [current_presenter, side_presenter]:
+		if p != null and is_instance_valid(p):
+			p.refresh_goals_badge()
 
 func refresh_hud() -> void:
 	aether_cell.text = "Aether %d" % roundi(g["aether"])
@@ -2700,6 +2737,76 @@ func _fill_action_detail(vbox: Container, action_id: String) -> void:
 ## dungeons, expeditions).
 ## The Arena: fights against server opponents (players and ready-made rivals
 ## in one list), with a W/L record and rating.
+## Weekly Arena season (only shown when the server reports one): the countdown, your fights and tier
+## so far, and any finished season's reward waiting to be claimed.
+func _add_season_section(box: VBoxContainer, season: Dictionary, rating: int) -> void:
+	box.add_child(_section_label("Season %d" % int(season.get("number", 1))))
+	var left: float = float(int(season["endsAt"]) - int(Time.get_unix_time_from_system()))
+	var fights: int = int(season.get("fights", 0))
+	var need: int = int(season.get("minFights", Seasons.MIN_FIGHTS))
+	var tier := Seasons.tier_for(rating, 99)
+	var line := "Ends in %s. Fights this season: %d of %d to qualify." % [GoalsWindow.eta_text(left), fights, need]
+	box.add_child(_wrap_label(line))
+	box.add_child(_wrap_label("Tier at this rating: %s (the top %d players finish as Champion). Rewards: Crystals, Marks and Distilled Aether." % [tier["name"], Seasons.TOP_N], true))
+	for entry in season.get("pending", []):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		var t := Seasons.tier_by_id(str(entry["tier"]))
+		var lbl := _wrap_label("Season %d finished: %s (rank %d of %d)" % [int(entry.get("number", 1)), t["name"], int(entry["rank"]), int(entry["of"])])
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(lbl)
+		var claim := Button.new()
+		claim.text = "Claim"
+		UiKit.primary(claim)
+		claim.pressed.connect(func():
+			claim.disabled = true
+			var res := await _ranked().call_api("/season/claim", {"season": int(entry["season"])})
+			if res.has("error"):
+				claim.disabled = false
+				return
+			var paid := Seasons.pay(g, str((res["claimed"] as Dictionary)["tier"]))
+			save_game()
+			refresh_hud()
+			claim.text = "+%d Crystal, +%d Marks, +%d Distilled" % [paid["crystal"], paid["marks"], paid["distilled"]])
+		row.add_child(claim)
+		box.add_child(row)
+
+## The Arena screen's two tabs: Arena (rated fights against other players) and Raids (the weekly boss).
+func _arena_tabs(vbox: VBoxContainer, backdrop: Node) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var holder := VBoxContainer.new()
+	holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	holder.add_theme_constant_override("separation", 6)
+	var buttons := {}
+	var ctx := {}
+	ctx["show"] = func(tab: String):
+		for k in buttons.keys():
+			(buttons[k] as Button).set_pressed_no_signal(k == tab)
+		for c in holder.get_children():
+			c.queue_free()
+		var box := VBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		box.add_theme_constant_override("separation", 6)
+		holder.add_child(box)
+		if tab == "arena":
+			_fill_ranked.call_deferred(box, backdrop)
+		else:
+			RaidsWindow.build(self, box)
+	for entry in [["arena", "Arena"], ["raids", "Raids"]]:
+		var tb := Button.new()
+		tb.text = entry[1]
+		tb.toggle_mode = true
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.pressed.connect(func(): ctx["show"].call(entry[0]))
+		row.add_child(tb)
+		buttons[entry[0]] = tb
+	vbox.add_child(row)
+	vbox.add_child(holder)
+	# ctx holds a lambda that captures it: break the cycle when the window goes
+	backdrop.tree_exited.connect(func(): ctx.clear())
+	ctx["show"].call("arena")
+
 func _show_pvp_popup() -> void:
 	_close_arena()
 	if wide and shell != null:
@@ -2721,10 +2828,7 @@ func _show_pvp_popup() -> void:
 	vbox.add_child(title)
 	# Every fight is decided on the PvP server; the ready-made rivals are server
 	# opponents in the same list as players.
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	vbox.add_child(box)
-	_fill_ranked.call_deferred(box, o["backdrop"])
+	_arena_tabs(vbox, o["backdrop"])
 	await _finish_detail_overlay(o)
 
 ## ===== cloud saves (Ian) =====
@@ -2949,6 +3053,8 @@ func _fill_ranked(box: VBoxContainer, backdrop: Node) -> void:
 	status.modulate = Color(1, 1, 1)
 	box.add_child(_wrap_label("Your team: Power %d" % int(me["power"])))
 	box.add_child(_wrap_label("Your fielded party is your Arena team; others fight it while you're away.", true))
+	if hello.get("season") is Dictionary:
+		_add_season_section(box, hello["season"] as Dictionary, int(me["rating"]))
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
 	var lb_btn := Button.new()
@@ -3159,6 +3265,9 @@ func _start_ranked(res: Dictionary) -> void:
 	if g.get("sideBattle") != null:
 		return
 	_hide_open_panel()
+	Goals.record(g, "arena_fight")
+	if bool(res["won"]):
+		Goals.record(g, "arena_win")
 	var battle := Ranked.build_battle(res["me"], res["them"], int(res["seed"]))
 	var them_name: String = str(res.get("themName", "Rival"))
 	_enter_side_battle([], Ranked.fight_wave(res["me"], res["them"]), {"kind": "pvp", "ranked": true, "owner": them_name,
@@ -3188,16 +3297,12 @@ func _show_arena_in_dock() -> void:
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 8)
 	scroll.add_child(vbox)
-	var box := VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 6)
-	vbox.add_child(box)
+	_arena_tabs(vbox, scroll)
 	shell.page_host.add_child(scroll)
 	shell.show_page("Arena", true)
 	if not shell.page_back.pressed.is_connected(_on_road_pressed):
 		shell.page_back.pressed.connect(_on_road_pressed)
 	scroll.tree_exited.connect(_arena_page_gone)
-	_fill_ranked.call_deferred(box, scroll)
 
 func _arena_page_gone() -> void:
 	if shell == null or docked_panel != null:
@@ -4140,6 +4245,8 @@ func _begin_next_fight(stage_enemies_offscreen: bool = false, hide_party_until_r
 	var presenter := BattlePresenter.new()
 	presenter.crumb_sink = _crumb
 	presenter.wipes_lookup = show_wipes_popup
+	presenter.goals_open = open_goals_window
+	presenter.goals_count = func() -> int: return Goals.claimable_count(g)
 	presenter.battle_finished.connect(_on_battle_finished.bind(presenter))
 	presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
@@ -4805,6 +4912,8 @@ func _spawn_side_presenter(reveal_party: bool) -> void:
 	side_presenter = BattlePresenter.new()
 	side_presenter.crumb_sink = _crumb
 	side_presenter.wipes_lookup = show_wipes_popup
+	side_presenter.goals_open = open_goals_window
+	side_presenter.goals_count = func() -> int: return Goals.claimable_count(g)
 	side_presenter.battle_finished.connect(_on_side_battle_finished)
 	side_presenter.recovery_lookup = func(uid): return FarroadProgression.recovery_of(g, str(uid))
 	side_presenter.catchup_lookup = func(): return FarroadProgression.catchup_mul(g)
@@ -4844,6 +4953,10 @@ func _side_battle_label_text(meta: Dictionary) -> String:
 		return "Training"
 	if meta["kind"] == "quest":
 		return "%s's Quest — Stage %d/5" % [meta["name"], int(meta["stage"]) + 1]
+	if meta["kind"] == "raid":
+		return "Raid — %s" % meta["name"]
+	if meta["kind"] == "path":
+		return "%s%s" % [meta["name"], " — Boss" if meta.get("boss", false) else ""]
 	return "%s — Wave %d/%d" % [meta["name"], int(meta["waveIndex"]) + 1, int(meta["totalWaves"])]
 
 ## ===== Training dummies (TrainingSetup.gd) =====
@@ -4958,6 +5071,92 @@ func attempt_quest(uid: String) -> void:
 	quests_panel.popup.hide()
 	_enter_side_battle(prep["enemies"], prep["wave"], prep["meta"])
 
+## Starts a raid attempt (Arena > Raids): your fielded team against this week's boss.
+## Paths (Quests > Trials): the run window, starting a run, and going to a node.
+func open_paths_window() -> void:
+	PathsWindow.open(self)
+
+func path_start() -> void:
+	if g.get("sideBattle") != null:
+		return
+	Paths.new_run(g, Time.get_unix_time_from_system())
+	save_game()
+	open_paths_window()
+
+func path_retreat() -> void:
+	var ev := Paths.retreat(g, Time.get_unix_time_from_system())
+	refresh_hud()
+	save_game()
+	if ev["ended"]:
+		_show_path_result_popup(ev)
+
+## A node was chosen: a fight starts; an event opens its choice in the window.
+## A Paths fight that was running when the game closed is fought again from the start (the node was
+## recorded before it began), so closing the app can't dodge a loss.
+func _resume_path_fight() -> void:
+	if g.get("sideBattle") != null or not Paths.active(g):
+		return
+	var fight = Paths.run(g).get("fight")
+	if fight is Array and (fight as Array).size() == 2:
+		path_fight(int(fight[0]), int(fight[1]))
+
+func path_fight(row: int, col: int) -> void:
+	if g.get("sideBattle") != null or not Paths.active(g):
+		return
+	# remembered before the fight starts, so closing or killing the app mid-fight can't dodge a loss:
+	# the same node is fought again when the game loads (see _resume_path_fight)
+	Paths.run(g)["fight"] = [row, col]
+	save_game()
+	var f := Paths.build_fight(g, Paths.run(g), row, col)
+	_hide_open_panel()
+	_close_arena()
+	_enter_side_battle([], int(f["wave"]), f["meta"], f["battle"])
+
+func _show_path_result_popup(event: Dictionary) -> void:
+	var o := _build_detail_overlay(Palette.GOLD_PRESSED, false, true)
+	var vbox: VBoxContainer = o["vbox"]
+	var title := Label.new()
+	title.add_theme_font_size_override("font_size", int(vp.y * 0.034))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD
+	if event["victory"]:
+		title.text = "Path complete!"
+	elif event["ended"]:
+		title.text = "The run is over"
+	elif event["levelCleared"]:
+		title.text = "Level cleared!"
+	else:
+		title.text = "Victory"
+	vbox.add_child(title)
+	for t in event["drops"]:
+		vbox.add_child(_wrap_label("• " + str(t)))
+	for n in event["lost"]:
+		var lost_lbl := _wrap_label("%s was lost." % str(n))
+		lost_lbl.modulate = Color(1.0, 0.6, 0.55)
+		vbox.add_child(lost_lbl)
+	if event["ended"]:
+		var r := Paths.run(g)
+		var res: Dictionary = r.get("result", {})
+		vbox.add_child(_wrap_label("Levels cleared: %d of %d.  Rows: %d." % [int(res.get("cleared", 0)), Paths.LEVELS, int(res.get("rows", 0))], true))
+		vbox.add_child(_wrap_label("Reward: %d Crystal." % int(event["crystal"]), true))
+	var again := Button.new()
+	again.text = "Close" if event["ended"] else "Continue"
+	UiKit.primary(again)
+	again.pressed.connect(func():
+		o["backdrop"].queue_free()
+		if not event["ended"]:
+			open_paths_window())
+	vbox.add_child(again)
+	await _finish_detail_overlay(o)
+
+func attempt_raid() -> void:
+	var prep := Raids.start_attempt(g, Time.get_unix_time_from_system())
+	if prep.is_empty():
+		return
+	save_game()   # the used attempt is kept even if the game is killed mid-fight
+	_hide_open_panel()
+	_close_arena()
+	_enter_side_battle(prep["enemies"], int(prep["wave"]), prep["meta"])
+
 func enter_dungeon(id: String) -> void:
 	var prep := FarroadProgression.prep_dungeon_attempt(g, id, Time.get_unix_time_from_system())
 	if prep.is_empty():
@@ -5024,6 +5223,10 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		if pvp_skip_btn != null and is_instance_valid(pvp_skip_btn):
 			pvp_skip_btn.queue_free()
 		_show_pvp_result_popup(event)
+	elif event["kind"] == "raid_done":
+		_show_raid_result_popup(event)
+	elif event["kind"] == "path_node":
+		_show_path_result_popup(event)
 	else:
 		quests_panel.show_result(event)
 		_show_quest_result_popup(event)

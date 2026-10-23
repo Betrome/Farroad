@@ -19,6 +19,9 @@ var toggle_button: Button
 var popup: PopupPanel
 var card_container: VBoxContainer
 var last_result: Dictionary = {}
+## The tab showing: dungeons, quests (the companions' unit quests) or trials (every other game mode).
+var current_tab := "dungeons"
+const TABS := [["dungeons", "Dungeons"], ["quests", "Quests"], ["trials", "Trials"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
@@ -109,17 +112,27 @@ func _refresh_card() -> void:
 
 	var busy: bool = g.get("sideBattle") != null
 
-	# training dummies: the same screen as the Gambits editor's Test button
-	var training_header := Label.new()
-	training_header.text = "TRAINING"
-	training_header.add_theme_font_size_override("font_size", 16)
-	card_container.add_child(training_header)
-	var training_btn := Button.new()
-	training_btn.text = "Open training dummies"
-	training_btn.disabled = busy
-	training_btn.pressed.connect(func():
-		_parent.open_training())
-	card_container.add_child(training_btn)
+	# the tabs across the top
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 8)
+	for entry in TABS:
+		var tb := Button.new()
+		tb.text = entry[1]
+		tb.toggle_mode = true
+		tb.button_pressed = current_tab == entry[0]
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.pressed.connect(func():
+			current_tab = entry[0]
+			_refresh_card())
+		tab_row.add_child(tb)
+	card_container.add_child(tab_row)
+
+	if current_tab == "trials":
+		_build_trials_tab(busy)
+		return
+	if current_tab == "quests":
+		_build_quests_tab(busy)
+		return
 
 	var dungeons_header := Label.new()
 	dungeons_header.text = "DUNGEONS"
@@ -137,6 +150,8 @@ func _refresh_card() -> void:
 		for d in dungeons:
 			card_container.add_child(_build_dungeon_card(d, busy))
 
+## The Quests tab: each companion's own quest line.
+func _build_quests_tab(busy: bool) -> void:
 	var quests_header := Label.new()
 	quests_header.text = "COMPANION QUESTS"
 	quests_header.add_theme_font_size_override("font_size", 16)
@@ -159,6 +174,41 @@ func _refresh_card() -> void:
 		none_lbl.modulate = Palette.TEXT_DIM
 		none_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(none_lbl)
+
+## The Trials tab: where the game's other modes live (Paths, and the training dummies).
+func _build_trials_tab(busy: bool) -> void:
+	var paths_header := Label.new()
+	paths_header.text = "PATHS"
+	paths_header.add_theme_font_size_override("font_size", 16)
+	card_container.add_child(paths_header)
+	var paths_note := Label.new()
+	var meta: Dictionary = Paths.root(g)["meta"]
+	paths_note.text = "A roguelike run: start with your main character at level 1 and build a party from what you find. 5 levels of 10 rows. 1 Crystal per level cleared.  Best: %d of %d levels." % [int(meta["bestLevel"]), Paths.LEVELS]
+	paths_note.modulate = Palette.TEXT_DIM
+	paths_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card_container.add_child(paths_note)
+	var paths_btn := Button.new()
+	paths_btn.text = "Continue your run" if Paths.active(g) else "Open Paths"
+	paths_btn.disabled = busy
+	paths_btn.pressed.connect(func():
+		_parent.open_paths_window())
+	card_container.add_child(paths_btn)
+
+	var header := Label.new()
+	header.text = "TRAINING"
+	header.add_theme_font_size_override("font_size", 16)
+	card_container.add_child(header)
+	var note := Label.new()
+	note.text = "Test your party's gambits against training dummies."
+	note.modulate = Palette.TEXT_DIM
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card_container.add_child(note)
+	var training_btn := Button.new()
+	training_btn.text = "Open training dummies"
+	training_btn.disabled = busy
+	training_btn.pressed.connect(func():
+		_parent.open_training())
+	card_container.add_child(training_btn)
 
 ## A dungeon's card.
 func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
@@ -188,8 +238,8 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	info_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(info_lbl)
 
-	# Dungeon charges: a clear uses one, each dungeon gains one at midnight
-	# UTC, up to DUNGEON_MAX_CHARGES, so a missed day can be made up.
+	# Dungeon charges: a clear uses one, each dungeon gains one at local
+	# midnight, up to DUNGEON_MAX_CHARGES, so a missed day can be made up.
 	var row := HBoxContainer.new()
 	box.add_child(row)
 	var charge_lbl := Label.new()
@@ -204,7 +254,7 @@ func _build_dungeon_card(d: Dictionary, busy: bool) -> PanelContainer:
 	if busy:
 		enter_btn.tooltip_text = "A quest or dungeon attempt is already in progress."
 	elif charges <= 0:
-		enter_btn.tooltip_text = "No charges left -- each dungeon gains one at midnight UTC (up to %d)." % FarroadProgression.DUNGEON_MAX_CHARGES
+		enter_btn.tooltip_text = "No charges left -- each dungeon gains one at midnight, your local time (up to %d)." % FarroadProgression.DUNGEON_MAX_CHARGES
 	var id: String = d["id"]
 	enter_btn.pressed.connect(func(): _on_enter_dungeon_pressed(id))
 	row.add_child(enter_btn)

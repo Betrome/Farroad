@@ -23,9 +23,56 @@ const CRYSTAL_PER_HOUR := 40.0
 ## (replays, idle, expeditions and months of play all fit well inside).
 const LIFETIME_MUL := 60.0
 
+## Rewards claimed in one go can't be seen in the save's history: Arena season rewards (the server
+## pays those itself), raid weeks and Paths Crystal (both client-only), and Distilled Aether, which turns
+## into unit levels. So the server keeps a credit per player: season claims add exactly what they paid,
+## raid and Paths rewards accrue with real time (up to 8 weeks of backlog), and every accepted upload
+## draws down what it gained beyond the normal earning ceilings. How often a player uploads can't
+## change what they're allowed in total.
+const WEEK_SEC := 604800.0
+const BACKLOG_WEEKS := 8.0
+const RAID_CRYSTAL_WEEK := 10.0     # raid Platinum
+const RAID_MARKS_WEEK := 800.0      # 8 pulls
+const RAID_DISTILLED_WEEK := 2.0
+const PATHS_CRYSTAL_DAY := 5.0
+
+## A new player's credit: one week's worth to start with.
+static func new_credit(now: int) -> Dictionary:
+	return {"crystal": RAID_CRYSTAL_WEEK + PATHS_CRYSTAL_DAY * 7.0, "marks": RAID_MARKS_WEEK, "distilled": RAID_DISTILLED_WEEK, "at": now}
+
+## Adds what accrued since the credit was last brought up to date (in place).
+static func accrue(credit: Dictionary, now: int) -> void:
+	var dt: float = maxf(0.0, float(now) - float(credit.get("at", now)))
+	var weeks: float = dt / WEEK_SEC
+	var cap_c: float = BACKLOG_WEEKS * (RAID_CRYSTAL_WEEK + PATHS_CRYSTAL_DAY * 7.0)
+	var cap_m: float = BACKLOG_WEEKS * RAID_MARKS_WEEK
+	var cap_d: float = BACKLOG_WEEKS * RAID_DISTILLED_WEEK
+	var c: float = float(credit.get("crystal", 0.0))
+	var m: float = float(credit.get("marks", 0.0))
+	var d: float = float(credit.get("distilled", 0.0))
+	credit["crystal"] = minf(c + weeks * (RAID_CRYSTAL_WEEK + PATHS_CRYSTAL_DAY * 7.0), maxf(c, cap_c))
+	credit["marks"] = minf(m + weeks * RAID_MARKS_WEEK, maxf(m, cap_m))
+	credit["distilled"] = minf(d + weeks * RAID_DISTILLED_WEEK, maxf(d, cap_d))
+	credit["at"] = now
+
+## A season claim the server just paid.
+static func add_claim(credit: Dictionary, crystal: float, marks: float, distilled: float) -> void:
+	credit["crystal"] = float(credit.get("crystal", 0.0)) + crystal
+	credit["marks"] = float(credit.get("marks", 0.0)) + marks
+	credit["distilled"] = float(credit.get("distilled", 0.0)) + distilled
+
+## The Aether-equivalent of one Distilled Aether in this save: the dearest next level (at the floor discount).
+static func distilled_value(snap: Dictionary) -> float:
+	var lvl: Dictionary = snap.get("lvl", {}) if snap.get("lvl") is Dictionary else {}
+	var dearest := 0.0
+	for uid in lvl:
+		var l := int(lvl[uid])
+		dearest = maxf(dearest, float(FarroadProgression.exp_for(l + 1) - FarroadProgression.exp_for(l)))
+	return maxf(1.0, dearest * FarroadProgression.DISCOUNT_FLOOR)
+
 ## "" when the new save is possible after `prev` with `elapsed` seconds
 ## between them (prev = {} for a first upload), else why not.
-static func check(prev: Dictionary, snap: Dictionary, elapsed: float) -> String:
+static func check(prev: Dictionary, snap: Dictionary, elapsed: float, credit: Dictionary = {}) -> String:
 	if not (snap is Dictionary) or not snap.has("farthest") or not snap.has("lvl"):
 		return "bad_save"
 	var far_new := int(snap.get("farthest", 1))
@@ -45,13 +92,13 @@ static func check(prev: Dictionary, snap: Dictionary, elapsed: float) -> String:
 	if far_new > far_old + int(elapsed / MIN_WAVE_SEC) + 30:
 		return "too_far"
 	var gained := wealth(snap) - wealth(prev)
-	if gained > aether_ceiling(maxi(far_new, far_old), elapsed):
+	if gained > aether_ceiling(maxi(far_new, far_old), elapsed) + float(credit.get("distilled", 0.0)) * distilled_value(snap):
 		return "too_rich"
 	var marks_gained := float(snap.get("marks", 0)) - float(prev.get("marks", 0))
-	if marks_gained > marks_ceiling(maxi(far_new, far_old), elapsed):
+	if marks_gained > marks_ceiling(maxi(far_new, far_old), elapsed) + float(credit.get("marks", 0.0)):
 		return "too_many_marks"
 	var crystal_gained := float(snap.get("crystal", 0)) - float(prev.get("crystal", 0))
-	if crystal_gained > FLAT_CRYSTAL + CRYSTAL_PER_HOUR * elapsed / 3600.0:
+	if crystal_gained > FLAT_CRYSTAL + CRYSTAL_PER_HOUR * elapsed / 3600.0 + float(credit.get("crystal", 0.0)):
 		return "too_much_crystal"
 	return ""
 
@@ -114,3 +161,16 @@ static func lifetime_marks(far: int) -> float:
 	for w in range(1, far + 1):
 		t += FarroadProgression.kill_reward(w, FarroadProgression.enemy_count(w))["marks"] * FarroadProgression.catchup_mul({"farthest": w})
 	return FLAT_MARKS * 5.0 + LIFETIME_MUL * t
+
+## After an accepted upload: draws down the credit by what the save gained beyond the normal ceilings.
+static func spend_credit(credit: Dictionary, prev: Dictionary, snap: Dictionary, elapsed: float) -> void:
+	if prev.is_empty():
+		return
+	elapsed = maxf(0.0, elapsed)
+	var far: int = maxi(int(snap.get("farthest", 1)), int(prev.get("farthest", 1)))
+	var crystal_over: float = float(snap.get("crystal", 0)) - float(prev.get("crystal", 0)) - (FLAT_CRYSTAL + CRYSTAL_PER_HOUR * elapsed / 3600.0)
+	var marks_over: float = float(snap.get("marks", 0)) - float(prev.get("marks", 0)) - marks_ceiling(far, elapsed)
+	var wealth_over: float = wealth(snap) - wealth(prev) - aether_ceiling(far, elapsed)
+	credit["crystal"] = maxf(0.0, float(credit.get("crystal", 0.0)) - maxf(0.0, crystal_over))
+	credit["marks"] = maxf(0.0, float(credit.get("marks", 0.0)) - maxf(0.0, marks_over))
+	credit["distilled"] = maxf(0.0, float(credit.get("distilled", 0.0)) - ceil(maxf(0.0, wealth_over) / distilled_value(snap)))

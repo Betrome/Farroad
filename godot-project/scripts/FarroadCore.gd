@@ -1368,6 +1368,11 @@ static func resolve_hit(src: Dictionary, tgt: Dictionary, act: Dictionary, b: Di
 	o["damage"] = max(1, floori(d))
 	return o
 
+## What a percent-of-max-HP effect (burning, poison, regen, thorns, revive) is a percent of: the unit's
+## max HP, except a raid boss, whose huge HP pool sets dotBase so these don't scale with it.
+static func pct_base(u: Dictionary) -> float:
+	return float(u.get("dotBase", u["maxHp"]))
+
 ## Healing multiplier for a battle (heals, regen, lifesteal). In PvP, healing
 ## shrinks as enrage rises: healDecay "inverse" gives 1/(1+pct*stacks),
 ## "linear" gives 1-pct*stacks, down to nothing.
@@ -1443,7 +1448,7 @@ static func step(b: Dictionary) -> Variant:
 		"rank": 1, "tickCost": 0, "targetName": null, "chargeAfter": u["charge"],
 		"enrageStacks": null}
 	if has(u, "regen") and u["hp"] > 0:
-		var rg: int = max(1, ceili(mag_of(u, "regen") * u["maxHp"] * heal_mul(b) * healed_mul(u)))
+		var rg: int = max(1, ceili(mag_of(u, "regen") * pct_base(u) * heal_mul(b) * healed_mul(u)))
 		var bf = u["hp"]
 		u["hp"] = min(u["maxHp"], u["hp"] + rg)
 		e["regen"] = u["hp"] - bf
@@ -1532,7 +1537,7 @@ static func step(b: Dictionary) -> Variant:
 		var hit_attempted: Dictionary = {}
 		if act.get("revive"):
 			if primary != null and primary["hp"] <= 0:
-				primary["hp"] = max(1, floori(primary["maxHp"] * act["revive"]))
+				primary["hp"] = max(1, floori(pct_base(primary) * act["revive"]))
 				primary["st"] = new_st(); primary["stMag"] = {}
 				e["notes"].append("revived " + primary["name"])
 		elif act.get("heal"):
@@ -1580,7 +1585,7 @@ static func step(b: Dictionary) -> Variant:
 				var refl: float = 0.0
 				for t in targets:
 					if t.get("thorns"):
-						refl += max(1, roundi(t["thorns"] * t["maxHp"]))
+						refl += max(1, roundi(t["thorns"] * pct_base(t)))
 				if refl > 0:
 					u["hp"] = max(0, u["hp"] - refl)
 					e["thorns"] = refl
@@ -1640,14 +1645,14 @@ static func step(b: Dictionary) -> Variant:
 	# before its turn ever happened). It is still the same beat / event
 	# (e["actorId"] is the afflicted unit either way).
 	if has(u, "burning"):
-		var dot: int = max(1, ceili(mag_of(u, "burning") * u["maxHp"]))
+		var dot: int = max(1, ceili(mag_of(u, "burning") * pct_base(u)))   # (a raid boss sets dotBase: its HP pool is huge, its burns aren't)
 		u["hp"] = max(0, u["hp"] - dot)
 		e["dot"] = dot
 	# poison: every poisoned unit loses a little each time anyone acts
 	e["poison"] = []
 	for pu in b["units"]:
 		if pu["hp"] > 0 and has(pu, "poisoned"):
-			var pd: int = max(1, ceili(mag_of(pu, "poisoned") * pu["maxHp"]))
+			var pd: int = max(1, ceili(mag_of(pu, "poisoned") * pct_base(pu)))
 			pu["hp"] = max(0, pu["hp"] - pd)
 			e["poison"].append({"targetName": pu["name"], "amount": pd})
 	if act.get("isCharge"):

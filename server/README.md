@@ -33,3 +33,27 @@ Godot --headless --path godot-project -- --server --port 8910 --data <folder>
 ```
 
 Then start the game with `-- --arena http://127.0.0.1:8910`.
+
+## Weekly seasons (built, switched off)
+
+Arena seasons (`godot-project/scripts/Seasons.gd`, and the season code in `ArenaServer.gd`) are
+**off by default**: a server started the usual way behaves exactly as before, and the game shows
+nothing about seasons because the server doesn't mention them.
+
+To turn them on, start the server with `FARROAD_SEASONS=1` (on Cloud Run: add
+`FARROAD_SEASONS=1` to `--set-env-vars`, e.g. `--set-env-vars FARROAD_STORE=firestore,FARROAD_SEASONS=1`).
+Remove it to turn them off again.
+
+How a season works:
+- A season is Monday 00:00 UTC to the next Monday 00:00 UTC. The first one starts the first time a
+  server with seasons on runs; it is "Season 1".
+- Every fight you start counts. With at least 5 fights in the season you get a tier from your final
+  rating (Bronze, Silver 1050, Gold 1100, Platinum 1200; the top 3 with 1150 or more are Champion).
+- When the season ends the server leaves each qualifying player a reward to claim the next time they
+  open the Arena, and pulls every real player's rating halfway back to 1000. The seven ready-made
+  rival teams are not reset.
+- Rewards (Crystals / Marks as pulls' worth / Distilled Aether): Bronze 2 / 1 / 1, Silver 4 / 2 / 1,
+  Gold 7 / 3 / 2, Platinum 12 / 5 / 3, Champion 25 / 10 / 5. Change them in `Seasons.gd`.
+
+Local test: `Godot --headless --path godot-project -- --server --port 8910 --seasons --data <folder>`;
+`--time-offset=SECONDS` moves the server's clock, to try a season ending.

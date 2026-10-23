@@ -80,6 +80,11 @@ var log_paused: bool = false
 var turn_cards: Array = []
 var status_icon_btn: Button
 var log_icon_btn: Button
+var goals_btn: Button                 # "Goals", just above the Log button
+var goals_open: Callable              # set by GameController: opens the Goals window
+var goals_count: Callable             # set by GameController: how many goals are ready to claim
+var _goals_dot: Control
+var _goals_timer: Timer
 var turn_order_header: Label
 var turn_order_frame: Panel
 var _turn_card_w: float = 0.0   # inner width available to each turn-order card's labels
@@ -400,6 +405,7 @@ func reflow(new_vp: Vector2) -> void:
 	if enrage_label: enrage_label.queue_free()
 	if status_icon_btn: status_icon_btn.queue_free()
 	if log_icon_btn: log_icon_btn.queue_free()
+	if goals_btn: goals_btn.queue_free()
 	if turn_order_header: turn_order_header.queue_free()
 	if turn_order_frame: turn_order_frame.queue_free()
 	if turn_active_frame: turn_active_frame.queue_free()
@@ -421,6 +427,7 @@ func reflow(new_vp: Vector2) -> void:
 	_build_enrage_ui()
 	_build_status_icon()
 	_build_log_icon()
+	_build_goals_icon()
 	_build_turn_order_ui()
 	_raise_chrome()
 	_reposition_units()
@@ -1239,8 +1246,40 @@ func _build_log_icon() -> void:
 	log_icon_btn = _build_icon_tab(_status_log_row_pos(1), icon_size, "Log", _on_log_pressed)
 	log_icon_btn.visible = not docked
 
+## A small Goals button directly above the Log button, with a dot while a goal is ready to claim.
+func _build_goals_icon() -> void:
+	var icon_size: float = _vp.x * STATUS_LOG_ICON_FRAC
+	var pos := _status_log_row_pos(1) - Vector2(0.0, icon_size + _vp.y * 0.008)
+	goals_btn = _build_icon_tab(pos, icon_size, "Goals", func():
+		if goals_open.is_valid():
+			goals_open.call())
+	_goals_dot = Control.new()
+	_goals_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var d: float = maxf(8.0, icon_size * 0.3)
+	_goals_dot.custom_minimum_size = Vector2(d, d)
+	_goals_dot.size = Vector2(d, d)
+	_goals_dot.position = Vector2(icon_size - d * 0.8, -d * 0.2)
+	_goals_dot.draw.connect(func():
+		_goals_dot.draw_circle(_goals_dot.size / 2.0, d / 2.0, Color(0.9, 0.2, 0.2))
+		_goals_dot.draw_arc(_goals_dot.size / 2.0, d / 2.0, 0.0, TAU, 20, Color.WHITE, 1.5))
+	goals_btn.add_child(_goals_dot)
+	_goals_dot.visible = false
+	if _goals_timer == null:
+		_goals_timer = Timer.new()
+		_goals_timer.wait_time = 3.0
+		_goals_timer.autostart = true
+		_goals_timer.ignore_time_scale = true
+		_goals_timer.timeout.connect(refresh_goals_badge)
+		add_child(_goals_timer)
+	refresh_goals_badge()
+
+func refresh_goals_badge() -> void:
+	if _goals_dot != null and is_instance_valid(_goals_dot) and goals_count.is_valid():
+		_goals_dot.visible = int(goals_count.call()) > 0
+
 func _build_log_ui() -> void:
 	_build_log_icon()
+	_build_goals_icon()
 
 	log_popup = PopupPanel.new()
 	_style_popup(log_popup)

@@ -370,6 +370,7 @@ static func do_pull(g: Dictionary) -> Dictionary:
 		Analytics.add("pulls", r["kind"] + ("_dup" if r.get("duplicate", false) else ""))
 		Analytics.add("pulledIds", "%s:%s" % [r["kind"], r.get("id", "")])
 		Analytics.add("spend", "marks:pull", pull_cost(g.get("wave", 1)))
+		Goals.record(g, "pull")
 	return r
 
 static func _do_pull(g: Dictionary) -> Dictionary:
@@ -876,9 +877,28 @@ static func spend_feed(g: Dictionary, uid: String, amount: int) -> bool:
 	if g.get("aether", 0) < amount:
 		return false
 	g["aether"] -= amount
+	Goals.record(g, "aether_spent", float(amount))
 	feed_unit(g, uid, amount)
 	Analytics.add("spend", "aether:level", amount)
 	Analytics.add("aetherByUnit", uid, amount)
+	return true
+
+## Distilled Aether (an Arena season reward): one unit's next level, whatever it costs, when there isn't
+## enough Aether for it. Returns whether a level was gained.
+static func can_use_distilled(g: Dictionary, uid: String) -> bool:
+	return int(g.get("distilled", 0)) > 0 and float(g.get("aether", 0)) < float(next_level_aether(g, uid))
+
+## The Aether the unit's next level still needs (what the "to next level" button spends).
+static func next_level_aether(g: Dictionary, uid: String) -> int:
+	return maxi(1, cost_next(g, uid) - int(exp_of(g, uid)))
+
+static func use_distilled(g: Dictionary, uid: String) -> bool:
+	if not can_use_distilled(g, uid):
+		return false
+	var need := next_level_aether(g, uid)
+	g["distilled"] = int(g["distilled"]) - 1
+	feed_unit(g, uid, need)
+	Analytics.add("spend", "distilled", 1.0)
 	return true
 
 static func spend_recovery(g: Dictionary, uid: String) -> bool:
@@ -886,6 +906,7 @@ static func spend_recovery(g: Dictionary, uid: String) -> bool:
 	if g.get("aether", 0) < c or recovery_maxed(g, uid):
 		return false
 	g["aether"] -= c
+	Goals.record(g, "aether_spent", float(c))
 	g["recovery"][uid] = g["recovery"].get(uid, 0) + 1
 	Analytics.add("spend", "aether:recovery", c)
 	Analytics.add("aetherByUnit", uid, c)
@@ -896,6 +917,7 @@ static func spend_affinity(g: Dictionary, uid: String, axis: String) -> bool:
 	if g.get("aether", 0) < c or affinity_maxed(g, uid, axis):
 		return false
 	g["aether"] -= c
+	Goals.record(g, "aether_spent", float(c))
 	if not g["affinities"].has(uid):
 		g["affinities"][uid] = {}
 	g["affinities"][uid][axis] = g["affinities"][uid].get(axis, 0) + 1
@@ -909,6 +931,7 @@ static func spend_pct_stat(g: Dictionary, uid: String, stat: String) -> bool:
 	if g.get("aether", 0) < c or pct_stat_maxed(g, uid, stat):
 		return false
 	g["aether"] -= c
+	Goals.record(g, "aether_spent", float(c))
 	if not g["statInvest"].has(uid):
 		g["statInvest"][uid] = {}
 	g["statInvest"][uid][stat] = g["statInvest"][uid].get(stat, 0) + 1
@@ -2099,6 +2122,9 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 	# went down. The same counter is bumped by every other win path (side
 	# battles, expedition fights, bonus fights).
 	g["enemiesDefeated"] = int(g.get("enemiesDefeated", 0)) + g["enemies"].size()
+	Goals.record(g, "enemies_defeated", float(g["enemies"].size()))
+	if is_boss_wave(g["wave"]):
+		Goals.record(g, "road_boss")
 	var r := kill_reward(g["wave"], g["enemies"].size())
 	var aether_mul: float = (TUTORIAL_AETHER_MUL if g["wave"] <= TUTORIAL_AETHER_WAVES else 1.0) * catchup_mul(g)
 	# Replaying an already-cleared wave (a checkpoint replay, or a deliberate
@@ -2210,7 +2236,7 @@ static func new_game(seed: int, mc) -> Dictionary:
 	return {
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
-		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0,
+		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0, "goals": {}, "distilled": 0, "raid": {}, "path": {},
 		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0, "mcRespecs": 0, "mcRespecGranted": false,
 		"party": ["kesh"], "partyPresets": [], "loadoutSets": {}, "gearSets": {}, "wipeLog": [], "appearance": {}, "approach": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
@@ -2437,6 +2463,7 @@ static func send_expedition(g: Dictionary, party_ids: Array, direction: String, 
 		Analytics.add("expeditionUnits", uid)
 	var names := expedition_label(exp)
 	push_expedition_log(exp, "%s set out to explore %s." % [names, direction_label(direction)], now)
+	Goals.record(g, "expedition_sent")
 	return true
 
 ## The trip home costs half the real time the party has been out, measured from
@@ -2882,6 +2909,13 @@ static func offline_progress(st: Dictionary) -> float:
 	return clampf(1.0 - float(st["remaining"]) / float(st["capped"]), 0.0, 1.0)
 
 static func offline_step(g: Dictionary, st: Dictionary, budget_ms: int) -> bool:
+	# time away shouldn't complete the day's goals: nothing is recorded while the replay runs
+	Goals.paused = true
+	var done := _offline_step(g, st, budget_ms)
+	Goals.paused = false
+	return done
+
+static func _offline_step(g: Dictionary, st: Dictionary, budget_ms: int) -> bool:
 	if st["done"]:
 		return true
 	var t0 := Time.get_ticks_msec()
@@ -3079,15 +3113,15 @@ static func unlock_direction_dungeon(g: Dictionary, dir: String, tier: int, now)
 
 ## Dungeon charges (Ian): "completing the dungeon consumes one, but at
 ## midnight one more is added for each dungeon", max DUNGEON_MAX_CHARGES --
-## so a player who misses a day can catch up later. Days are UTC calendar
-## days (unix time has no timezone anywhere in this project). Each dungeon
-## keeps its own `charges` and the UTC day number they were last topped up
+## so a player who misses a day can catch up later. Days are the player's LOCAL
+## calendar days (midnight on the device's own clock). Each dungeon
+## keeps its own `charges` and the day number they were last topped up
 ## on (`chargeDay`); refilling is lazy, done whenever charges are read.
 const DUNGEON_MAX_CHARGES := 3
 const DUNGEON_START_CHARGES := 1
 
 static func _utc_day(ts) -> int:
-	return int(floor(float(ts) / 86400.0))
+	return Goals.local_day(ts)   # (name kept: dungeon days are now the player's LOCAL calendar days)
 
 ## Kept for callers that still compare calendar days.
 static func _calendar_day(ts) -> String:
@@ -3427,7 +3461,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 	# Stats page: counted here, before g["battle"] is swapped back to the
 	# Road -- covers every dungeon wave (each one resolves through this
 	# function) and a quest stage's single fight alike.
-	if result == "party" and not gave_up and meta["kind"] != "pvp" and meta["kind"] != "training":
+	if result == "party" and not gave_up and meta["kind"] != "pvp" and meta["kind"] != "training" and meta["kind"] != "path":
 		var foes: int = 0
 		for u in g["battle"]["units"]:
 			if not u["isParty"]:
@@ -3448,6 +3482,8 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 		return {"kind": "dungeon_wave_advance", "waveIndex": meta["waveIndex"], "totalWaves": meta["totalWaves"]}
 
 	var turns: int = int(g["battle"].get("beat", 0))
+	var path_snap: Array = Paths.snapshot_battle(g["battle"]) if meta["kind"] == "path" else []
+	var raid_dmg: float = Raids.damage_from_battle(g["battle"], float(meta.get("startHp", 0.0))) if meta["kind"] == "raid" else 0.0
 	FarroadCore.set_wave(sb["savedWave"])
 	g["battle"] = g["roadBattle"]
 	g["roadBattle"] = null
@@ -3455,6 +3491,14 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 
 	if meta["kind"] == "training":
 		return {"kind": "training_done"}
+	if meta["kind"] == "path":
+		FarroadCore.apply_bonuses(g["bonuses"])
+		return Paths.finish_fight(g, meta, "party" if result == "party" and not gave_up else "enemy", path_snap, int(meta.get("enemies", 1)), now)
+	if meta["kind"] == "raid":
+		var ev := Raids.finish(g, raid_dmg, now)
+		ev["name"] = meta["name"]
+		ev["gaveUp"] = gave_up
+		return ev
 	if meta["kind"] == "pvp" and meta.get("ranked", false):
 		# the server already decided this fight; the replay just showed it
 		Ranked.end_battle(g.get("bonuses", {}))
@@ -3483,6 +3527,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			# only the final stage hands over gear: one rare piece that fits the
 			# unit's own affinity
 			var q_gear: String = _grant_quest_gear(g, str(meta["uid"])) if int(q["stage"]) >= 5 else ""
+			Goals.record(g, "quest_stage")
 			return {"kind": "quest_cleared", "name": meta["name"], "story": meta["story"],
 				"stageNum": int(meta["stage"]) + 1, "questComplete": int(q["stage"]) >= 5, "crystal": QUEST_STAGE_CRYSTAL,
 				"gear": q_gear}
@@ -3502,6 +3547,7 @@ static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now
 			dungeon["lastClearedAt"] = now
 			# dungeons give Crystal only, no Aether / Marks
 			g["crystal"] = int(g.get("crystal", 0)) + DUNGEON_CRYSTAL
+			Goals.record(g, "dungeon")
 			return {"kind": "dungeon_cleared", "name": dungeon["name"], "crystal": DUNGEON_CRYSTAL}
 		else:
 			return {"kind": "dungeon_failed", "name": (dungeon["name"] if dungeon else "Dungeon")}
