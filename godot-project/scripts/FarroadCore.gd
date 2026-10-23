@@ -761,7 +761,7 @@ static func make_battle(units: Array, opts: Dictionary = {}) -> Dictionary:
 		"smartHeal": true, "enrage": bool(opts.get("enrage", false)), "enrageN": 0}
 	for u in units:
 		u["st"] = new_st(); u["stMag"] = {}
-		u["nextActAt"] = tc_of(u, 1.00); u["turnsTaken"] = 0; u["enrageApplied"] = 0; u["alternateFlag"] = 0
+		u["nextActAt"] = tc_of(u, 1.00); u["turnsTaken"] = 0; u["enrageApplied"] = 0; u["alternateFlag"] = 0; u["lastWasStatus"] = false
 	return b
 
 ## ===== targeting / threat =====
@@ -1284,6 +1284,14 @@ static func cond_label(cond_id: String) -> String:
 		"self_first_turn": return "Self: first turn"
 	return "— always —"
 
+## A buff / debuff action: it applies a status and does nothing else (no damage, no healing).
+static func is_pure_status(act) -> bool:
+	return act != null and act.get("applies") != null and str(act.get("applies")) != "" and not act.get("power") and not act.get("heal")
+
+## The triggers that check the status is missing. Any other trigger on a buff / debuff could fire turn
+## after turn, so a unit doesn't use a second one right after the first (see choose_from).
+const LACKS_TRIGGERS := ["foe_lacks_debuff", "ally_lacks_buff", "foe_not_weakened"]
+
 static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dictionary:
 	if u.get("chargeAction") and state["charge"] >= cost_of_charge(ACTIONS.get(u["chargeAction"])):
 		return {"actionId": u["chargeAction"], "target": null, "via": "charge full -> override"}
@@ -1303,6 +1311,8 @@ static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dict
 			return {"actionId": "strike", "target": null, "via": "alternate (nobody down)"}
 		if action_held_by_earlier_fielded(b, u, s[idx]["action"]):
 			return {"actionId": "strike", "target": null, "via": "alternate (shared with an earlier-fielded unit)"}
+		if u.get("lastWasStatus", false) and is_pure_status(a0):
+			return {"actionId": "strike", "target": null, "via": "alternate (no second buff / debuff in a row)"}
 		return {"actionId": s[idx]["action"], "target": null, "via": "alternate -> slot %d" % (idx + 1)}
 	for i in range(n):
 		var act = ACTIONS.get(s[i]["action"])
@@ -1314,7 +1324,15 @@ static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dict
 		# an enemy doesn't refresh a buff on itself that is still up (Raise Shield, Blood Scent, Slipstream...)
 		if not u["isParty"] and act != null and act.get("tk") == "self" and act.get("applies") and has(u, str(act["applies"])):
 			continue
+		# no buff / debuff straight after another one unless its trigger checks that the status is missing
+		var again: bool = u.get("lastWasStatus", false) and is_pure_status(act)
+		if again and not LACKS_TRIGGERS.has(str(s[i]["cond"])):
+			continue
 		var r := resolve_condition(s[i]["cond"], u, b, act)
+		# acting twice in a row on a "lacks" trigger: check again, with the state as it is now, that the
+		# status really is still missing on the target; if not, the trigger is false and the next gambit is tried
+		if again and r["ok"] and (r["target"] == null or has(r["target"], str(act["applies"]))):
+			continue
 		if r["ok"]:
 			return {"actionId": s[i]["action"], "target": r["target"], "condId": s[i]["cond"],
 				"via": "slot %d [%s] ✓" % [i + 1, cond_label(s[i]["cond"])]}
@@ -1668,6 +1686,7 @@ static func step(b: Dictionary) -> Variant:
 			u["cdAt"] = {}
 		u["cdAt"][str(act["id"])] = int(u["turnsTaken"]) + 1 + int(act["cooldown"])
 	u["turnsTaken"] += 1
+	u["lastWasStatus"] = is_pure_status(act)
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
 	if b["enrage"] and b["beat"] >= int(b.get("enrageAfter", ENRAGE_AFTER)):
 		b["enrageN"] = b.get("enrageN", 0) + 1

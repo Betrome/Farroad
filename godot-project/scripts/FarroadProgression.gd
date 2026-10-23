@@ -3018,9 +3018,9 @@ const POWER_PER_LORE := 1.0
 static func power_level(g: Dictionary) -> int:
 	var unit_stat_total := 0.0
 	for uid in g.get("owned", {}).keys():
-		var def = FarroadCore.roster_by_id(uid)
-		var st: Dictionary = stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
-		unit_stat_total += st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"]
+		if FarroadCore.roster_by_id(uid) == null:
+			continue
+		unit_stat_total += unit_power_stats(g, uid)   # level, gear, Evade/crit and affinity investment
 	var lore_levels := 0.0
 	for aid in g.get("bonuses", {}).keys():
 		var b: Dictionary = g["bonuses"][aid]
@@ -3233,7 +3233,26 @@ static func unit_power_stats(g: Dictionary, uid: String) -> float:
 	var st := stats_at(uid, def["stats"], def["hp"], level_of(g, uid))
 	apply_pct_stat_investment(g, uid, st)
 	apply_equipment_stats(g, uid, st)
-	return float(st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"])
+	return float(st["atk"] + st["mag"] + st["def"] + st["res"] + st["spd"] + st["hp"]) + invest_power_points(g, uid) * POWER_STAT_DIVISOR
+
+## Power points (on the scale of Power itself) for what isn't in the stat total: every affinity point
+## (bought, or worn on gear) and every Evade / crit step. Unspent Lore counts for nothing; only
+## Lore applied to an action does (power_level adds that).
+const POWER_PER_AFFINITY_POINT := 0.5
+const POWER_PER_PCT_STEP := 0.5
+
+static func invest_power_points(g: Dictionary, uid: String) -> float:
+	var aff := 0.0
+	var bought: Dictionary = affinity_purchased(g, uid)
+	for ax in bought:
+		aff += maxf(0.0, float(bought[ax]))
+	var worn: Dictionary = equipment_affinity(g, uid)
+	for ax in worn:
+		aff += maxf(0.0, float(worn[ax]))
+	var steps := 0.0
+	for st in PCT_STAT_KEYS:
+		steps += float(pct_stat_purchased(g, uid, st))
+	return aff * POWER_PER_AFFINITY_POINT + steps * POWER_PER_PCT_STEP
 
 ## One unit's Power, on the same scale as the party's (stat total / POWER_STAT_DIVISOR).
 static func unit_power(g: Dictionary, uid: String) -> int:

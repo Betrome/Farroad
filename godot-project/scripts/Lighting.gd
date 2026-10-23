@@ -26,11 +26,11 @@ const REFRESH_SEC := 60.0
 const NOON := {"ambient": Color(0.80, 0.82, 0.92), "sun": Color(1.0, 0.95, 0.82), "energy": 0.6, "rot": 0.0, "height": 0.35, "lean": 0.0, "alpha": 0.55}
 const DAWN := {"ambient": Color(0.74, 0.72, 0.86), "sun": Color(1.0, 0.74, 0.50), "energy": 0.8, "rot": -1.25, "height": 0.15, "lean": 0.18, "alpha": 0.45}
 const DUSK := {"ambient": Color(0.66, 0.58, 0.78), "sun": Color(1.0, 0.52, 0.28), "energy": 0.9, "rot": 1.25, "height": 0.15, "lean": -0.20, "alpha": 0.50}
-const NIGHT := {"ambient": Color(0.30, 0.34, 0.58), "sun": Color(0.55, 0.66, 1.0), "energy": 0.45, "rot": 0.0, "height": 0.30, "lean": 0.0, "alpha": 0.30}
+const NIGHT := {"ambient": Color(0.50, 0.55, 0.80), "sun": Color(0.55, 0.66, 1.0), "energy": 0.6, "rot": 0.0, "height": 0.30, "lean": 0.0, "alpha": 0.30}
 ## Local hour -> look. Between two keys every value is blended.
 const DAY_KEYS := [[0.0, NIGHT], [5.0, NIGHT], [7.0, DAWN], [12.5, NOON], [18.0, DUSK], [20.0, NIGHT], [24.0, NIGHT]]
 ## Sets with a fixed look, whatever the hour: the cave (blue ambient, crystal lights) -- sunless.
-const CAVE := {"ambient": Color(0.30, 0.38, 0.62), "sun": Color(0.45, 0.65, 1.0), "energy": 0.45, "rot": PI / 4.0, "height": 0.30, "lean": -0.13, "alpha": 0.45}
+const CAVE := {"ambient": Color(0.70, 0.78, 1.0), "sun": Color(0.45, 0.65, 1.0), "energy": 0.7, "rot": PI / 4.0, "height": 0.30, "lean": -0.13, "alpha": 0.45}
 ## The forest canopy dims and greens whatever the hour is doing.
 const FOREST_TINT := Color(0.78, 0.90, 0.72)
 const FOREST_SUN_MUL := 0.75
@@ -198,14 +198,29 @@ func on_background_rebuilt() -> void:
 		holder.position = sp.position
 		near.add_child(holder)
 		for c in CAVE_CRYSTALS:
+			var pos := Vector2(c.x * sp.scale.x, c.y * sp.scale.y)
+			var rad: float = (0.55 + c.z / 300.0) * sp.scale.y
+			# a glow sprite (added on top of the picture) on every device: it doesn't depend on the
+			# renderer's per-item light limits, which is why the crystal lights were missing on phones
+			var glow := Sprite2D.new()
+			glow.texture = _glow_tex
+			glow.scale = Vector2(rad, rad) * 1.6
+			glow.modulate = Color(CRYSTAL_COLOR.r, CRYSTAL_COLOR.g, CRYSTAL_COLOR.b, 0.55)
+			var mat := CanvasItemMaterial.new()
+			mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+			glow.material = mat
+			glow.position = pos
+			holder.add_child(glow)
+			if OS.has_feature("mobile") or OS.has_feature("web"):
+				continue   # real point lights (they also light the units nearby) on computers only
 			var l := PointLight2D.new()
 			l.texture = _glow_tex
-			l.texture_scale = (0.55 + c.z / 300.0) * sp.scale.y
+			l.texture_scale = rad
 			l.color = CRYSTAL_COLOR
 			l.energy = 0.9
 			l.height = 30.0
 			l.range_item_cull_mask = SUN_LAYER
-			l.position = Vector2(c.x * sp.scale.x, c.y * sp.scale.y)
+			l.position = pos
 			holder.add_child(l)
 
 ## ===== units =====

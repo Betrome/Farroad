@@ -1427,7 +1427,7 @@ func _show_welcome_back_popup() -> void:
 	var wipes_gained: int = int(s["wipes_gained"])
 	var wipe_txt := ""
 	if wipes_gained > 0:
-		wipe_txt = "\nWiped %d time%s — back to checkpoint." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
+		wipe_txt = "\nWiped %d time%s." % [wipes_gained, ("" if wipes_gained == 1 else "s")]
 
 	# Built on _build_detail_overlay: its scroll container has an explicit,
 	# content-independent minimum size, so nothing here needs its own margin

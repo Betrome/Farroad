@@ -298,7 +298,7 @@ func _refresh_card() -> void:
 			int(free), floori(g["loreByAction"].get(aid, 0.0)), act["name"]]))
 
 	var auto_btn := Button.new()
-	auto_btn.text = "Auto-level: spread the free Lore evenly (never Broad)"
+	auto_btn.text = "Auto-level"
 	auto_btn.disabled = free < 1.0
 	auto_btn.pressed.connect(func():
 		FarroadProgression.auto_level_action(g, aid)
