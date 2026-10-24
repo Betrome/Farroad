@@ -46,6 +46,10 @@ var _art_body_size := Vector2.ZERO   # set only for native-pixel-scale art (see 
 # (tools/unit_anims.py) -- and "impact", the frame the hit lands.
 var _weapon_meta: Dictionary = {}
 var _impact_meta: Dictionary = {}
+# Named event frames, {anim: {event name: frame}} (SpriteFrames "events" metadata, written from an
+# animation's _meta.json "events"). "impact" and "release" are read from here first, then from their own
+# older metadata.
+var _events_meta: Dictionary = {}
 var _fx: AttackFX
 # HP/charge bars and the name live on a separate node that BattlePresenter
 # puts in a layer drawn BEFORE every unit, so sprites are always above the bars
@@ -319,6 +323,7 @@ func resize(unit_size: float) -> void:
 	_fx = null
 	_weapon_meta = {}
 	_impact_meta = {}
+	_events_meta = {}
 	_build(unit_size)
 	if _chrome_layer != null and is_instance_valid(_chrome_layer):
 		attach_chrome_to(_chrome_layer)
@@ -372,7 +377,11 @@ func _build(unit_size: float) -> void:
 				elif frames.has_meta("part_ref") and unit["isParty"]:
 					anim.material = Appearance.material_for(game_state, unit["id"], frames.get_meta("part_ref"))
 				_weapon_meta = frames.get_meta("weapon", {})
-				_impact_meta = frames.get_meta("impact", {})
+				_impact_meta = (frames.get_meta("impact", {}) as Dictionary).duplicate()
+				_events_meta = frames.get_meta("events", {})
+				for ev_anim in _events_meta:
+					if (_events_meta[ev_anim] as Dictionary).has("impact"):
+						_impact_meta[ev_anim] = int(_events_meta[ev_anim]["impact"])
 				if not _weapon_meta.is_empty():
 					anim.frame_changed.connect(_on_anim_frame)
 					_fx = AttackFX.new()
@@ -574,11 +583,16 @@ func time_to_mark(anim_name: String, meta_name: String) -> float:
 		return 0.0
 	var sf: SpriteFrames = (shape as AnimatedSprite2D).sprite_frames
 	var marks: Dictionary = sf.get_meta(meta_name, {}) if sf.has_meta(meta_name) else {}
-	if not marks.has(anim_name):
+	var mark_frame: int
+	if _events_meta.has(anim_name) and (_events_meta[anim_name] as Dictionary).has(meta_name):
+		mark_frame = int(_events_meta[anim_name][meta_name])   # a named event frame wins over the older per-kind metadata
+	elif marks.has(anim_name):
+		mark_frame = int(marks[anim_name])
+	else:
 		return 0.0
 	var fps: float = sf.get_animation_speed(anim_name)
 	var t := 0.0
-	for i in int(marks[anim_name]):
+	for i in mark_frame:
 		t += sf.get_frame_duration(anim_name, i) / fps
 	return t
 
