@@ -21,7 +21,7 @@ var card_container: VBoxContainer
 var last_result: Dictionary = {}
 ## The tab showing: dungeons, quests (the companions' unit quests) or trials (every other game mode).
 var current_tab := "dungeons"
-const TABS := [["dungeons", "Dungeons"], ["quests", "Quests"], ["trials", "Trials"]]
+const TABS := [["dungeons", "Dungeons"], ["quests", "Quests"], ["trials", "Events"]]
 
 func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
@@ -175,24 +175,25 @@ func _build_quests_tab(busy: bool) -> void:
 		none_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card_container.add_child(none_lbl)
 
-## The Trials tab: where the game's other modes live (Paths, and the training dummies).
+## The Events tab (id "trials"): where the game's other modes live (the training dummies; Paths is switched off).
 func _build_trials_tab(busy: bool) -> void:
-	var paths_header := Label.new()
-	paths_header.text = "PATHS"
-	paths_header.add_theme_font_size_override("font_size", 16)
-	card_container.add_child(paths_header)
-	var paths_note := Label.new()
-	var meta: Dictionary = Paths.root(g)["meta"]
-	paths_note.text = "A roguelike run: start with your main character at level 1 and build a party from what you find. 5 levels of 10 rows. 1 Crystal per level cleared.  Best: %d of %d levels." % [int(meta["bestLevel"]), Paths.LEVELS]
-	paths_note.modulate = Palette.TEXT_DIM
-	paths_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	card_container.add_child(paths_note)
-	var paths_btn := Button.new()
-	paths_btn.text = "Continue your run" if Paths.active(g) else "Open Paths"
-	paths_btn.disabled = busy
-	paths_btn.pressed.connect(func():
-		_parent.open_paths_window())
-	card_container.add_child(paths_btn)
+	if Paths.ENABLED:
+		var paths_header := Label.new()
+		paths_header.text = "PATHS"
+		paths_header.add_theme_font_size_override("font_size", 16)
+		card_container.add_child(paths_header)
+		var paths_note := Label.new()
+		var meta: Dictionary = Paths.root(g)["meta"]
+		paths_note.text = "A roguelike run: start with your main character at level 1 and build a party from what you find. 5 levels of 10 rows. 1 Crystal per level cleared.  Best: %d of %d levels." % [int(meta["bestLevel"]), Paths.LEVELS]
+		paths_note.modulate = Palette.TEXT_DIM
+		paths_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card_container.add_child(paths_note)
+		var paths_btn := Button.new()
+		paths_btn.text = "Continue your run" if Paths.active(g) else "Open Paths"
+		paths_btn.disabled = busy
+		paths_btn.pressed.connect(func():
+			_parent.open_paths_window())
+		card_container.add_child(paths_btn)
 
 	var header := Label.new()
 	header.text = "TRAINING"

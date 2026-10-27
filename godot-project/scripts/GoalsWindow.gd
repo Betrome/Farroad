@@ -82,6 +82,7 @@ static func _goal_row(gc: GameController, kind: String, def: Dictionary, render:
 		btn.disabled = true
 	elif done:
 		btn.text = "Claim"
+		_vibrant(btn)
 		btn.pressed.connect(func():
 			if Goals.claim(gc.g, kind, String(def["id"])):
 				gc.goal_claimed()
@@ -103,6 +104,23 @@ static func _goal_row(gc: GameController, kind: String, def: Dictionary, render:
 	prog.add_theme_font_size_override("font_size", int(gc.vp.y * 0.018))
 	box.add_child(prog)
 	return box
+
+## A goal that is ready: a bright green button with a gold edge and bold text, so it stands out from the dim ones.
+static func _vibrant(btn: Button) -> void:
+	var colors := {"normal": Color(0.20, 0.72, 0.32), "hover": Color(0.30, 0.82, 0.42), "pressed": Color(0.14, 0.55, 0.24), "focus": Color(0.20, 0.72, 0.32)}
+	for st in colors:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = colors[st]
+		sb.set_corner_radius_all(18)
+		sb.set_border_width_all(3)
+		sb.border_color = Color(1.0, 0.85, 0.35)
+		sb.shadow_color = Color(0.3, 1.0, 0.45, 0.45)
+		sb.shadow_size = 8
+		btn.add_theme_stylebox_override(st, sb)
+	btn.add_theme_color_override("font_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	btn.add_theme_font_size_override("font_size", 18)
 
 static func _num(v: float) -> String:
 	var s := str(int(floor(v)))

@@ -31,9 +31,9 @@ const LIFETIME_MUL := 60.0
 ## change what they're allowed in total.
 const WEEK_SEC := 604800.0
 const BACKLOG_WEEKS := 8.0
-const RAID_CRYSTAL_WEEK := 10.0     # raid Platinum
+const RAID_CRYSTAL_WEEK := 30.0     # raid Platinum (10) + the community boss's top milestone (20)
 const RAID_MARKS_WEEK := 800.0      # 8 pulls
-const RAID_DISTILLED_WEEK := 2.0
+const RAID_DISTILLED_WEEK := 4.0
 const PATHS_CRYSTAL_DAY := 5.0
 
 ## A new player's credit: one week's worth to start with.

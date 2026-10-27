@@ -20,13 +20,19 @@ extends RefCounted
 ## Fights are built from the run's state with the main game's own engine (a throwaway game dictionary per
 ## battle), so everything about a battle is the same as anywhere else in the game.
 
+## Switched off for now (Ian): nothing opens it and a saved run is ignored. All of it stays in the game for later.
+const ENABLED := false
+
 const LEVELS := 5
 const ROWS := 10
 const MAX_PARTY := 5
 ## The wave of a node: level L, row r (0-9) is wave (L-1)*20 + 2*(r+1), so a level's boss (r = 9) is a boss wave.
 const WAVE_PER_LEVEL := 20
 const DIFF_NAMES := ["Easy", "Medium", "Hard"]
-const DIFF_STAT_MUL := [0.9, 1.0, 1.2]
+## A fight's enemies: the wave's own roll gives the usual count n; the difficulty changes the count and the
+## total enemy power (n x POWER) is spread over them, so an easy fight is a few weaker enemies, a hard one more.
+const DIFF_COUNT_MUL := [0.5, 1.0, 1.6]
+const DIFF_POWER_MUL := [0.8, 1.0, 1.25]
 const DIFF_AETHER_MUL := [1.0, 1.3, 1.8]
 const DIFF_RARE_CHANCE := [0.10, 0.30, 0.60]    # the chance a fight's action is rare (otherwise common)
 const DIFF_UNIT_CHANCE := [0.0, 0.05, 0.10]     # the chance a fight also brings a unit
@@ -122,7 +128,7 @@ static func new_run(g: Dictionary, now) -> Dictionary:
 	var r := {"active": true, "seed": seed, "n": 0, "level": 1, "row": -1, "col": -1, "map": gen_map(seed, 1),
 		"trail": [], "party": ["kesh"], "lost": [], "lvl": {"kesh": 1}, "bank": {"kesh": 0}, "hp": {"kesh": 1.0},
 		"actions": (FarroadProgression.STARTER_ACTIONS as Array).duplicate(), "conditions": ["none"],
-		"loadout": {}, "aether": 0.0, "cleared": 0, "rowsDone": 0, "event": null, "log": []}
+		"loadout": {}, "edited": {}, "aether": 0.0, "cleared": 0, "rowsDone": 0, "event": null, "log": []}
 	root(g)["run"] = r
 	root(g)["meta"]["runs"] = int(root(g)["meta"]["runs"]) + 1
 	_default_loadout(g, r, "kesh")
@@ -209,6 +215,18 @@ static func set_slot(g: Dictionary, r: Dictionary, uid: String, idx: int, cond: 
 	if (r["conditions"] as Array).has(cond) and (r["actions"] as Array).has(action):
 		slots[idx] = {"cond": cond, "action": action}
 		r["loadout"][uid] = slots
+		_edited(r)[uid] = true
+
+## Which units' gambits you have set yourself: drops no longer rearrange those.
+static func _edited(r: Dictionary) -> Dictionary:
+	if not (r.get("edited") is Dictionary):
+		r["edited"] = {}
+	return r["edited"]
+
+## After a new action: units you haven't set yourself get a fresh automatic loadout; the rest keep theirs.
+static func _auto_equip_untouched(g: Dictionary, r: Dictionary, uid: String) -> void:
+	if not bool(_edited(r).get(uid, false)):
+		auto_equip(g, r, uid)
 
 static func auto_equip(g: Dictionary, r: Dictionary, uid: String) -> void:
 	var pg := make_run_game(g, r, node_wave(int(r["level"]), maxi(0, int(r["row"]))))
@@ -250,7 +268,20 @@ static func build_fight(g: Dictionary, r: Dictionary, row: int, col: int) -> Dic
 		party.append(FarroadProgression.build_party_unit(pg, String(r["party"][i]), i))
 	var enemies: Array = FarroadProgression.build_enemies(pg, wave, true)
 	if String(node["t"]) == "fight":
-		enemies = FarroadProgression.apply_stat_mul(enemies, float(DIFF_STAT_MUL[int(node["d"])]))
+		var d := int(node["d"])
+		var n0 := enemies.size()
+		var want: int = clampi(roundi(float(n0) * float(DIFF_COUNT_MUL[d])), 1, 10)
+		var guard := 0
+		while enemies.size() < want and guard < 20:
+			guard += 1
+			enemies.append_array(FarroadProgression.build_enemies(pg, wave, true).slice(0, want - enemies.size()))
+		enemies = enemies.slice(0, want)
+		var strip := RegEx.create_from_string(r" \d+$")
+		for j in enemies.size():   # ids and numbering are the new list's own
+			enemies[j]["id"] = "e%d" % j
+			var base_name: String = strip.sub(String(enemies[j]["name"]), "")
+			enemies[j]["name"] = base_name + (" %d" % (j + 1) if enemies.size() > 1 else "")
+		enemies = FarroadProgression.apply_stat_mul(enemies, clampf(float(DIFF_POWER_MUL[d]) * float(n0) / float(want), 0.4, 1.6))
 	var battle := FarroadCore.make_battle(party + enemies, {"rng": pg["rng"], "enrage": true})
 	return {"battle": battle, "wave": wave,
 		"meta": {"kind": "path", "row": row, "col": col, "diff": int(node["d"]), "boss": String(node["t"]) == "boss",
@@ -286,7 +317,8 @@ static func finish_fight(g: Dictionary, meta: Dictionary, result: String, snap: 
 		_remove_unit(r, uid)
 		ev["lost"].append(_name_of(uid))
 	var mc_alive: bool = (r["party"] as Array).has("kesh")
-	if result != "party" or not mc_alive or (r["party"] as Array).is_empty():
+	# the run only ends when the main character is down at the end of the battle (other units are just lost)
+	if not mc_alive or (r["party"] as Array).is_empty():
 		ev["ended"] = true
 		_end(g, r, now, ev)
 		return ev
@@ -357,7 +389,7 @@ static func _drops(g: Dictionary, r: Dictionary, meta: Dictionary, enemy_count: 
 			texts.append("(your party is full: +%d Aether instead)" % roundi(aether))
 	# a new action may deserve a slot
 	for uid in r["party"]:
-		auto_equip(g, r, String(uid))
+		_auto_equip_untouched(g, r, String(uid))
 
 static func _pick_action(r: Dictionary, rarity: String, rng: RandomNumberGenerator) -> String:
 	var owned: Array = r["actions"]

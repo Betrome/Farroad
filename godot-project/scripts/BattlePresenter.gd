@@ -571,6 +571,10 @@ func sync_live_party(added: Array, removed: Array = []) -> void:
 		new_views.append(view)
 	var leaving_views := []
 	for uid in removed:
+		_busy_units.erase(uid)
+		# that unit's beats can't finish any more: stop waiting for them, but only for them
+		_beats_running = maxi(0, _beats_running - int(_detached_by_uid.get(uid, 0)))
+		_detached_by_uid.erase(uid)
 		var view: UnitView = unit_views_by_id.get(uid)
 		if view != null:
 			leaving_views.append(view)
@@ -1324,6 +1328,48 @@ func _build_log_ui() -> void:
 	log_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(log_container)
 
+var _log_fading := false
+
+## Called on the new wave's presenter as the old one goes: an open log stays open, still showing the wave that
+## just ended, and those entries fade out while the new wave's entries arrive on top.
+func carry_log_from(old: Node) -> void:
+	if old == null or not is_instance_valid(old):
+		return
+	var lines: Array = (old.log_lines as Array).duplicate()
+	if lines.is_empty():
+		return
+	var was_open: bool = old.log_popup != null and old.log_popup.visible
+	for l in lines:
+		l["old"] = true
+	log_lines = lines + log_lines
+	if was_open and log_popup != null and not docked:
+		_rebuild_log_container()
+		log_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.75))
+	_fade_old_log()
+
+func _fade_old_log() -> void:
+	await get_tree().create_timer(0.9).timeout
+	if not is_inside_tree():
+		return
+	if _log_open() and log_container != null:
+		_log_fading = true
+		var tw := create_tween().set_parallel(true)
+		var any := false
+		for c in log_container.get_children():
+			if c.has_meta("old"):
+				any = true
+				tw.tween_property(c, "modulate:a", 0.0, 0.7)
+		if any:
+			await tw.finished
+		else:
+			tw.kill()
+		for c in log_container.get_children():
+			if is_instance_valid(c) and c.has_meta("old"):
+				log_container.remove_child(c)
+				c.queue_free()
+		_log_fading = false
+	log_lines = log_lines.filter(func(l): return not l.get("old", false))
+
 func _on_log_pressed() -> void:
 	_rebuild_log_container()
 	log_popup.popup_centered(Vector2(_vp.x * 0.85, _vp.y * 0.75))
@@ -1351,8 +1397,13 @@ func _rebuild_log_container() -> void:
 		log_container.remove_child(c)   # so the child count is exact right away
 		c.queue_free()
 	for i in range(log_lines.size() - 1, -1, -1):
-		log_container.add_child(_build_log_entry_node(log_lines[i]))
-		log_container.add_child(HSeparator.new())
+		var entry_node := _build_log_entry_node(log_lines[i])
+		var sep := HSeparator.new()
+		if log_lines[i].get("old", false):   # the wave before (see carry_log_from)
+			entry_node.set_meta("old", true)
+			sep.set_meta("old", true)
+		log_container.add_child(entry_node)
+		log_container.add_child(sep)
 
 ## A new entry was appended: drop the oldest beyond LOG_MAX, and if the log is on screen add just the
 ## new entry's block at the top (newest first) instead of rebuilding every entry.
@@ -1360,6 +1411,14 @@ func _log_added() -> void:
 	while log_lines.size() > LOG_MAX:
 		log_lines.pop_front()
 	if not _log_open() or log_paused:
+		return
+	if _log_fading:
+		var fresh := _build_log_entry_node(log_lines[log_lines.size() - 1])
+		var fresh_sep := HSeparator.new()
+		log_container.add_child(fresh)
+		log_container.add_child(fresh_sep)
+		log_container.move_child(fresh, 0)
+		log_container.move_child(fresh_sep, 1)
 		return
 	if log_container.get_child_count() != (log_lines.size() - 1) * 2 and log_container.get_child_count() != LOG_MAX * 2:
 		_rebuild_log_container()   # the on-screen list was out of step (first beat, after a clear...)
@@ -2152,8 +2211,10 @@ func _run_battle_loop() -> void:
 		# so it stays at its target and attacks again, like allies do.
 		var up: Array = _preview_respecting_locks()
 		if busy_guard and not up.is_empty():
-			while _busy_units.has(up[0]["unitId"]):
+			var busy_t0 := Time.get_ticks_msec()
+			while _busy_units.has(up[0]["unitId"]) and Time.get_ticks_msec() - busy_t0 < BEAT_WATCHDOG_MS:
 				await get_tree().process_frame
+			_busy_units.erase(up[0]["unitId"])   # (a beat whose unit left mid-animation never clears itself)
 		guard += 1
 		var e = FarroadCore.step(battle)
 		if e == null:
@@ -2180,12 +2241,12 @@ func _run_battle_loop() -> void:
 		# the fight isn't over.
 		if battle["over"] == null and _next_is_same_side_other_unit(e):
 			_beats_running += 1
+			_detached_by_uid[e["actorId"]] = int(_detached_by_uid.get(e["actorId"], 0)) + 1
 			_run_beat_detached(e)
 			await get_tree().create_timer(SAME_SIDE_STAGGER).timeout
 		else:
-			await _tracked_beat(e)
-			while _beats_running > 0:
-				await get_tree().process_frame
+			await _await_beat(e)
+			await _await_beats_idle()
 		active_unit_id = ""
 		_refresh_turn_order()
 		_refresh_enrage()
@@ -2205,8 +2266,7 @@ func _run_battle_loop() -> void:
 	# same safe fallback every non-"party" outcome already gets).
 	if battle["over"] == null:
 		battle["over"] = "draw"
-	while _beats_running > 0:
-		await get_tree().process_frame
+	await _await_beats_idle()
 	_release_chained("")
 	var fought: Array = []
 	var fallen: Array = []
@@ -2232,6 +2292,21 @@ func _run_battle_loop() -> void:
 
 const SAME_SIDE_STAGGER := 0.25
 var _beats_running := 0
+## A beat belonging to a unit that was switched out mid-animation can't finish (its sprite is gone), so the loop
+## doesn't wait for beats forever: past this it carries on and forgets them. Without it, swapping the whole party
+## left combat stopped.
+const BEAT_WATCHDOG_MS := 5000
+
+func _await_beats_idle() -> void:
+	var t0 := Time.get_ticks_msec()
+	while _beats_running > 0 and Time.get_ticks_msec() - t0 < BEAT_WATCHDOG_MS:
+		await get_tree().process_frame
+	if _beats_running > 0:
+		if crumb_sink.is_valid():
+			crumb_sink.call("beatWatchdog:%d beats" % _beats_running)
+		_beats_running = 0
+		_detached_by_uid.clear()
+		_busy_units.clear()
 var _event_seq := 0
 
 ## Every unit shows its real, current HP: run once nothing is mid-animation so
@@ -2243,8 +2318,34 @@ func _refresh_hp_all() -> void:
 			view.update_hp()
 
 func _run_beat_detached(e: Dictionary) -> void:
+	var uid = e["actorId"]
 	await _tracked_beat(e)
-	_beats_running -= 1
+	# (if the unit left mid-beat its count was already taken off, see sync_live_party)
+	if int(_detached_by_uid.get(uid, 0)) > 0:
+		_detached_by_uid[uid] = int(_detached_by_uid[uid]) - 1
+		if int(_detached_by_uid[uid]) <= 0:
+			_detached_by_uid.erase(uid)
+		_beats_running = maxi(0, _beats_running - 1)
+
+## uid -> how many of that unit's detached beats are still running.
+var _detached_by_uid: Dictionary = {}
+
+## Waits for a beat; a beat whose unit was switched out mid-animation can't finish, so after BEAT_WATCHDOG_MS the
+## loop carries on (and leaves a crumb, like the Road's own watchdog).
+func _await_beat(e: Dictionary) -> void:
+	var done := {"v": false}
+	_tracked_beat_flag(e, done)
+	var t0 := Time.get_ticks_msec()
+	while not done["v"] and Time.get_ticks_msec() - t0 < BEAT_WATCHDOG_MS + 1000:
+		await get_tree().process_frame
+	if not done["v"]:
+		if crumb_sink.is_valid():
+			crumb_sink.call("beatWatchdog:%s" % str(e.get("actorId", "?")))
+		_busy_units.erase(e["actorId"])
+
+func _tracked_beat_flag(e: Dictionary, done: Dictionary) -> void:
+	await _tracked_beat(e)
+	done["v"] = true
 
 var _busy_units: Dictionary = {}
 var busy_guard := true      # test hook
@@ -2634,11 +2735,14 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2, duration: float = HOP_TIM
 	var height: float = _vp.y * HOP_HEIGHT_FRAC
 	var tw := create_tween()
 	tw.tween_method(func(t: float):
+			if not is_instance_valid(actor):   # a unit switched out mid-hop: its sprite is gone
+				return
 			actor.air = height * sin(t * PI)   # how far off the ground the arc has lifted it (the blob shadow reads this)
 			actor.shape.position = from.lerp(to, t) + Vector2(0, -actor.air),
 		0.0, 1.0, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	await tw.finished
-	actor.air = 0.0
+	if is_instance_valid(actor):
+		actor.air = 0.0
 
 ## A straight-line dash to the target, an alternative to the arcing hop (same
 ## signature and local-offset convention as _hop()). Used only for a unit whose
@@ -2647,6 +2751,8 @@ func _hop(actor: UnitView, from: Vector2, to: Vector2, duration: float = HOP_TIM
 ## HOP_TIME round trip since a run reads as brisker than an arcing jump.
 const RUN_TIME := 0.35
 func _run_to(actor: UnitView, from: Vector2, to: Vector2, duration: float = RUN_TIME) -> void:
+	if not is_instance_valid(actor):
+		return
 	actor.shape.position = from
 	var tw := create_tween()
 	tw.tween_property(actor.shape, "position", to, duration).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
@@ -2664,10 +2770,10 @@ func _return_and_settle(actor: UnitView, use_run: bool, was_alive: bool, duratio
 		await _run_to(actor, actor.shape.position, Vector2.ZERO, duration)
 	else:
 		await _hop(actor, actor.shape.position, Vector2.ZERO, duration)
-	if was_alive:
+	if was_alive and is_instance_valid(actor):
 		actor.play_state("land")
 		await actor.wait_for_animation(0.3)
-		if float(actor.unit["hp"]) > 0.0:
+		if is_instance_valid(actor) and float(actor.unit["hp"]) > 0.0:
 			actor.play_state("idle")
 
 ## Magic/ranged attack (and heals): a projectile travels actor -> a

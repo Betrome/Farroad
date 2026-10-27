@@ -92,14 +92,25 @@ static func _intro(gc: GameController, o: Dictionary, vbox: VBoxContainer, rende
 
 static func _party(gc: GameController, o: Dictionary, vbox: VBoxContainer, r: Dictionary, render: Callable) -> void:
 	vbox.add_child(_label("PARTY", false, 16))
+	# once you have picked a node (an event is open, or a fight has started) the party can't be changed
+	var locked: bool = r.get("event") != null or gc.g.get("sideBattle") != null
+	if locked:
+		vbox.add_child(_label("Levelling and gambits are locked until you have chosen.", true))
 	for uid in r["party"]:
 		var def = FarroadCore.roster_by_id(String(uid))
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 4)
 		var top_row := HBoxContainer.new()
 		top_row.add_theme_constant_override("separation", 8)
-		var name_lbl := _label("%s  Lv %d" % [def["name"] if def else uid, int(r["lvl"].get(uid, 1))])
-		top_row.add_child(name_lbl)
+		var name_btn := Button.new()
+		name_btn.text = "%s  Lv %d" % [def["name"] if def else uid, int(r["lvl"].get(uid, 1))]
+		name_btn.flat = true
+		name_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_btn.clip_text = true
+		name_btn.tooltip_text = "Tap to see this unit's stats"
+		name_btn.pressed.connect(func(): _stats_popup(gc, r, String(uid)))
+		top_row.add_child(name_btn)
 		var bar := ProgressBar.new()
 		bar.min_value = 0.0
 		bar.max_value = 1.0
@@ -116,7 +127,7 @@ static func _party(gc: GameController, o: Dictionary, vbox: VBoxContainer, r: Di
 		up.text = "Lv up (%d)" % cost
 		up.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		up.clip_text = true
-		up.disabled = float(r["aether"]) < float(cost)
+		up.disabled = locked or float(r["aether"]) < float(cost)
 		up.pressed.connect(func():
 			Paths.level_up(gc.g, r, String(uid))
 			gc.save_game()
@@ -126,6 +137,7 @@ static func _party(gc: GameController, o: Dictionary, vbox: VBoxContainer, r: Di
 		lo.text = "Gambits"
 		lo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lo.clip_text = true
+		lo.disabled = locked
 		lo.pressed.connect(func(): _loadout(gc, r, String(uid), render))
 		btn_row.add_child(lo)
 		card.add_child(btn_row)
@@ -318,60 +330,64 @@ static func _event(gc: GameController, vbox: VBoxContainer, r: Dictionary, rende
 			render.call())
 		vbox.add_child(b)
 
-## One unit's gambit slots: a condition and an action each, from what the run has found.
+## One unit's gambit slots, in the same editor as the Units menu (GambitsPanel), working on the run's own
+## actions, gambits and loadouts. What you set stays set: drops no longer rearrange a unit you edited.
 static func _loadout(gc: GameController, r: Dictionary, uid: String, render: Callable) -> void:
 	var o := gc.build_overlay_window(false)
 	var vbox: VBoxContainer = o["vbox"]
-	var def = FarroadCore.roster_by_id(uid)
-	vbox.add_child(_label("%s's gambits" % (def["name"] if def else uid), false, 16))
-	var auto := Button.new()
-	auto.text = "Auto-set"
-	vbox.add_child(auto)
-	var slots_box := VBoxContainer.new()
-	slots_box.add_theme_constant_override("separation", 6)
-	vbox.add_child(slots_box)
-	var ctx := {}
-	ctx["fill"] = func():
-		_clear(slots_box)
-		var slots := Paths.loadout_of(gc.g, r, uid)
-		for i in slots.size():
-			var row := HBoxContainer.new()
-			row.add_theme_constant_override("separation", 6)
-			row.add_child(_label("%d" % (i + 1)))
-			var cond := OptionButton.new()
-			cond.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var conds: Array = r["conditions"]
-			for k in conds.size():
-				cond.add_item(FarroadCore.cond_label(String(conds[k])), k)
-				if String(conds[k]) == String(slots[i]["cond"]):
-					cond.select(k)
-			var act := OptionButton.new()
-			act.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var acts: Array = r["actions"]
-			for k in acts.size():
-				var a: Dictionary = FarroadCore.ACTIONS.get(String(acts[k]), {})
-				act.add_item(String(a.get("name", acts[k])), k)
-				if String(acts[k]) == String(slots[i]["action"]):
-					act.select(k)
-			var changed := func(_idx: int):
-				Paths.set_slot(gc.g, r, uid, i, String(conds[cond.selected]), String(acts[act.selected]))
-				gc.save_game()
-			cond.item_selected.connect(changed)
-			act.item_selected.connect(changed)
-			row.add_child(cond)
-			row.add_child(act)
-			slots_box.add_child(row)
-	auto.pressed.connect(func():
-		Paths.auto_equip(gc.g, r, uid)
-		gc.save_game()
-		ctx["fill"].call())
-	ctx["fill"].call()
+	var pg := Paths.make_run_game(gc.g, r, Paths.node_wave(int(r["level"]), maxi(0, int(r["row"]))))
+	# the editor writes straight into the run's own data
+	pg["loadout"] = r["loadout"]
+	pg["actions"] = r["actions"]
+	pg["conditions"] = r["conditions"]
+	pg["touched"] = Paths._edited(r)
+	var mc_copy: Dictionary = (pg["mc"] as Dictionary).duplicate(true) if pg.get("mc") is Dictionary else {}
+	if not mc_copy.is_empty():
+		mc_copy["acquiredCharges"] = [mc_copy.get("chargeAction")]   # the run has no spare charge actions to swap to
+	pg["mc"] = mc_copy if not mc_copy.is_empty() else null
+	var title := _label("%s's gambits" % Paths._name_of(uid), false, 16)
+	vbox.add_child(title)
+	var host := VBoxContainer.new()
+	host.add_theme_constant_override("separation", 6)
+	host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(host)
+	var gp := GambitsPanel.new()
+	gp.run_mode = true
+	o["backdrop"].add_child(gp)
+	gp.setup(pg, gc.vp, gc)
+	gp.build_into(host, uid, null)
 	var close := Button.new()
 	close.text = "Done"
 	close.pressed.connect(func():
+		gc.save_game()
 		o["backdrop"].queue_free()
 		render.call())
 	vbox.add_child(close)
-	# the render lambda captures ctx: break that cycle when the window goes
-	o["backdrop"].tree_exited.connect(func(): ctx.clear())
+	await gc.finish_overlay_window(o)
+
+## A unit's stats in the run: level, HP and the five stats, charge action and gambits.
+static func _stats_popup(gc: GameController, r: Dictionary, uid: String) -> void:
+	var def = FarroadCore.roster_by_id(uid)
+	if def == null:
+		return
+	var o := gc.build_overlay_window(false)
+	var vbox: VBoxContainer = o["vbox"]
+	var lvl := int(r["lvl"].get(uid, 1))
+	var st := FarroadProgression.stats_at(uid, def["stats"], def["hp"], lvl)
+	vbox.add_child(_label("%s  Lv %d" % [Paths._name_of(uid), lvl], false, 18))
+	var hp_frac: float = float(r["hp"].get(uid, 1.0))
+	vbox.add_child(_label("HP %d / %d" % [roundi(float(st["hp"]) * hp_frac), roundi(float(st["hp"]))]))
+	vbox.add_child(_label("ATK %d   MAG %d   DEF %d   RES %d   SPD %d" % [roundi(st["atk"]), roundi(st["mag"]), roundi(st["def"]), roundi(st["res"]), roundi(st["spd"])]))
+	if def.get("chargeAction"):
+		vbox.add_child(_label("Charge action: %s" % String(FarroadCore.ACTIONS.get(def["chargeAction"], {}).get("name", def["chargeAction"])), true))
+	var pg := Paths.make_run_game(gc.g, r, Paths.node_wave(int(r["level"]), maxi(0, int(r["row"]))))
+	var slots: Array = FarroadProgression.ensure_loadout(pg, uid)
+	vbox.add_child(_label("Gambits", false, 16))
+	for i in slots.size():
+		var a: Dictionary = FarroadCore.ACTIONS.get(String(slots[i]["action"]), {})
+		vbox.add_child(_label("%d. %s: %s" % [i + 1, FarroadCore.cond_label(String(slots[i]["cond"])), String(a.get("name", slots[i]["action"]))], true))
+	var close := Button.new()
+	close.text = "Close"
+	close.pressed.connect(func(): o["backdrop"].queue_free())
+	vbox.add_child(close)
 	await gc.finish_overlay_window(o)

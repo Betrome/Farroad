@@ -199,6 +199,8 @@ func _boot_after_terms() -> void:
 ## open it the instant a scroll gesture's first touch landed on it).
 func _on_node_added(n: Node) -> void:
 	if n is ScrollContainer:
+		# no horizontal scrolling anywhere (a general rule): content is made to fit the width instead
+		(n as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		# Deferred: node_added fires mid-add_child, when the container can
 		# still refuse a child of its own.
 		_attach_touch_scroll.call_deferred(n)
@@ -1016,14 +1018,14 @@ const BG_LAYER_SPEEDS := [0.25, 0.84, 1.0]
 const BG_LAYER_SUFFIX := ["_far.png", "_mid.png", "_near.png"]
 var bg_set := BG_SET_DEFAULT
 
-## The Road climbs: every ENV_WAVES waves the environment changes (ROAD_SETS in order; the last one
-## repeats until more are made). Dungeons are the cave, the Arena (PvP) is the colosseum.
-const ENV_WAVES := 100
+## The Road climbs: after every boss (every ENV_WAVES waves) the gate opens and the environment changes
+## (ROAD_SETS in order, then round again). Dungeons are the cave, the Arena (PvP) is the colosseum.
+const ENV_WAVES := FarroadProgression.BOSS_EVERY
 const ROAD_SETS := ["prairie", "forest", "mountains"]
-const SIDE_SETS := {"dungeon": "cave", "pvp": "colosseum", "raid": "colosseum", "path": "forest"}
+const SIDE_SETS := {"dungeon": "cave", "pvp": "colosseum", "raid": "colosseum"}
 
 func _road_set_for_wave(w: int) -> String:
-	var tier: int = clampi((maxi(1, w) - 1) / ENV_WAVES, 0, ROAD_SETS.size() - 1)
+	var tier: int = ((maxi(1, w) - 1) / ENV_WAVES) % ROAD_SETS.size()
 	return ROAD_SETS[tier]
 
 ## The set the screen should show right now: the side battle's, else the Road's for the current wave.
@@ -2075,7 +2077,7 @@ func dock_close() -> void:
 		panel.popup.move_child(_docked_scroll, 0)
 		_docked_scroll.custom_minimum_size = _docked_scroll.get_meta("dock_min")
 		inner.custom_minimum_size = inner.get_meta("dock_min")
-		(_docked_scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		(_docked_scroll as ScrollContainer).horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_docked_scroll = null
 	if shell != null:
 		shell.show_page("", false)
@@ -2835,6 +2837,7 @@ func _arena_tabs(vbox: VBoxContainer, backdrop: Node) -> void:
 			_fill_ranked.call_deferred(box, backdrop)
 		else:
 			RaidsWindow.build(self, box)
+			raid_sync.call_deferred(box)
 	for entry in [["arena", "Arena"], ["raids", "Raids"]]:
 		var tb := Button.new()
 		tb.text = entry[1]
@@ -4687,6 +4690,8 @@ func _on_battle_finished_inner(outcome: String) -> void:
 		await get_tree().create_timer(early).timeout
 		# the allies are all at their marks: swap the old picture for the new one
 		if old_presenter != null and is_instance_valid(old_presenter):
+			if is_instance_valid(next):
+				next.carry_log_from(old_presenter)   # an open log stays open; the old wave's entries fade out
 			old_presenter.queue_free()
 		if not (is_instance_valid(next) and next == current_presenter):
 			return
@@ -5136,7 +5141,7 @@ func path_retreat() -> void:
 ## A Paths fight that was running when the game closed is fought again from the start (the node was
 ## recorded before it began), so closing the app can't dodge a loss.
 func _resume_path_fight() -> void:
-	if g.get("sideBattle") != null or not Paths.active(g):
+	if not Paths.ENABLED or g.get("sideBattle") != null or not Paths.active(g):
 		return
 	var fight = Paths.run(g).get("fight")
 	if fight is Array and (fight as Array).size() == 2:
@@ -5189,6 +5194,35 @@ func _show_path_result_popup(event: Dictionary) -> void:
 			open_paths_window())
 	vbox.add_child(again)
 	await _finish_detail_overlay(o)
+
+var _raid_syncing := false
+
+## Tells the server about raid attempts it hasn't heard of and asks for the community boss's state; then redraws
+## `box` (the open Raids tab) with it. Silent when offline: the community bar just isn't shown.
+func raid_sync(box: Node = null) -> void:
+	if _raid_syncing or not RankedClient.online():
+		return
+	_raid_syncing = true
+	var now: float = Time.get_unix_time_from_system()
+	var st := Raids.refresh(g, now)
+	var client := _ranked()
+	var q: Array = st.get("unsent", [])
+	while not q.is_empty():
+		var rep: Dictionary = q[0]
+		var res := await client.call_api("/raid/report", {"week": int(rep["week"]), "day": int(rep.get("day", Raids.day_of(now))), "pct": float(rep["pct"])})
+		var err := str(res.get("error", ""))
+		if err in ["offline", "bad_reply", "raids_off", "bad_key"] or err.begins_with("http_"):
+			break   # not heard: keep it for next time
+		q.pop_front()   # accepted, or definitively refused (wrong week, day full, bad day): don't send it again
+		if err == "":
+			Raids.apply_community(g, now, res)
+	var view := await client.call_api("/raid/state", {})
+	if not view.has("error"):
+		Raids.apply_community(g, now, view)
+	_raid_syncing = false
+	save_game()
+	if box != null and is_instance_valid(box) and box is VBoxContainer:
+		RaidsWindow.rebuild(self, box)
 
 func attempt_raid() -> void:
 	var prep := Raids.start_attempt(g, Time.get_unix_time_from_system())
@@ -5267,6 +5301,7 @@ func _resolve_side_battle(result: String, gave_up: bool) -> void:
 		_show_pvp_result_popup(event)
 	elif event["kind"] == "raid_done":
 		_show_raid_result_popup(event)
+		raid_sync.call_deferred(null)
 	elif event["kind"] == "path_node":
 		_show_path_result_popup(event)
 	else:

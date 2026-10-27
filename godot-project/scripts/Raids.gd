@@ -31,6 +31,32 @@ const WAVE_FRAC := 0.8
 ## The week's HP pool is the boss's normal HP times this.
 const HP_MUL := 50.0
 
+## ===== the community boss (v3): every player's damage fills one shared bar =====
+## Each attempt reports the share of the player's own boss it took (their own pool is scaled to their own
+## strength), and the shares add up on the server. The community boss has `target` shares of HP: the more
+## players, the bigger it is. It is down when the shares reach the target; milestones along the way pay everyone
+## who took part (at least a Bronze share of their own boss).
+const COMMUNITY_MIN_TARGET := 5.0
+const COMMUNITY_PER_PLAYER := 0.25     # target = max(MIN, this x players)
+const ACTIVE_WEEKS := 4                # "players" = those with a save upload or a fight in this many weeks
+const PLAYER_WEEK_CAP := 1.0           # a player can add at most their own whole boss in a week; bounds cheating
+const MILESTONES := [0.25, 0.5, 0.75, 1.0]
+## What reaching the first N milestones pays each contributor (cumulative).
+const MILESTONE_CRYSTAL := [2, 5, 10, 20]
+const MILESTONE_DISTILLED := [0, 0, 1, 2]
+
+static func community_target(players: int) -> float:
+	return maxf(COMMUNITY_MIN_TARGET, COMMUNITY_PER_PLAYER * float(players))
+
+static func milestones_reached(shares: float, target: float) -> int:
+	var n := 0
+	for m in MILESTONES:
+		if shares >= float(m) * target:
+			n += 1
+	return n
+## Bump when the boss's build changes: a boss frozen under older rules is rebuilt (keeping the share of its HP already taken).
+const RULES_VERSION := 2
+
 ## Reward tiers by the share of the boss's HP you took off this week. Marks are paid as pulls' worth (100 each).
 const TIERS: Array = [
 	{"id": "platinum", "name": "Platinum", "min": 1.0, "crystal": 10, "pulls": 8, "distilled": 2},
@@ -122,9 +148,12 @@ static func refresh(g: Dictionary, now) -> Dictionary:
 			var tier = tier_for(pct)
 			if not tier.is_empty():
 				var pend: Array = st.get("pending", [])
-				pend.append({"week": int(st["week"]), "pct": pct, "tier": tier["id"]})
+				pend.append({"week": int(st["week"]), "pct": pct, "tier": tier["id"], "milestones": int(st.get("commReached", 0))})
 				st["pending"] = pend.slice(-8)
 		st["week"] = week
+		st["comm"] = null
+		st["commReached"] = 0
+		st["unsent"] = (st.get("unsent", []) as Array).filter(func(r): return int(r["week"]) == week)
 		st["damage"] = 0.0
 		st["best"] = 0.0
 		st["used"] = 0
@@ -144,8 +173,15 @@ static func attempts_left(g: Dictionary, now) -> int:
 ## The boss as this player faces it this week (built and frozen on first use): {wave, snap, pool}.
 static func frozen_boss(g: Dictionary, now) -> Dictionary:
 	var st := refresh(g, now)
+	var carried_pct := 0.0
+	var carried_best := 0.0
 	if st.get("frozen") is Dictionary:
-		return st["frozen"]
+		if int(st["frozen"].get("v", 1)) == RULES_VERSION:
+			return st["frozen"]
+		# frozen under older rules: rebuild, keeping the share of the boss's HP already taken
+		var old_pool: float = maxf(1.0, float(st["frozen"].get("pool", 1.0)))
+		carried_pct = float(st.get("damage", 0.0)) / old_pool
+		carried_best = float(st.get("best", 0.0)) / old_pool
 	var s := spec(week_of(now))
 	var wave := raid_wave(g)
 	var base: Array = FarroadProgression.build_enemies(g, wave, true, "raid")
@@ -161,7 +197,10 @@ static func frozen_boss(g: Dictionary, now) -> Dictionary:
 		aff[el] = float(aff.get(el, 0.0)) + AFFINITY_STEP
 	for el in s["weak"]:
 		aff[el] = float(aff.get(el, 0.0)) - AFFINITY_STEP
-	st["frozen"] = {"wave": wave, "snap": snap, "pool": float(stats["hp"]), "baseHp": base_hp}
+	st["frozen"] = {"wave": wave, "snap": snap, "pool": float(stats["hp"]), "baseHp": base_hp, "v": RULES_VERSION}
+	if carried_pct > 0.0:
+		st["damage"] = minf(1.0, carried_pct) * float(stats["hp"])
+		st["best"] = minf(1.0, carried_best) * float(stats["hp"])
 	return st["frozen"]
 
 static func raid_wave(g: Dictionary) -> int:
@@ -192,12 +231,37 @@ static func tier_by_id(id: String) -> Dictionary:
 			return t
 	return TIERS[TIERS.size() - 1]
 
+## The last community state this device heard of (from the server), if it is for this week: {week, shares, target, mine, reached, contributors}.
+static func community(g: Dictionary, now) -> Dictionary:
+	var c = refresh(g, now).get("comm")
+	return c if c is Dictionary and int(c.get("week", -1)) == week_of(now) else {}
+
+## The community boss is down: no more attempts until the week resets.
+static func community_down(g: Dictionary, now) -> bool:
+	var c := community(g, now)
+	return not c.is_empty() and float(c["shares"]) >= float(c["target"])
+
+## Takes in the server's answer (the community's shares, and how many milestones they've reached).
+static func apply_community(g: Dictionary, now, view: Dictionary) -> void:
+	var st := refresh(g, now)
+	if int(view.get("week", -1)) != week_of(now):
+		return
+	st["comm"] = view
+	st["commReached"] = maxi(int(st.get("commReached", 0)), int(view.get("reached", 0)))
+
+## An attempt's share of your own boss, waiting to be told to the server.
+static func queue_report(g: Dictionary, now, share: float) -> void:
+	var st := refresh(g, now)
+	var q: Array = st.get("unsent", [])
+	q.append({"week": week_of(now), "day": day_of(now), "pct": share})   # the day it was played, not the day it syncs
+	st["unsent"] = q.slice(-30)
+
 ## ===== an attempt =====
 
 ## Starts an attempt: uses one of today's, and returns {"enemies", "wave", "meta"} for the side battle
 ## ({} if there's nothing to fight: no attempts left, the boss is already down, or a side battle is on).
 static func start_attempt(g: Dictionary, now) -> Dictionary:
-	if g.get("sideBattle") != null or attempts_left(g, now) <= 0:
+	if g.get("sideBattle") != null or attempts_left(g, now) <= 0 or community_down(g, now):
 		return {}
 	var left := remaining_hp(g, now)
 	if left <= 0.0:
@@ -222,10 +286,13 @@ static func damage_from_battle(battle: Dictionary, start_hp: float) -> float:
 ## Books an attempt's damage. Returns the result event for the popup.
 static func finish(g: Dictionary, dmg: float, now) -> Dictionary:
 	var st := refresh(g, now)
+	var pool_hp := pool(g, now)
+	# the raw numbers of the last attempt, to trace a wrong result
+	st["last"] = {"dealt": dmg, "pool": pool_hp, "before": float(st.get("damage", 0.0))}
 	st["damage"] = float(st.get("damage", 0.0)) + dmg
 	st["best"] = maxf(float(st.get("best", 0.0)), dmg)
-	var pool_hp := pool(g, now)
 	var pct := float(st["damage"]) / maxf(1.0, pool_hp)
+	queue_report(g, now, dmg / maxf(1.0, pool_hp))
 	return {"kind": "raid_done", "damage": dmg, "pct": pct, "attemptPct": dmg / maxf(1.0, pool_hp),
 		"defeated": float(st["damage"]) >= pool_hp, "tier": tier_for(pct).get("id", ""), "left": attempts_left(g, now)}
 
@@ -244,6 +311,13 @@ static func claim_pending(g: Dictionary, now) -> Dictionary:
 		out["crystal"] += int(t["crystal"])
 		out["marks"] += marks
 		out["distilled"] += int(t["distilled"])
+		# the community boss's milestones pay everyone who took part
+		var ms: int = clampi(int(p.get("milestones", 0)), 0, MILESTONES.size())
+		if ms > 0:
+			g["crystal"] = int(g.get("crystal", 0)) + int(MILESTONE_CRYSTAL[ms - 1])
+			g["distilled"] = int(g.get("distilled", 0)) + int(MILESTONE_DISTILLED[ms - 1])
+			out["crystal"] += int(MILESTONE_CRYSTAL[ms - 1])
+			out["distilled"] += int(MILESTONE_DISTILLED[ms - 1])
 		out["weeks"] += 1
 	st["pending"] = []
 	return out

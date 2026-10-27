@@ -556,6 +556,8 @@ func _on_anim_frame() -> void:
 ## Below this share of max HP a unit with an "idle_low" animation idles
 ## hunched and wounded instead.
 const LOW_HP_FRAC := 0.25
+## How long a revived unit's HP bar takes to fill, about as long as its getting-up animation.
+const REVIVE_FILL_TIME := 0.9
 
 func _is_low_hp() -> bool:
 	var hp := float(unit["hp"])
@@ -672,6 +674,7 @@ func update_name(new_name: String) -> void:
 ## the HP the unit had right after ITS action, even when later actions have
 ## already resolved (staggered same-side beats).
 var _hp_seq := -1
+var _revive_fill_until_ms := 0
 
 ## `seq` orders staggered beats: a beat's animation can land AFTER a later
 ## beat's already did (a slow hop vs a quick spell), and its older HP must
@@ -690,7 +693,8 @@ func update_hp(hp_override: float = -1.0, seq: int = -1) -> void:
 		return
 	var hp_now: float = hp_override if hp_override >= 0.0 else live_hp
 	var frac: float = clamp(hp_now / float(unit["maxHp"]), 0.0, 1.0)
-	_hp_bar.set_frac(frac)
+	if Time.get_ticks_msec() >= _revive_fill_until_ms:   # (a revived unit's bar is filling by itself)
+		_hp_bar.set_frac(frac)
 	if frac <= 0.0:
 		var already_dead := _played_dead_state
 		if not _played_dead_state:
@@ -724,6 +728,11 @@ func update_hp(hp_override: float = -1.0, seq: int = -1) -> void:
 	# idling crosses between the normal and the wounded idle as its HP moves
 	# past LOW_HP_FRAC
 	if was_down:
+		# the bar fills while the unit gets up, and it is fully opaque from the first frame of that animation
+		_hp_bar.set_frac(0.0)
+		_revive_fill_until_ms = Time.get_ticks_msec() + int(REVIVE_FILL_TIME * 1000.0)
+		var fill_tw := create_tween()
+		fill_tw.tween_method(func(f: float): _hp_bar.set_frac(f), 0.0, frac, REVIVE_FILL_TIME)
 		play_then_idle("revive", 2.0)
 	elif shape is AnimatedSprite2D:
 		var cur := String((shape as AnimatedSprite2D).animation)

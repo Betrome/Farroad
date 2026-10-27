@@ -42,6 +42,16 @@ func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 ## [state label, bank label, expedition, state key] per card on screen.
 var _live: Array = []
 
+## Fills a health bar from the expedition's party health, green when well and red when low.
+func _set_hp_bar(bar: ProgressBar, exp: Dictionary) -> void:
+	var f: float = clampf(float(exp.get("hpFrac", 1.0)), 0.0, 1.0)
+	bar.value = f
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.85, 0.3, 0.25).lerp(Color(0.35, 0.8, 0.4), clampf(f * 1.4 - 0.2, 0.0, 1.0))
+	fill.set_corner_radius_all(4)
+	bar.add_theme_stylebox_override("fill", fill)
+	bar.tooltip_text = "%d%%" % roundi(f * 100.0)
+
 func _state_key(exp: Dictionary) -> String:
 	return "arrived" if exp.get("arrivedAt") != null else ("home" if exp.get("homeAt") != null else "away")
 
@@ -72,6 +82,8 @@ func _tick_live() -> void:
 			row[0].text = _state_text(exp, now)
 		if is_instance_valid(row[1]):
 			row[1].text = _bank_text(exp)
+		if row.size() > 4 and is_instance_valid(row[4]):
+			_set_hp_bar(row[4], exp)
 	if changed:
 		_refresh_active()
 
@@ -275,9 +287,27 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	state_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(state_lbl)
 
+	# the party's overall health (the share every member is carried back at; it falls as the trip wears them down)
+	var hp_row := HBoxContainer.new()
+	hp_row.add_theme_constant_override("separation", 8)
+	var hp_name := Label.new()
+	hp_name.text = "Party health"
+	hp_name.modulate = Palette.TEXT_DIM
+	hp_row.add_child(hp_name)
+	var hp_bar := ProgressBar.new()
+	hp_bar.min_value = 0.0
+	hp_bar.max_value = 1.0
+	hp_bar.show_percentage = false
+	hp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hp_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hp_bar.custom_minimum_size = Vector2(0, maxf(12.0, _vp.y * 0.016))
+	_set_hp_bar(hp_bar, exp)
+	hp_row.add_child(hp_bar)
+	vbox.add_child(hp_row)
+
 	var bank_lbl := Label.new()
 	bank_lbl.text = _bank_text(exp)
-	_live.append([state_lbl, bank_lbl, exp, _state_key(exp)])
+	_live.append([state_lbl, bank_lbl, exp, _state_key(exp), hp_bar])
 	bank_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bank_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_child(bank_lbl)

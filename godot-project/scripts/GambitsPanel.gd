@@ -142,6 +142,9 @@ func _build_filter_dropdown(options: Array, current_value: String, on_change: Ca
 ## refresh, like the per-slot cards, and occupies slot 0 of slots_container,
 ## so every per-slot card index below is offset by SLOT_CARD_OFFSET (see
 ## _on_reorder for why that offset matters).
+## A Paths run edits its own loadouts with this same panel: no training Test and no saved sets there.
+var run_mode := false
+
 const SLOT_CARD_OFFSET := 1
 func _build_auto_set_row() -> void:
 	var row := HBoxContainer.new()
@@ -161,13 +164,17 @@ func _build_auto_set_row() -> void:
 	test_btn.text = "Test"
 	test_btn.pressed.connect(func():
 		_parent.open_training())
-	row.add_child(test_btn)
+	if not run_mode:
+		row.add_child(test_btn)
+	else:
+		test_btn.queue_free()
 	# one header block (auto-set + saved sets) so the slot cards below keep
 	# the same child offset
 	var head := VBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.add_child(row)
-	head.add_child(UnitSets.build(g, selected_uid, "gambit", _refresh_slots))
+	if not run_mode:
+		head.add_child(UnitSets.build(g, selected_uid, "gambit", _refresh_slots))
 	slots_container.add_child(head)
 
 func _on_auto_set_pressed() -> void:

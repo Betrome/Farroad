@@ -42,6 +42,8 @@ var port := DEFAULT_PORT
 ## Weekly seasons (see Seasons.gd) run only when the server is started with FARROAD_SEASONS=1 (or
 ## --seasons). Off, the server behaves exactly as it did before seasons existed.
 var seasons_enabled := false
+## The community raid boss (see Raids.gd) runs only with FARROAD_RAIDS=1 (or --raids). Off, /raid/* answers "raids_off".
+var raids_enabled := false
 ## Tests only (--time-offset=SECONDS): moves the server's clock.
 var time_offset := 0
 var _season_current := -1
@@ -60,6 +62,7 @@ func _ready() -> void:
 	if env_port.is_valid_int():
 		port = int(env_port)
 	seasons_enabled = OS.get_environment("FARROAD_SEASONS") == "1" or args.has("--seasons")
+	raids_enabled = OS.get_environment("FARROAD_RAIDS") == "1" or args.has("--raids")
 	for a in args:
 		if a.begins_with("--time-offset="):
 			time_offset = int(a.substr(14))
@@ -218,6 +221,8 @@ func _route(req: Dictionary) -> Array:
 		"/save/put": return await _save_put(body)
 		"/save/get": return await _save_get(body)
 		"/season/claim": return await _season_claim(body)
+		"/raid/state": return await _raid_state(body)
+		"/raid/report": return await _raid_report(body)
 	return [404, {"error": "not_found"}]
 
 ## ===== accounts =====
@@ -443,6 +448,92 @@ func _season_claim(body: Dictionary) -> Array:
 			await store.put_player(rec)
 			return [200, {"claimed": entry}]
 	return [404, {"error": "nothing_to_claim"}]
+
+## ===== the community raid boss (only when raids_enabled; see Raids.gd) =====
+
+## (Requests are handled strictly one at a time -- see _working in _serve -- so reading and writing this document
+## across awaits can't interleave with another request, as long as the server stays a single instance.)
+func _raid_doc(week: int, create: bool) -> Dictionary:
+	var name := "raid-%d" % week
+	var doc: Dictionary = await store.get_meta_doc(name)
+	if doc.is_empty() and create:
+		# the community boss is sized by the players who are around: a save upload or a fight in the last 4 weeks
+		var n := 0
+		var recent := _now() - Raids.ACTIVE_WEEKS * 7 * 86400
+		for p in await store.all_players():
+			if bool(p.get("rival", false)):
+				continue
+			var last := int(p.get("saveAt", 0))
+			for h in p.get("history", []):
+				last = maxi(last, int(h.get("at", 0)))
+			if last >= recent:
+				n += 1
+		doc = {"week": week, "shares": 0.0, "target": Raids.community_target(n), "players": {}, "att": {}}
+		await store.put_meta_doc(name, doc)
+	return doc
+
+func _raid_view(doc: Dictionary, id: String) -> Dictionary:
+	var shares := float(doc.get("shares", 0.0))
+	var target := float(doc.get("target", Raids.COMMUNITY_MIN_TARGET))
+	return {"week": int(doc["week"]), "shares": shares, "target": target, "mine": float((doc.get("players", {}) as Dictionary).get(id, 0.0)),
+		"reached": Raids.milestones_reached(shares, target), "contributors": (doc.get("players", {}) as Dictionary).size()}
+
+func _raid_state(body: Dictionary) -> Array:
+	if not raids_enabled:
+		return [200, {"error": "raids_off"}]
+	var rec = await _auth(body, true)   # (the account is made on first use, as for cloud saves)
+	if rec == null:
+		return [403, {"error": "bad_key"}]
+	var current := Seasons.season_of(_now())
+	var week := int(body.get("week", current))
+	var doc := await _raid_doc(week, week == current)
+	if doc.is_empty():
+		return [404, {"error": "no_such_week"}]
+	return [200, _raid_view(doc, str(rec["id"]))]
+
+## An attempt's share of the player's own boss, with the UTC day it was played (an attempt made offline is told
+## later). A player adds at most one whole boss per week, and at most ATTEMPTS_PER_DAY attempts count per player per day. Only what a real game can't
+## send is flagged: a day in the future.
+func _raid_report(body: Dictionary) -> Array:
+	if not raids_enabled:
+		return [200, {"error": "raids_off"}]
+	var rec = await _auth(body, true)   # (the account is made on first use, as for cloud saves)
+	if rec == null:
+		return [403, {"error": "bad_key"}]
+	var current := Seasons.season_of(_now())
+	if int(body.get("week", -1)) != current:
+		return [200, {"error": "wrong_week"}]
+	var today := int(floor(float(_now()) / 86400.0))
+	var day := int(body.get("day", today))
+	if day > today:
+		_flag(rec, "raid_future_day")
+		await store.put_player(rec)
+		return [200, {"error": "bad_day"}]
+	if Seasons.season_of(day * 86400) != current:
+		return [200, {"error": "bad_day"}]   # played in an earlier week: that week is closed
+	var doc := await _raid_doc(current, true)
+	var id := str(rec["id"])
+	var view := _raid_view(doc, id)
+	if float(doc["shares"]) >= float(doc["target"]):
+		return [200, view]   # the boss is already down
+	var players: Dictionary = doc.get("players", {})
+	# at most one whole boss per player per week (the share is of their OWN boss: they can't have taken more)
+	var share: float = minf(clampf(float(body.get("pct", 0.0)), 0.0, 1.0), maxf(0.0, Raids.PLAYER_WEEK_CAP - float(players.get(id, 0.0))))
+	var att: Dictionary = doc.get("att", {})
+	var mine: Dictionary = att.get(id, {})
+	var key := str(day)
+	if int(mine.get(key, 0)) >= Raids.ATTEMPTS_PER_DAY:
+		var full := view.duplicate()
+		full["error"] = "day_full"
+		return [200, full]
+	mine[key] = int(mine.get(key, 0)) + 1
+	att[id] = mine
+	doc["att"] = att
+	doc["shares"] = float(doc["shares"]) + share
+	players[id] = float(players.get(id, 0.0)) + share
+	doc["players"] = players
+	await store.put_meta_doc("raid-%d" % current, doc)
+	return [200, _raid_view(doc, id)]
 
 ## ===== cloud saves =====
 const SAVE_MAX_BYTES := 400000

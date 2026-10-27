@@ -75,7 +75,7 @@ func _populate_popup() -> void:
 	var scroll := ScrollContainer.new()
 	_body = scroll
 	scroll.custom_minimum_size = popup_size - Vector2(20, 20)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if _built_wide else ScrollContainer.SCROLL_MODE_AUTO
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	popup.add_child(scroll)
 
 	var root_vbox := VBoxContainer.new()

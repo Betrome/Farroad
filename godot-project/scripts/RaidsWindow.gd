@@ -6,6 +6,13 @@ extends RefCounted
 const STRONG_COLOR := Color(1.0, 0.62, 0.55)
 const WEAK_COLOR := Color(0.62, 1.0, 0.66)
 
+## Redraws the tab after the server's answer arrived.
+static func rebuild(gc: GameController, box: VBoxContainer) -> void:
+	for c in box.get_children():
+		box.remove_child(c)
+		c.queue_free()
+	build(gc, box)
+
 static func build(gc: GameController, box: VBoxContainer) -> void:
 	var now: float = Time.get_unix_time_from_system()
 	var spec := Raids.spec(Raids.week_of(now))
@@ -57,7 +64,40 @@ static func build(gc: GameController, box: VBoxContainer) -> void:
 			l.modulate = WEAK_COLOR
 		box.add_child(l)
 
-	# its HP this week
+	# the community boss: everyone's attempts fill one shared bar
+	var ch := Label.new()
+	ch.text = "COMMUNITY BOSS"
+	ch.add_theme_font_size_override("font_size", 14)
+	box.add_child(ch)
+	var comm := Raids.community(gc.g, now)
+	if comm.is_empty():
+		var off := Label.new()
+		off.text = "Every player's attempts fill one shared bar. It needs a connection to the Arena server."
+		off.modulate = Palette.TEXT_DIM
+		off.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(off)
+	else:
+		var left_frac: float = clampf(1.0 - float(comm["shares"]) / maxf(0.001, float(comm["target"])), 0.0, 1.0)
+		var cbar := ProgressBar.new()
+		cbar.min_value = 0.0
+		cbar.max_value = 1.0
+		cbar.value = left_frac
+		cbar.show_percentage = false
+		cbar.custom_minimum_size = Vector2(0, maxf(14.0, gc.vp.y * 0.02))
+		box.add_child(cbar)
+		var cl := Label.new()
+		cl.text = ("The community has brought the boss down!" if left_frac <= 0.0 else "Community boss HP left: %.1f%%." % (left_frac * 100.0)) 			+ "  %d %s fought it; your part: %.2f%% of a boss." % [int(comm.get("contributors", 0)), "player has" if int(comm.get("contributors", 0)) == 1 else "players have", float(comm.get("mine", 0.0)) * 100.0]
+		cl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(cl)
+		var reached: int = int(comm.get("reached", 0))
+		for i in Raids.MILESTONES.size():
+			var ml := Label.new()
+			var pay := "%d Crystal%s" % [int(Raids.MILESTONE_CRYSTAL[i]), (", %d Distilled Aether" % int(Raids.MILESTONE_DISTILLED[i])) if int(Raids.MILESTONE_DISTILLED[i]) > 0 else ""]
+			ml.text = "%s %d%% down: %s (everyone who took a Bronze share or more)" % ["✓" if i < reached else "·", roundi(float(Raids.MILESTONES[i]) * 100.0), pay]
+			ml.modulate = Color(0.75, 1.0, 0.75) if i < reached else Palette.TEXT_DIM
+			ml.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			box.add_child(ml)
+	# its HP this week (your own copy of it)
 	var pool := Raids.pool(gc.g, now)
 	var done := Raids.damage_done(gc.g, now)
 	var pct := Raids.pct_done(gc.g, now)
@@ -72,6 +112,13 @@ static func build(gc: GameController, box: VBoxContainer) -> void:
 	hp_lbl.text = "Boss HP left: %.0f%%.  You have taken off %.1f%% of it." % [maxf(0.0, 1.0 - pct) * 100.0, pct * 100.0]
 	hp_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(hp_lbl)
+	var last = Raids.refresh(gc.g, now).get("last")
+	if last is Dictionary:
+		var last_lbl := Label.new()
+		last_lbl.text = "Last attempt: %s damage of the boss's %s HP." % [_short(float(last["dealt"])), _short(float(last["pool"]))]
+		last_lbl.modulate = Palette.TEXT_DIM
+		last_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(last_lbl)
 	var tier := Raids.tier_for(pct)
 	var next_tier: Dictionary = {}
 	for t in Raids.TIERS:
@@ -89,12 +136,13 @@ static func build(gc: GameController, box: VBoxContainer) -> void:
 	var party_ok: bool = not (gc.g["party"] as Array).is_empty()
 	var go := Button.new()
 	go.text = "Fight (%d of %d attempts left today)" % [tries, Raids.ATTEMPTS_PER_DAY]
-	go.disabled = tries <= 0 or pct >= 1.0 or gc.g.get("sideBattle") != null or not party_ok
+	var comm_down := Raids.community_down(gc.g, now)
+	go.disabled = tries <= 0 or pct >= 1.0 or comm_down or gc.g.get("sideBattle") != null or not party_ok
 	UiKit.primary(go)
 	go.pressed.connect(func(): gc.attempt_raid())
 	box.add_child(go)
 	var how := Label.new()
-	how.text = "Your fielded party fights. Attempts come back at 00:00 UTC. Damage from every attempt counts toward the week."
+	how.text = "Your fielded party fights. Attempts come back at 00:00 UTC. Damage from every attempt counts toward the week." 		+ (" The community boss is down: no more attempts until it resets." if comm_down else (" You have taken your own copy of the boss down: no more attempts until it resets." if pct >= 1.0 else ""))
 	how.modulate = Palette.TEXT_DIM
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(how)
@@ -112,3 +160,12 @@ static func build(gc: GameController, box: VBoxContainer) -> void:
 		r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		r.modulate = Palette.TEXT_DIM
 		box.add_child(r)
+
+static func _short(v: float) -> String:
+	if v >= 1.0e9:
+		return "%.2fB" % (v / 1.0e9)
+	if v >= 1.0e6:
+		return "%.2fM" % (v / 1.0e6)
+	if v >= 1.0e3:
+		return "%.1fK" % (v / 1.0e3)
+	return "%d" % roundi(v)

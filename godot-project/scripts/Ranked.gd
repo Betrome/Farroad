@@ -14,7 +14,7 @@ extends RefCounted
 
 ## Bump when the team format or the fight rules change in a way that would
 ## make an older game replay a fight differently.
-const PROTOCOL := 3
+const PROTOCOL := 4   # 4: revived units act last, no buff/debuff chains, pct_base for regen/thorns/revive, blind/confuse changes
 const MAX_UNITS := 5
 const MAX_LEVEL := 5000
 const MAX_LORE_STACKS := 99

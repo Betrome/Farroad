@@ -6,6 +6,10 @@ extends RefCounted
 ## (not an autoload: there is no per-instance state, just static functions and
 ## factories) so any script can call FarroadCore.xxx() without a preload or an
 ## instance.
+##
+## IMPORTANT: any change to how a fight resolves (step() and everything it calls) must bump Ranked.PROTOCOL, or
+## a game and the server will replay the same Arena fight differently. test/golden_battle_test.gd fails when the
+## rules change; update its expected hash in the same commit as the PROTOCOL bump.
 
 ## ===== RNG =====
 ## A mulberry32-family PRNG. Every operation is addition, XOR, or an unsigned
@@ -1557,6 +1561,7 @@ static func step(b: Dictionary) -> Variant:
 			if primary != null and primary["hp"] <= 0:
 				primary["hp"] = max(1, floori(pct_base(primary) * act["revive"]))
 				primary["st"] = new_st(); primary["stMag"] = {}
+				b["_revived"] = primary   # placed at the end of the turn order once this action is done (below)
 				e["notes"].append("revived " + primary["name"])
 		elif act.get("heal"):
 			for t in targets:
@@ -1688,6 +1693,15 @@ static func step(b: Dictionary) -> Variant:
 	u["turnsTaken"] += 1
 	u["lastWasStatus"] = is_pure_status(act)
 	u["nextActAt"] = b["t"] + tc_of(u, act["rank"])
+	if b.has("_revived"):
+		# a revived unit joins the END of the turn order: it doesn't act at once on the time it had when it fell
+		var ru: Dictionary = b["_revived"]
+		var last_at: float = float(b["t"])
+		for ou in b["units"]:
+			if ou != ru and ou["hp"] > 0:
+				last_at = maxf(last_at, float(ou["nextActAt"]))
+		ru["nextActAt"] = last_at + tc_of(ru, 1.00)
+		b.erase("_revived")
 	if b["enrage"] and b["beat"] >= int(b.get("enrageAfter", ENRAGE_AFTER)):
 		b["enrageN"] = b.get("enrageN", 0) + 1
 	# enrageAll (PvP): both sides enrage, so neither team gets the edge
