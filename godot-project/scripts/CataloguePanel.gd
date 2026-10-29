@@ -348,14 +348,15 @@ func _refresh_equipment() -> void:
 		var item: Dictionary = FarroadCore.EQUIPMENT[iid]
 		if g["equipInv"].has(iid):
 			var bits: Array = []
+			var gmul := FarroadProgression.gear_mul(g, iid)
 			for k in ["atk", "mag", "def", "res", "spd"]:
 				if item.get(k):
-					bits.append("%s +%s" % [k.to_upper(), str(item[k])])
+					bits.append("%s +%s" % [k.to_upper(), str(snappedf(float(item[k]) * gmul, 0.1))])
 			if item.get("evade"):
-				bits.append("Evade +%s%%" % str(item["evade"] * 100))
-			var owned: int = g["equipInv"].get(iid, 0)
+				bits.append("Evade +%s%%" % str(snappedf(float(item["evade"]) * gmul * 100.0, 0.1)))
+			var owned: int = FarroadProgression.gear_level(g, iid)
 			var row := HBoxContainer.new()
-			var lbl := _rich_row("%s -- %s (owned %d)" % [
+			var lbl := _rich_row("%s -- %s (Lv %d)" % [
 				_rarity_name(item["name"], item.get("rarity", "common")), ", ".join(bits), owned])
 			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(lbl)

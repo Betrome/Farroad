@@ -364,30 +364,64 @@ const PULL_PITY_AT := 30
 ## "pity":..., ...}), which MarksPanel.gd shows as a plain "Last pull" result
 ## line. It only changes g, with no live-sync side effects; those stay the
 ## caller's job (see MarksPanel.gd).
-static func do_pull(g: Dictionary) -> Dictionary:
-	var r := _do_pull(g)
+static func do_pull(g: Dictionary, banner: String = "std") -> Dictionary:
+	var aff_pity: bool = banner == "aff" and int(g.get("pullsSinceAff", 0)) + 1 >= AFF_PITY_AT
+	var r := _do_pull(g, banner)
 	if not r.is_empty():
-		Analytics.add("pulls", r["kind"] + ("_dup" if r.get("duplicate", false) else ""))
+		if banner == "aff":
+			r["banner"] = "aff"
+			r["pity"] = aff_pity
+		Analytics.add("pulls", r["kind"] + ("_dup" if r.get("duplicate", false) else "") + (":aff" if banner == "aff" else ""))
 		Analytics.add("pulledIds", "%s:%s" % [r["kind"], r.get("id", "")])
 		Analytics.add("spend", "marks:pull", pull_cost(g.get("wave", 1)))
 		Goals.record(g, "pull")
 	return r
 
-static func _do_pull(g: Dictionary) -> Dictionary:
+## The second banner, "Blessings & Curses": a boosted chance at every affinity buff and debuff
+## action (Blessing of X / Curse of X, eight affinities each), a guaranteed one every AFF_PITY_AT pulls
+## (its own counter, g["pullsSinceAff"]), and no companions. The rest of its pulls are the usual
+## actions and gambits.
+const AFF_ODDS := 0.10
+const AFF_PITY_AT := 30
+
+static func affinity_action_ids() -> Array:
+	return FarroadCore.equippable().filter(func(id):
+		var ap := str(FarroadCore.ACTIONS.get(id, {}).get("applies", ""))
+		return ap.begins_with("boon_") or ap.begins_with("bane_"))
+
+static func _do_pull(g: Dictionary, banner: String = "std") -> Dictionary:
+	var aff: bool = banner == "aff"
 	var cost := pull_cost(g.get("wave", 1))
 	if not pulls_unlocked(g):
 		return {}
 	if g["marks"] < cost:
 		return {}
 	g["marks"] -= cost
-	g["pullsSinceUnit"] = int(g.get("pullsSinceUnit", 0)) + 1
-	var pity: bool = g["pullsSinceUnit"] >= PULL_PITY_AT
+	var pity := false
+	if aff:
+		g["pullsSinceAff"] = int(g.get("pullsSinceAff", 0)) + 1
+	else:
+		g["pullsSinceUnit"] = int(g.get("pullsSinceUnit", 0)) + 1
+		pity = g["pullsSinceUnit"] >= PULL_PITY_AT
 	# The roll is always consumed, even under pity: pity overrides the roll's
 	# result, it doesn't skip drawing it.
 	var roll: float = g["rng"].next()
 	var o = PULL_ODDS
 	var kind: String
-	if pity:
+	var forced_aff := ""
+	if aff:
+		var aff_pity: bool = int(g["pullsSinceAff"]) >= AFF_PITY_AT
+		var hit: bool = g["rng"].next() < AFF_ODDS or aff_pity
+		if hit:
+			var ids := affinity_action_ids()
+			forced_aff = ids[g["rng"].next_int(ids.size())]
+			g["pullsSinceAff"] = 0
+			kind = "action"
+		elif roll < o["action"] / (o["action"] + o["cond"]):
+			kind = "action"
+		else:
+			kind = "cond"
+	elif pity:
 		kind = "unit"
 	elif g.get("forcedPull"):
 		kind = "action"
@@ -426,15 +460,16 @@ static func _do_pull(g: Dictionary) -> Dictionary:
 		# hand item, the same armor on two units).
 		var equip_ids := random_equipment_ids()
 		var eid: String = weighted_equipment_pick(g["rng"], equip_ids)
-		g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
-		return {"kind": "equip", "id": eid, "duplicate": g["equipInv"][eid] > 1, "ownedCount": g["equipInv"][eid]}
+		var got := gain_gear(g, eid)
+		return {"kind": "equip", "id": eid, "duplicate": got["duplicate"], "level": got["level"], "ownedCount": got["level"]}
 	elif kind == "action":
 		# all charge actions are pullable too, not just the ATK_CAMP + MAG_CAMP
 		# pool; the outcome branch dispatches on ACTIONS[id]["isCharge"]
 		var pool: Array = FarroadCore.equippable() + FarroadCore.CHARGE_ACTIONS
 		# the Marks tutorial's first pull is a guaranteed Mend
-		var aid: String = str(g["forcedPull"]) if g.get("forcedPull") else weighted_action_pick(g["rng"], pool)
-		g["forcedPull"] = null
+		var aid: String = forced_aff if forced_aff != "" else (str(g["forcedPull"]) if g.get("forcedPull") and not aff else weighted_action_pick(g["rng"], pool))
+		if not aff:
+			g["forcedPull"] = null
 		g["actionCounts"][aid] = int(g["actionCounts"].get(aid, 0)) + 1
 		var is_charge: bool = bool(FarroadCore.ACTIONS.get(aid, {}).get("isCharge", false))
 		if is_charge:
@@ -582,7 +617,7 @@ static func buy_shop_equipment(g: Dictionary, item_id: String) -> bool:
 	if int(g.get("crystal", 0)) < price:
 		return false
 	g["crystal"] = int(g["crystal"]) - price
-	g["equipInv"][item_id] = int(g["equipInv"].get(item_id, 0)) + 1
+	gain_gear(g, item_id)
 	Analytics.add("shop", "equip:" + item_id)
 	Analytics.add("spend", "crystal:equipment", price)
 	return true
@@ -959,8 +994,9 @@ static func equipment_affinity(g: Dictionary, uid: String) -> Dictionary:
 		var id = equipped.get(slot)
 		var item = FarroadCore.EQUIPMENT.get(id) if id else null
 		if item:
+			var gmul := gear_mul(g, str(id))
 			for ax in AFFINITY_AXES:
-				out[ax] += item.get("affinity", {}).get(ax, 0.0)
+				out[ax] += item.get("affinity", {}).get(ax, 0.0) * gmul
 	return out
 
 ## A unit's title is its role from its two highest non-HP stats as they'd be at
@@ -1082,11 +1118,12 @@ static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) ->
 		var item = FarroadCore.EQUIPMENT.get(id) if id else null
 		if not item:
 			continue
+		var gmul := gear_mul(g, str(id))
 		for k in ["atk", "mag", "def", "res", "spd"]:
 			if item.get(k):
-				st[k] += item[k]
+				st[k] += item[k] * gmul
 		if item.get("evade"):
-			st["evade"] += item["evade"]
+			st["evade"] += item["evade"] * gmul
 		if slot != "legs":
 			spd_penalty += FarroadCore.EQUIP_SPD_PENALTY_BASE * FarroadCore.RARITY_POWER_MUL.get(item.get("rarity", "common"), 1.0)
 	if spd_penalty:
@@ -1099,9 +1136,59 @@ static func apply_equipment_stats(g: Dictionary, uid: String, st: Dictionary) ->
 static func equip_kind_for_slot(slot: String) -> String:
 	return "hand" if slot.begins_with("hand") else slot
 
-## How many copies of item_id the player owns.
+## ===== gear levels =====
+## A duplicate piece of gear is no longer a second copy: it raises that piece's level by one. Each level adds a
+## percentage to everything the piece gives (its stats, Evade and affinity), a bigger percentage for a rarer piece.
+const GEAR_LEVEL_BONUS := {"common": 0.10, "rare": 0.12, "legendary": 0.15}
+
+## 0 when not owned, else 1 and up.
+static func gear_level(g: Dictionary, item_id: String) -> int:
+	if int(g.get("equipInv", {}).get(item_id, 0)) <= 0:
+		return 0
+	return maxi(1, int(g.get("gearLevel", {}).get(item_id, 1)))
+
+## What the piece's numbers are multiplied by at its level.
+static func gear_mul(g: Dictionary, item_id: String) -> float:
+	var item = FarroadCore.EQUIPMENT.get(item_id)
+	var lv := gear_level(g, item_id)
+	if item == null or lv <= 1:
+		return 1.0
+	return 1.0 + float(GEAR_LEVEL_BONUS.get(str(item.get("rarity", "common")), 0.10)) * float(lv - 1)
+
+## Gets a piece of gear: new, or a duplicate that raises its level. Returns {"duplicate", "level"}.
+static func gain_gear(g: Dictionary, item_id: String) -> Dictionary:
+	if not (g.get("gearLevel") is Dictionary):
+		g["gearLevel"] = {}
+	if int(g["equipInv"].get(item_id, 0)) <= 0:
+		g["equipInv"][item_id] = 1
+		g["gearLevel"][item_id] = 1
+		return {"duplicate": false, "level": 1}
+	g["gearLevel"][item_id] = gear_level(g, item_id) + 1
+	return {"duplicate": true, "level": int(g["gearLevel"][item_id])}
+
+## Old saves counted copies: each extra copy becomes a level, and one piece is never worn twice.
+static func migrate_gear(g: Dictionary) -> void:
+	if not (g.get("gearLevel") is Dictionary):
+		g["gearLevel"] = {}
+	for id in (g.get("equipInv", {}) as Dictionary).keys():
+		var n := int(g["equipInv"][id])
+		if n > 1:
+			g["gearLevel"][id] = maxi(int(g["gearLevel"].get(id, 1)), n)
+			g["equipInv"][id] = 1
+	var seen := {}
+	for uid in (g.get("equipped", {}) as Dictionary).keys():
+		for slot in (g["equipped"][uid] as Dictionary).keys().duplicate():
+			var id = g["equipped"][uid][slot]
+			if id == null:
+				continue
+			if seen.has(id):
+				(g["equipped"][uid] as Dictionary).erase(slot)
+			else:
+				seen[id] = true
+
+## 1 once owned (a piece is no longer owned in copies; see gear_level).
 static func equip_owned_count(g: Dictionary, item_id: String) -> int:
-	return int(g.get("equipInv", {}).get(item_id, 0))
+	return 1 if int(g.get("equipInv", {}).get(item_id, 0)) > 0 else 0
 
 ## How many copies of item_id are currently sitting in any unit's equipped
 ## slots.
@@ -2021,9 +2108,9 @@ static func grant_drops(g: Dictionary, w: int) -> Array:
 				_credit_lore(g, d["id"])
 			events.append({"kind": "charge", "id": d["id"], "wave": w, "duplicate": dup_c})
 		elif kind == "equip":
-			g["equipInv"][d["id"]] = g["equipInv"].get(d["id"], 0) + 1
-			events.append({"kind": "equip", "id": d["id"], "wave": w,
-				"ownedCount": g["equipInv"][d["id"]], "why": d.get("why") if curated else null})
+			var gotd := gain_gear(g, d["id"])
+			events.append({"kind": "equip", "id": d["id"], "wave": w, "duplicate": gotd["duplicate"], "level": gotd["level"],
+				"ownedCount": gotd["level"], "why": d.get("why") if curated else null})
 		else:
 			g["condCounts"][d["id"]] = g["condCounts"].get(d["id"], 0) + 1
 			var dup2: bool = g["conditions"].has(d["id"])
@@ -2176,7 +2263,7 @@ static func after_wave_cleared(g: Dictionary) -> Array:
 			# weighted-pick + equipInv grant shape as do_pull's 'equip' branch.
 			var equip_ids := random_equipment_ids()
 			var eid: String = weighted_equipment_pick(g["rng"], equip_ids)
-			g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
+			gain_gear(g, eid)
 			events.append({"kind": "tutorial_equip", "wave": g["wave"], "id": eid})
 		elif is_boss_wave(g["wave"]):
 			# The "have some Aether instead" consolation stays scoped to boss
@@ -2236,17 +2323,17 @@ static func new_game(seed: int, mc) -> Dictionary:
 	return {
 		"seed": seed if seed else 7, "rng": FarroadCore.make_rng(seed if seed else 7),
 		"wave": 0, "farthest": 1, "bossesCleared": 0,
-		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0, "goals": {}, "distilled": 0, "raid": {}, "path": {},
+		"aether": 0, "loreByAction": {}, "marks": 0, "crystal": 0, "wipes": 0, "enemiesDefeated": 0, "goals": {}, "distilled": 0, "raid": {}, "path": {}, "chest": {},
 		"pendingIdleAether": 0.0, "pendingIdleMarks": 0.0, "mcRespecs": 0, "mcRespecGranted": false,
 		"party": ["kesh"], "partyPresets": [], "loadoutSets": {}, "gearSets": {}, "wipeLog": [], "appearance": {}, "approach": {}, "actions": STARTER_ACTIONS.duplicate(), "conditions": ["none"],
 		"actionCounts": {}, "condCounts": {}, "bonuses": {}, "recovery": {}, "loadout": {},
 		"hpCarry": {}, "chargeCarry": {}, "touched": {}, "clearedWaves": {}, "dropsGranted": {},
 		"lvl": {"kesh": 1}, "bank": {"kesh": 0}, "maxLevelEver": 1, "owned": {"kesh": 1},
 		"affinities": {"kesh": {}}, "statInvest": {"kesh": {}},
-		"equipInv": {}, "equipped": {"kesh": {}},
+		"equipInv": {}, "gearLevel": {}, "equipped": {"kesh": {}},
 		"battle": null, "units": null, "enemies": null, "over": null, "enrage": true, "idleAcc": 0,
 		"sideBattle": null, "roadBattle": null,
-		"mc": mc, "expeditions": [], "pullsSinceUnit": 0,
+		"mc": mc, "expeditions": [], "pullsSinceUnit": 0, "pullsSinceAff": 0,
 		"dungeons": [], "quests": {"kesh": {"stage": 0, "frozen": []}},
 		"superBossQuests": [], "superBossesUnlocked": 0, "superBossesCleared": {},
 		"directions": new_directions(),
@@ -2557,11 +2644,13 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: i
 		# schedule as normal), just without a battle. The roll is drawn every node,
 		# event or not, so the RNG is consumed identically either way.
 		if g["rng"].next() < EXPED_EVENT_CHANCE:
+			exp["activity"] = "event"
 			roll_expedition_event(g, exp, mul, sim_now)
 			exp["ew"] += 1
 			roll_expedition_pickup(g, exp, sim_now)
 			_advance_direction_depth(g, exp, now, sim_now)
 		else:
+			exp["activity"] = "battle"
 			var battle := FarroadCore.make_battle(party + enemies, {"rng": g["rng"], "enrage": EXPED_ENRAGE})
 			var beat_guard := 0
 			while battle["over"] == null and beat_guard < 4000:
@@ -2595,7 +2684,10 @@ static func resolve_expedition(g: Dictionary, exp: Dictionary, now, budget_ms: i
 			else:
 				exp["hpFrac"] = 0.0
 		remaining -= cost
+		var rests_before := int(exp.get("rests", 0))
 		remaining = _expedition_rest(g, exp, remaining, cost, resolve_started_at + (capped - remaining))
+		if int(exp.get("rests", 0)) > rests_before:
+			exp["activity"] = "camping"
 		if exp["hpFrac"] < EXPED_RETURN_HP_FRAC:
 			turned_back = true
 			break
@@ -2622,6 +2714,18 @@ static func _finish_pending_recall(g: Dictionary, exp: Dictionary, now) -> void:
 		exp["recalled"] = true
 		if not g.get("_dryRun", false):
 			Analytics.add("expedition", "recalled")
+
+## What a party is doing right now, in words (the tap on an expedition shows it).
+static func expedition_activity_text(exp: Dictionary) -> String:
+	if exp.get("arrivedAt") != null:
+		return "Back home, waiting for you to collect."
+	if exp.get("homeAt") != null:
+		return "Heading home."
+	match str(exp.get("activity", "")):
+		"event": return "At an event on the road (wave %d)." % int(exp["ew"])
+		"camping": return "Camping to recover (wave %d)." % int(exp["ew"])
+		"battle": return "Battling (wave %d)." % int(exp["ew"])
+	return "Setting out."
 
 ## Shared by both node kinds (fight won / road event) -- extracted from
 ## resolve_expedition's own win branch unchanged. A while, not if -- a big
@@ -2836,9 +2940,10 @@ static func grant_find(g: Dictionary, f: Dictionary) -> Dictionary:
 	var r := {"kind": kind, "id": id, "duplicate": false}
 	match kind:
 		"equip":
-			g["equipInv"][id] = int(g["equipInv"].get(id, 0)) + 1
-			r["duplicate"] = int(g["equipInv"][id]) > 1
-			r["ownedCount"] = int(g["equipInv"][id])
+			var got2 := gain_gear(g, id)
+			r["duplicate"] = got2["duplicate"]
+			r["level"] = got2["level"]
+			r["ownedCount"] = got2["level"]
 		"action":
 			g["actionCounts"][id] = int(g["actionCounts"].get(id, 0)) + 1
 			r["isCharge"] = bool(FarroadCore.ACTIONS.get(id, {}).get("isCharge", false))
@@ -3492,7 +3597,7 @@ static func _grant_quest_gear(g: Dictionary, uid: String) -> String:
 	if pool.is_empty():
 		pool = rare
 	var eid: String = pool[g["rng"].next_int(pool.size())]
-	g["equipInv"][eid] = int(g["equipInv"].get(eid, 0)) + 1
+	gain_gear(g, eid)
 	return eid
 
 static func finish_side_battle(g: Dictionary, result: String, gave_up: bool, now) -> Dictionary:

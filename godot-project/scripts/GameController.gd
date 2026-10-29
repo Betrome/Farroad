@@ -1929,6 +1929,7 @@ var _last_win_size := Vector2i.ZERO
 
 func _process(_delta: float) -> void:
 	_slice_expeditions()
+	_chest_process(_delta)
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_last_input_ms = Time.get_ticks_msec()
 	# maximizing or snapping the window changes its size without always raising
@@ -1937,6 +1938,105 @@ func _process(_delta: float) -> void:
 	if ws != _last_win_size:
 		_last_win_size = ws
 		_apply_desktop_scaling()
+
+## ---- treasure chests (Chests.gd) ----
+var _chest_bubble: ChestBubble = null
+var _chest_acc := 0.0
+var _chest_ox := 0.0   # where the bubble floats relative to the party
+
+func _chest_process(delta: float) -> void:
+	if g.is_empty() or current_presenter == null or not is_instance_valid(current_presenter):
+		return
+	var live: bool = g.get("sideBattle") == null and (tutorial == null or not tutorial.holds_road())
+	if _chest_bubble != null and is_instance_valid(_chest_bubble):
+		_chest_bubble.visible = live
+		_chest_bubble.target = _chest_target()
+	if not live:
+		return
+	_chest_acc += minf(delta, 1.0)
+	if _chest_acc >= 1.0:
+		var dt := _chest_acc
+		_chest_acc = 0.0
+		Chests.tick(g, dt)
+	if bool(Chests.state(g).get("there", false)) and (_chest_bubble == null or not is_instance_valid(_chest_bubble)):
+		_spawn_chest_bubble()
+
+func _chest_target() -> Vector2:
+	var r := battle_rect()
+	var sum := Vector2.ZERO
+	var n := 0
+	var top := INF
+	var pr: BattlePresenter = current_presenter
+	for uid in g.get("party", []):
+		var v = pr.unit_views_by_id.get(str(uid))
+		if v is Node2D and is_instance_valid(v):
+			sum += (v as Node2D).global_position
+			top = minf(top, (v as Node2D).global_position.y)
+			n += 1
+	var p := Vector2(r.position.x + r.size.x * 0.3, r.position.y + r.size.y * 0.3)
+	if n > 0:
+		p = Vector2(sum.x / n, top - 70.0)
+	p.x += _chest_ox
+	p.x = clampf(p.x, r.position.x + 50.0, r.end.x - 50.0)
+	p.y = clampf(p.y, r.position.y + 90.0, r.end.y - 160.0)
+	return p
+
+func _spawn_chest_bubble() -> void:
+	_chest_ox = randf_range(-70.0, 90.0)
+	_chest_bubble = ChestBubble.new()
+	add_child(_chest_bubble)
+	_chest_bubble.z_index = 1
+	_chest_bubble.target = _chest_target()
+	_chest_bubble.position = _chest_bubble.target - Vector2(0.0, 120.0)
+	_chest_bubble.modulate.a = 0.0
+	create_tween().tween_property(_chest_bubble, "modulate:a", 1.0, 0.8)
+	_chest_bubble.tapped.connect(_on_chest_tapped)
+
+func _on_chest_tapped() -> void:
+	if _chest_bubble == null or not is_instance_valid(_chest_bubble):
+		return
+	var b := _chest_bubble
+	_chest_bubble = null
+	b.pop()
+	var res := Chests.open(g)
+	save_game()
+	await show_chest_popup(res)
+
+func chest_reward_text(res: Dictionary) -> String:
+	var id: String = str(res.get("id", ""))
+	match str(res.get("kind", "")):
+		"aether":
+			return "%s Aether" % str(int(res["amount"]))
+		"marks":
+			return "%s Marks" % str(int(res["amount"]))
+		"equip":
+			var nm: String = str(FarroadCore.EQUIPMENT.get(id, {}).get("name", id))
+			if bool(res.get("duplicate", false)):
+				return "%s, a duplicate: it rises to Lv%d" % [nm, int(res["level"])]
+			return "%s (new gear)" % nm
+		"action":
+			var nm_a: String = str(FarroadCore.ACTIONS.get(id, {}).get("name", id))
+			if bool(res.get("duplicate", false)):
+				return "%s, a duplicate: +1 Lore" % nm_a
+			return "%s (new action)" % nm_a
+		_:
+			var nm_c: String = FarroadCore.cond_label(id)
+			if bool(res.get("duplicate", false)):
+				return "Gambit condition \"%s\", a duplicate: +%s Aether" % [nm_c, str(int(res["aetherGain"]))]
+			return "Gambit condition \"%s\" (new)" % nm_c
+
+func show_chest_popup(res: Dictionary) -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title_lbl := Label.new()
+	title_lbl.text = "Treasure chest"
+	title_lbl.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(title_lbl)
+	vbox.add_child(_wrap_label(chest_reward_text(res)))
+	var q: float = float(res.get("q", 1.0))
+	var mood := "A quick find." if q < 0.8 else ("A fair haul." if q < 1.4 else "It waited a long time: a rich chest.")
+	vbox.add_child(_wrap_label(mood, true))
+	await _finish_detail_overlay(o)
 
 ## ---- desktop and web windows ----
 ## On a computer the window can be any shape. Up to a slightly wider portrait
@@ -2635,6 +2735,72 @@ func show_picker_overlay(title: String, populate: Callable) -> void:
 ## GameController-owned overlay like the other detail popups, not a second
 ## top-level Window inside ExpeditionPanel's already-open popup (which Godot
 ## would silently close; see _overlay_host's comment).
+## What a party is doing right now: tap an expedition's name or its dot on the map.
+func show_expedition_activity_popup(exp: Dictionary) -> void:
+	var act := str(exp.get("activity", ""))
+	if exp.get("arrivedAt") != null or exp.get("homeAt") != null or not ["battle", "camping", "event"].has(act) or (exp.get("partyIds", []) as Array).is_empty():
+		await _show_expedition_activity_text(exp)
+		return
+	show_expedition_scene(exp, act)
+
+var _exp_scene_layer: CanvasLayer = null
+
+## A live scene of the party's current activity (ExpeditionScene.gd), full screen over the game.
+func show_expedition_scene(exp: Dictionary, act: String) -> void:
+	_close_expedition_scene()
+	_hide_open_panel()
+	if current_presenter != null and is_instance_valid(current_presenter):
+		current_presenter.set_loop_paused(true, "expScene")
+	_exp_scene_layer = CanvasLayer.new()
+	_exp_scene_layer.layer = 6
+	add_child(_exp_scene_layer)
+	var scene := ExpeditionScene.new()
+	scene.mode = act
+	scene.vp = vp
+	scene.title_text = "%s — %s
+%s" % [FarroadProgression.expedition_label(exp), FarroadProgression.direction_label(exp["direction"]), FarroadProgression.expedition_activity_text(exp)]
+	scene.party_units = FarroadProgression.build_expedition_party(g, exp["partyIds"], exp.get("hpFrac", 1.0))
+	scene.build_fight = func() -> Dictionary: return _spectator_fight(exp)
+	scene.closed.connect(_close_expedition_scene)
+	_exp_scene_layer.add_child(scene)
+	var x := _make_close_x(scene.close)
+	x.position = Vector2(vp.x - x.size.x - 10.0, 10.0)
+	x.z_index = 10
+	scene.add_child(x)
+
+func _close_expedition_scene() -> void:
+	if _exp_scene_layer != null and is_instance_valid(_exp_scene_layer):
+		_exp_scene_layer.queue_free()
+	_exp_scene_layer = null
+	FarroadCore.set_wave(int(g.get("wave", 1)))   # the spectator fights used the expedition's wave
+	if current_presenter != null and is_instance_valid(current_presenter):
+		current_presenter.set_loop_paused(false, "expScene")
+
+## One made-up fight for the live view: the expedition's party and a fresh set of that wave's enemies,
+## on a copy of the game state with its own dice, so the saved game is never touched.
+func _spectator_fight(exp: Dictionary) -> Dictionary:
+	var gg: Dictionary = g.duplicate()
+	gg["rng"] = FarroadCore.make_rng(randi() % 2000000000 + 1)
+	gg["_dryRun"] = true
+	var party: Array = FarroadProgression.build_expedition_party(gg, exp["partyIds"], 1.0)
+	var mul: float = FarroadProgression.direction_mul(exp["direction"])
+	var enemies: Array = FarroadProgression.apply_direction_affinity(
+		FarroadProgression.apply_stat_mul(FarroadProgression.build_enemies(gg, int(exp["ew"]), true), mul), exp["direction"])
+	var battle := FarroadCore.make_battle(party + enemies, {"rng": gg["rng"], "enrage": FarroadProgression.EXPED_ENRAGE})
+	return {"battle": battle, "units": party + enemies}
+
+func _show_expedition_activity_text(exp: Dictionary) -> void:
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title_lbl := Label.new()
+	title_lbl.text = "%s — %s" % [FarroadProgression.expedition_label(exp), FarroadProgression.direction_label(exp["direction"])]
+	title_lbl.add_theme_font_size_override("font_size", 16)
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(title_lbl)
+	vbox.add_child(_wrap_label(FarroadProgression.expedition_activity_text(exp)))
+	vbox.add_child(_wrap_label("Party health: %d%%.  Reached wave %d." % [roundi(float(exp.get("hpFrac", 1.0)) * 100.0), int(exp["ew"])], true))
+	await _finish_detail_overlay(o)
+
 func show_expedition_log_popup(exp: Dictionary) -> void:
 	var o := _build_detail_overlay()
 	var vbox: VBoxContainer = o["vbox"]

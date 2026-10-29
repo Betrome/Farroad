@@ -377,7 +377,9 @@ func _populate_condition_picker(list_container: Container, backdrop: Node, i: in
 		_populate_condition_picker(list_container, backdrop, i, current_cond)))
 	list_container.add_child(filter_row)
 
-	var cond_ids := _sorted_owned_conditions()
+	# only the conditions that apply to this slot's action (see FarroadCore.condition_fits_action)
+	var slot_act = FarroadCore.ACTIONS.get(str(g["loadout"][selected_uid][i]["action"]))
+	var cond_ids := _sorted_owned_conditions().filter(func(cid): return FarroadCore.condition_fits_action(str(cid), slot_act))
 	# The slot's OWN current selection always stays listed even if a
 	# filter would otherwise exclude it -- same "never hide what's
 	# actually chosen" rule the action picker's own held-elsewhere

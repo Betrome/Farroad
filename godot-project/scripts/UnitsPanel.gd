@@ -197,7 +197,7 @@ func _refresh_unit_list() -> void:
 	for uid in uids:
 		var def = FarroadCore.roster_by_id(uid)
 		var label: String = def["name"] if def else uid
-		label += "   Lv %d" % int(g["lvl"].get(uid, 1))
+		label += "   Power %d" % FarroadProgression.unit_power(g, uid)
 		if not g["party"].has(uid):
 			label += "  (bench)"
 		var b := Button.new()
@@ -255,7 +255,7 @@ func refresh_dropdown() -> void:
 		var uid: String = uids[idx]
 		var def = FarroadCore.roster_by_id(uid)
 		var label: String = def["name"] if def else uid
-		label += "  Lv %d" % int(g["lvl"].get(uid, 1))
+		label += "  Power %d" % FarroadProgression.unit_power(g, uid)
 		if not g["party"].has(uid):
 			label += " (benched)"
 		dropdown.add_item(label, idx)

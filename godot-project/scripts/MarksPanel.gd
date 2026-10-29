@@ -3,7 +3,7 @@ extends Node
 ## The Marks pull screen (gacha pulls). It lives in the Shop's Marks tab. It is
 ## a single global screen, not a per-unit editor.
 ##
-## FarroadProgression.do_pull(g) only changes g, with no UI side effects. This
+## FarroadProgression.do_pull(g, banner) only changes g, with no UI side effects. This
 ## panel notifies GameController after a pull: _notify_currency_changed()
 ## always (marks, aether and lore can all change), and, only when the pull
 ## fielded a new companion, sync_party_change(), the same call PartyPanel
@@ -22,6 +22,7 @@ var card_container: VBoxContainer
 ## Always an Array (a single Pull stores a 1-entry array), so one shape
 ## serves a single pull and a batch.
 var last_pull_results: Array = []
+var banner := "std"   # "std" (the usual pull) or "aff" (Blessings & Curses)
 
 func setup(new_g: Dictionary, vp: Vector2, parent: GameController) -> void:
 	g = new_g
@@ -107,9 +108,21 @@ func _build_unlocked_card() -> void:
 	var cost := FarroadProgression.pull_cost(g.get("wave", 1))
 	var marks: float = g.get("marks", 0.0)
 
+	var tabs := HBoxContainer.new()
+	for spec in [["std", "Standard"], ["aff", "Blessings & Curses"]]:
+		var tb := Button.new()
+		tb.text = spec[1]
+		tb.toggle_mode = true
+		tb.button_pressed = banner == spec[0]
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.pressed.connect(_on_banner_pressed.bind(spec[0]))
+		UiKit.tab_selected(tb, banner == spec[0], true)
+		tabs.add_child(tb)
+	card_container.add_child(tabs)
+
 	var header := HBoxContainer.new()
 	var pull_lbl := Label.new()
-	pull_lbl.text = "Pull"
+	pull_lbl.text = "Pull" if banner == "std" else "Pull: Blessings & Curses"
 	pull_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(pull_lbl)
 	var cost_lbl := Label.new()
@@ -158,6 +171,22 @@ func _build_unlocked_card() -> void:
 	_style_pull_button(pull_all_btn, n_all >= 1)
 	pull_all_btn.pressed.connect(_on_pull_many_pressed.bind(-1))
 	card_container.add_child(pull_all_btn)
+
+	if banner == "aff":
+		var info := Label.new()
+		info.text = ("A boosted %d%% chance on every pull of a Blessing or Curse action (all eight affinities, buffs for allies, " +
+			"debuffs for foes). One is guaranteed every %d pulls (%d/%d so far). No companions here; the rest of the pulls " +
+			"are the usual actions and gambits.") % [roundi(FarroadProgression.AFF_ODDS * 100.0), FarroadProgression.AFF_PITY_AT,
+			int(g.get("pullsSinceAff", 0)), FarroadProgression.AFF_PITY_AT]
+		info.modulate = Palette.TEXT_DIM
+		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card_container.add_child(info)
+		if not last_pull_results.is_empty():
+			var res_lbl := Label.new()
+			res_lbl.text = "Last pull: %s" % _describe_pull_results(last_pull_results)
+			res_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			card_container.add_child(res_lbl)
+		return
 
 	var pity_n := int(g.get("pullsSinceUnit", 0))
 	# a breakdown of each kind's chance and the rarity split inside it (the
@@ -236,7 +265,7 @@ func _describe_pull_result(r: Dictionary) -> String:
 			var noun: String = "charge action" if r.get("isCharge") else "action"
 			if r["duplicate"]:
 				return "Duplicate %s, converted to +1 Lore on it: %s." % [noun, aname]
-			return ("New %s: %s, plus 1 Lore." if r.get("isCharge") else "New %s: %s.") % [noun, aname]
+			return ("New %s: %s, plus 1 Lore." if r.get("isCharge") else "New %s: %s.") % [noun, aname] + (" (pity)" if r.get("pity") and r.get("banner") == "aff" else "")
 		"cond":
 			if not r["duplicate"]:
 				return "New gambit condition: %s." % FarroadCore.cond_label(r["id"])
@@ -249,8 +278,13 @@ func _action_name(aid: String) -> String:
 	var act = FarroadCore.ACTIONS.get(aid)
 	return act["name"] if act else (aid if aid != "" else "an action")
 
+func _on_banner_pressed(which: String) -> void:
+	banner = which
+	last_pull_results = []
+	_refresh_card()
+
 func _on_pull_pressed() -> void:
-	var result := FarroadProgression.do_pull(g)
+	var result := FarroadProgression.do_pull(g, banner)
 	if result.is_empty():
 		return
 	last_pull_results = [result]
@@ -272,7 +306,7 @@ func _on_pull_many_pressed(count: int) -> void:
 	var fielded_any := false
 	var limit: int = count if count > 0 else 100000
 	for i in range(limit):
-		var result := FarroadProgression.do_pull(g)
+		var result := FarroadProgression.do_pull(g, banner)
 		if result.is_empty():
 			break
 		results.append(result)

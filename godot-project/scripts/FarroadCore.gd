@@ -1296,6 +1296,33 @@ static func is_pure_status(act) -> bool:
 ## after turn, so a unit doesn't use a second one right after the first (see choose_from).
 const LACKS_TRIGGERS := ["foe_lacks_debuff", "ally_lacks_buff", "foe_not_weakened"]
 
+## Whether a gambit condition makes sense for an action, by what the action targets: a foe-targeting action
+## takes foe_ conditions (which aim it) and self_ ones (which gate it), an ally-targeting one ally_ and self_,
+## a self-targeting one self_ only. "lacks" conditions need an action that applies a status of the right kind.
+## Used to keep the gambit picker to what applies; the engine itself accepts any pairing.
+static func condition_fits_action(cond_id: String, act) -> bool:
+	if cond_id == "none" or act == null:
+		return true
+	var tk = act.get("tk")
+	var applies = act.get("applies")
+	var buff: bool = applies != null and str(applies) != "" and is_buff_status(str(applies))
+	var debuff: bool = applies != null and str(applies) != "" and not buff
+	if cond_id == "foe_lacks_debuff":
+		return debuff and (tk == "foe" or tk == "allFoes")
+	if cond_id == "ally_lacks_buff":
+		return buff and tk != "foe" and tk != "allFoes"
+	if cond_id == "foe_not_weakened":
+		return tk == "foe" or tk == "allFoes"
+	if cond_id.begins_with("self_"):
+		return true
+	if cond_id == "ally_is_dead":
+		return tk == "deadAlly"
+	if cond_id.begins_with("foe_"):
+		return tk == "foe" or tk == "allFoes"
+	if cond_id.begins_with("ally_"):
+		return tk == "ally" or tk == "allAllies" or tk == "deadAlly"
+	return true
+
 static func choose_from(u: Dictionary, b: Dictionary, state: Dictionary) -> Dictionary:
 	if u.get("chargeAction") and state["charge"] >= cost_of_charge(ACTIONS.get(u["chargeAction"])):
 		return {"actionId": u["chargeAction"], "target": null, "via": "charge full -> override"}

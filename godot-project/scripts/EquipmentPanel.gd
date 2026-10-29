@@ -72,23 +72,25 @@ func _describe_equipment(item_id: String, uid: String) -> String:
 	if item == null:
 		return ""
 	var bits: Array = []
+	var gmul := FarroadProgression.gear_mul(g, item_id)
 	for k in ["atk", "mag", "def", "res", "spd"]:
 		if item.get(k):
-			bits.append("%s +%d" % [k.to_upper(), item[k]])
+			bits.append("%s +%d" % [k.to_upper(), roundi(float(item[k]) * gmul)])
 	if item.get("evade"):
-		bits.append("Evade +%d%%" % roundi(item["evade"] * 100.0))
+		bits.append("Evade +%d%%" % roundi(float(item["evade"]) * gmul * 100.0))
 	var affinity: Dictionary = item.get("affinity", {})
 	if not affinity.is_empty():
 		var base := FarroadProgression.affinity_baseline(uid)
 		var purchased := FarroadProgression.affinity_purchased(g, uid)
 		for ax in AFFINITY_AXIS_LABELS.keys():
-			var item_ax: float = affinity.get(ax, 0.0)
+			var item_ax: float = float(affinity.get(ax, 0.0)) * gmul
 			if item_ax != 0.0:
 				var without: float = base.get(ax, 0.0) + purchased.get(ax, 0.0)
 				var with_item: float = without + item_ax
 				var delta_pct: float = (FarroadCore.affinity_mul(with_item) - FarroadCore.affinity_mul(without)) * 100.0
 				bits.append("%s affinity %+.0f%%" % [AFFINITY_AXIS_LABELS[ax], delta_pct])
 	var slot_label: String = item["slot"].capitalize()
+	slot_label += " · Lv%d" % FarroadProgression.gear_level(g, item_id) if FarroadProgression.gear_level(g, item_id) > 0 else ""
 	return "%s · %s" % [slot_label, " · ".join(bits)] if not bits.is_empty() else slot_label
 
 func _refresh_card() -> void:
@@ -195,10 +197,8 @@ func _build_slot_option(uid: String, slot: String) -> OptionButton:
 			continue
 		var is_cur: bool = item_id == cur_id
 		var available := FarroadProgression.equip_available_count(g, item_id)
-		# a compact "(M/N)" (available/owned, e.g. "(0/3)") keeps each option
-		# row short
-		var label: String = "%s (%d/%d)" % [
-			item["name"], available, FarroadProgression.equip_owned_count(g, item_id)]
+		# the piece's level, and a note when another unit is wearing it (there is only ever one of each piece)
+		var label: String = "%s Lv%d%s" % [item["name"], FarroadProgression.gear_level(g, item_id), "" if available > 0 or is_cur else " (worn)"]
 		opt.add_icon_item(_rarity_icon(item.get("rarity", "common")), label, idx)
 		if available <= 0 and not is_cur:
 			opt.set_item_disabled(idx, true)

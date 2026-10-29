@@ -23,11 +23,11 @@ static func is_from_newer_build(snap: Dictionary) -> bool:
 const FIELDS: Array[String] = ["wave", "farthest", "bossesCleared", "aether", "loreByAction", "marks", "crystal", "wipes", "enemiesDefeated",
 	"party", "partyPresets", "loadoutSets", "gearSets", "rows", "wipeLog", "appearance", "approach", "pvp", "actions", "conditions", "actionCounts", "condCounts", "bonuses", "recovery",
 	"loadout", "hpCarry", "chargeCarry", "touched", "clearedWaves", "dropsGranted", "lvl", "bank", "maxLevelEver", "owned",
-	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit",
+	"enrage", "idleAcc", "dropQueue", "dropHistory", "pullsSinceUnit", "pullsSinceAff",
 	"dropGains", "mc", "expeditions", "dungeons", "quests", "directions",
-	"affinities", "statInvest", "equipInv", "equipped",
+	"affinities", "statInvest", "equipInv", "gearLevel", "equipped",
 	"superBossQuests", "superBossesUnlocked", "superBossesCleared",
-	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup", "goals", "distilled", "raid", "path"]
+	"pendingIdleAether", "pendingIdleMarks", "mcRespecs", "mcRespecGranted", "trainingSetup", "goals", "distilled", "raid", "path", "chest"]
 
 ## Deep copy through JSON. Safe because saved fields are only plain Dictionaries, Arrays and numbers/strings.
 static func _clone(v: Variant) -> Variant:
@@ -145,6 +145,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 	g["distilled"] = int(g.get("distilled")) if g.get("distilled") else 0
 	g["raid"] = g.get("raid") if g.get("raid") is Dictionary else {}
 	g["path"] = g.get("path") if g.get("path") is Dictionary else {}
+	g["chest"] = g.get("chest") if g.get("chest") is Dictionary else {}
 	g["pendingIdleAether"] = g.get("pendingIdleAether") if g.get("pendingIdleAether") else 0.0
 	g["pendingIdleMarks"] = g.get("pendingIdleMarks") if g.get("pendingIdleMarks") else 0.0
 	g["mcRespecs"] = int(g.get("mcRespecs")) if g.get("mcRespecs") else 0
@@ -202,6 +203,7 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		if not exp.get("direction"):
 			exp["direction"] = "west"
 	g["pullsSinceUnit"] = g.get("pullsSinceUnit") if g.get("pullsSinceUnit") else 0
+	g["pullsSinceAff"] = g.get("pullsSinceAff") if g.get("pullsSinceAff") else 0
 	if not g.get("affinities"):
 		g["affinities"] = {}
 	if not g["affinities"].get("kesh"):
@@ -216,4 +218,5 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		g["equipped"] = {}
 	if not g["equipped"].get("kesh"):
 		g["equipped"]["kesh"] = {}
+	FarroadProgression.migrate_gear(g)   # old saves counted copies; each extra copy is now a level
 	return g

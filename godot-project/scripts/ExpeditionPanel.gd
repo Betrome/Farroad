@@ -273,11 +273,15 @@ func _build_expedition_card(exp: Dictionary, now: float) -> Control:
 	# sentence) -- autowrap + SIZE_EXPAND_FILL keeps each one shrinkable to
 	# the card's own real width instead of forcing it (and everything else
 	# in this popup) wider, the horizontal-scroll bug this was reported for.
-	var header := Label.new()
+	var header := Button.new()   # tap the name to see what this party is doing
 	header.text = "%s — %s" % [names, FarroadProgression.direction_label(exp["direction"])]
+	header.flat = true
+	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	header.clip_text = true
 	header.add_theme_font_size_override("font_size", 15)
-	header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.tooltip_text = "Tap to see what this party is doing"
+	header.pressed.connect(func(): _parent.show_expedition_activity_popup(exp))
 	vbox.add_child(header)
 
 	var state_lbl := Label.new()
@@ -374,6 +378,9 @@ func _fmt_duration(sec: int) -> String:
 		return "%dm %ds" % [sec / 60, sec % 60]
 	return "%ds" % sec
 
+func _on_activity_pressed(exp: Dictionary) -> void:
+	_parent.show_expedition_activity_popup(exp)
+
 func _on_log_pressed(exp: Dictionary) -> void:
 	_parent.show_expedition_log_popup(exp)
 
@@ -436,7 +443,7 @@ func _refresh_send_picker() -> void:
 		# the map still shows how far each direction has been explored
 		var idle_size: float = _wide_map_size() if _built_wide else _vp.x * 0.96 - 40.0
 		var idle_map := ExpeditionMap.new()
-		idle_map.setup(g, Vector2(idle_size, idle_size), selected_direction, _on_direction_selected, _on_log_pressed)
+		idle_map.setup(g, Vector2(idle_size, idle_size), selected_direction, _on_direction_selected, _on_activity_pressed)
 		_map_host().add_child(idle_map)
 		return
 
@@ -492,7 +499,7 @@ func _refresh_send_picker() -> void:
 	# width _build_ui computes (popup_size.x - 40).
 	var map_size: float = _wide_map_size() if _built_wide else _vp.x * 0.96 - 40.0
 	var exp_map := ExpeditionMap.new()
-	exp_map.setup(g, Vector2(map_size, map_size), selected_direction, _on_direction_selected, _on_log_pressed)
+	exp_map.setup(g, Vector2(map_size, map_size), selected_direction, _on_direction_selected, _on_activity_pressed)
 	_map_host().add_child(exp_map)
 
 	var send_btn := Button.new()

@@ -249,7 +249,7 @@ func _roster_row(uid: String, action_text: String, disabled: bool, callback: Cal
 	var row := HBoxContainer.new()
 	var name_lbl := Label.new()
 	var def = FarroadCore.roster_by_id(uid)
-	name_lbl.text = ("%s  Lv %d" % [def["name"], int(g["lvl"].get(uid, 1))]) if def else uid
+	name_lbl.text = ("%s  Power %d" % [def["name"], FarroadProgression.unit_power(g, uid)]) if def else uid
 	name_lbl.custom_minimum_size = Vector2(150.0 if _built_wide else _vp.x * 0.18, 0)
 	if _built_wide:
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL

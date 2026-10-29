@@ -511,8 +511,8 @@ func _refresh_equipment() -> void:
 		if f_rarity != "any" and item.get("rarity", "common") != f_rarity:
 			continue
 		var price: int = int(FarroadProgression.SHOP_EQUIPMENT_PRICE.get(item.get("rarity", "common"), 10))
-		var owned: int = int(g["equipInv"].get(iid, 0))
-		var suffix: String = " (owned %d)" % owned if owned > 0 else ""
+		var owned: int = FarroadProgression.gear_level(g, iid)
+		var suffix: String = " (Lv %d: buying levels it up)" % owned if owned > 0 else ""
 		_add_item(_build_buy_row(_rarity_name(item["name"], item.get("rarity", "common")) + suffix,
 			price, _on_buy_equipment.bind(iid), _parent.show_equipment_detail_popup.bind(iid)))
 
