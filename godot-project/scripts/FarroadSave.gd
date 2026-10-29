@@ -7,10 +7,12 @@ extends RefCounted
 ## Save format version, stored as "v" in every snapshot.
 ##   1  everything up to the versioned-migration change (the "v" was never read back)
 ##   2  one-off migrations below run once, for saves older than this
+##   3  gear is no longer owned in copies: equipInv is 1 per piece and the levels live in gearLevel
+##      (an older build would read such a save as a one-copy inventory and save the levels away)
 ## To change the format: bump VERSION, add a `_migrate_to_N(g)` step and call it from `_migrate`
 ## for saves with from_v < N. Plain "this field didn't exist yet" defaults need no step; the
 ## default-fill in deserialize() covers them for any old save.
-const VERSION := 2
+const VERSION := 3
 
 ## True when the snapshot was written by a newer build than this one. Loading it here would
 ## silently drop fields this build doesn't know and then save the result over it.
@@ -57,6 +59,12 @@ static func serialize(g: Dictionary, now: int) -> Dictionary:
 static func _migrate(g: Dictionary, from_v: int) -> void:
 	if from_v < 2:
 		_migrate_to_2(g)
+	if from_v < 3:
+		_migrate_to_3(g)
+
+## v2 -> v3: duplicate gear copies become levels, and one piece is never worn twice.
+static func _migrate_to_3(g: Dictionary) -> void:
+	FarroadProgression.migrate_gear(g)
 
 ## v1 -> v2: the migrations that used to run on every load, now run once.
 static func _migrate_to_2(g: Dictionary) -> void:
@@ -218,5 +226,5 @@ static func deserialize(snap: Dictionary) -> Dictionary:
 		g["equipped"] = {}
 	if not g["equipped"].get("kesh"):
 		g["equipped"]["kesh"] = {}
-	FarroadProgression.migrate_gear(g)   # old saves counted copies; each extra copy is now a level
+	g["gearLevel"] = g.get("gearLevel") if g.get("gearLevel") is Dictionary else {}
 	return g

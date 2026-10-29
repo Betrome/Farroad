@@ -131,20 +131,29 @@ static func wealth(snap: Dictionary) -> float:
 ## FarroadProgression.catchup_mul), as head room.
 const CATCHUP_HEADROOM := 1.0 + FarroadProgression.CATCHUP_MAX_BONUS
 
+## What treasure chests (Chests.gd) can add to an upload covering `sec` seconds. A chest pays the idle
+## income of the time since the last one (capped at MAX_SINCE), times CURRENCY_MUL, times half the last
+## boss wave (at most half the farthest wave); the times between chests add up to no more than the
+## upload's own seconds plus the time one chest had been waiting.
+static func chest_allowance(far: int, sec: float, kind: String) -> float:
+	var idle: float = FarroadProgression.idle_per_sec(far)[kind]
+	var boss_mul: float = maxf(1.0, floorf(float(far) / 2.0))
+	return idle * Chests.CURRENCY_MUL * boss_mul * CATCHUP_HEADROOM * (maxf(0.0, sec) + Chests.MAX_SINCE)
+
 static func aether_ceiling(far: int, sec: float) -> float:
 	var per_wave: float = FarroadProgression.kill_reward(far, FarroadProgression.enemy_count(far))["aether"]
 	var road: float = per_wave * sec / MIN_WAVE_SEC
 	var idle: float = FarroadProgression.idle_per_sec(far)["aether"] * sec
 	var exped: float = 8.0 * per_wave * FarroadProgression.EXPED_REWARD_MUL * sec / 60.0
 	var bosses: float = float(FarroadProgression.boss_aether(far)) * (sec / (MIN_WAVE_SEC * 20.0) + 1.0)
-	return FLAT_AETHER + SLACK * CATCHUP_HEADROOM * (road + idle + exped + bosses)
+	return FLAT_AETHER + SLACK * CATCHUP_HEADROOM * (road + idle + exped + bosses) + chest_allowance(far, sec, "aether")
 
 static func marks_ceiling(far: int, sec: float) -> float:
 	var per_wave: float = FarroadProgression.kill_reward(far, FarroadProgression.enemy_count(far))["marks"]
 	var road: float = per_wave * sec / MIN_WAVE_SEC
 	var idle: float = FarroadProgression.idle_per_sec(far)["marks"] * sec
 	var exped: float = 8.0 * per_wave * FarroadProgression.EXPED_REWARD_MUL * sec / 60.0
-	return FLAT_MARKS + SLACK * CATCHUP_HEADROOM * (road + idle + exped)
+	return FLAT_MARKS + SLACK * CATCHUP_HEADROOM * (road + idle + exped) + chest_allowance(far, sec, "marks")
 
 ## Everything a game up to wave `far` could plausibly hold, for a first upload.
 static func lifetime_aether(far: int) -> float:

@@ -14,11 +14,13 @@ extends RefCounted
 
 ## Bump when the team format or the fight rules change in a way that would
 ## make an older game replay a fight differently.
-const PROTOCOL := 4   # 4: revived units act last, no buff/debuff chains, pct_base for regen/thorns/revive, blind/confuse changes
+const PROTOCOL := 5   # 5: units carry gearLevel (levelled gear counts in the Arena); 4: revived units act last, no buff/debuff chains, pct_base for regen/thorns/revive, blind/confuse changes
 const MAX_UNITS := 5
 const MAX_LEVEL := 5000
 const MAX_LORE_STACKS := 99
 const MAX_INVEST_STEPS := 200
+## The highest gear level a team may carry (gear levels come from duplicates, so they stay small).
+const MAX_GEAR_LEVEL := 30
 ## Turns before a fight that hasn't ended counts as a loss for the attacker.
 const TURN_LIMIT := 3000
 
@@ -88,7 +90,13 @@ static func team_from_game(g: Dictionary) -> Dictionary:
 		var ch = def.get("chargeAction") if def else null
 		if ch != null:
 			used[ch] = true
-		units.append({"id": uid, "level": FarroadProgression.level_of(g, uid),
+		var glv := {}
+		for slot in (g.get("equipped", {}).get(uid, {}) as Dictionary):
+			var gid := str(g["equipped"][uid][slot])
+			var gl: int = FarroadProgression.gear_level(g, gid)
+			if gl > 1:
+				glv[gid] = gl
+		units.append({"id": uid, "level": FarroadProgression.level_of(g, uid), "gearLevel": glv,
 			"equipped": (g.get("equipped", {}).get(uid, {}) as Dictionary).duplicate(),
 			"statInvest": (g.get("statInvest", {}).get(uid, {}) as Dictionary).duplicate(),
 			"affinities": (g.get("affinities", {}).get(uid, {}) as Dictionary).duplicate(),
@@ -116,7 +124,7 @@ static func team_from_game(g: Dictionary) -> Dictionary:
 ## their real game). Works on the save's own fields, on a copy.
 static func team_from_save(snap: Dictionary) -> Dictionary:
 	var sg: Dictionary = snap.duplicate(true)
-	for k in ["loadout", "lvl", "equipped", "statInvest", "affinities", "bonuses", "rows", "appearance"]:
+	for k in ["loadout", "lvl", "equipped", "statInvest", "affinities", "bonuses", "rows", "appearance", "gearLevel"]:
 		if not (sg.get(k) is Dictionary):
 			sg[k] = {}
 	for k in ["party", "actions", "conditions"]:
@@ -176,6 +184,12 @@ static func validate(team) -> String:
 		for slot in eq:
 			var item = FarroadCore.EQUIPMENT.get(str(eq[slot]))
 			if not FarroadCore.EQUIPMENT_SLOTS.has(str(slot)) or item == null or item["slot"] != FarroadProgression.equip_kind_for_slot(str(slot)):
+				return "bad_gear"
+		var glv = u.get("gearLevel", {})
+		if not (glv is Dictionary):
+			return "bad_gear"
+		for gid in glv:
+			if not (eq as Dictionary).values().has(str(gid)) or not _is_whole(glv[gid], 1, MAX_GEAR_LEVEL):
 				return "bad_gear"
 		var inv = u.get("statInvest", {})
 		if not (inv is Dictionary):
@@ -243,7 +257,7 @@ static func validate(team) -> String:
 
 ## A throwaway game holding just what build_party_unit reads for this team.
 static func _team_game(team: Dictionary) -> Dictionary:
-	var tg := {"lvl": {}, "statInvest": {}, "affinities": {}, "equipped": {}, "loadout": {}, "touched": {},
+	var tg := {"lvl": {}, "gearLevel": {}, "equipInv": {}, "statInvest": {}, "affinities": {}, "equipped": {}, "loadout": {}, "touched": {},
 		"hpCarry": {}, "chargeCarry": {}, "recovery": {}, "party": [], "mc": null,
 		"actions": FarroadCore.equippable().duplicate(), "conditions": FarroadCore.ALL_CONDITION_IDS.duplicate()}
 	for u in team["units"]:
@@ -253,6 +267,10 @@ static func _team_game(team: Dictionary) -> Dictionary:
 		tg["statInvest"][uid] = (u.get("statInvest", {}) as Dictionary).duplicate()
 		tg["affinities"][uid] = (u.get("affinities", {}) as Dictionary).duplicate()
 		tg["equipped"][uid] = (u.get("equipped", {}) as Dictionary).duplicate()
+		for slot in (u.get("equipped", {}) as Dictionary):
+			tg["equipInv"][str(u["equipped"][slot])] = 1   # what a unit wears is owned (gear_level reads this)
+		for gid in (u.get("gearLevel", {}) as Dictionary):
+			tg["gearLevel"][str(gid)] = int(u["gearLevel"][gid])
 		tg["loadout"][uid] = (u["slots"] as Array).map(func(s): return {"cond": str(s["cond"]), "action": str(s["action"])})
 		tg["touched"][uid] = true
 	var mc = team.get("mc")

@@ -1176,6 +1176,7 @@ static func migrate_gear(g: Dictionary) -> void:
 			g["gearLevel"][id] = maxi(int(g["gearLevel"].get(id, 1)), n)
 			g["equipInv"][id] = 1
 	var seen := {}
+	var notes: Array = []
 	for uid in (g.get("equipped", {}) as Dictionary).keys():
 		for slot in (g["equipped"][uid] as Dictionary).keys().duplicate():
 			var id = g["equipped"][uid][slot]
@@ -1183,8 +1184,17 @@ static func migrate_gear(g: Dictionary) -> void:
 				continue
 			if seen.has(id):
 				(g["equipped"][uid] as Dictionary).erase(slot)
+				notes.append("%s's %s was also worn by %s, so %s's slot is now empty." % [
+					_gear_note_name(str(seen[id])), str(FarroadCore.EQUIPMENT.get(id, {}).get("name", id)),
+					_gear_note_name(str(uid)), _gear_note_name(str(uid))])
 			else:
-				seen[id] = true
+				seen[id] = uid
+	if not notes.is_empty():
+		g["_gearNotes"] = notes   # not saved: shown once by the game, then dropped
+
+static func _gear_note_name(uid: String) -> String:
+	var def = FarroadCore.roster_by_id(uid)
+	return str(def["name"]) if def != null else uid
 
 ## 1 once owned (a piece is no longer owned in copies; see gear_level).
 static func equip_owned_count(g: Dictionary, item_id: String) -> int:

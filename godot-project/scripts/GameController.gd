@@ -225,6 +225,7 @@ func _attach_touch_scroll(node) -> void:   # untyped: it may be freed by the tim
 const DEBUG_CRYSTAL := 5000
 
 func _start_game() -> void:
+	call_deferred("_show_gear_notes")
 	# Debug builds only: plenty of Crystal to test the Shop with (a release
 	# build never does this).
 	if OS.is_debug_build() and int(g.get("crystal", 0)) < DEBUG_CRYSTAL:
@@ -1953,7 +1954,7 @@ func _chest_process(delta: float) -> void:
 		_chest_bubble.target = _chest_target()
 	if not live:
 		return
-	_chest_acc += minf(delta, 1.0)
+	_chest_acc += minf(delta / maxf(Engine.time_scale, 0.01), 1.0)   # real seconds, not sped-up game time
 	if _chest_acc >= 1.0:
 		var dt := _chest_acc
 		_chest_acc = 0.0
@@ -2736,18 +2737,41 @@ func show_picker_overlay(title: String, populate: Callable) -> void:
 ## top-level Window inside ExpeditionPanel's already-open popup (which Godot
 ## would silently close; see _overlay_host's comment).
 ## What a party is doing right now: tap an expedition's name or its dot on the map.
+## One-time note after a save was converted to gear levels and a piece worn by two units was taken off one.
+func _show_gear_notes() -> void:
+	var notes: Array = g.get("_gearNotes", [])
+	if notes.is_empty():
+		return
+	g.erase("_gearNotes")
+	var o := _build_detail_overlay()
+	var vbox: VBoxContainer = o["vbox"]
+	var title_lbl := Label.new()
+	title_lbl.text = "Gear is levelled now"
+	title_lbl.add_theme_font_size_override("font_size", 16)
+	vbox.add_child(title_lbl)
+	vbox.add_child(_wrap_label("Extra copies of a piece now raise its level instead, and one piece can only be worn once."))
+	for n in notes:
+		vbox.add_child(_wrap_label(str(n), true))
+	await _finish_detail_overlay(o)
+
 func show_expedition_activity_popup(exp: Dictionary) -> void:
 	var act := str(exp.get("activity", ""))
+	if g.get("sideBattle") != null:
+		# a quest, dungeon, raid or arena fight owns the wave scaling right now
+		await _show_expedition_activity_text(exp)
+		return
 	if exp.get("arrivedAt") != null or exp.get("homeAt") != null or not ["battle", "camping", "event"].has(act) or (exp.get("partyIds", []) as Array).is_empty():
 		await _show_expedition_activity_text(exp)
 		return
 	show_expedition_scene(exp, act)
 
 var _exp_scene_layer: CanvasLayer = null
+var _exp_scene_wave := -1   # FarroadCore.current_wave as it was before the scene, put back on close
 
 ## A live scene of the party's current activity (ExpeditionScene.gd), full screen over the game.
 func show_expedition_scene(exp: Dictionary, act: String) -> void:
 	_close_expedition_scene()
+	_exp_scene_wave = int(FarroadCore.current_wave)
 	_hide_open_panel()
 	if current_presenter != null and is_instance_valid(current_presenter):
 		current_presenter.set_loop_paused(true, "expScene")
@@ -2772,13 +2796,17 @@ func _close_expedition_scene() -> void:
 	if _exp_scene_layer != null and is_instance_valid(_exp_scene_layer):
 		_exp_scene_layer.queue_free()
 	_exp_scene_layer = null
-	FarroadCore.set_wave(int(g.get("wave", 1)))   # the spectator fights used the expedition's wave
+	if _exp_scene_wave >= 0:
+		FarroadCore.set_wave(_exp_scene_wave)   # the spectator fights used the expedition's wave
+		_exp_scene_wave = -1
 	if current_presenter != null and is_instance_valid(current_presenter):
 		current_presenter.set_loop_paused(false, "expScene")
 
 ## One made-up fight for the live view: the expedition's party and a fresh set of that wave's enemies,
 ## on a copy of the game state with its own dice, so the saved game is never touched.
 func _spectator_fight(exp: Dictionary) -> Dictionary:
+	# The shallow copy shares g["seenArch"] on purpose: enemies the party meets on an expedition
+	# count as seen in the Catalogue, same as the real expedition fights they stand for.
 	var gg: Dictionary = g.duplicate()
 	gg["rng"] = FarroadCore.make_rng(randi() % 2000000000 + 1)
 	gg["_dryRun"] = true
