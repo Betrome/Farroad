@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.42",
+    "title": "Raids tab fix",
+    "notes": [
+      "**Fixes:** the Raids tab no longer closes the app on some Android phones."
+    ]
+  },
+  {
     "version": "2.41",
     "title": "Chests, gear levels, community raid boss and expedition scenes",
     "notes": [

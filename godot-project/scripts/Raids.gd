@@ -83,6 +83,16 @@ static var _order_memo: Dictionary = {}
 static func _block_order(block: int) -> Array:
 	if _order_memo.has(block):
 		return _order_memo[block]
+	# a block depends on the one before it, so fill in from the nearest known block upward (a loop, not
+	# recursion: this week is block ~1000, and a call chain that deep overflows the stack on a phone)
+	var start := block
+	while start > 0 and not _order_memo.has(start - 1):
+		start -= 1
+	for b in range(start, block + 1):
+		_order_memo[b] = _make_block(b)
+	return _order_memo[block]
+
+static func _make_block(block: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = ("raid-block-%d" % block).hash()
 	var els: Array = ELEMENTS.duplicate()
@@ -93,10 +103,9 @@ static func _block_order(block: int) -> Array:
 		els[j] = t
 	var pairs: Array = [[els[0], els[1]], [els[2], els[3]], [els[4], els[5]]]
 	if block > 0:
-		var prev: Array = _block_order(block - 1)
+		var prev: Array = _order_memo[block - 1]
 		if _same_pair(pairs[0], prev[2]):
 			pairs = [pairs[1], pairs[2], pairs[0]]
-	_order_memo[block] = pairs
 	return pairs
 
 static func _same_pair(a: Array, b: Array) -> bool:
