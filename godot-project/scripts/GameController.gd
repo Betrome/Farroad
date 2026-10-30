@@ -5429,15 +5429,15 @@ func raid_sync(box: Node = null) -> void:
 		RaidsWindow.rebuild(self, box)
 
 func attempt_raid() -> void:
-	var now = Time.get_unix_time_from_system()
+	var now := Time.get_unix_time_from_system()
 	var prep := Raids.start_attempt(g, now)
 	if prep.is_empty():
 		# say why instead of doing nothing (the Fight button's own greying doesn't cover every case)
 		var why := "A side battle is already running." if g.get("sideBattle") != null \
 			else ("No attempts left today." if Raids.attempts_left(g, now) <= 0 \
 			else ("The community boss is down for this week." if Raids.community_down(g, now) \
-			else "The boss has no HP left to fight (remaining %s)." % str(Raids.remaining_hp(g, now))))
-		_crumb("raidBlocked:%s" % why)
+			else "The boss has no HP left to fight."))
+		_crumb("raidBlocked:%s (remaining %s)" % [why, str(Raids.remaining_hp(g, now))])
 		show_notice_popup("Raid", why)
 		return
 	save_game()   # the used attempt is kept even if the game is killed mid-fight

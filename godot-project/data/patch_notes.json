@@ -6,11 +6,13 @@
       "**Chests:** a treasure chest floats up every 5 to 10 minutes while the app is open. Tap it for Marks, Aether and more. The longer since the last chest, the bigger the prize.",
       "**Gear levels:** a duplicate piece of gear raises that piece's level and its stat bonus. There are 17 new pieces, so every affinity has gear. Gear levels count in the Arena too.",
       "**Expeditions:** tap an expedition to watch it live: a real battle, a campfire or a roadside shrine.",
-      "**Raids:** the Arena's Raids tab has a community boss. Every player's attempts fill one shared bar, with milestone rewards at 25, 50, 75 and 100%. It needs a connection to the Arena server. When the Fight button is unavailable it now says why, and tapping it explains instead of doing nothing.",
+      "**Raids:** the Arena's Raids tab has a community boss. Every player's attempts fill one shared bar, with milestone rewards at 25, 50, 75 and 100%. It needs a connection to the Arena server. When the Fight button is unavailable, it now says why.",
       "**Banner:** a second Marks banner, Blessings and Curses, has a boosted chance at those actions and a pity at 30.",
       "**Power:** affinity, Evade, crit and gear now count toward Power, and unit lists show Power beside the name.",
       "**Combat:** a unit no longer uses a buff or debuff straight after another one. Swapping the whole party no longer stalls a fight.",
-      "**Look:** the night and the cave are brighter, and each boss opens a gate to a new environment.",
+      "**Look:** the night and the cave are brighter.",
+      "**Goals:** a daily and a weekly goal list (Goals window) pays out when you finish them. Daily goals reset at your local midnight.",
+      "**Expeditions:** they no longer stop after 12 hours. A party stays out until you recall it.",
       "**Performance:** catching up expeditions after time away is spread over frames, so there are no more long hitches.",
       "**Saves:** the save format is now version 3. An older build will refuse to open it rather than lose your gear levels."
     ]
