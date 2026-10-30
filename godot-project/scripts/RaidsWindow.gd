@@ -138,6 +138,9 @@ static func build(gc: GameController, box: VBoxContainer) -> void:
 	go.text = "Fight (%d of %d attempts left today)" % [tries, Raids.ATTEMPTS_PER_DAY]
 	var comm_down := Raids.community_down(gc.g, now)
 	go.disabled = tries <= 0 or pct >= 1.0 or comm_down or gc.g.get("sideBattle") != null or not party_ok
+	if go.disabled:
+		var why := "no attempts left" if tries <= 0 else ("boss is down" if pct >= 1.0 or comm_down else ("a side battle is running" if gc.g.get("sideBattle") != null else "no party fielded"))
+		go.text = "Fight unavailable: %s" % why
 	UiKit.primary(go)
 	go.pressed.connect(func(): gc.attempt_raid())
 	box.add_child(go)
